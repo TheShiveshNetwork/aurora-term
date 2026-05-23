@@ -1,0 +1,43 @@
+[package]
+name = "aurora-term"
+version = "0.1.0"
+description = "A lightweight, AI-native terminal emulator"
+authors = ["you"]
+edition = "2021"
+
+[lib]
+name = "aurora_term_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2.1.1", features = ["image-png"] }
+tauri-plugin-opener = "2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.38", features = ["full"] }
+reqwest = { version = "0.12", features = ["json", "stream"] }
+portable-pty = "0.8"
+rusqlite = { version = "0.31", features = ["bundled"] }
+uuid = { version = "1.8", features = ["v4", "serde"] }
+toml = "0.8"
+thiserror = "2.0"
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+nucleo = "0.5"
+chrono = { version = "0.4", features = ["serde"] }
+base64 = "0.22"
+which = "7.0"
+async-trait = "0.1"
+keyring = "2.1"
+futures-util = "0.3"
+
+[profile.release]
+opt-level     = "z"      # optimize for size, not speed
+lto           = true     # link-time optimization — removes dead code across crates
+codegen-units = 1        # single codegen unit for maximum LTO effectiveness
+panic         = "abort"  # removes panic unwinding machinery (~10-20% size reduction)
+strip         = true     # strip debug symbols from binary
