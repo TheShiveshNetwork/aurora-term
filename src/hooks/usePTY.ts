@@ -21,6 +21,7 @@ export function usePTY() {
         // Update block store for the running block in this session
         const state = useBlockStore.getState();
         const blockId = state.runningBlockId[session_id];
+        state.setCommandOutputReceived(session_id, true);
         if (blockId) {
           state.appendBlockOutput(session_id, blockId, data);
         }
@@ -48,6 +49,7 @@ export function usePTY() {
             finished_at: Date.now(),
           });
           state.setRunningBlockId(session_id, null);
+          state.setCommandOutputReceived(session_id, false);
         }
 
         // Notify the TerminalPane for this session

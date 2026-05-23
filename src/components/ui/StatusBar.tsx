@@ -43,7 +43,7 @@ export function StatusBar() {
   }, []);
 
   return (
-    <footer className="flex justify-between items-center px-4 h-7 w-full bg-surface-container-lowest border-t border-outline-variant/5 z-50 select-none text-[10px] font-code-sm font-medium">
+    <footer id="aurora-status-bar" className="flex justify-between items-center px-4 h-7 w-full bg-surface-container-lowest border-t border-outline-variant/5 z-50 select-none text-[10px] font-code-sm font-medium">
       {/* Left side */}
       <div className="flex items-center gap-4">
         {/* Git branch */}

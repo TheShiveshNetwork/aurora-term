@@ -1,6 +1,14 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { Folder, FileText, ChevronDown, ChevronRight, Search, RefreshCw } from "lucide-react";
+import {
+  Folder, FileText, ChevronDown, ChevronRight, Search, RefreshCw,
+  Copy, FolderOpen, Terminal, ExternalLink, ClipboardCopy,
+} from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
+import {
+  RightClickMenuItem,
+  RightClickMenuPanel,
+  RightClickMenuSeparator,
+} from "./RightClickMenu";
 
 interface SidePanelProps {
   collapsed: boolean;
@@ -11,6 +19,15 @@ interface FileNode {
   name: string;
   path: string;
   is_dir: boolean;
+  is_hidden: boolean;
+  is_gitignored: boolean;
+}
+
+// ─── File Context Menu types ────────────────────────────────────────────────
+interface FileMenuState {
+  x: number;
+  y: number;
+  node: FileNode;
 }
 
 // ─────────────────────── TreeNode ────────────────────────
@@ -18,12 +35,18 @@ function TreeNode({
   node,
   depth,
   selectedFile,
+  activePath,
   onSelect,
+  onActivate,
+  onContextMenu,
 }: {
   node: FileNode;
   depth: number;
   selectedFile: string;
+  activePath: string;
   onSelect: (path: string) => void;
+  onActivate: (path: string) => void;
+  onContextMenu: (e: React.MouseEvent, node: FileNode) => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [children, setChildren] = useState<FileNode[]>([]);
@@ -31,6 +54,7 @@ function TreeNode({
 
   const handleToggle = async () => {
     if (node.is_dir) {
+      onActivate(node.path);
       if (!isOpen && children.length === 0) {
         setLoading(true);
         try {
@@ -45,21 +69,53 @@ function TreeNode({
       setIsOpen((prev) => !prev);
     } else {
       onSelect(node.path);
+      onActivate(node.path);
     }
   };
 
   const isSelected = selectedFile === node.path;
+  const isActive = activePath === node.path;
   const indent = depth * 14 + 10; // px
+  const isActiveFolder = node.is_dir && isOpen && isActive;
+
+  // ── Visual state helpers ──────────────────────────────────────────────────
+  const isGitignored = node.is_gitignored;
+  // const isHidden = node.is_hidden;
+
+  const textColorClass = isActive
+    ? "text-primary"
+    : isActiveFolder
+      ? "text-primary"
+      : isGitignored
+        ? "text-on-surface-variant/35"
+        : "text-on-surface-variant/80";
+
+  const rowClass = `group flex items-center gap-1.5 cursor-pointer transition-colors ${isActive
+    ? "bg-primary/8 border-l-2 border-primary shadow-[inset_0_0_0_1px_rgba(0,240,255,0.08)]"
+    : isActiveFolder
+      ? "bg-primary/8 border-l-2 border-primary shadow-[inset_0_0_0_1px_rgba(0,240,255,0.08)]"
+      : "hover:bg-surface-variant/20 hover:border-outline-variant/30 border-l-2 border-transparent"
+    }`;
+
+  const folderIconClass = `shrink-0 ${isGitignored
+    ? isOpen ? "text-primary/30" : "text-primary-container/30"
+    : isOpen ? "text-primary/80" : "text-primary-container/80"
+    }`;
+
+  const fileIconClass = `shrink-0 ml-[15px] ${isSelected ? "text-primary" : isGitignored ? "text-outline/25" : "text-outline/50"
+    }`;
 
   return (
     <div className="select-none">
       <div
         onClick={handleToggle}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onContextMenu(e, node);
+        }}
         title={node.name}
-        className={`flex items-center gap-1.5 cursor-pointer transition-colors ${isSelected && !node.is_dir
-          ? "bg-primary/8 text-primary border-l-2 border-primary"
-          : "hover:bg-surface-variant/20 text-on-surface-variant/80 border-l-2 border-transparent"
-          }`}
+        className={`${rowClass} ${textColorClass}`}
         style={{
           paddingLeft: isSelected && !node.is_dir ? `${indent - 2}px` : `${indent}px`,
           paddingRight: "8px",
@@ -72,28 +128,24 @@ function TreeNode({
         {node.is_dir ? (
           <>
             {isOpen ? (
-              <ChevronDown size={11} className="text-outline/60 shrink-0" />
+              <ChevronDown size={11} className="text-outline/60 shrink-0 transition-colors group-hover:text-primary/80" />
             ) : (
-              <ChevronRight size={11} className="text-outline/60 shrink-0" />
+              <ChevronRight size={11} className="text-outline/60 shrink-0 transition-colors group-hover:text-primary/80" />
             )}
-            <Folder
-              size={12}
-              className={`shrink-0 ${isOpen ? "text-primary/80" : "text-primary-container/80"}`}
-            />
+            <Folder size={12} className={`${folderIconClass} transition-colors group-hover:text-primary ${isActiveFolder ? "text-primary" : ""}`} />
           </>
         ) : (
-          <FileText
-            size={12}
-            className={`shrink-0 ml-[15px] ${isSelected ? "text-primary" : "text-outline/50"}`}
-          />
+          <FileText size={12} className={`${fileIconClass} transition-colors group-hover:text-primary ${isActive ? "text-primary" : ""}`} />
         )}
-        {/* Truncate name based on available space */}
         <span
-          className="text-[11.5px] font-code-sm overflow-hidden text-ellipsis whitespace-nowrap min-w-0 flex-1"
+          className={`text-[11.5px] font-code-sm overflow-hidden text-ellipsis whitespace-nowrap min-w-0 flex-1 transition-colors group-hover:text-on-surface ${isGitignored ? "italic opacity-60" : ""}`}
           style={{ lineHeight: "1.4" }}
         >
           {node.name}
         </span>
+        {isGitignored && (
+          <span className="shrink-0 w-1 h-1 rounded-full bg-outline/20 mr-0.5 transition-colors group-hover:bg-primary/30" aria-hidden="true" />
+        )}
       </div>
 
       {node.is_dir && isOpen && (
@@ -119,7 +171,10 @@ function TreeNode({
                 node={child}
                 depth={depth + 1}
                 selectedFile={selectedFile}
+                activePath={activePath}
                 onSelect={onSelect}
+                onActivate={onActivate}
+                onContextMenu={onContextMenu}
               />
             ))
           )}
@@ -136,19 +191,40 @@ const DEFAULT_WIDTH = 220;
 
 export function SidePanel({ collapsed, cwd }: SidePanelProps) {
   const [selectedFile, setSelectedFile] = useState<string>("");
+  const [activePath, setActivePath] = useState<string>("");
   const [rootNodes, setRootNodes] = useState<FileNode[]>([]);
   const [workspaceName, setWorkspaceName] = useState("Workspace");
   const [resolvedCwd, setResolvedCwd] = useState<string>("");
   const [filterQuery, setFilterQuery] = useState("");
   const [width, setWidth] = useState(DEFAULT_WIDTH);
-  const [refreshKey, setRefreshKey] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // ── File context menu state ───────────────────────────────
+  const [fileMenu, setFileMenu] = useState<FileMenuState | null>(null);
 
   const isDragging = useRef(false);
   const dragStartX = useRef(0);
   const dragStartWidth = useRef(DEFAULT_WIDTH);
   const panelRef = useRef<HTMLElement>(null);
+
+  // ── Close file menu on outside click ─────────────────────
+  useEffect(() => {
+    if (!fileMenu) return;
+    const handler = () => setFileMenu(null);
+    window.addEventListener("click", handler);
+    window.addEventListener("contextmenu", handler);
+    return () => {
+      window.removeEventListener("click", handler);
+      window.removeEventListener("contextmenu", handler);
+    };
+  }, [fileMenu]);
+
+  useEffect(() => {
+    const handler = () => setFileMenu(null);
+    window.addEventListener("aurora-right-click-menu-close", handler);
+    return () => window.removeEventListener("aurora-right-click-menu-close", handler);
+  }, []);
 
   // ── Load file tree for a given absolute path ──────────────
   const loadTree = useCallback(async (absolutePath: string) => {
@@ -231,6 +307,48 @@ export function SidePanel({ collapsed, cwd }: SidePanelProps) {
     };
   }, []);
 
+  // ── File context menu actions ─────────────────────────────
+  const handleFileContextMenu = useCallback((e: React.MouseEvent, node: FileNode) => {
+    window.dispatchEvent(new CustomEvent("aurora-right-click-menu-close"));
+    setFileMenu({ x: e.clientX, y: e.clientY, node });
+  }, []);
+
+  const handleActivateNode = useCallback((path: string) => {
+    setActivePath(path);
+  }, []);
+
+  const copyToClipboard = (text: string) =>
+    navigator.clipboard.writeText(text).catch(console.error);
+
+  const revealInExplorer = (path: string) =>
+    invoke("reveal_in_explorer", { path }).catch(console.error);
+
+  const getTargetPath = (node: FileNode) => (
+    node.is_dir ? node.path : node.path.replace(/[/\\][^/\\]+$/, "")
+  );
+
+  const openInTerminal = (node: FileNode) => {
+    const targetPath = getTargetPath(node);
+    window.dispatchEvent(
+      new CustomEvent("sidebar-open-in-terminal", { detail: { path: targetPath } })
+    );
+  };
+
+  const handleOpenFolderInAurora = () => {
+    if (!fileMenu?.node.is_dir) return;
+    openInTerminal(fileMenu.node);
+    setFileMenu(null);
+  };
+
+  const handleOpenFolderInNewTab = () => {
+    if (!fileMenu) return;
+    const targetPath = getTargetPath(fileMenu.node);
+    window.dispatchEvent(
+      new CustomEvent("sidebar-open-in-new-tab", { detail: { path: targetPath } })
+    );
+    setFileMenu(null);
+  };
+
   // ── Filter helper ─────────────────────────────────────────
   const filteredNodes = filterQuery.trim()
     ? rootNodes.filter((n) =>
@@ -246,6 +364,7 @@ export function SidePanel({ collapsed, cwd }: SidePanelProps) {
       id="main-sidebar"
       className="relative bg-background border-r border-outline-variant/10 flex flex-col shadow-lg z-20 overflow-hidden"
       style={{ width, minWidth: MIN_WIDTH, maxWidth: MAX_WIDTH, flexShrink: 0 }}
+      onContextMenu={(e) => e.preventDefault()} // suppress browser default in sidebar
     >
       {/* Header with search and dynamic loading indicator */}
       <div className={`flex items-center p-2.5 border-b border-outline-variant/5 transition-all duration-300 ${isLoading ? "gap-2" : "gap-0"}`}>
@@ -294,7 +413,10 @@ export function SidePanel({ collapsed, cwd }: SidePanelProps) {
               node={node}
               depth={0}
               selectedFile={selectedFile}
+              activePath={activePath}
               onSelect={setSelectedFile}
+              onActivate={handleActivateNode}
+              onContextMenu={handleFileContextMenu}
             />
           ))
         )}
@@ -306,9 +428,59 @@ export function SidePanel({ collapsed, cwd }: SidePanelProps) {
         className="absolute top-0 right-0 w-1.5 h-full cursor-col-resize z-30 group"
         title="Drag to resize"
       >
-        {/* Visible indicator on hover */}
         <div className="w-px h-full ml-auto group-hover:bg-primary/40 transition-colors" />
       </div>
+
+      {/* ── File Context Menu — rendered as fixed so it escapes overflow:hidden ── */}
+      {fileMenu && (
+        <RightClickMenuPanel anchorX={fileMenu.x} anchorY={fileMenu.y} open={true}>
+          {/* File header — shows what item was right-clicked */}
+          <div className="px-3 pt-1 pb-2 flex items-center gap-2 border-b border-outline-variant/10 mb-1">
+            {fileMenu.node.is_dir && <Folder size={11} className="text-primary/70 shrink-0" />}
+            <span className="text-[11px] font-code-sm text-on-surface-variant/60 overflow-hidden text-ellipsis whitespace-nowrap">{fileMenu.node.name}</span>
+          </div>
+
+          {/* Copy File Name */}
+          <RightClickMenuItem icon={<ClipboardCopy size={13} />} onClick={() => { copyToClipboard(fileMenu.node.name); setFileMenu(null); }}>
+            Copy Name
+          </RightClickMenuItem>
+
+          {/* Copy File Path */}
+          <RightClickMenuItem icon={<Copy size={13} />} onClick={() => { copyToClipboard(fileMenu.node.path); setFileMenu(null); }}>
+            Copy Path
+          </RightClickMenuItem>
+
+          <RightClickMenuSeparator />
+
+          {/* Reveal in Explorer */}
+          <RightClickMenuItem icon={<FolderOpen size={13} />} onClick={() => { revealInExplorer(fileMenu.node.path); setFileMenu(null); }}>
+            Reveal in Explorer
+          </RightClickMenuItem>
+
+          <RightClickMenuSeparator />
+
+          {/* Open current tab */}
+          <RightClickMenuItem icon={<Terminal size={13} />} onClick={handleOpenFolderInAurora} disabled={!fileMenu.node.is_dir}>
+            Open Here
+          </RightClickMenuItem>
+
+          {/* Open target in a new tab */}
+          <RightClickMenuItem icon={<Terminal size={13} />} onClick={handleOpenFolderInNewTab} disabled={!fileMenu.node.is_dir}>
+            Open in New Tab
+          </RightClickMenuItem>
+
+          {/* Copy as Relative Path (relative to workspace root) */}
+          <RightClickMenuItem icon={<ExternalLink size={13} />} onClick={() => {
+            const rel = fileMenu.node.path
+              .replace(resolvedCwd, "")
+              .replace(/^[/\\]/, "");
+            copyToClipboard(rel);
+            setFileMenu(null);
+          }}>
+            Copy Relative Path
+          </RightClickMenuItem>
+        </RightClickMenuPanel>
+      )}
     </aside>
   );
 }
