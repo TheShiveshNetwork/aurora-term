@@ -37,7 +37,7 @@ const XTERM_THEME = {
   background: "transparent",
   foreground: "#cdd6f4",
   cursor: "transparent",
-  cursorAccent: "transparent",
+  cursorAccent: "#cdd6f4",
   selectionBackground: "rgba(0, 240, 255, 0.15)",
   black: "#1e1e2e",   red: "#f38ba8",   green: "#a6e3a1",  yellow: "#f9e2af",
   blue: "#89b4fa",    magenta: "#cba6f7", cyan: "#89dceb",  white: "#cdd6f4",
@@ -117,11 +117,26 @@ export function TerminalPane({ sessionId, isVisible }: TerminalPaneProps) {
 
       // Strip the command echo if it's there (only clearing once successfully stripped)
       if (lastRunningCommand) {
-        const cmdEchoEscaped = lastRunningCommand.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-        const echoRe = new RegExp(`(?:[\\r\\n]+)?(?:\\u001b\\[[\\d;]*[a-zA-Z])*${cmdEchoEscaped}(?:\\u001b\\[[\\d;]*[a-zA-Z])*\\r?\\n?`, "g");
-        if (echoRe.test(chunk)) {
-          echoRe.lastIndex = 0;
-          chunk = chunk.replace(echoRe, "");
+        const lines = chunk.split("\n");
+        const targetClean = lastRunningCommand.trim();
+        const index = lines.findIndex(l => {
+          const cleanLine = stripAnsi(l).trim();
+          // 1. Exact match
+          if (cleanLine === targetClean) return true;
+          // 2. Ends with match (handles custom prompt prefixes)
+          if (targetClean.length > 3 && cleanLine.endsWith(targetClean)) return true;
+          // 3. Starts with match (handles trailing garbage or spaces)
+          if (targetClean.length > 3 && cleanLine.startsWith(targetClean)) return true;
+          // 4. Super clean alphanumeric match (handles syntax highlighting spacing differences)
+          const superCleanLine = cleanLine.replace(/[^a-zA-Z0-9]/g, "");
+          const superTarget = targetClean.replace(/[^a-zA-Z0-9]/g, "");
+          if (superTarget.length > 3 && superCleanLine === superTarget) return true;
+          return false;
+        });
+
+        if (index !== -1) {
+          lines.splice(index, 1);
+          chunk = lines.join("\n");
           lastRunningCommand = null;
         }
       }
@@ -220,7 +235,7 @@ export function TerminalPane({ sessionId, isVisible }: TerminalPaneProps) {
       lineHeight: 1.5,
       cursorStyle: "block",
       cursorBlink: false,
-      theme: { ...XTERM_THEME, foreground: fg },
+      theme: { ...XTERM_THEME, foreground: fg, cursorAccent: fg },
       allowProposedApi: true,
       allowTransparency: true,
       disableStdin: true,      // never accept keyboard input
