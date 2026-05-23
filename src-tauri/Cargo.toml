@@ -34,6 +34,7 @@ which = "7.0"
 async-trait = "0.1"
 keyring = "2.1"
 futures-util = "0.3"
+ignore = "0.4"
 
 [profile.release]
 opt-level     = "z"      # optimize for size, not speed

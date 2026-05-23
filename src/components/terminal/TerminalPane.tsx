@@ -204,13 +204,15 @@ export function TerminalPane({ sessionId, isVisible }: TerminalPaneProps) {
 
     const handleContextMenu = (e: MouseEvent) => {
       e.preventDefault();
+      e.stopPropagation(); // prevent bubbling to parent React handlers
       const selectedText = termInstance?.getSelection() || "";
       window.dispatchEvent(
         new CustomEvent("show-context-menu", {
-          detail: { 
-            x: e.clientX, 
+          detail: {
+            x: e.clientX,
             y: e.clientY,
-            selectedText: selectedText
+            selectedText,
+            source: "terminal", // identifies this as a terminal context menu
           }
         })
       );

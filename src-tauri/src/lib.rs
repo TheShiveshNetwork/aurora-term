@@ -53,6 +53,8 @@ pub fn run() {
             commands::process_list,
             commands::process_kill,
             commands::get_system_info,
+            commands::read_shell_history,
+            commands::reveal_in_explorer,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

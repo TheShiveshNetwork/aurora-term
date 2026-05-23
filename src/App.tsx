@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useRef, useLayoutEffect } from "react";
-import { FolderOpen, Settings, User, Command, Mic, Plus, Menu, Terminal, Search, Copy, Scissors, Trash2, SplitSquareHorizontal, PanelLeftClose, PanelLeft, SquareTerminal, RefreshCw } from "lucide-react";
+import React, { useEffect, useState, useRef } from "react";
+import { FolderOpen, Settings, User, Command, Mic, Plus, Menu, Terminal, Search, Copy, Scissors, Trash2, SplitSquareHorizontal, PanelLeftClose, PanelLeft, SquareTerminal, RefreshCw, Clipboard, Square, Globe } from "lucide-react";
 import { usePTY } from "./hooks/usePTY";
 import { pty } from "./lib/ipc";
 import { invoke } from "@tauri-apps/api/core";
@@ -12,14 +12,20 @@ import { TabBar } from "./components/ui/TabBar";
 import { SidePanel } from "./components/ui/SidePanel";
 import { TerminalPane } from "./components/terminal/TerminalPane";
 import { AICommandBar } from "./components/ai/AICommandBar";
+import { GhostInput } from "./components/terminal/GhostInput";
 import { SettingsModal } from "./components/settings/SettingsModal";
 import { StatusBar } from "./components/ui/StatusBar";
 import { WindowControls } from "./components/ui/WindowControls";
+import {
+  RightClickMenuItem,
+  RightClickMenuPanel,
+  RightClickMenuSeparator,
+} from "./components/ui/RightClickMenu";
 import { Block } from "./types/block";
 
 export default function App() {
   const { tabs, activeTabId, spawnSession, killSession, setActiveTabId } = usePTY();
-  const { blocks, addBlock, updateBlock, setAIExplain, toggleBookmark } = useBlockStore();
+  const { blocks, runningBlockId, addBlock, updateBlock, setAIExplain, toggleBookmark } = useBlockStore();
   const { mode, setMode } = useSettingsStore();
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -30,37 +36,8 @@ export default function App() {
   const [cwdAbsolute, setCwdAbsolute] = useState("");
   const [sessionCwds, setSessionCwds] = useState<Record<string, string>>({});
   const [isCwdLoading, setIsCwdLoading] = useState(false);
-  const [contextMenu, setContextMenu] = useState<{ x: number, y: number, selectedText?: string } | null>(null);
-  const [adjustedPos, setAdjustedPos] = useState<{ x: number, y: number } | null>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  useLayoutEffect(() => {
-    if (!contextMenu) {
-      setAdjustedPos(null);
-      return;
-    }
-    const menuEl = menuRef.current;
-    if (!menuEl) return;
-
-    const rect = menuEl.getBoundingClientRect();
-    const menuWidth = rect.width || 200;
-    const menuHeight = rect.height || 180;
-
-    const screenWidth = window.innerWidth;
-    const screenHeight = window.innerHeight;
-
-    let targetX = contextMenu.x;
-    let targetY = contextMenu.y;
-
-    if (targetX + menuWidth > screenWidth) {
-      targetX = Math.max(8, screenWidth - menuWidth - 8);
-    }
-    if (targetY + menuHeight > screenHeight) {
-      targetY = Math.max(8, screenHeight - menuHeight - 8);
-    }
-
-    setAdjustedPos({ x: targetX, y: targetY });
-  }, [contextMenu]);
+  const [shellHistory, setShellHistory] = useState<string[]>([]);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; selectedText?: string; source?: "terminal" | "input" } | null>(null);
 
   const [interactedSessions, setInteractedSessions] = useState<Set<string>>(new Set());
   const hasSpawnedRef = useRef(false);
@@ -73,6 +50,11 @@ export default function App() {
   useEffect(() => {
     if (hasSpawnedRef.current) return;
     hasSpawnedRef.current = true;
+
+    // Load real shell history from PSReadLine / bash / zsh history file
+    invoke<string[]>("read_shell_history")
+      .then((cmds) => setShellHistory(cmds))
+      .catch(() => {/* silently ignore — history is best-effort */ });
 
     // Fetch initial workspace directory
     invoke<string>("get_cwd").then(dir => {
@@ -105,28 +87,69 @@ export default function App() {
     }).catch(console.error);
 
     // Capture global keyboard overrides
-    const handleToggleCommandPalette = () => {
-      setShowSettings((prev) => !prev);
-    };
-
-    const handleToggleAiBar = () => {
-      setShowAiBar((prev) => !prev);
-    };
-
-    const handleShowContextMenu = (e: Event) => {
-      const { x, y, selectedText } = (e as CustomEvent<{ x: number; y: number; selectedText?: string }>).detail;
-      setContextMenu({ x, y, selectedText });
-    };
+    const handleToggleCommandPalette = () => setShowSettings((prev) => !prev);
+    const handleToggleAiBar = () => setShowAiBar((prev) => !prev);
 
     window.addEventListener("toggle-command-palette", handleToggleCommandPalette);
     window.addEventListener("toggle-ai-bar", handleToggleAiBar);
-    window.addEventListener("show-context-menu", handleShowContextMenu);
 
     return () => {
       window.removeEventListener("toggle-command-palette", handleToggleCommandPalette);
       window.removeEventListener("toggle-ai-bar", handleToggleAiBar);
-      window.removeEventListener("show-context-menu", handleShowContextMenu);
     };
+  }, []);
+
+  // ── Show-context-menu listener — separate effect so StrictMode double-mount
+  // doesn't kill it (the spawn guard above blocks re-registration there).
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { x, y, selectedText, source } = (
+        e as CustomEvent<{ x: number; y: number; selectedText?: string; source?: "terminal" | "input" }>
+      ).detail;
+      setContextMenu({ x, y, selectedText, source });
+    };
+    window.addEventListener("show-context-menu", handler);
+    return () => window.removeEventListener("show-context-menu", handler);
+  }, []);
+
+  useEffect(() => {
+    const handler = () => setContextMenu(null);
+    window.addEventListener("aurora-right-click-menu-close", handler);
+    return () => window.removeEventListener("aurora-right-click-menu-close", handler);
+  }, []);
+
+  useEffect(() => {
+    const handleOpenInNewTab = (e: Event) => {
+      const { path } = (e as CustomEvent<{ path: string }>).detail;
+      if (!path) return;
+
+      const isWin = window.navigator.userAgent.includes("Windows");
+      const defaultShell = isWin ? "powershell.exe" : "bash";
+      const activeShell = tabs.find((tab) => tab.id === activeTabId)?.shell || defaultShell;
+      const args = activeShell.includes("powershell") ? ["-NoLogo", "-NoExit"] : [];
+
+      spawnSession(activeShell, args, {}, path).catch(console.error);
+    };
+
+    window.addEventListener("sidebar-open-in-new-tab", handleOpenInNewTab);
+    return () => window.removeEventListener("sidebar-open-in-new-tab", handleOpenInNewTab);
+  }, [activeTabId, spawnSession, tabs]);
+
+  // ── Sidebar "Open in Terminal" — use a ref so we always read the live activeTabId
+  const activeTabIdRef = useRef<string | null>(null);
+  activeTabIdRef.current = activeTabId ?? null;
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { path } = (e as CustomEvent<{ path: string }>).detail;
+      const tabId = activeTabIdRef.current;
+      if (!path || !tabId) return;
+      const isWin = window.navigator.userAgent.includes("Windows");
+      const cdCmd = isWin ? `Set-Location "${path}"` : `cd "${path}"`;
+      pty.write(tabId, cdCmd + "\r\n").catch(console.error);
+    };
+    window.addEventListener("sidebar-open-in-terminal", handler);
+    return () => window.removeEventListener("sidebar-open-in-terminal", handler);
   }, []);
 
   // Close window only when user has closed all tabs (not on initial empty state)
@@ -147,6 +170,18 @@ export default function App() {
       if (sessionId === activeTabId) {
         setIsCwdLoading(false);
       }
+      
+      // The shell prints the prompt (and CWD sentinel) when it becomes idle.
+      // E.g. the running command has finished execution.
+      const state = useBlockStore.getState();
+      const currentRunningId = state.runningBlockId[sessionId];
+      if (currentRunningId) {
+        state.updateBlock(sessionId, currentRunningId, {
+          status: "success",
+          finished_at: Date.now(),
+        });
+        state.setRunningBlockId(sessionId, null);
+      }
     };
     window.addEventListener("cwd-change", handler);
     return () => window.removeEventListener("cwd-change", handler);
@@ -162,6 +197,10 @@ export default function App() {
       setCwd("~/" + (parts[parts.length - 1] || currentPath));
     }
   }, [activeTabId, sessionCwds]);
+
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent("aurora-focus-terminal-input"));
+  }, [activeTabId]);
 
   // Helper uuid generator
   const uuidv4 = () => {
@@ -193,6 +232,7 @@ export default function App() {
 
     // Track executing block in blockStore
     useBlockStore.getState().setRunningBlockId(activeTabId, blockId);
+    useBlockStore.getState().setCommandOutputReceived(activeTabId, false);
     addBlock(activeTabId, newBlock);
 
     // Send command directly to background PTY shell for execution
@@ -234,19 +274,42 @@ export default function App() {
   };
 
   const activeTabBlocks = activeTabId ? blocks[activeTabId] || [] : [];
+  const activeRunningBlockId = activeTabId ? runningBlockId[activeTabId] : null;
+  const activeRunningBlock = activeRunningBlockId
+    ? activeTabBlocks.find((block) => block.id === activeRunningBlockId)
+    : null;
+  const isCommandRunning = activeRunningBlock?.status === "running";
+
+  useEffect(() => {
+    if (!activeTabId || !activeRunningBlockId) return;
+    if (activeRunningBlock?.status === "running") return;
+
+    useBlockStore.getState().setRunningBlockId(activeTabId, null);
+    useBlockStore.getState().setCommandOutputReceived(activeTabId, false);
+  }, [activeRunningBlock?.status, activeRunningBlockId, activeTabId]);
+
+  const handleStopCurrentCommand = () => {
+    if (!activeTabId || !activeRunningBlockId || !isCommandRunning) return;
+
+    pty.write(activeTabId, "\u0003").catch(console.error);
+    useBlockStore.getState().updateBlock(activeTabId, activeRunningBlockId, {
+      status: "cancelled",
+      finished_at: Date.now(),
+    });
+    useBlockStore.getState().setRunningBlockId(activeTabId, null);
+    useBlockStore.getState().setCommandOutputReceived(activeTabId, false);
+  };
 
   return (
     <div
       className="bg-background text-on-surface font-body-base overflow-hidden h-screen flex flex-col select-none"
-      onContextMenu={(e) => {
-        e.preventDefault();
-        setContextMenu({ x: e.clientX, y: e.clientY });
-      }}
+      onContextMenu={(e) => e.preventDefault()} // suppress browser default everywhere
       onClick={() => setContextMenu(null)}
     >
 
       {/* Sleek Stitch Header with custom drag region and system window pips */}
       <header
+        id="aurora-tab-bar"
         data-tauri-drag-region
         className="flex justify-between items-center w-full px-4 h-toolbar-height bg-surface-container-lowest border-b border-outline-variant/5 z-50 shadow-sm select-none"
       >
@@ -263,15 +326,18 @@ export default function App() {
             }
           </button>
           <div className="flex items-center gap-1 ml-1">
-            <button data-tauri-no-drag className="p-2 hover:text-on-surface-variant bg-surface hover:bg-surface-bright/60 rounded-md transition-colors text-on-surface-variant/70 cursor-pointer" title="Folder View">
+            <button data-tauri-no-drag className="p-2 hover:text-on-surface-variant bg-surface hover:bg-surface-bright/60 rounded-md transition-colors text-on-surface-variant/70 cursor-pointer" title="Terminal View">
               <SquareTerminal size={14} />
             </button>
             <button data-tauri-no-drag className="p-2 hover:text-on-surface-variant bg-surface hover:bg-surface-bright/60 rounded-md transition-colors text-on-surface-variant/70 cursor-pointer" title="Folder View">
               <FolderOpen size={14} />
             </button>
-            <button data-tauri-no-drag className="p-2 hover:text-on-surface-variant bg-surface hover:bg-surface-bright/60 rounded-md transition-colors text-on-surface-variant/70 cursor-pointer" title="Folder View">
+            <button data-tauri-no-drag className="p-2 hover:text-on-surface-variant bg-surface hover:bg-surface-bright/60 rounded-md transition-colors text-on-surface-variant/70 cursor-pointer" title="Agent View">
               <Command size={14} />
             </button>
+            {/* <button data-tauri-no-drag className="p-2 hover:text-on-surface-variant bg-surface hover:bg-surface-bright/60 rounded-md transition-colors text-on-surface-variant/70 cursor-pointer" title="Browser View">
+              <Globe size={14} />
+            </button> */}
           </div>
         </div>
 
@@ -284,7 +350,7 @@ export default function App() {
             <input
               type="text"
               placeholder="Search sessions, chats, agents, files..."
-              className="w-full bg-surface-container-high/40 border border-outline-variant/10 rounded-xl h-8 pl-9 pr-4 text-code-sm font-code-sm placeholder:text-outline/40 outline-none input-glow transition-all shadow-inner"
+              className="w-full bg-surface-container-high/40 border border-outline-variant/10 rounded-xl h-8 pl-9 pr-4 text-sm font-code-sm placeholder:text-outline/40 outline-none input-glow transition-all shadow-inner"
             />
           </div>
         </div>
@@ -336,7 +402,10 @@ export default function App() {
           />
 
           {/* Terminal output area (Full Height) */}
-          <div className="flex-1 overflow-hidden px-6 md:px-12 lg:px-20 max-w-6xl mx-auto w-full flex flex-col relative pt-6">
+          <div
+            className="flex-1 overflow-hidden px-6 md:px-12 lg:px-20 max-w-6xl mx-auto w-full flex flex-col relative pt-6"
+            onMouseDown={() => window.dispatchEvent(new CustomEvent("aurora-focus-terminal-input"))}
+          >
             {/* Single Xterm Pane (Mounts all but only shows active) */}
             <div className="flex-1 min-h-0 w-full relative">
               {tabs.map((tab) => {
@@ -375,7 +444,19 @@ export default function App() {
           </div>
 
           {/* Warp-Style Glowing Command input */}
-          <div className="p-6 md:px-12 lg:px-20 max-w-6xl mx-auto w-full">
+          <div
+            className="p-6 md:px-12 lg:px-20 max-w-6xl mx-auto w-full"
+            onContextMenu={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              window.dispatchEvent(new CustomEvent("aurora-right-click-menu-close"));
+              window.dispatchEvent(
+                new CustomEvent("show-context-menu", {
+                  detail: { x: e.clientX, y: e.clientY, source: "input" },
+                })
+              );
+            }}
+          >
             <div className="warp-input-glow flex flex-col bg-surface-container-high/20 border border-outline-variant/20 transition-all overflow-hidden shadow-2xl rounded-lg">
               <div className="flex items-center px-4 py-1.5 bg-surface-container-high/30 border-b border-outline-variant/10 select-none h-[29px]">
                 {isCwdLoading ? (
@@ -390,39 +471,62 @@ export default function App() {
                 )}
               </div>
 
-              <form onSubmit={handleExecuteCommand} className="flex items-center">
-                <input
-                  type="text"
+              <div className="flex items-center">
+                <GhostInput
+                  sessionId={activeTabId}
                   value={commandInput}
-                  onChange={(e) => setCommandInput(e.target.value)}
+                  onChange={setCommandInput}
+                  onSubmit={handleExecuteCommand}
+                  history={[
+                    // Current-session commands (highest relevance, newest last → reversed inside GhostInput)
+                    ...activeTabBlocks
+                      .filter((b) => b.command && b.command !== "init-aurora")
+                      .map((b) => b.command as string),
+                    // Real shell history from PSReadLine/bash/zsh (already newest-first from Rust)
+                    // Reverse so GhostInput's newest-last scan works correctly
+                    ...shellHistory.slice().reverse(),
+                  ]}
                   placeholder="Type a command or describe goal..."
-                  className="flex-1 bg-transparent border-none focus:ring-0 text-body-base font-code-base h-12 px-5 placeholder:text-outline/30 outline-none text-on-surface"
+                  className="flex-1"
                 />
                 <div className="flex items-center gap-1 pr-3">
-                  <button
-                    type="button"
-                    className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-variant/30 text-outline/50 hover:text-primary transition-all cursor-pointer"
-                    title="Add File"
-                  >
-                    <Plus size={14} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowAiBar(true)}
-                    className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-variant/30 text-outline/50 hover:text-primary transition-all cursor-pointer"
-                    title="Ask AI"
-                  >
-                    <Command size={14} />
-                  </button>
-                  <button
-                    type="button"
-                    className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-variant/30 text-outline/50 hover:text-secondary transition-all cursor-pointer"
-                    title="Audio Mode"
-                  >
-                    <Mic size={14} />
-                  </button>
+                  {isCommandRunning ? (
+                    <button
+                      type="button"
+                      onClick={handleStopCurrentCommand}
+                      className="w-8 h-8 relative rounded-full bg-on-surface/30 border border-on-surface/20 text-on-surface hover:bg-on-surface/25 hover:text-on-surface-variant transition-all cursor-pointer"
+                      title="Stop Execution"
+                    >
+                      <Square size={12} fill="currentColor" strokeWidth={0} className="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2" />
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-variant/30 text-outline/50 hover:text-primary transition-all cursor-pointer"
+                        title="Add File"
+                      >
+                        <Plus size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowAiBar(true)}
+                        className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-variant/30 text-outline/50 hover:text-primary transition-all cursor-pointer"
+                        title="Ask AI"
+                      >
+                        <Command size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-variant/30 text-outline/50 hover:text-secondary transition-all cursor-pointer"
+                        title="Audio Mode"
+                      >
+                        <Mic size={14} />
+                      </button>
+                    </>
+                  )}
                 </div>
-              </form>
+              </div>
             </div>
           </div>
 
@@ -444,67 +548,49 @@ export default function App() {
 
       {/* Custom Context Menu */}
       {contextMenu && (
-        <div
-          ref={menuRef}
-          onMouseDown={(e) => e.preventDefault()}
-          className="fixed z-50 min-w-[200px] glass-panel border border-outline-variant/20 rounded-xl shadow-2xl py-1 overflow-hidden"
-          style={{
-            top: adjustedPos ? adjustedPos.y : contextMenu.y,
-            left: adjustedPos ? adjustedPos.x : contextMenu.x,
-            opacity: adjustedPos ? 1 : 0,
-            visibility: adjustedPos ? "visible" : "hidden"
-          }}
-        >
-          <button
-            onClick={() => {
-              if (contextMenu.selectedText) {
-                navigator.clipboard.writeText(contextMenu.selectedText).catch(console.error);
-              } else {
-                window.dispatchEvent(
-                  new CustomEvent("terminal-copy", { detail: { sessionId: activeTabId } })
-                );
-              }
-              setContextMenu(null);
-            }}
-            className="w-full flex items-center gap-3 px-3 py-2 text-[13px] hover:bg-surface-variant/30 text-on-surface transition-colors text-left group"
-          >
-            <Copy size={14} className="text-outline/70 group-hover:text-primary transition-colors" />
+        <RightClickMenuPanel anchorX={contextMenu.x} anchorY={contextMenu.y} open={true}>
+          {/* Copy — terminal: copies selection; input: no-op text copy */}
+          <RightClickMenuItem icon={<Copy size={14} />} onClick={() => {
+            if (contextMenu?.selectedText) {
+              navigator.clipboard.writeText(contextMenu.selectedText).catch(console.error);
+            } else if (contextMenu?.source === "terminal") {
+              window.dispatchEvent(
+                new CustomEvent("terminal-copy", { detail: { sessionId: activeTabId } })
+              );
+            }
+            setContextMenu(null);
+          }}>
             Copy
-          </button>
-          <button
-            onClick={async () => {
-              try {
-                const text = await navigator.clipboard.readText();
-                if (text) {
-                  setCommandInput((prev) => prev + text);
-                }
-              } catch (err) {
-                console.error("Failed to read from clipboard:", err);
-              }
-              setContextMenu(null);
-            }}
-            className="w-full flex items-center gap-3 px-3 py-2 text-[13px] hover:bg-surface-variant/30 text-on-surface transition-colors text-left group"
-          >
-            <Scissors size={14} className="text-outline/70 group-hover:text-primary transition-colors" />
+          </RightClickMenuItem>
+          <RightClickMenuItem icon={<Clipboard size={14} />} onClick={async () => {
+            try {
+              const text = await navigator.clipboard.readText();
+              if (text) setCommandInput((prev) => prev + text);
+            } catch (err) {
+              console.error("Failed to read from clipboard:", err);
+            }
+            setContextMenu(null);
+          }}>
             Paste
-          </button>
-          <div className="h-px bg-outline-variant/20 my-1 mx-2" />
-          <button
-            onClick={() => {
-              if (activeTabId) {
-                window.dispatchEvent(
-                  new CustomEvent("terminal-clear", { detail: { sessionId: activeTabId } })
-                );
-                useBlockStore.getState().clearBlocks(activeTabId);
-              }
-              setContextMenu(null);
-            }}
-            className="w-full flex items-center gap-3 px-3 py-2 text-[13px] hover:bg-red-500/10 text-red-400 transition-colors text-left group"
-          >
-            <Trash2 size={14} className="text-red-400/70 group-hover:text-red-400 transition-colors" />
-            Clear Terminal
-          </button>
-        </div>
+          </RightClickMenuItem>
+          {/* Clear Terminal — only shown when right-clicked inside the xterm view */}
+          {contextMenu?.source === "terminal" && (
+            <>
+              <RightClickMenuSeparator />
+              <RightClickMenuItem danger icon={<Trash2 size={14} />} onClick={() => {
+                if (activeTabId) {
+                  window.dispatchEvent(
+                    new CustomEvent("terminal-clear", { detail: { sessionId: activeTabId } })
+                  );
+                  useBlockStore.getState().clearBlocks(activeTabId);
+                }
+                setContextMenu(null);
+              }}>
+                Clear Terminal
+              </RightClickMenuItem>
+            </>
+          )}
+        </RightClickMenuPanel>
       )}
 
       {/* Footer Status pips */}
