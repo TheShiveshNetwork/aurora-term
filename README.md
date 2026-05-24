@@ -6,7 +6,7 @@ A lightweight, high-performance, and extremely powerful **Agentic Terminal** des
 
 | Startup Overview (Empty State) | Executing Command (Warp-style Blocks) |
 | :---: | :---: |
-| ![Startup Overview](https://raw.githubusercontent.com/TheShiveshNetwork/aurora-term/main/screenshots/terminal_empty_state.png) | ![Executing Command](https://raw.githubusercontent.com/TheShiveshNetwork/aurora-term/main/screenshots/command_output_blocks.png) |
+| ![Startup Overview](https://raw.githubusercontent.com/TheShiveshNetwork/aurora-term/main/static/screenshots/terminal_empty_state.png) | ![Executing Command](https://raw.githubusercontent.com/TheShiveshNetwork/aurora-term/main/static/screenshots/command_output_blocks.png) |
 
 ---
 
