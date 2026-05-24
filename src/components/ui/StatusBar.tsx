@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from "react";
-import { Cpu, GitBranch, Wifi } from "lucide-react";
+import React, { useEffect, useRef, useState } from "react";
+import { Cpu, GitBranch, Wifi, FileText, Copy } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAIStore } from "../../stores/useAIStore";
 import { useSettingsStore } from "../../stores/useSettingsStore";
+import { useSessionStore } from "../../stores/useSessionStore";
 
 interface SystemInfo {
   ram_used_mb: number;
@@ -19,6 +20,11 @@ function formatRam(mb: number): string {
 export function StatusBar() {
   const { activeProvider } = useAIStore();
   const { mode } = useSettingsStore();
+  const { tabs, activeTabId } = useSessionStore();
+  const activeFileTab = tabs.find(t => t.id === activeTabId && t.type === "file");
+  const [showPathTooltip, setShowPathTooltip] = useState(false);
+  const [tooltipCopied, setTooltipCopied] = useState(false);
+  const tooltipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [sysInfo, setSysInfo] = useState<SystemInfo>({
     ram_used_mb: 0,
     ram_total_mb: 0,
@@ -54,11 +60,53 @@ export function StatusBar() {
           </div>
         )}
 
+        {/* Active file name — shown when a file tab is active */}
+        {activeFileTab && (
+          <>
+            <span className="text-outline/30 mx-0.5">|</span>
+            <div
+              className="relative flex items-center gap-1.5 text-on-surface-variant/80 group cursor-pointer"
+              onMouseEnter={() => setShowPathTooltip(true)}
+              onMouseLeave={() => {
+                setShowPathTooltip(false);
+                setTooltipCopied(false);
+                if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current);
+              }}
+              onClick={() => {
+                navigator.clipboard.writeText(activeFileTab.filePath || "");
+                setTooltipCopied(true);
+                if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current);
+                tooltipTimeoutRef.current = setTimeout(() => setTooltipCopied(false), 1500);
+              }}
+            >
+              <FileText size={10} className="text-primary/70 shrink-0" />
+              <span className="text-primary max-w-[160px] truncate">{activeFileTab.name}</span>
+
+              {/* Tooltip pane */}
+              {showPathTooltip && (
+                <div
+                  className="absolute bottom-[calc(100%+6px)] left-0 bg-surface-container-high border border-outline-variant/20 rounded-lg px-3 py-2 shadow-xl z-[100] whitespace-nowrap flex items-center gap-2"
+                  style={{ pointerEvents: "auto" }}
+                >
+                  <span className="text-[10px] font-code-sm text-on-surface-variant/70 max-w-[360px] truncate">
+                    {activeFileTab.filePath}
+                  </span>
+                  {tooltipCopied ? (
+                    <span className="text-[9px] text-primary/80 shrink-0">Copied!</span>
+                  ) : (
+                    <Copy size={10} className="text-outline/50 shrink-0" />
+                  )}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
         {/* Mode pill */}
-        <div className="flex items-center gap-1.5 text-primary">
+        {/* <div className="flex items-center gap-1.5 text-primary">
           <span className="w-1.5 h-1.5 rounded-full bg-primary-container shadow-[0_0_4px_#00f0ff] animate-pulse" />
           <span className="uppercase text-[9px] tracking-wide">{mode} MODE</span>
-        </div>
+        </div> */}
       </div>
 
       {/* Right side */}
@@ -81,12 +129,12 @@ export function StatusBar() {
           <span className="capitalize">{activeProvider} Engine</span>
         </div>
 
+        {/*
         <span className="text-outline/40">•</span>
-
-        {/* Encoding */}
+        
         <span className="text-on-surface-variant/60 font-mono uppercase tracking-wider">
           {sysInfo.encoding}
-        </span>
+        </span>*/}
       </div>
     </footer>
   );

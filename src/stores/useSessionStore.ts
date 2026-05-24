@@ -8,6 +8,8 @@ interface SessionStore {
   removeTab: (id: string) => void;
   setActiveTabId: (id: string) => void;
   updateTabCwd: (id: string, cwd: string) => void;
+  updateTab: (id: string, partial: Partial<Tab>) => void;
+  reorderTabs: (fromIndex: number, toIndex: number) => void;
 }
 
 export const useSessionStore = create<SessionStore>((set) => ({
@@ -35,4 +37,15 @@ export const useSessionStore = create<SessionStore>((set) => ({
     set((state) => ({
       tabs: state.tabs.map((t) => (t.id === id ? { ...t, cwd } : t)),
     })),
+  updateTab: (id, partial) =>
+    set((state) => ({
+      tabs: state.tabs.map((t) => (t.id === id ? { ...t, ...partial } : t)),
+    })),
+  reorderTabs: (fromIndex, toIndex) =>
+    set((state) => {
+      const tabs = [...state.tabs];
+      const [moved] = tabs.splice(fromIndex, 1);
+      tabs.splice(toIndex, 0, moved);
+      return { tabs };
+    }),
 }));

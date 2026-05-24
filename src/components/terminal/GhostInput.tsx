@@ -10,10 +10,20 @@ import React, {
 import { useBlockStore } from "../../stores/useBlockStore";
 import { pty } from "../../lib/ipc";
 
-// ─── Compute ghost suggestion ──────────────────────────────────────────────────
-// Scans `history` from the end (most-recent) and returns the suffix of the
-// first entry that starts with `input` (case-insensitive).
-// history is expected oldest → newest so the scan runs newest-first.
+const textareaScrollbarId = "aurora-ta-scrollbar-style";
+if (typeof document !== "undefined" && !document.getElementById(textareaScrollbarId)) {
+  const style = document.createElement("style");
+  style.id = textareaScrollbarId;
+  style.textContent = `
+    .aurora-ta::-webkit-scrollbar { width: 5px; }
+    .aurora-ta::-webkit-scrollbar-track { background: transparent; }
+    .aurora-ta::-webkit-scrollbar-thumb { background: rgba(132, 148, 149, 0.2); border-radius: 3px; }
+    .aurora-ta::-webkit-scrollbar-thumb:hover { background: rgba(132, 148, 149, 0.35); }
+    .aurora-ta { scrollbar-width: thin; scrollbar-color: rgba(132, 148, 149, 0.2) transparent; }
+  `;
+  document.head.appendChild(style);
+}
+
 function computeGhost(input: string, history: string[]): string {
   if (!input.trim()) return "";
   const lower = input.toLowerCase();
@@ -28,20 +38,17 @@ function computeGhost(input: string, history: string[]): string {
   return "";
 }
 
-
-// ─── Props ─────────────────────────────────────────────────────────────────────
 interface GhostInputProps {
   sessionId?: string | null;
   value: string;
   onChange: (value: string) => void;
   onSubmit: (e: FormEvent<HTMLFormElement>) => void;
-  history: string[]; // all past commands for this session, oldest → newest
+  history: string[];
   placeholder?: string;
   className?: string;
   inputClassName?: string;
 }
 
-// ─── Component ─────────────────────────────────────────────────────────────────
 export function GhostInput({
   sessionId = null,
   value,
@@ -52,9 +59,9 @@ export function GhostInput({
   className = "",
   inputClassName = "",
 }: GhostInputProps) {
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const mirrorRef = useRef<HTMLSpanElement>(null);
-  const textMetricsClass = "font-code-base text-[13px] font-normal leading-[48px]";
+  const textMetricsClass = "font-code-base text-[13px] font-normal leading-[22px]";
 
   useEffect(() => {
     const handleFocus = () => inputRef.current?.focus();
@@ -62,12 +69,9 @@ export function GhostInput({
     return () => window.removeEventListener("aurora-focus-terminal-input", handleFocus);
   }, []);
 
-  // History navigation index (-1 = not navigating / live input)
   const histNavRef = useRef<number>(-1);
-  // Stash the live (unsaved) draft while navigating history
   const draftRef = useRef<string>("");
 
-  // Deduplicated, reversed history for ghost matching (most recent first)
   const uniqueHistory = [...new Set(history.filter(Boolean))];
 
   const ghost = computeGhost(value, uniqueHistory);
@@ -94,9 +98,8 @@ export function GhostInput({
     return true;
   }, [ghost, onChange, value]);
 
-  // Accept ghost text on Tab
   const handleKeyDown = useCallback(
-    (e: KeyboardEvent<HTMLInputElement>) => {
+    (e: KeyboardEvent<HTMLTextAreaElement>) => {
       if (e.key === "c" && e.ctrlKey) {
         const runningBlockId = sessionId ? useBlockStore.getState().runningBlockId[sessionId] : null;
         if (sessionId && runningBlockId) {
@@ -132,7 +135,6 @@ export function GhostInput({
         if (commands.length === 0) return;
 
         if (histNavRef.current === -1) {
-          // Start navigating — stash the live draft
           draftRef.current = value;
           histNavRef.current = commands.length - 1;
         } else if (histNavRef.current > 0) {
@@ -151,14 +153,20 @@ export function GhostInput({
           histNavRef.current += 1;
           onChange(commands[histNavRef.current] ?? "");
         } else {
-          // Reached end of history → restore draft
           histNavRef.current = -1;
           onChange(draftRef.current);
         }
         return;
       }
 
-      // Any other typing resets history navigation
+      // Enter submits, Shift+Enter inserts newline
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        const form = inputRef.current?.closest("form");
+        if (form) form.requestSubmit();
+        return;
+      }
+
       if (
         e.key !== "Shift" &&
         e.key !== "Control" &&
@@ -169,12 +177,11 @@ export function GhostInput({
         histNavRef.current = -1;
       }
     },
-    [acceptGhostCompletion, uniqueHistory]
+    [acceptGhostCompletion, uniqueHistory, onChange, value, sessionId]
   );
 
-  // Raw paste — strip all formatting, insert plain text only
   const handlePaste = useCallback(
-    (e: React.ClipboardEvent<HTMLInputElement>) => {
+    (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
       e.preventDefault();
       const rawText = e.clipboardData.getData("text/plain");
       const el = inputRef.current;
@@ -185,7 +192,6 @@ export function GhostInput({
       const next = value.slice(0, start) + rawText + value.slice(end);
       onChange(next);
 
-      // Move cursor to after pasted content
       requestAnimationFrame(() => {
         if (inputRef.current) {
           const pos = start + rawText.length;
@@ -197,16 +203,25 @@ export function GhostInput({
   );
 
   const handleChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
+    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       histNavRef.current = -1;
       onChange(e.target.value);
     },
     [onChange]
   );
 
-  // ── Measure the input text width for ghost overlay positioning ─────────────
-  // We use a hidden <span> mirror to measure pixel offset.
   const [ghostLeft, setGhostLeft] = useState(0);
+  const TA_MAX_HEIGHT = 350;
+
+  // Auto-resize textarea height based on content
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const newHeight = Math.min(el.scrollHeight, TA_MAX_HEIGHT);
+    el.style.height = `${newHeight}px`;
+    el.style.overflowY = el.scrollHeight > TA_MAX_HEIGHT ? "auto" : "hidden";
+  }, [value]);
 
   useLayoutEffect(() => {
     const mirrorEl = mirrorRef.current;
@@ -215,28 +230,23 @@ export function GhostInput({
     setGhostLeft((prev) => (Math.abs(prev - measuredWidth) < 0.5 ? prev : measuredWidth));
   }, [value]);
 
-  // ── Make clicking anywhere on the wrapper focus the input ─────────────────
   const handleWrapperClick = useCallback(() => {
     inputRef.current?.focus();
   }, []);
 
   return (
-    <form onSubmit={onSubmit} className={`flex items-center ${className}`} onClick={handleWrapperClick}>
-      {/* Ghost text layer — positioned absolutely inside the relative wrapper */}
-      <div className="relative flex-1 flex items-center h-12 overflow-hidden">
-        {/* Hidden mirror span to measure typed-text width */}
+    <form onSubmit={onSubmit} className={`flex items-start ${className}`} onClick={handleWrapperClick}>
+      <div className="relative flex-1 flex items-start overflow-hidden">
         <span
           ref={mirrorRef}
           aria-hidden="true"
-          className={`invisible pointer-events-none absolute left-5 top-0 whitespace-pre ${textMetricsClass}`}
+          className={`invisible pointer-events-none absolute left-5 top-3 whitespace-pre ${textMetricsClass}`}
         >
           {value || ""}
         </span>
 
-        {/* Actual input */}
-        <input
+        <textarea
           ref={inputRef}
-          type="text"
           value={value}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
@@ -246,15 +256,16 @@ export function GhostInput({
           autoCorrect="off"
           autoCapitalize="off"
           spellCheck={false}
-          className={`w-full bg-transparent border-none focus:ring-0 h-12 px-5 placeholder:text-outline/30 outline-none text-on-surface relative z-10 ${textMetricsClass} ${inputClassName}`}
-          style={{ caretColor: "var(--color-primary)" }}
+          rows={1}
+          wrap="soft"
+          className={`aurora-ta w-full bg-transparent border-none focus:ring-0 mt-4 pb-1 px-5 placeholder:text-outline/30 outline-none text-on-surface relative z-10 resize-none overflow-x-hidden whitespace-pre-wrap break-words ${textMetricsClass} ${inputClassName}`}
+          style={{ caretColor: "var(--color-primary)", maxHeight: `${TA_MAX_HEIGHT}px` }}
         />
 
-        {/* Ghost suggestion overlay */}
         {ghost && (
           <span
             aria-hidden="true"
-            className={`ghost-suggestion pointer-events-none absolute left-[var(--ghost-left)] top-1/2 z-0 select-none whitespace-pre -translate-y-1/2 ${textMetricsClass} text-primary/20`}
+            className={`pointer-events-none absolute left-[var(--ghost-left)] top-4 pb-1 z-0 select-none whitespace-pre ${textMetricsClass} text-primary/20`}
             style={{ ["--ghost-left" as string]: `${20 + ghostLeft}px` }}
           >
             {ghost}
