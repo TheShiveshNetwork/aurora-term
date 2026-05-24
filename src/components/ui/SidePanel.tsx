@@ -31,6 +31,12 @@ interface FileMenuState {
 }
 
 // ─────────────────────── TreeNode ────────────────────────
+function pathStartsWith(path: string, prefix: string): boolean {
+  if (path === prefix) return true;
+  const next = path.slice(prefix.length);
+  return next.startsWith("/") || next.startsWith("\\");
+}
+
 function TreeNode({
   node,
   depth,
@@ -51,11 +57,30 @@ function TreeNode({
   const [isOpen, setIsOpen] = useState(false);
   const [children, setChildren] = useState<FileNode[]>([]);
   const [loading, setLoading] = useState(false);
+  const loadedRef = useRef(false);
+
+  // Auto-expand parent directories when a file is activated.
+  // Skip the exact node — toggling a folder is handled by handleToggle.
+  useEffect(() => {
+    if (!node.is_dir || !activePath || activePath === node.path) return;
+    if (pathStartsWith(activePath, node.path)) {
+      if (!loadedRef.current) {
+        loadedRef.current = true;
+        setLoading(true);
+        invoke<FileNode[]>("read_dir", { path: node.path })
+          .then(setChildren)
+          .catch(console.error)
+          .finally(() => setLoading(false));
+      }
+      setIsOpen(true);
+    }
+  }, [activePath, node.path, node.is_dir]);
 
   const handleToggle = async () => {
     if (node.is_dir) {
       onActivate(node.path);
-      if (!isOpen && children.length === 0) {
+      if (!isOpen && !loadedRef.current) {
+        loadedRef.current = true;
         setLoading(true);
         try {
           const res = await invoke<FileNode[]>("read_dir", { path: node.path });
@@ -67,9 +92,18 @@ function TreeNode({
         }
       }
       setIsOpen((prev) => !prev);
+    }
+  };
+
+  const handleClick = () => {
+    if (node.is_dir) {
+      handleToggle();
     } else {
       onSelect(node.path);
       onActivate(node.path);
+      window.dispatchEvent(
+        new CustomEvent("sidebar-open-file", { detail: { path: node.path } })
+      );
     }
   };
 
@@ -108,7 +142,7 @@ function TreeNode({
   return (
     <div className="select-none">
       <div
-        onClick={handleToggle}
+        onClick={handleClick}
         onContextMenu={(e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -230,10 +264,13 @@ export function SidePanel({ collapsed, cwd }: SidePanelProps) {
   const loadTree = useCallback(async (absolutePath: string) => {
     setIsLoading(true);
     setError(null);
+    setActivePath("");
+    setSelectedFile("");
     try {
       const parts = absolutePath.split(/[/\\]/);
       setWorkspaceName(parts[parts.length - 1] || absolutePath);
       const res = await invoke<FileNode[]>("read_dir", { path: absolutePath });
+      serializedRootRef.current = JSON.stringify(res);
       setRootNodes(res);
     } catch (err) {
       console.error("Failed to load workspace tree:", err);
@@ -257,24 +294,46 @@ export function SidePanel({ collapsed, cwd }: SidePanelProps) {
     init();
   }, [loadTree]);
 
-  // ── React to cwd prop changes (cd command) ────────────────
+  // ── React to cwd prop changes (cd command / tab switch) ──
   useEffect(() => {
     if (!cwd || cwd === resolvedCwd) return;
     setResolvedCwd(cwd);
     loadTree(cwd);
   }, [cwd, resolvedCwd, loadTree]);
 
-  // ── Also listen for the global cwd-change custom event ───
+  // ── Listen for cwd-change from terminal CWD sentinel ─────
+  // Only reload when the path actually differs.
+  const lastLoadedPathRef = useRef("");
   useEffect(() => {
     const handler = (e: Event) => {
       const { path } = (e as CustomEvent<{ path: string }>).detail;
-      if (!path || path === resolvedCwd) return;
+      if (!path || path === resolvedCwd || path === lastLoadedPathRef.current) return;
+      lastLoadedPathRef.current = path;
       setResolvedCwd(path);
       loadTree(path);
     };
     window.addEventListener("cwd-change", handler);
     return () => window.removeEventListener("cwd-change", handler);
   }, [resolvedCwd, loadTree]);
+
+  // ── Poll root directory every 4s for live updates ────────
+  const serializedRootRef = useRef("");
+  useEffect(() => {
+    if (collapsed || !resolvedCwd) return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await invoke<FileNode[]>("read_dir", { path: resolvedCwd });
+        const serialized = JSON.stringify(res);
+        if (serialized !== serializedRootRef.current) {
+          serializedRootRef.current = serialized;
+          setRootNodes(res);
+        }
+      } catch {
+        // silently ignore errors during polling
+      }
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [collapsed, resolvedCwd]);
 
   // ── Drag-to-resize ────────────────────────────────────────
   const onDragHandleMouseDown = (e: React.MouseEvent) => {
@@ -459,17 +518,34 @@ export function SidePanel({ collapsed, cwd }: SidePanelProps) {
 
           <RightClickMenuSeparator />
 
-          {/* Open current tab */}
-          <RightClickMenuItem icon={<Terminal size={13} />} onClick={handleOpenFolderInAurora} disabled={!fileMenu.node.is_dir}>
-            Open Here
-          </RightClickMenuItem>
+          {/* For directories: Terminal options */}
+          {fileMenu.node.is_dir && (
+            <>
+              {/* Open current tab */}
+              <RightClickMenuItem icon={<Terminal size={13} />} onClick={handleOpenFolderInAurora}>
+                Open Here
+              </RightClickMenuItem>
 
-          {/* Open target in a new tab */}
-          <RightClickMenuItem icon={<Terminal size={13} />} onClick={handleOpenFolderInNewTab} disabled={!fileMenu.node.is_dir}>
-            Open in New Tab
-          </RightClickMenuItem>
+              {/* Open target in a new tab */}
+              <RightClickMenuItem icon={<Terminal size={13} />} onClick={handleOpenFolderInNewTab}>
+                Open in New Tab
+              </RightClickMenuItem>
+            </>
+          )}
 
-          {/* Copy as Relative Path (relative to workspace root) */}
+          {/* For files: Open in editor */}
+          {!fileMenu.node.is_dir && (
+            <>
+              <RightClickMenuItem icon={<FileText size={13} />} onClick={() => {
+                window.dispatchEvent(
+                  new CustomEvent("sidebar-open-file", { detail: { path: fileMenu.node.path } })
+                );
+                setFileMenu(null);
+              }}>
+                Open
+              </RightClickMenuItem>
+            </>
+          )}
           <RightClickMenuItem icon={<ExternalLink size={13} />} onClick={() => {
             const rel = fileMenu.node.path
               .replace(resolvedCwd, "")

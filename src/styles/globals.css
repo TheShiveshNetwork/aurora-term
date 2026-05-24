@@ -94,6 +94,7 @@
   padding: 0 12px;
   font-size: 11px;
   background: rgba(255, 255, 255, 0.03);
+  border: 1px solid transparent;
   border-radius: 0.7rem;
   color: #b9cacb;
   cursor: pointer;
@@ -105,22 +106,17 @@
   color: #e5e2e3;
 }
 
+.safari-tab.drag-over {
+  background: rgba(0, 240, 255, 0.12);
+  border: 1px solid rgba(0, 240, 255, 0.3);
+  box-shadow: 0 0 12px rgba(0, 240, 255, 0.1);
+}
+
 .safari-tab.active {
   background: rgba(219, 252, 255, 0.08);
   color: #dbfcff;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
   border: 1px solid rgba(255, 255, 255, 0.151);
-}
-
-/* Warp Input Glow effects */
-.warp-input-glow:focus-within {
-  box-shadow: 0 0 20px rgba(0, 240, 255, 0.2), 0 0 40px rgba(0, 240, 255, 0.05);
-  border-color: rgba(0, 240, 255, 0.15);
-}
-
-.input-glow:focus {
-  box-shadow: 0 0 15px rgba(0, 240, 255, 0.2);
-  border-color: rgba(0, 240, 255, 0.1) !important;
 }
 
 .no-scrollbar::-webkit-scrollbar {

@@ -1,12 +1,14 @@
 import { useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { v4 as uuidv4 } from "uuid";
 import { pty } from "../lib/ipc";
 import { useSessionStore } from "../stores/useSessionStore";
 import { useBlockStore } from "../stores/useBlockStore";
 import { Tab } from "../types/session";
 
 export function usePTY() {
-  const { tabs, activeTabId, addTab, removeTab, setActiveTabId } = useSessionStore();
+  const store = useSessionStore();
+  const { tabs, activeTabId, addTab, removeTab, setActiveTabId, updateTab } = store;
 
   useEffect(() => {
     // ── Single global pty_data listener ──────────────────────────────────────
@@ -77,6 +79,7 @@ export function usePTY() {
       const newTab: Tab = {
         id: sessionId,
         name: `Terminal (${shell.split(".")[0]})`,
+        type: "terminal",
         shell,
         cwd: cwd || "~",
         created_at: Date.now(),
@@ -93,6 +96,11 @@ export function usePTY() {
   };
 
   const killSession = async (sessionId: string) => {
+    const tab = tabs.find(t => t.id === sessionId);
+    if (tab?.type === "file") {
+      removeTab(sessionId);
+      return;
+    }
     try {
       await pty.kill(sessionId);
       removeTab(sessionId);
@@ -101,11 +109,37 @@ export function usePTY() {
     }
   };
 
+  const openFile = (filePath: string, cwd?: string) => {
+    const existing = tabs.find(t => t.type === "file" && t.filePath === filePath);
+    if (existing) {
+      setActiveTabId(existing.id);
+      return existing.id;
+    }
+
+    const fileId = uuidv4();
+    const fileName = filePath.split(/[/\\]/).pop() || filePath;
+
+    const newTab: Tab = {
+      id: fileId,
+      name: fileName,
+      type: "file",
+      filePath,
+      cwd,
+      created_at: Date.now(),
+    };
+
+    addTab(newTab);
+    setActiveTabId(fileId);
+
+    return fileId;
+  };
+
   return {
     tabs,
     activeTabId,
     spawnSession,
     killSession,
+    openFile,
     setActiveTabId,
   };
 }

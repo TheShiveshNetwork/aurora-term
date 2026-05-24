@@ -1,6 +1,7 @@
 use serde::{Serialize, Deserialize};
 use std::path::{Path, PathBuf};
 use tauri::command;
+use base64::Engine;
 use crate::error::AppError;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 
@@ -97,6 +98,49 @@ pub fn read_dir(path: Option<String>) -> Result<Vec<FileNode>, AppError> {
     });
 
     Ok(nodes)
+}
+
+#[command]
+pub fn read_file_content(path: String) -> Result<String, AppError> {
+    let file_path = PathBuf::from(path);
+
+    if !file_path.is_file() {
+        return Err(AppError::Io("File not found".to_string()));
+    }
+
+    // Limit file size to 10MB to prevent loading huge files into editor
+    let metadata = std::fs::metadata(&file_path)?;
+    if metadata.len() > 10 * 1024 * 1024 {
+        return Err(AppError::Io("File is too large (>10MB)".to_string()));
+    }
+
+    let content = std::fs::read_to_string(&file_path)?;
+    Ok(content)
+}
+
+#[command]
+pub fn read_file_base64(path: String) -> Result<String, AppError> {
+    let file_path = PathBuf::from(path);
+
+    if !file_path.is_file() {
+        return Err(AppError::Io("File not found".to_string()));
+    }
+
+    // Limit file size to 50MB for images
+    let metadata = std::fs::metadata(&file_path)?;
+    if metadata.len() > 50 * 1024 * 1024 {
+        return Err(AppError::Io("File is too large (>50MB)".to_string()));
+    }
+
+    let bytes = std::fs::read(&file_path)?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
+}
+
+#[command]
+pub fn write_file_content(path: String, content: String) -> Result<(), AppError> {
+    let file_path = PathBuf::from(path);
+    std::fs::write(&file_path, &content)?;
+    Ok(())
 }
 
 // ─── Reveal file/folder in system file manager ─────────────────────────────────
