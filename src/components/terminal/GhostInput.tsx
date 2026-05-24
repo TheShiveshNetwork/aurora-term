@@ -64,10 +64,15 @@ export function GhostInput({
   const textMetricsClass = "font-code-base text-[13px] font-normal leading-[22px]";
 
   useEffect(() => {
-    const handleFocus = () => inputRef.current?.focus();
+    const handleFocus = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail || detail.sessionId === sessionId) {
+        inputRef.current?.focus();
+      }
+    };
     window.addEventListener("aurora-focus-terminal-input", handleFocus);
     return () => window.removeEventListener("aurora-focus-terminal-input", handleFocus);
-  }, []);
+  }, [sessionId]);
 
   const histNavRef = useRef<number>(-1);
   const draftRef = useRef<string>("");

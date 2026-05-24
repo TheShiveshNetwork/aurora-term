@@ -6,6 +6,12 @@ import { useSessionStore } from "../stores/useSessionStore";
 import { useBlockStore } from "../stores/useBlockStore";
 import { Tab } from "../types/session";
 
+// Strip ANSI/VT100 escape sequences — keeps block output_summary clean for AI
+const stripAnsi = (s: string) =>
+  s.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, "")
+   .replace(/__AURORA_(?:CWD|BRANCH)__=[^\r\n]*/g, "") // strip sentinel lines
+   .replace(/\r/g, ""); // normalise carriage returns
+
 export function usePTY() {
   const store = useSessionStore();
   const { tabs, activeTabId, addTab, removeTab, setActiveTabId, updateTab } = store;
@@ -20,16 +26,18 @@ export function usePTY() {
       (event) => {
         const { session_id, data } = event.payload;
 
-        // Update block store for the running block in this session
+        // Update block store for the running block in this session.
+        // Strip ANSI escape codes before storing so output_summary is
+        // clean plain text (used by AI features and copy operations).
         const state = useBlockStore.getState();
         const blockId = state.runningBlockId[session_id];
         state.setCommandOutputReceived(session_id, true);
         if (blockId) {
-          state.appendBlockOutput(session_id, blockId, data);
+          state.appendBlockOutput(session_id, blockId, stripAnsi(data));
         }
 
-        // Dispatch a synchronous per-session DOM event so TerminalPane
-        // can receive it without any async subscription setup.
+        // Dispatch a synchronous per-session DOM event. OutputRenderer
+        // subscribes to this and processes the raw ANSI stream for display.
         window.dispatchEvent(
           new CustomEvent(`pty-session-data:${session_id}`, { detail: data })
         );
