@@ -10,6 +10,7 @@ export interface Tab {
   dirty?: boolean;
   fileContent?: string;
   created_at: number;
+  pinned?: boolean;
 }
 
 export interface SessionState {

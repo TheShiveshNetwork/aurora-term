@@ -58,6 +58,10 @@ pub fn run() {
             commands::get_system_info,
             commands::read_shell_history,
             commands::reveal_in_explorer,
+            commands::delete_path,
+            commands::rename_path,
+            commands::select_folder,
+            commands::select_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

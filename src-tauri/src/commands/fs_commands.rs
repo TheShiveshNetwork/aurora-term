@@ -186,3 +186,56 @@ pub fn reveal_in_explorer(path: String) -> Result<(), AppError> {
 
     Ok(())
 }
+
+// ─── Delete a file or directory ────────────────────────────────────────────────
+#[command]
+pub fn delete_path(path: String) -> Result<(), AppError> {
+    let p = PathBuf::from(&path);
+    if !p.exists() {
+        return Err(AppError::Io(format!("Path not found: {}", path)));
+    }
+    if p.is_dir() {
+        std::fs::remove_dir_all(&p)
+            .map_err(|e| AppError::Io(e.to_string()))?;
+    } else {
+        std::fs::remove_file(&p)
+            .map_err(|e| AppError::Io(e.to_string()))?;
+    }
+    Ok(())
+}
+
+// ─── Rename / move a file or directory ────────────────────────────────────────
+#[command]
+pub fn rename_path(old_path: String, new_name: String) -> Result<String, AppError> {
+    let old = PathBuf::from(&old_path);
+    if !old.exists() {
+        return Err(AppError::Io(format!("Path not found: {}", old_path)));
+    }
+    let parent = old.parent()
+        .ok_or_else(|| AppError::Io("Cannot rename root path".to_string()))?;
+    let new_path = parent.join(&new_name);
+    if new_path.exists() {
+        return Err(AppError::Io(format!("'{}' already exists", new_name)));
+    }
+    std::fs::rename(&old, &new_path)
+        .map_err(|e| AppError::Io(e.to_string()))?;
+    Ok(new_path.to_string_lossy().into_owned())
+}
+
+// ─── Native Dialog Selectors using rfd ────────────────────────────────────────
+#[command]
+pub fn select_folder() -> Result<Option<String>, AppError> {
+    let folder = rfd::FileDialog::new()
+        .set_title("Open Folder")
+        .pick_folder();
+    Ok(folder.map(|p| p.to_string_lossy().into_owned()))
+}
+
+#[command]
+pub fn select_file() -> Result<Option<String>, AppError> {
+    let file = rfd::FileDialog::new()
+        .set_title("Open File")
+        .pick_file();
+    Ok(file.map(|p| p.to_string_lossy().into_owned()))
+}
+

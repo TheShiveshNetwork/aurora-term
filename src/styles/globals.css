@@ -160,3 +160,93 @@
   align-items: center;
   width: 100%;
 }
+
+/* ── Custom Output Renderer ──────────────────────────────────────────────── */
+.output-renderer {
+  /* Ensure text selection cursor */
+  cursor: text;
+}
+
+/* Each rendered PTY line */
+.output-line {
+  display: block;
+  min-height: 1lh; /* uses line-height set inline */
+  white-space: pre-wrap;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+}
+
+/* ── Live prompt row — shown at the bottom of the output area ────────────── */
+.output-prompt-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0;
+  min-height: 1lh;
+  padding: 0 8px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  /* Extra bottom padding so the cursor isn't flush against the input bar */
+  padding-bottom: 6px;
+}
+
+/* Blinking block cursor */
+.output-cursor {
+  display: inline-block;
+  width: 7px;
+  height: 0.85em;
+  background: var(--color-primary, #dbfcff);
+  margin-left: 1px;
+  vertical-align: text-bottom;
+  border-radius: 1px;
+  opacity: 0.7;
+  animation: output-caret-blink 1s step-end infinite;
+}
+
+/* Cursor goes solid while the user is actively typing */
+.output-cursor.typing {
+  animation: none;
+  opacity: 0.9;
+}
+
+@keyframes output-caret-blink {
+  0%, 100% { opacity: 0.7; }
+  50%       { opacity: 0;   }
+}
+
+/* Custom Scrollbar for Pinned/Excessive Tabs */
+.has-tabs-scrollbar {
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  overflow-x: overlay !important;
+  overflow-y: hidden !important;
+}
+.has-tabs-scrollbar .safari-tab {
+  scroll-snap-align: start;
+}
+.has-tabs-scrollbar::-webkit-scrollbar {
+  height: 4px;
+  background: transparent !important;
+}
+.has-tabs-scrollbar::-webkit-scrollbar-thumb {
+  background: transparent; /* transparent/hidden by default */
+  border-radius: 99px;
+  border: 1px solid transparent;
+}
+.tabs-scroll-hovered::-webkit-scrollbar-thumb {
+  background: rgba(64, 64, 65, 0.5); /* visible on container hover - terminal color, slightly transparent */
+}
+.tabs-scroll-hovered::-webkit-scrollbar-thumb:hover {
+  background: rgba(64, 64, 65, 0.8) !important;
+}
+.has-tabs-scrollbar::-webkit-scrollbar-track {
+  background: transparent !important;
+}
+.has-tabs-scrollbar::-webkit-scrollbar-button {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+.has-tabs-scrollbar::-webkit-scrollbar-corner {
+  background: transparent !important;
+  display: none !important;
+}

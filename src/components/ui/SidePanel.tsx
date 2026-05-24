@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   Folder, FileText, ChevronDown, ChevronRight, Search, RefreshCw,
-  Copy, FolderOpen, Terminal, ExternalLink, ClipboardCopy,
+  Copy, FolderOpen, Terminal, ExternalLink, ClipboardCopy, Pencil, Trash2, AlertTriangle,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import {
@@ -13,6 +13,7 @@ import {
 interface SidePanelProps {
   collapsed: boolean;
   cwd?: string; // absolute cwd — passed from App so we react to cd changes
+  activeFilePath?: string;
 }
 
 interface FileNode {
@@ -27,6 +28,18 @@ interface FileNode {
 interface FileMenuState {
   x: number;
   y: number;
+  node: FileNode;
+}
+
+// ─── Rename state ────────────────────────────────────────────────────────────
+interface RenameState {
+  path: string;     // path of item being renamed
+  currentName: string;
+  value: string;    // current input value
+}
+
+// ─── Delete confirm state ────────────────────────────────────────────────────
+interface DeleteConfirmState {
   node: FileNode;
 }
 
@@ -45,6 +58,11 @@ function TreeNode({
   onSelect,
   onActivate,
   onContextMenu,
+  renamingPath,
+  renameValue,
+  onRenameChange,
+  onRenameCommit,
+  onRenameCancel,
 }: {
   node: FileNode;
   depth: number;
@@ -53,6 +71,11 @@ function TreeNode({
   onSelect: (path: string) => void;
   onActivate: (path: string) => void;
   onContextMenu: (e: React.MouseEvent, node: FileNode) => void;
+  renamingPath: string;
+  renameValue: string;
+  onRenameChange: (val: string) => void;
+  onRenameCommit: () => void;
+  onRenameCancel: () => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [children, setChildren] = useState<FileNode[]>([]);
@@ -139,16 +162,18 @@ function TreeNode({
   const fileIconClass = `shrink-0 ml-[15px] ${isSelected ? "text-primary" : isGitignored ? "text-outline/25" : "text-outline/50"
     }`;
 
+  const isRenaming = renamingPath === node.path;
+
   return (
     <div className="select-none">
       <div
-        onClick={handleClick}
+        onClick={isRenaming ? undefined : handleClick}
         onContextMenu={(e) => {
           e.preventDefault();
           e.stopPropagation();
-          onContextMenu(e, node);
+          if (!isRenaming) onContextMenu(e, node);
         }}
-        title={node.name}
+        title={isRenaming ? undefined : node.name}
         className={`${rowClass} ${textColorClass}`}
         style={{
           paddingLeft: isSelected && !node.is_dir ? `${indent - 2}px` : `${indent}px`,
@@ -171,13 +196,32 @@ function TreeNode({
         ) : (
           <FileText size={12} className={`${fileIconClass} transition-colors group-hover:text-primary ${isActive ? "text-primary" : ""}`} />
         )}
-        <span
-          className={`text-[11.5px] font-code-sm overflow-hidden text-ellipsis whitespace-nowrap min-w-0 flex-1 transition-colors group-hover:text-on-surface ${isGitignored ? "italic opacity-60" : ""}`}
-          style={{ lineHeight: "1.4" }}
-        >
-          {node.name}
-        </span>
-        {isGitignored && (
+
+        {isRenaming ? (
+          /* ── Inline rename input ── */
+          <input
+            autoFocus
+            value={renameValue}
+            onChange={(e) => onRenameChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter")  { e.preventDefault(); onRenameCommit(); }
+              if (e.key === "Escape") { e.preventDefault(); onRenameCancel(); }
+            }}
+            onBlur={onRenameCancel}
+            onClick={(e) => e.stopPropagation()}
+            className="flex-1 min-w-0 text-[11.5px] font-code-sm bg-surface-container-high border border-primary/40 rounded px-1 outline-none text-on-surface focus:border-primary/70 transition-colors"
+            style={{ lineHeight: "1.4", marginLeft: "2px" }}
+          />
+        ) : (
+          <span
+            className={`text-[11.5px] font-code-sm overflow-hidden text-ellipsis whitespace-nowrap min-w-0 flex-1 transition-colors group-hover:text-on-surface ${isGitignored ? "italic opacity-60" : ""}`}
+            style={{ lineHeight: "1.4" }}
+          >
+            {node.name}
+          </span>
+        )}
+
+        {isGitignored && !isRenaming && (
           <span className="shrink-0 w-1 h-1 rounded-full bg-outline/20 mr-0.5 transition-colors group-hover:bg-primary/30" aria-hidden="true" />
         )}
       </div>
@@ -209,6 +253,11 @@ function TreeNode({
                 onSelect={onSelect}
                 onActivate={onActivate}
                 onContextMenu={onContextMenu}
+                renamingPath={renamingPath}
+                renameValue={renameValue}
+                onRenameChange={onRenameChange}
+                onRenameCommit={onRenameCommit}
+                onRenameCancel={onRenameCancel}
               />
             ))
           )}
@@ -223,9 +272,19 @@ const MIN_WIDTH = 160;
 const MAX_WIDTH = 520;
 const DEFAULT_WIDTH = 220;
 
-export function SidePanel({ collapsed, cwd }: SidePanelProps) {
+export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
   const [selectedFile, setSelectedFile] = useState<string>("");
   const [activePath, setActivePath] = useState<string>("");
+
+  useEffect(() => {
+    if (activeFilePath) {
+      setSelectedFile(activeFilePath);
+      setActivePath(activeFilePath);
+    } else {
+      setSelectedFile("");
+      setActivePath("");
+    }
+  }, [activeFilePath]);
   const [rootNodes, setRootNodes] = useState<FileNode[]>([]);
   const [workspaceName, setWorkspaceName] = useState("Workspace");
   const [resolvedCwd, setResolvedCwd] = useState<string>("");
@@ -236,6 +295,14 @@ export function SidePanel({ collapsed, cwd }: SidePanelProps) {
 
   // ── File context menu state ───────────────────────────────
   const [fileMenu, setFileMenu] = useState<FileMenuState | null>(null);
+
+  // ── Rename state ──────────────────────────────────────────
+  const [renameState, setRenameState] = useState<RenameState | null>(null);
+
+  // ── Delete confirm state ──────────────────────────────────
+  const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirmState | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const isDragging = useRef(false);
   const dragStartX = useRef(0);
@@ -408,6 +475,54 @@ export function SidePanel({ collapsed, cwd }: SidePanelProps) {
     setFileMenu(null);
   };
 
+  // ── Rename actions ────────────────────────────────────────
+  const startRename = (node: FileNode) => {
+    setFileMenu(null);
+    setRenameState({ path: node.path, currentName: node.name, value: node.name });
+  };
+
+  const commitRename = async () => {
+    if (!renameState) return;
+    const newName = renameState.value.trim();
+    if (!newName || newName === renameState.currentName) {
+      setRenameState(null);
+      return;
+    }
+    try {
+      await invoke("rename_path", { oldPath: renameState.path, newName });
+      setRenameState(null);
+      // Refresh the tree
+      if (resolvedCwd) loadTree(resolvedCwd);
+    } catch (err) {
+      console.error("Rename failed:", err);
+      setRenameState(null);
+    }
+  };
+
+  const cancelRename = () => setRenameState(null);
+
+  // ── Delete actions ────────────────────────────────────────
+  const startDelete = (node: FileNode) => {
+    setFileMenu(null);
+    setDeleteError(null);
+    setDeleteConfirm({ node });
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteConfirm) return;
+    setIsDeleting(true);
+    setDeleteError(null);
+    try {
+      await invoke("delete_path", { path: deleteConfirm.node.path });
+      setDeleteConfirm(null);
+      setIsDeleting(false);
+      if (resolvedCwd) loadTree(resolvedCwd);
+    } catch (err) {
+      setDeleteError(String(err));
+      setIsDeleting(false);
+    }
+  };
+
   // ── Filter helper ─────────────────────────────────────────
   const filteredNodes = filterQuery.trim()
     ? rootNodes.filter((n) =>
@@ -476,6 +591,11 @@ export function SidePanel({ collapsed, cwd }: SidePanelProps) {
               onSelect={setSelectedFile}
               onActivate={handleActivateNode}
               onContextMenu={handleFileContextMenu}
+              renamingPath={renameState?.path ?? ""}
+              renameValue={renameState?.value ?? ""}
+              onRenameChange={(val) => setRenameState(prev => prev ? { ...prev, value: val } : null)}
+              onRenameCommit={commitRename}
+              onRenameCancel={cancelRename}
             />
           ))
         )}
@@ -555,7 +675,71 @@ export function SidePanel({ collapsed, cwd }: SidePanelProps) {
           }}>
             Copy Relative Path
           </RightClickMenuItem>
+
+          <RightClickMenuSeparator />
+
+          {/* Rename */}
+          <RightClickMenuItem icon={<Pencil size={13} />} onClick={() => startRename(fileMenu.node)}>
+            Rename
+          </RightClickMenuItem>
+
+          {/* Delete */}
+          <RightClickMenuItem
+            icon={<Trash2 size={13} />}
+            onClick={() => startDelete(fileMenu.node)}
+            danger
+          >
+            Delete
+          </RightClickMenuItem>
         </RightClickMenuPanel>
+      )}
+
+      {/* ── Delete confirmation modal ── */}
+      {deleteConfirm && (
+        <div
+          className="fixed inset-0 z-[300] flex items-center justify-center bg-black/50 backdrop-blur-sm"
+          onClick={() => { if (!isDeleting) setDeleteConfirm(null); }}
+        >
+          <div
+            className="bg-surface-container-high border border-outline-variant/20 rounded-xl shadow-2xl w-[380px] overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 pt-5 pb-3">
+              <div className="flex items-center gap-2 mb-3">
+                <AlertTriangle size={16} className="text-red-400 shrink-0" />
+                <h3 className="text-sm font-semibold text-on-surface">
+                  Delete {deleteConfirm.node.is_dir ? "folder" : "file"}?
+                </h3>
+              </div>
+              <p className="text-xs text-on-surface-variant/80 leading-relaxed">
+                Are you sure you want to permanently delete{" "}
+                <span className="text-primary font-medium">{deleteConfirm.node.name}</span>?
+                {deleteConfirm.node.is_dir && (
+                  <span className="text-red-400/80"> This will delete all contents inside.</span>
+                )}
+              </p>
+              {deleteError && (
+                <p className="text-[11px] text-red-400 mt-2 font-code-sm">{deleteError}</p>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 px-5 pb-4 pt-1">
+              <button
+                className="px-3 py-1.5 text-[11px] font-code-sm rounded-lg border border-outline-variant/20 text-on-surface-variant hover:bg-surface-variant/20 transition-colors cursor-pointer"
+                onClick={() => setDeleteConfirm(null)}
+                disabled={isDeleting}
+              >
+                Cancel
+              </button>
+              <button
+                className="px-3 py-1.5 text-[11px] font-code-sm rounded-lg bg-red-500/80 text-white hover:bg-red-500 transition-colors cursor-pointer font-semibold disabled:opacity-50"
+                onClick={confirmDelete}
+                disabled={isDeleting}
+              >
+                {isDeleting ? "Deleting…" : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </aside>
   );

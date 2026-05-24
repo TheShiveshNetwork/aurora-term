@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from "react";
-import { FolderOpen, Settings, User, Command, Mic, Plus, Menu, Terminal, Search, Copy, Scissors, Trash2, SplitSquareHorizontal, PanelLeftClose, PanelLeft, SquareTerminal, RefreshCw, Clipboard, Square, Globe } from "lucide-react";
+import { FolderOpen, Settings, User, Command, Mic, Plus, Menu, Terminal, Search, Copy, Scissors, Trash2, SplitSquareHorizontal, PanelLeftClose, PanelLeft, SquareTerminal, RefreshCw, Clipboard, Square, Globe, History, FileText, ChevronRight, Folder, ExternalLink, LogOut } from "lucide-react";
 import { usePTY } from "./hooks/usePTY";
 import { pty } from "./lib/ipc";
 import { invoke } from "@tauri-apps/api/core";
@@ -29,7 +29,7 @@ import { Tab } from "./types/session";
 export default function App() {
   const { tabs, activeTabId, spawnSession, killSession, setActiveTabId, openFile } = usePTY();
   const { blocks, runningBlockId, addBlock, updateBlock, setAIExplain, toggleBookmark } = useBlockStore();
-  const { mode, setMode } = useSettingsStore();
+  const { mode, setMode, theme, setTheme } = useSettingsStore();
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -58,6 +58,159 @@ export default function App() {
   const [viewMode, setViewMode] = useState<"terminal" | "file">("terminal");
   const hasSpawnedRef = useRef(false);
   const hasHadTabsRef = useRef(false);
+
+  const [showMenuDropdown, setShowMenuDropdown] = useState(false);
+  const [localDirNodes, setLocalDirNodes] = useState<any[]>([]);
+
+  const [lastActiveTerminalId, setLastActiveTerminalId] = useState<string | null>(null);
+  const [lastActiveFileId, setLastActiveFileId] = useState<string | null>(null);
+
+  // Sync last active tab per type
+  useEffect(() => {
+    if (!activeTabId) return;
+    const activeTab = tabs.find((t) => t.id === activeTabId);
+    if (activeTab) {
+      if (activeTab.type === "terminal") {
+        setLastActiveTerminalId(activeTab.id);
+      } else if (activeTab.type === "file") {
+        setLastActiveFileId(activeTab.id);
+      }
+    }
+  }, [activeTabId, tabs]);
+
+  // Reload empty tab directory browser on CWD changes
+  useEffect(() => {
+    if (cwdAbsolute) {
+      invoke<any[]>("read_dir", { path: cwdAbsolute })
+        .then(setLocalDirNodes)
+        .catch(console.error);
+    }
+  }, [cwdAbsolute]);
+
+  // Click outside to close dropdown
+  useEffect(() => {
+    const handleOutsideClick = () => setShowMenuDropdown(false);
+    window.addEventListener("click", handleOutsideClick);
+    return () => window.removeEventListener("click", handleOutsideClick);
+  }, []);
+
+  const handleSelectFolderDirectly = (path: string) => {
+    setCwdAbsolute(path);
+    const parts = path.split(/[\\/]/);
+    setCwd("~/" + (parts[parts.length - 1] || path));
+    // Save to session cwds
+    if (activeTabId) {
+      setSessionCwds((prev) => ({ ...prev, [activeTabId]: path }));
+    }
+  };
+
+  const handleOpenFolder = async () => {
+    setShowMenuDropdown(false);
+    try {
+      const selected = await invoke<string | null>("select_folder");
+      if (selected) {
+        handleSelectFolderDirectly(selected);
+      }
+    } catch (err) {
+      console.error("Failed to select folder:", err);
+    }
+  };
+
+  const handleOpenFile = async () => {
+    setShowMenuDropdown(false);
+    try {
+      const selected = await invoke<string | null>("select_file");
+      if (selected) {
+        openFile(selected, cwdAbsolute);
+        setViewMode("file");
+      }
+    } catch (err) {
+      console.error("Failed to select file:", err);
+    }
+  };
+
+  const handleOpenRecentFile = (filePath: string) => {
+    setShowMenuDropdown(false);
+    // Open in current workspace context
+    invoke("read_dir", { path: cwdAbsolute })
+      .then(async () => {
+        const absolutePath = cwdAbsolute ? `${cwdAbsolute}/${filePath}`.replace(/\/\//g, "/") : filePath;
+        openFile(absolutePath, cwdAbsolute);
+        setViewMode("file");
+      })
+      .catch(() => {
+        openFile(filePath, cwdAbsolute);
+        setViewMode("file");
+      });
+  };
+
+  const handleNewWindow = async () => {
+    setShowMenuDropdown(false);
+    try {
+      const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+      const win = new WebviewWindow("aurora_" + Date.now(), {
+        title: "Aurora Terminal",
+        width: 1024,
+        height: 768,
+      });
+    } catch (err) {
+      console.error("Failed to spawn new window:", err);
+    }
+  };
+
+  const handleNewTab = async () => {
+    setShowMenuDropdown(false);
+    const isWin = window.navigator.userAgent.includes("Windows");
+    const defaultShell = isWin ? "powershell.exe" : "bash";
+    const promptCmd = `function prompt { $cwd = $ExecutionContext.SessionState.Path.CurrentLocation; $branch = (git branch --show-current 2>$null); "__AURORA_CWD__=$cwd" + [char]13 + [char]10 + "__AURORA_BRANCH__=$branch" + [char]13 + [char]10 + "PS> " }; Clear-Host`;
+    const args = isWin ? ["-NoLogo", "-NoExit", "-Command", promptCmd] : [];
+    try {
+      const sessionId = await spawnSession(defaultShell, args, {}, cwdAbsolute);
+      setSessionCwds((prev) => ({ ...prev, [sessionId]: cwdAbsolute }));
+    } catch (err) {
+      console.error("Failed to spawn session:", err);
+    }
+  };
+
+  const handleCloseSession = () => {
+    setShowMenuDropdown(false);
+    if (activeTabId) {
+      killSession(activeTabId);
+    }
+  };
+
+  const handleCloseTab = () => {
+    setShowMenuDropdown(false);
+    if (activeTabId) {
+      const activeTab = tabs.find(t => t.id === activeTabId);
+      if (activeTab?.type === "file" && activeTab.dirty) {
+        setPendingCloseTabId(activeTabId);
+      } else {
+        killSession(activeTabId);
+      }
+    }
+  };
+
+  const handleCloseAllTabsExceptThis = () => {
+    setShowMenuDropdown(false);
+    if (activeTabId) {
+      tabs.forEach((tab) => {
+        if (tab.id !== activeTabId) {
+          killSession(tab.id);
+        }
+      });
+    }
+  };
+
+  const handleToggleMode = () => {
+    setShowMenuDropdown(false);
+    setTheme(theme === "dark" ? "light" : "dark");
+  };
+
+  const handleExit = () => {
+    setShowMenuDropdown(false);
+    getCurrentWindow().close();
+  };
 
   // Initialize AI token receiver hooks
   useAICompletion();
@@ -209,7 +362,7 @@ export default function App() {
       if (sessionId === activeTabId) {
         setIsCwdLoading(false);
       }
-      
+
       // The shell prints the prompt (and CWD sentinel) when it becomes idle.
       // E.g. the running command has finished execution.
       const state = useBlockStore.getState();
@@ -287,6 +440,21 @@ export default function App() {
     const cmd = activeCommandInput;
     setCommandInput("");
 
+    // Special handling to fully reset UI on clear command
+    const cmdLower = cmd.trim().toLowerCase();
+    if (cmdLower === "clear" || cmdLower === "cls" || cmdLower === "clear-host") {
+      useBlockStore.getState().clearBlocks(targetId);
+      setInteractedSessions((prev) => {
+        const next = new Set(prev);
+        next.delete(targetId);
+        return next;
+      });
+      window.dispatchEvent(
+        new CustomEvent("terminal-clear", { detail: { sessionId: targetId } })
+      );
+      return;
+    }
+
     // Create a new block metadata in useBlockStore to track history
     const blockId = uuidv4();
     const newBlock: Block = {
@@ -345,6 +513,7 @@ export default function App() {
   };
 
   const activeTab = tabs.find(t => t.id === activeTabId);
+  const activeFilePath = activeTab?.type === "file" ? activeTab.filePath : undefined;
   const targetSessionId = activeTab?.type === "file"
     ? (tabs.find(t => t.type === "terminal")?.id ?? activeTabId)
     : activeTabId;
@@ -363,6 +532,17 @@ export default function App() {
     useBlockStore.getState().setRunningBlockId(activeTabId, null);
     useBlockStore.getState().setCommandOutputReceived(activeTabId, false);
   }, [activeRunningBlock?.status, activeRunningBlockId, activeTabId]);
+
+  // Auto-focus terminal input when command finishes or switching to terminal tab
+  useEffect(() => {
+    if (!isCommandRunning && activeTab?.type === "terminal") {
+      // Small timeout ensures GhostInput is rendered before focusing
+      const t = setTimeout(() => {
+        window.dispatchEvent(new CustomEvent("aurora-focus-terminal-input", { detail: { sessionId: activeTabId } }));
+      }, 50);
+      return () => clearTimeout(t);
+    }
+  }, [isCommandRunning, activeTabId, activeTab?.type]);
 
   const handleStopCurrentCommand = () => {
     if (!targetSessionId || !activeRunningBlockId || !isCommandRunning) return;
@@ -390,22 +570,202 @@ export default function App() {
         className="flex justify-between items-center w-full px-4 h-toolbar-height bg-surface-container-lowest border-b border-outline-variant/5 z-50 shadow-sm select-none"
       >
         <div data-tauri-no-drag className="flex items-center gap-2 h-full">
-          <button
-            data-tauri-no-drag
-            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-            className="p-2 hover:bg-surface-variant/30 rounded-lg transition-colors text-on-surface-variant cursor-pointer"
-            title="Toggle Sidebar"
-          >
-            {sidebarCollapsed
-              ? <PanelLeft size={16} />
-              : <PanelLeftClose size={16} />
-            }
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              data-tauri-no-drag
+              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+              className="p-2 hover:bg-surface rounded-lg transition-colors text-on-surface-variant cursor-pointer"
+              title="Toggle Sidebar"
+            >
+              {sidebarCollapsed
+                ? <PanelLeft size={16} />
+                : <PanelLeftClose size={16} />
+              }
+            </button>
+            <div className="relative">
+              <button
+                data-tauri-no-drag
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowMenuDropdown(!showMenuDropdown);
+                }}
+                className={`p-2 hover:bg-surface rounded-lg transition-colors text-on-surface-variant cursor-pointer ${showMenuDropdown ? "bg-surface text-primary" : ""}`}
+                title="Toggle Menu"
+              >
+                <Menu size={14} />
+              </button>
+              {showMenuDropdown && (
+                <div
+                  className="absolute left-0 mt-1.5 w-60 bg-surface-container-lowest border border-outline-variant/20 rounded-md shadow-2xl py-1 z-[999] text-on-surface font-body-base animate-in fade-in slide-in-from-top-1 duration-150"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <button
+                    onClick={handleOpenFolder}
+                    className="w-full flex items-center gap-3 px-3 py-2 text-[12px] hover:bg-surface-variant/30 hover:text-primary transition-colors text-left cursor-pointer"
+                  >
+                    <FolderOpen size={13} className="text-outline/65" />
+                    <span className="flex-1">Open Folder</span>
+                    <span className="text-[10px] text-outline/40 font-code-sm">Ctrl+O</span>
+                  </button>
+                  <button
+                    onClick={handleOpenFile}
+                    className="w-full flex items-center gap-3 px-3 py-2 text-[12px] hover:bg-surface-variant/30 hover:text-primary transition-colors text-left cursor-pointer"
+                  >
+                    <FileText size={13} className="text-outline/65" />
+                    <span className="flex-1">Open File</span>
+                    <span className="text-[10px] text-outline/40 font-code-sm">Ctrl+P</span>
+                  </button>
+
+                  <div className="relative group/recent">
+                    <button
+                      className="w-full flex items-center gap-3 px-3 py-2 text-[12px] hover:bg-surface-variant/30 hover:text-primary transition-colors text-left cursor-pointer"
+                    >
+                      <History size={13} className="text-outline/65" />
+                      <span className="flex-1">Open Recent...</span>
+                      <ChevronRight size={10} className="text-outline/40" />
+                    </button>
+                    <div className="absolute left-full top-0 ml-0.5 w-48 bg-surface-container-lowest border border-outline-variant/20 rounded-md shadow-2xl py-1 hidden group-hover/recent:block">
+                      <button onClick={() => handleOpenRecentFile("package.json")} className="w-full px-3 py-1.5 text-[11px] hover:bg-surface-variant/30 hover:text-primary transition-colors text-left truncate cursor-pointer">package.json</button>
+                      <button onClick={() => handleOpenRecentFile("src/App.tsx")} className="w-full px-3 py-1.5 text-[11px] hover:bg-surface-variant/30 hover:text-primary transition-colors text-left truncate cursor-pointer">src/App.tsx</button>
+                      <button onClick={() => handleOpenRecentFile("src/styles/globals.css")} className="w-full px-3 py-1.5 text-[11px] hover:bg-surface-variant/30 hover:text-primary transition-colors text-left truncate cursor-pointer">globals.css</button>
+                    </div>
+                  </div>
+
+                  <div className="h-px bg-outline-variant/20 my-1 mx-2" />
+
+                  <button
+                    onClick={handleNewWindow}
+                    className="w-full flex items-center gap-3 px-3 py-2 text-[12px] hover:bg-surface-variant/30 hover:text-primary transition-colors text-left cursor-pointer"
+                  >
+                    <Plus size={13} className="text-outline/65" />
+                    <span className="flex-1">New Window</span>
+                    <span className="text-[10px] text-outline/40 font-code-sm">Ctrl+Shift+N</span>
+                  </button>
+                  <button
+                    onClick={handleNewTab}
+                    className="w-full flex items-center gap-3 px-3 py-2 text-[12px] hover:bg-surface-variant/30 hover:text-primary transition-colors text-left cursor-pointer"
+                  >
+                    <SquareTerminal size={13} className="text-outline/65" />
+                    <span className="flex-1">New Tab</span>
+                    <span className="text-[10px] text-outline/40 font-code-sm">Ctrl+T</span>
+                  </button>
+
+                  <div className="h-px bg-outline-variant/20 my-1 mx-2" />
+
+                  <button
+                    onClick={handleCloseSession}
+                    className="w-full flex items-center gap-3 px-3 py-2 text-[12px] hover:bg-surface-variant/30 hover:text-primary transition-colors text-left cursor-pointer"
+                  >
+                    <Terminal size={13} className="text-outline/65" />
+                    <span className="flex-1">Close Session</span>
+                  </button>
+                  <button
+                    onClick={handleCloseTab}
+                    className="w-full flex items-center gap-3 px-3 py-2 text-[12px] hover:bg-surface-variant/30 hover:text-primary transition-colors text-left cursor-pointer"
+                  >
+                    <Trash2 size={13} className="text-outline/65" />
+                    <span className="flex-1">Close Tab</span>
+                    <span className="text-[10px] text-outline/40 font-code-sm">Ctrl+W</span>
+                  </button>
+                  <button
+                    onClick={handleCloseAllTabsExceptThis}
+                    className="w-full flex items-center gap-3 px-3 py-2 text-[12px] hover:bg-surface-variant/30 hover:text-primary transition-colors text-left cursor-pointer"
+                  >
+                    <SplitSquareHorizontal size={13} className="text-outline/65" />
+                    <span className="flex-1">Close Other Tabs</span>
+                  </button>
+
+                  <div className="h-px bg-outline-variant/20 my-1 mx-2" />
+
+                  <button
+                    onClick={() => {
+                      setShowMenuDropdown(false);
+                      setShowSettings(true);
+                    }}
+                    className="w-full flex items-center gap-3 px-3 py-2 text-[12px] hover:bg-surface-variant/30 hover:text-primary transition-colors text-left cursor-pointer"
+                  >
+                    <Command size={13} className="text-outline/65" />
+                    <span className="flex-1">Command Palette</span>
+                    <span className="text-[10px] text-outline/40 font-code-sm">Ctrl+Shift+P</span>
+                  </button>
+                  <button
+                    onClick={handleToggleMode}
+                    className="w-full flex items-center gap-3 px-3 py-2 text-[12px] hover:bg-surface-variant/30 hover:text-primary transition-colors text-left cursor-pointer"
+                  >
+                    <Settings size={13} className="text-outline/65" />
+                    <span className="flex-1">Switch Mode ({theme})</span>
+                  </button>
+                  <button
+                    onClick={handleExit}
+                    className="w-full flex items-center gap-3 px-3 py-2 text-[12px] hover:bg-red-500/10 hover:text-red-400 transition-colors text-left cursor-pointer"
+                  >
+                    <ExternalLink size={13} className="text-red-400/70" />
+                    <span className="flex-1 font-semibold">Exit</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
           <div className="flex items-center gap-1 ml-1">
-            <button data-tauri-no-drag onClick={() => setViewMode("terminal")} className={`p-2 rounded-md transition-colors cursor-pointer ${viewMode === "terminal" ? "bg-primary/10 text-primary" : "bg-surface hover:bg-surface-bright/60 text-on-surface-variant/70 hover:text-on-surface-variant"}`} title="Terminal View">
+            <button
+              data-tauri-no-drag
+              onClick={async () => {
+                setViewMode("terminal");
+                const hasTerminal = tabs.some(t => t.type === "terminal");
+                if (!hasTerminal) {
+                  const isWin = window.navigator.userAgent.includes("Windows");
+                  const defaultShell = isWin ? "powershell.exe" : "bash";
+                  const promptCmd = `function prompt { $cwd = $ExecutionContext.SessionState.Path.CurrentLocation; $branch = (git branch --show-current 2>$null); "__AURORA_CWD__=$cwd" + [char]13 + [char]10 + "__AURORA_BRANCH__=$branch" + [char]13 + [char]10 + "PS> " }; Clear-Host`;
+                  const args = isWin ? ["-NoLogo", "-NoExit", "-Command", promptCmd] : [];
+                  try {
+                    const sessionId = await spawnSession(defaultShell, args, {}, cwdAbsolute);
+                    setSessionCwds((prev) => ({ ...prev, [sessionId]: cwdAbsolute }));
+                  } catch (err) {
+                    console.error("Failed to spawn session:", err);
+                  }
+                } else {
+                  const targetId = lastActiveTerminalId && tabs.some(t => t.id === lastActiveTerminalId)
+                    ? lastActiveTerminalId
+                    : (tabs.find(t => t.type === "terminal")?.id);
+                  if (targetId) {
+                    setActiveTabId(targetId);
+                  }
+                }
+              }}
+              className={`p-2 rounded-md transition-colors cursor-pointer ${viewMode === "terminal" ? "bg-primary/10 text-primary" : "bg-surface hover:bg-surface-bright/60 text-on-surface-variant/70 hover:text-on-surface-variant"}`}
+              title="Terminal View"
+            >
               <SquareTerminal size={14} />
             </button>
-            <button data-tauri-no-drag onClick={() => setViewMode("file")} className={`p-2 rounded-md transition-colors cursor-pointer ${viewMode === "file" ? "bg-primary/10 text-primary" : "bg-surface hover:bg-surface-bright/60 text-on-surface-variant/70 hover:text-on-surface-variant"}`} title="File View">
+            <button
+              data-tauri-no-drag
+              onClick={async () => {
+                setViewMode("file");
+                const fileTabs = tabs.filter(t => t.type === "file");
+                if (fileTabs.length === 0) {
+                  const welcomeTabId = uuidv4();
+                  const newTab: Tab = {
+                    id: welcomeTabId,
+                    name: "Workspace",
+                    type: "file",
+                    filePath: undefined,
+                    cwd: cwdAbsolute,
+                    created_at: Date.now(),
+                  };
+                  useSessionStore.getState().addTab(newTab);
+                  setActiveTabId(welcomeTabId);
+                } else {
+                  const targetId = lastActiveFileId && tabs.some(t => t.id === lastActiveFileId)
+                    ? lastActiveFileId
+                    : (tabs.find(t => t.type === "file")?.id);
+                  if (targetId) {
+                    setActiveTabId(targetId);
+                  }
+                }
+              }}
+              className={`p-2 rounded-md transition-colors cursor-pointer ${viewMode === "file" ? "bg-primary/10 text-primary" : "bg-surface hover:bg-surface-bright/60 text-on-surface-variant/70 hover:text-on-surface-variant"}`}
+              title="Workspace View"
+            >
               <FolderOpen size={14} />
             </button>
             <button data-tauri-no-drag className="p-2 hover:text-on-surface-variant bg-surface hover:bg-surface-bright/60 rounded-md transition-colors text-on-surface-variant/70 cursor-pointer" title="Agent View">
@@ -455,7 +815,7 @@ export default function App() {
       <div className="flex flex-1 overflow-hidden">
 
         {/* Collapsible Sidebar — receives absolute cwd so tree refreshes on cd */}
-        <SidePanel collapsed={sidebarCollapsed} cwd={cwdAbsolute} />
+        <SidePanel collapsed={sidebarCollapsed} cwd={cwdAbsolute} activeFilePath={activeFilePath} />
 
         {/* Terminal Workspace area */}
         <main className="flex-1 flex flex-col min-w-0 bg-surface-container-low overflow-hidden relative">
@@ -464,16 +824,31 @@ export default function App() {
           <TabBar
             viewMode={viewMode}
             onSetViewMode={setViewMode}
-            onAddTab={async () => {
-              const isWin = window.navigator.userAgent.includes("Windows");
-              const defaultShell = isWin ? "powershell.exe" : "bash";
-              const promptCmd = `function prompt { $cwd = $ExecutionContext.SessionState.Path.CurrentLocation; $branch = (git branch --show-current 2>$null); "__AURORA_CWD__=$cwd" + [char]13 + [char]10 + "__AURORA_BRANCH__=$branch" + [char]13 + [char]10 + "PS> " }; Clear-Host`;
-              const args = isWin ? ["-NoLogo", "-NoExit", "-Command", promptCmd] : [];
-              try {
-                const sessionId = await spawnSession(defaultShell, args, {}, cwdAbsolute);
-                setSessionCwds((prev) => ({ ...prev, [sessionId]: cwdAbsolute }));
-              } catch (err) {
-                console.error("Failed to spawn session:", err);
+            onAddTab={async (type: "terminal" | "file") => {
+              if (type === "terminal") {
+                const isWin = window.navigator.userAgent.includes("Windows");
+                const defaultShell = isWin ? "powershell.exe" : "bash";
+                const promptCmd = `function prompt { $cwd = $ExecutionContext.SessionState.Path.CurrentLocation; $branch = (git branch --show-current 2>$null); "__AURORA_CWD__=$cwd" + [char]13 + [char]10 + "__AURORA_BRANCH__=$branch" + [char]13 + [char]10 + "PS> " }; Clear-Host`;
+                const args = isWin ? ["-NoLogo", "-NoExit", "-Command", promptCmd] : [];
+                try {
+                  const sessionId = await spawnSession(defaultShell, args, {}, cwdAbsolute);
+                  setSessionCwds((prev) => ({ ...prev, [sessionId]: cwdAbsolute }));
+                } catch (err) {
+                  console.error("Failed to spawn session:", err);
+                }
+              } else {
+                const welcomeTabId = uuidv4();
+                const newTab: Tab = {
+                  id: welcomeTabId,
+                  name: "Workspace",
+                  type: "file",
+                  filePath: undefined,
+                  cwd: cwdAbsolute,
+                  created_at: Date.now(),
+                };
+                useSessionStore.getState().addTab(newTab);
+                setActiveTabId(welcomeTabId);
+                setViewMode("file");
               }
             }}
             onKillTab={(id) => {
@@ -510,15 +885,14 @@ export default function App() {
 
           {/* Content Area — Terminal or File Editor (Full Height) */}
           <div
-            className={`flex-1 overflow-hidden w-full flex flex-col relative ${
-              tabs.find(t => t.id === activeTabId)?.type === "file"
-                ? ""
-                : "px-6 md:px-12 lg:px-20 max-w-6xl mx-auto pt-6"
-            }`}
+            className={`flex-1 overflow-hidden w-full flex flex-col relative ${tabs.find(t => t.id === activeTabId)?.type === "file"
+              ? ""
+              : "px-6 md:px-12 lg:px-20 max-w-6xl mx-auto pt-6"
+              }`}
             onMouseDown={() => {
               const activeTab = tabs.find(t => t.id === activeTabId);
               if (activeTab?.type === "terminal") {
-                window.dispatchEvent(new CustomEvent("aurora-focus-terminal-input"));
+                window.dispatchEvent(new CustomEvent("aurora-focus-terminal-input", { detail: { sessionId: activeTabId } }));
               }
             }}
           >
@@ -540,94 +914,136 @@ export default function App() {
                     }}
                   >
                     {tab.type === "file" ? (
-                      <div className="relative h-full">
-                        <FileViewer tabId={tab.id} filePath={tab.filePath!} fileName={tab.name} />
-                        <div className="absolute bottom-4 left-0 right-0 z-20 flex justify-center px-6 md:px-12 lg:px-20">
-                          <div className="max-w-6xl w-full mx-auto">
-                            <div
-                              className="warp-input-glow flex flex-col bg-surface-container-high/80 backdrop-blur-sm border border-outline-variant/20 overflow-hidden shadow-2xl rounded-lg"
-                              onContextMenu={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                window.dispatchEvent(new CustomEvent("aurora-right-click-menu-close"));
-                                window.dispatchEvent(
-                                  new CustomEvent("show-context-menu", {
-                                    detail: { x: e.clientX, y: e.clientY, source: "input" },
-                                  })
-                                );
-                              }}
-                            >
-                              <div className="flex items-center px-3 py-1 bg-surface-container-high/40 border-b border-outline-variant/10 select-none h-[26px]">
-                                <span className="text-[10px] font-code-sm text-outline/50 tracking-widest flex items-center gap-1.5">
-                                  <FolderOpen size={9} />
-                                  {(() => {
-                                    const filePath = tab.filePath || "";
-                                    const parts = filePath.split(/[/\\]/);
-                                    const folderName = parts.length > 1 ? parts[parts.length - 2] : "";
-                                    return folderName ? `${folderName}/` : "";
-                                  })()}
-                                  <span className="text-primary/70 font-medium">{tab.name}</span>
-                                </span>
-                              </div>
-                              <div className="flex items-start">
-                                <GhostInput
-                                  sessionId={targetSessionId}
-                                  value={activeCommandInput}
-                                  onChange={setCommandInput}
-                                  onSubmit={handleExecuteCommand}
-                                  history={[
-                                    ...activeTabBlocks
-                                      .filter((b) => b.command && b.command !== "init-aurora")
-                                      .map((b) => b.command as string),
-                                    ...shellHistory.slice().reverse(),
-                                  ]}
-                                  placeholder="Type a command or describe goal..."
-                                  className="flex-1"
-                                />
-                                <div className="flex items-center gap-1 pr-3 py-3 self-end">
-                                  {isCommandRunning ? (
-                                    <button
-                                      type="button"
-                                      onClick={handleStopCurrentCommand}
-                                      className="w-8 h-8 relative rounded-full bg-on-surface/30 border border-on-surface/20 text-on-surface hover:bg-on-surface/25 hover:text-on-surface-variant transition-all cursor-pointer"
-                                      title="Stop Execution"
-                                    >
-                                      <Square size={12} fill="currentColor" strokeWidth={0} className="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2" />
-                                    </button>
-                                  ) : (
-                                    <>
-                                      <button
-                                        type="button"
-                                        className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-variant/30 text-outline/50 hover:text-primary transition-all cursor-pointer"
-                                        title="Add File"
-                                      >
-                                        <Plus size={14} />
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => setShowAiBar(true)}
-                                        className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-variant/30 text-outline/50 hover:text-primary transition-all cursor-pointer"
-                                        title="Ask AI"
-                                      >
-                                        <Command size={14} />
-                                      </button>
-                                      <button
-                                        type="button"
-                                        className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-variant/30 text-outline/50 hover:text-secondary transition-all cursor-pointer"
-                                        title="Audio Mode"
-                                      >
-                                        <Mic size={14} />
-                                      </button>
-                                    </>
-                                  )}
+                      <div className="relative h-full flex flex-col bg-surface-container-low">
+                        {tab.filePath ? (
+                          <div className="relative h-full">
+                            <FileViewer tabId={tab.id} filePath={tab.filePath} fileName={tab.name} />
+                            <div className="absolute bottom-4 left-0 right-0 z-20 flex justify-center px-6 md:px-12 lg:px-20">
+                              <div className="max-w-6xl w-full mx-auto">
+                                <div
+                                  className="warp-input-glow flex flex-col bg-surface-container-high/80 backdrop-blur-sm border border-outline-variant/20 overflow-hidden shadow-2xl rounded-lg"
+                                  onContextMenu={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    window.dispatchEvent(new CustomEvent("aurora-right-click-menu-close"));
+                                    window.dispatchEvent(
+                                      new CustomEvent("show-context-menu", {
+                                        detail: { x: e.clientX, y: e.clientY, source: "input" },
+                                      })
+                                    );
+                                  }}
+                                >
+                                  <div className="flex items-center px-3 py-1 bg-surface-container-high/40 border-b border-outline-variant/10 select-none h-[26px]">
+                                    <span className="text-[10px] font-code-sm text-outline/50 tracking-widest flex items-center gap-1.5">
+                                      <FolderOpen size={9} />
+                                      {(() => {
+                                        const filePath = tab.filePath || "";
+                                        const parts = filePath.split(/[/\\]/);
+                                        const folderName = parts.length > 1 ? parts[parts.length - 2] : "";
+                                        return folderName ? `${folderName}/` : "";
+                                      })()}
+                                      <span className="text-primary/70 font-medium">{tab.name}</span>
+                                    </span>
+                                  </div>
+                                  <div className="flex items-start">
+                                    <GhostInput
+                                      sessionId={targetSessionId}
+                                      value={activeCommandInput}
+                                      onChange={setCommandInput}
+                                      onSubmit={handleExecuteCommand}
+                                      history={[
+                                        ...activeTabBlocks
+                                          .filter((b) => b.command && b.command !== "init-aurora")
+                                          .map((b) => b.command as string),
+                                        ...shellHistory.slice().reverse(),
+                                      ]}
+                                      placeholder="Type a command or describe goal..."
+                                      className="flex-1"
+                                    />
+                                    <div className="flex items-center gap-1 pr-3 py-3 self-end">
+                                      {isCommandRunning ? (
+                                        <button
+                                          type="button"
+                                          onClick={handleStopCurrentCommand}
+                                          className="w-8 h-8 relative rounded-full bg-on-surface/30 border border-on-surface/20 text-on-surface hover:bg-on-surface/25 hover:text-on-surface-variant transition-all cursor-pointer"
+                                          title="Stop Execution"
+                                        >
+                                          <Square size={12} fill="currentColor" strokeWidth={0} className="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2" />
+                                        </button>
+                                      ) : (
+                                        <>
+                                          <button
+                                            type="button"
+                                            className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-variant/30 text-outline/50 hover:text-primary transition-all cursor-pointer"
+                                            title="Add File"
+                                          >
+                                            <Plus size={14} />
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => setShowAiBar(true)}
+                                            className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-variant/30 text-outline/50 hover:text-primary transition-all cursor-pointer"
+                                            title="Ask AI"
+                                          >
+                                            <Command size={14} />
+                                          </button>
+                                          <button
+                                            type="button"
+                                            className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-variant/30 text-outline/50 hover:text-secondary transition-all cursor-pointer"
+                                            title="Audio Mode"
+                                          >
+                                            <Mic size={14} />
+                                          </button>
+                                        </>
+                                      )}
+                                    </div>
+                                  </div>
                                 </div>
                               </div>
                             </div>
                           </div>
-                        </div>
+                        ) : (
+                          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center max-w-sm mx-auto w-full text-on-surface select-text">
+                            {/* Welcome Banner */}
+                            <div className="mb-6 flex flex-col items-center">
+                              <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center mb-4 text-primary">
+                                <FolderOpen size={24} />
+                              </div>
+                              <h2 className="text-xl font-bold tracking-tight text-primary">
+                                Aurora Workspace
+                              </h2>
+                              <p className="text-[11px] text-on-surface-variant/60 mt-1.5 leading-relaxed max-w-[240px]">
+                                No files are open. Select an option to start editing in this workspace.
+                              </p>
+                            </div>
+
+                            {/* Core Action Buttons (Vertical Stack) */}
+                            <div className="flex flex-col gap-2.5 w-full">
+                              <button
+                                onClick={handleOpenFile}
+                                className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-on-primary active:scale-[0.98] transition-all font-semibold text-xs cursor-pointer shadow-md shadow-primary/10"
+                              >
+                                <FileText size={14} className="text-on-primary" />
+                                <span>Open File</span>
+                              </button>
+
+                              <button
+                                onClick={handleOpenFolder}
+                                className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-secondary text-on-secondary active:scale-[0.98] transition-all font-semibold text-xs cursor-pointer shadow-md shadow-secondary/10"
+                              >
+                                <FolderOpen size={14} className="text-on-secondary" />
+                                <span>Open Folder</span>
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     ) : (
-                      <TerminalPane isVisible={isTabVisible} sessionId={tab.id} />
+                      <TerminalPane
+                        isVisible={isTabVisible}
+                        sessionId={tab.id}
+                        isRunning={isTabActive ? isCommandRunning : undefined}
+                      />
                     )}
                   </div>
                 );
@@ -647,89 +1063,101 @@ export default function App() {
 
           {/* Terminal command input */}
           {activeTabId && tabs.some(t => t.id === activeTabId && t.type === "terminal") && (
-          <div
-            className="p-6 md:px-12 lg:px-20 max-w-6xl mx-auto w-full"
-            onContextMenu={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              window.dispatchEvent(new CustomEvent("aurora-right-click-menu-close"));
-              window.dispatchEvent(
-                new CustomEvent("show-context-menu", {
-                  detail: { x: e.clientX, y: e.clientY, source: "input" },
-                })
-              );
-            }}
-          >
-            <div className="warp-input-glow flex flex-col bg-surface-container-high/20 border border-outline-variant/20 overflow-hidden shadow-2xl rounded-lg">
-              <div className="flex items-center px-4 py-1.5 bg-surface-container-high/30 border-b border-outline-variant/10 select-none h-[29px]">
-                {isCwdLoading ? (
-                  <span className="text-[10px] font-code-sm text-primary tracking-widest flex items-center gap-1.5 select-none animate-spin pr-1">
-                    <RefreshCw size={10} />
-                  </span>
-                ) : (
-                  <span className="text-[10px] font-code-sm text-outline/50 tracking-widest flex items-center gap-1.5">
-                    <FolderOpen size={10} />
-                    {cwd}
-                  </span>
-                )}
-              </div>
-
-              <div className="flex items-start">
-                <GhostInput
-                  sessionId={targetSessionId}
-                  value={activeCommandInput}
-                  onChange={setCommandInput}
-                  onSubmit={handleExecuteCommand}
-                  history={[
-                    // Current-session commands (highest relevance, newest last → reversed inside GhostInput)
-                    ...activeTabBlocks
-                      .filter((b) => b.command && b.command !== "init-aurora")
-                      .map((b) => b.command as string),
-                    ...shellHistory.slice().reverse(),
-                  ]}
-                  placeholder="Type a command or describe goal..."
-                  className="flex-1"
-                />
-                <div className="flex items-center gap-1 pr-3 py-3 self-end">
-                  {isCommandRunning ? (
-                    <button
-                      type="button"
-                      onClick={handleStopCurrentCommand}
-                      className="w-8 h-8 relative rounded-full bg-on-surface/30 border border-on-surface/20 text-on-surface hover:bg-on-surface/25 hover:text-on-surface-variant transition-all cursor-pointer"
-                      title="Stop Execution"
-                    >
-                      <Square size={12} fill="currentColor" strokeWidth={0} className="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2" />
-                    </button>
+            <div
+              className="p-6 md:px-12 lg:px-20 max-w-6xl mx-auto w-full"
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                window.dispatchEvent(new CustomEvent("aurora-right-click-menu-close"));
+                window.dispatchEvent(
+                  new CustomEvent("show-context-menu", {
+                    detail: { x: e.clientX, y: e.clientY, source: "input" },
+                  })
+                );
+              }}
+            >
+              <div className="warp-input-glow flex flex-col bg-surface-container-high/20 border border-outline-variant/20 overflow-hidden shadow-2xl rounded-lg">
+                <div className="flex items-center px-4 py-1.5 bg-surface-container-high/30 border-b border-outline-variant/10 select-none h-[29px]">
+                  {isCwdLoading ? (
+                    <span className="text-[10px] font-code-sm text-primary tracking-widest flex items-center gap-1.5 select-none animate-spin pr-1">
+                      <RefreshCw size={10} />
+                    </span>
                   ) : (
-                    <>
-                      <button
-                        type="button"
-                        className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-variant/30 text-outline/50 hover:text-primary transition-all cursor-pointer"
-                        title="Add File"
-                      >
-                        <Plus size={14} />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setShowAiBar(true)}
-                        className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-variant/30 text-outline/50 hover:text-primary transition-all cursor-pointer"
-                        title="Ask AI"
-                      >
-                        <Command size={14} />
-                      </button>
-                      <button
-                        type="button"
-                        className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-variant/30 text-outline/50 hover:text-secondary transition-all cursor-pointer"
-                        title="Audio Mode"
-                      >
-                        <Mic size={14} />
-                      </button>
-                    </>
+                    <span className="text-[10px] font-code-sm text-outline/50 tracking-widest flex items-center gap-1.5">
+                      <FolderOpen size={10} />
+                      {cwd}
+                    </span>
                   )}
+                </div>
+
+                <div className="flex items-start">
+                  {isCommandRunning ? (
+                    <div className="w-full flex items-center justify-between px-5 mt-4 text-on-surface-variant/70 text-[12px] font-code-sm">
+                      <span className="flex items-center gap-2">
+                        <Terminal size={14} className="text-primary/70" />
+                        Command running...
+                      </span>
+                      <span className="text-[10px] text-outline/50 uppercase tracking-widest border border-outline/20 px-1.5 py-0.5 rounded">
+                        Ctrl + C to cancel
+                      </span>
+                    </div>
+                  ) : (
+                    <GhostInput
+                      sessionId={targetSessionId}
+                      value={activeCommandInput}
+                      onChange={setCommandInput}
+                      onSubmit={handleExecuteCommand}
+                      history={[
+                        // Current-session commands (highest relevance, newest last → reversed inside GhostInput)
+                        ...activeTabBlocks
+                          .filter((b) => b.command && b.command !== "init-aurora")
+                          .map((b) => b.command as string),
+                        ...shellHistory.slice().reverse(),
+                      ]}
+                      placeholder="Type a command or describe goal..."
+                      className="flex-1"
+                    />
+                  )}
+                  <div className="flex items-center gap-1 pr-3 py-3 self-end">
+                    {isCommandRunning ? (
+                      <button
+                        type="button"
+                        onClick={handleStopCurrentCommand}
+                        className="w-8 h-8 relative rounded-full bg-on-surface/30 border border-on-surface/20 text-on-surface hover:bg-on-surface/25 hover:text-on-surface-variant transition-all cursor-pointer"
+                        title="Stop Execution"
+                      >
+                        <Square size={12} fill="currentColor" strokeWidth={0} className="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2" />
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-variant/30 text-outline/50 hover:text-primary transition-all cursor-pointer"
+                          title="Add File"
+                        >
+                          <Plus size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowAiBar(true)}
+                          className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-variant/30 text-outline/50 hover:text-primary transition-all cursor-pointer"
+                          title="Ask AI"
+                        >
+                          <Command size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-variant/30 text-outline/50 hover:text-secondary transition-all cursor-pointer"
+                          title="Audio Mode"
+                        >
+                          <Mic size={14} />
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
           )}
 
           {/* AI overlay Command Bar */}
@@ -872,7 +1300,7 @@ export default function App() {
       )}
 
       {/* Footer Status pips */}
-      <StatusBar />
+      <StatusBar cwd={cwdAbsolute} />
     </div>
   );
 }

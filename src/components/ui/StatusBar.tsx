@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Cpu, GitBranch, Wifi, FileText, Copy } from "lucide-react";
+import { Cpu, GitBranch, Wifi, FileText, Copy, Folder } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAIStore } from "../../stores/useAIStore";
 import { useSettingsStore } from "../../stores/useSettingsStore";
@@ -17,7 +17,7 @@ function formatRam(mb: number): string {
   return `${mb} MB`;
 }
 
-export function StatusBar() {
+export function StatusBar({ cwd }: { cwd?: string }) {
   const { activeProvider } = useAIStore();
   const { mode } = useSettingsStore();
   const { tabs, activeTabId } = useSessionStore();
@@ -60,10 +60,23 @@ export function StatusBar() {
           </div>
         )}
 
+        {/* Current Working Directory (CWD) */}
+        {cwd && (
+          <>
+            {sysInfo.git_branch && <span className="text-outline/30 mx-0.5">|</span>}
+            <div className="flex items-center gap-1.5 text-on-surface-variant/70">
+              <Folder size={10} className="text-primary/70 shrink-0" />
+              <span className="text-primary truncate max-w-[280px]" title={cwd}>
+                {cwd}
+              </span>
+            </div>
+          </>
+        )}
+
         {/* Active file name — shown when a file tab is active */}
         {activeFileTab && (
           <>
-            <span className="text-outline/30 mx-0.5">|</span>
+            {(sysInfo.git_branch || cwd) && <span className="text-outline/30 mx-0.5">|</span>}
             <div
               className="relative flex items-center gap-1.5 text-on-surface-variant/80 group cursor-pointer"
               onMouseEnter={() => setShowPathTooltip(true)}
