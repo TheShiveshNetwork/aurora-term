@@ -32,7 +32,7 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
   const [canScrollRight, setCanScrollRight] = useState(false);
 
   const expandedTabs = tabs.filter((t) => t.type === viewMode);
-  const isScrollable = expandedTabs.length > 7;
+  const isScrollable = expandedTabs.length > 6;
 
   // Pinned tabs always sorted first
   const sortedTabs = [...tabs].sort((a, b) => {
@@ -227,11 +227,10 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
         id="aurora-tab-bar"
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
-        className={`flex items-start h-full pt-[2px] flex-1 gap-1 overflow-x-auto overflow-y-hidden min-w-0 relative ${
-          isScrollable
+        className={`flex items-start h-full pt-[2px] flex-1 gap-1 overflow-x-auto overflow-y-hidden min-w-0 relative ${isScrollable
             ? `has-tabs-scrollbar ${isHovered ? "tabs-scroll-hovered" : ""}`
             : "no-scrollbar"
-        }`}
+          }`}
       >
         {sortedTabs.map((tab, index) => {
           const isActive = tab.id === activeTabId;
@@ -256,9 +255,8 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
                 e.stopPropagation();
                 setContextTab({ x: e.clientX, y: e.clientY, tab });
               }}
-              className={`safari-tab select-none ${isActive ? "active" : ""} ${isOver ? "drag-over" : ""} ${isDragging ? "opacity-40" : ""} ${
-                isExpanded && !isPinned ? "" : "!justify-center !p-0 !gap-0"
-              }`}
+              className={`safari-tab select-none ${isActive ? "active" : ""} ${isOver ? "drag-over" : ""} ${isDragging ? "opacity-40" : ""} ${isExpanded && !isPinned ? "" : "!justify-center !p-0 !gap-0"
+                }`}
               style={{
                 flex: isExpanded && !isPinned ? (isScrollable ? "0 0 140px" : "1 1 0%") : "0 0 36px",
                 height: "32px",
@@ -277,9 +275,8 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
 
               {isPinned ? null : (
                 <span
-                  className={`truncate transition-all duration-200 ${isActive ? "text-on-surface" : ""} ${
-                    isExpanded ? "max-w-[160px] opacity-100" : "max-w-0 opacity-0 overflow-hidden"
-                  }`}
+                  className={`truncate transition-all duration-200 ${isActive ? "text-on-surface" : ""} ${isExpanded ? "max-w-[160px] opacity-100" : "max-w-0 opacity-0 overflow-hidden"
+                    }`}
                 >
                   {tab.name}
                 </span>
@@ -293,9 +290,8 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
                     e.stopPropagation();
                     onKillTab(tab.id);
                   }}
-                  className={`absolute right-1 shrink-0 transition-all duration-200 hover:bg-surface-variant/40 rounded p-0.5 text-on-surface-variant/40 hover:text-error ${
-                    isExpanded ? "opacity-100" : "opacity-0 pointer-events-none"
-                  }`}
+                  className={`absolute right-1 shrink-0 transition-all duration-200 hover:bg-surface-variant/40 rounded p-0.5 text-on-surface-variant/40 hover:text-error ${isExpanded ? "opacity-100" : "opacity-0 pointer-events-none"
+                    }`}
                 >
                   <X size={12} />
                 </button>
@@ -334,7 +330,7 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
         </button>
 
         {showAddMenu && (
-          <div 
+          <div
             className="absolute right-0 top-[calc(100%+6px)] bg-surface-container-lowest border border-outline-variant/15 rounded-xl py-1.5 min-w-[125px] shadow-xl z-[100] animate-in fade-in slide-in-from-top-2 duration-150"
             style={{ pointerEvents: "auto" }}
           >
@@ -348,7 +344,7 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
               <Terminal size={12} className="text-primary/70 shrink-0" />
               <span>Terminal Tab</span>
             </button>
-            
+
             <button
               onClick={() => {
                 onAddTab("file");
