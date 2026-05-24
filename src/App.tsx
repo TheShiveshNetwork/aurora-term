@@ -558,6 +558,7 @@ export default function App() {
 
   return (
     <div
+      data-tauri-drag-region
       className="bg-background text-on-surface font-body-base overflow-hidden h-screen flex flex-col select-none"
       onContextMenu={(e) => e.preventDefault()} // suppress browser default everywhere
       onClick={() => setContextMenu(null)}

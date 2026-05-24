@@ -5,6 +5,7 @@ pub mod pty;
 pub mod ai;
 pub mod state;
 pub mod commands;
+pub mod watcher;
 
 use state::AppState;
 use config::{ConfigLoader, AppConfig};
@@ -56,12 +57,14 @@ pub fn run() {
             commands::process_list,
             commands::process_kill,
             commands::get_system_info,
+            commands::get_current_pwd,
             commands::read_shell_history,
             commands::reveal_in_explorer,
             commands::delete_path,
             commands::rename_path,
             commands::select_folder,
             commands::select_file,
+            commands::watch_directory,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

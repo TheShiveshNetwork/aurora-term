@@ -1,8 +1,11 @@
 use serde::{Serialize, Deserialize};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::Instant;
 use tauri::command;
 use base64::Engine;
 use crate::error::AppError;
+use crate::state::AppState;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -42,6 +45,8 @@ fn is_hidden_name(name: &str) -> bool {
     name.starts_with('.')
 }
 
+static READ_DIR_CACHE: Mutex<Option<(String, Vec<FileNode>, Instant)>> = Mutex::new(None);
+
 #[command]
 pub fn read_dir(path: Option<String>) -> Result<Vec<FileNode>, AppError> {
     let target_path: PathBuf = match path {
@@ -49,7 +54,18 @@ pub fn read_dir(path: Option<String>) -> Result<Vec<FileNode>, AppError> {
         None => std::env::current_dir()?,
     };
 
-    // Build gitignore matcher for this directory
+    let path_str = target_path.to_string_lossy().to_string();
+
+    {
+        if let Ok(cache) = READ_DIR_CACHE.lock() {
+            if let Some((cached_path, nodes, time)) = cache.as_ref() {
+                if *cached_path == path_str && time.elapsed() < std::time::Duration::from_secs(2) {
+                    return Ok(nodes.clone());
+                }
+            }
+        }
+    }
+
     let gitignore = build_gitignore(&target_path);
 
     let mut nodes = Vec::new();
@@ -62,7 +78,6 @@ pub fn read_dir(path: Option<String>) -> Result<Vec<FileNode>, AppError> {
             let is_dir = path.is_dir();
             let is_hidden = is_hidden_name(&name);
 
-            // Check gitignore status
             let is_gitignored = gitignore
                 .as_ref()
                 .map(|gi| {
@@ -80,14 +95,11 @@ pub fn read_dir(path: Option<String>) -> Result<Vec<FileNode>, AppError> {
         }
     }
 
-    // Sort: dirs before files, then alphabetically (case-insensitive).
-    // Hidden files/dirs are sorted within their group (after non-hidden).
     nodes.sort_by(|a, b| {
         match (a.is_dir, b.is_dir) {
             (true, false) => std::cmp::Ordering::Less,
             (false, true) => std::cmp::Ordering::Greater,
             _ => {
-                // Within same type: non-hidden before hidden, then alpha
                 match (a.is_hidden, b.is_hidden) {
                     (false, true) => std::cmp::Ordering::Less,
                     (true, false) => std::cmp::Ordering::Greater,
@@ -96,6 +108,12 @@ pub fn read_dir(path: Option<String>) -> Result<Vec<FileNode>, AppError> {
             }
         }
     });
+
+    {
+        if let Ok(mut cache) = READ_DIR_CACHE.lock() {
+            *cache = Some((path_str, nodes.clone(), Instant::now()));
+        }
+    }
 
     Ok(nodes)
 }
@@ -237,5 +255,15 @@ pub fn select_file() -> Result<Option<String>, AppError> {
         .set_title("Open File")
         .pick_file();
     Ok(file.map(|p| p.to_string_lossy().into_owned()))
+}
+
+#[command]
+pub fn watch_directory(
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    path: String,
+) -> Result<(), String> {
+    state.file_watcher.watch(path, app_handle);
+    Ok(())
 }
 

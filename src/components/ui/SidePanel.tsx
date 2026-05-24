@@ -4,6 +4,7 @@ import {
   Copy, FolderOpen, Terminal, ExternalLink, ClipboardCopy, Pencil, Trash2, AlertTriangle,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import {
   RightClickMenuItem,
   RightClickMenuPanel,
@@ -308,6 +309,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
   const dragStartX = useRef(0);
   const dragStartWidth = useRef(DEFAULT_WIDTH);
   const panelRef = useRef<HTMLElement>(null);
+  const loadSeqRef = useRef(0);
 
   // ── Close file menu on outside click ─────────────────────
   useEffect(() => {
@@ -329,6 +331,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
 
   // ── Load file tree for a given absolute path ──────────────
   const loadTree = useCallback(async (absolutePath: string) => {
+    const seq = ++loadSeqRef.current;
     setIsLoading(true);
     setError(null);
     setActivePath("");
@@ -337,13 +340,17 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
       const parts = absolutePath.split(/[/\\]/);
       setWorkspaceName(parts[parts.length - 1] || absolutePath);
       const res = await invoke<FileNode[]>("read_dir", { path: absolutePath });
+      if (seq !== loadSeqRef.current) return;
       serializedRootRef.current = JSON.stringify(res);
       setRootNodes(res);
     } catch (err) {
+      if (seq !== loadSeqRef.current) return;
       console.error("Failed to load workspace tree:", err);
       setError(String(err) || "Failed to load workspace files.");
     } finally {
-      setIsLoading(false);
+      if (seq === loadSeqRef.current) {
+        setIsLoading(false);
+      }
     }
   }, []);
 
@@ -369,7 +376,6 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
   }, [cwd, resolvedCwd, loadTree]);
 
   // ── Listen for cwd-change from terminal CWD sentinel ─────
-  // Only reload when the path actually differs.
   const lastLoadedPathRef = useRef("");
   useEffect(() => {
     const handler = (e: Event) => {
@@ -383,11 +389,18 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
     return () => window.removeEventListener("cwd-change", handler);
   }, [resolvedCwd, loadTree]);
 
-  // ── Poll root directory every 4s for live updates ────────
+  // ── Start file watcher when CWD changes ──────────────────
   const serializedRootRef = useRef("");
   useEffect(() => {
+    if (!resolvedCwd) return;
+    invoke("watch_directory", { path: resolvedCwd }).catch(() => {});
+  }, [resolvedCwd]);
+
+  // ── Listen for fs-tree-changed events from file watcher ──
+  useEffect(() => {
     if (collapsed || !resolvedCwd) return;
-    const interval = setInterval(async () => {
+    let unlisten: (() => void) | null = null;
+    listen<void>("fs-tree-changed", async () => {
       try {
         const res = await invoke<FileNode[]>("read_dir", { path: resolvedCwd });
         const serialized = JSON.stringify(res);
@@ -396,10 +409,10 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
           setRootNodes(res);
         }
       } catch {
-        // silently ignore errors during polling
+        // silently ignore
       }
-    }, 4000);
-    return () => clearInterval(interval);
+    }).then((fn) => { unlisten = fn; });
+    return () => { if (unlisten) unlisten(); };
   }, [collapsed, resolvedCwd]);
 
   // ── Drag-to-resize ────────────────────────────────────────

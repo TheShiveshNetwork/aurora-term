@@ -16,7 +16,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { parseAnsiInto, createParserState, StyledLine, AnsiSpan, ParserState } from "../../lib/ansiParser";
-import { pty } from "../../lib/ipc";
+import { pty, system } from "../../lib/ipc";
 
 interface OutputRendererProps {
   sessionId: string;
@@ -310,9 +310,18 @@ export function OutputRenderer({
     const onSessionExit = (e: Event) => {
       const code = (e as CustomEvent<number>).detail;
       const msg = `\nProcess exited (code ${code})\n`;
-      // Write exit message with red colour via raw ANSI
       parseAnsiInto(linesRef.current, parserStateRef.current, `\x1b[1;31m${msg}\x1b[0m`);
       pendingFlushRef.current = true;
+
+      setTimeout(() => {
+        system.getCurrentPwd().then((path: string) => {
+          if (path) {
+            window.dispatchEvent(
+              new CustomEvent("cwd-change", { detail: { path, sessionId } })
+            );
+          }
+        }).catch(() => {});
+      }, 100);
     };
 
     const onCommandRun = (e: Event) => {

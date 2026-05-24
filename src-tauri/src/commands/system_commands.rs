@@ -1,5 +1,8 @@
 use tauri::command;
 use std::process::Command;
+use sysinfo::System;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 #[derive(serde::Serialize)]
 pub struct SystemInfo {
@@ -9,10 +12,13 @@ pub struct SystemInfo {
     pub encoding: String,
 }
 
+static RAM_CACHE: Mutex<Option<(u64, u64, Instant)>> = Mutex::new(None);
+static GIT_CACHE: Mutex<Option<(Option<String>, Instant)>> = Mutex::new(None);
+
 #[command]
 pub fn get_system_info(cwd: Option<String>) -> SystemInfo {
-    let (ram_used_mb, ram_total_mb) = get_ram_usage();
-    let git_branch = get_git_branch(cwd.as_deref());
+    let (ram_used_mb, ram_total_mb) = get_ram_usage_cached();
+    let git_branch = get_git_branch_cached(cwd.as_deref());
     let encoding = "UTF-8".to_string();
 
     SystemInfo {
@@ -23,85 +29,42 @@ pub fn get_system_info(cwd: Option<String>) -> SystemInfo {
     }
 }
 
+fn get_ram_usage_cached() -> (u64, u64) {
+    if let Ok(cache) = RAM_CACHE.lock() {
+        if let Some((used, total, time)) = cache.as_ref() {
+            if time.elapsed() < Duration::from_secs(60) {
+                return (*used, *total);
+            }
+        }
+    }
+    let result = get_ram_usage();
+    if let Ok(mut cache) = RAM_CACHE.lock() {
+        *cache = Some((result.0, result.1, Instant::now()));
+    }
+    result
+}
+
+fn get_git_branch_cached(cwd: Option<&str>) -> Option<String> {
+    if let Ok(cache) = GIT_CACHE.lock() {
+        if let Some((branch, time)) = cache.as_ref() {
+            if time.elapsed() < Duration::from_secs(60) {
+                return branch.clone();
+            }
+        }
+    }
+    let result = get_git_branch(cwd);
+    if let Ok(mut cache) = GIT_CACHE.lock() {
+        *cache = Some((result.clone(), Instant::now()));
+    }
+    result
+}
+
 fn get_ram_usage() -> (u64, u64) {
-    #[cfg(target_os = "windows")]
-    {
-        let ps_script = r#"
-$os = Get-CimInstance -ClassName Win32_OperatingSystem;
-$total = $os.TotalVisibleMemorySize;
-$free  = $os.FreePhysicalMemory;
-Write-Output "$total $free"
-"#;
-        let output = Command::new("powershell")
-            .args([
-                "-NonInteractive",
-                "-NoProfile",
-                "-WindowStyle", "Hidden",
-                "-Command",
-                ps_script,
-            ])
-            .output();
-
-        if let Ok(out) = output {
-            let text = String::from_utf8_lossy(&out.stdout);
-            let mut parts = text.split_whitespace();
-            if let (Some(total_str), Some(free_str)) = (parts.next(), parts.next()) {
-                let total_kb: u64 = total_str.trim().parse().unwrap_or(0);
-                let free_kb:  u64 = free_str.trim().parse().unwrap_or(0);
-                if total_kb > 0 {
-                    return ((total_kb - free_kb) / 1024, total_kb / 1024);
-                }
-            }
-        }
-        return (0, 0);
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        let total_bytes: u64 = Command::new("sysctl")
-            .args(["-n", "hw.memsize"])
-            .output()
-            .ok()
-            .and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse::<u64>().ok())
-            .unwrap_or(0);
-
-        let used_mb: u64 = Command::new("sh")
-            .args([
-                "-c",
-                r#"
-page_size=$(pagesize);
-vm=$(vm_stat);
-wired=$(echo "$vm" | awk '/wired/{gsub(/\./,"",$NF); print $NF}');
-active=$(echo "$vm" | awk '/^Pages active/{gsub(/\./,"",$NF); print $NF}');
-compressed=$(echo "$vm" | awk '/compressed/{gsub(/\./,"",$NF); print $NF+0}');
-echo $(( (wired + active + compressed) * page_size / 1048576 ))
-"#,
-            ])
-            .output()
-            .ok()
-            .and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse::<u64>().ok())
-            .unwrap_or(0);
-
-        return (used_mb, total_bytes / (1024 * 1024));
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        let contents = std::fs::read_to_string("/proc/meminfo").unwrap_or_default();
-        let mut total_kb = 0u64;
-        let mut available_kb = 0u64;
-        for line in contents.lines() {
-            if line.starts_with("MemTotal:") {
-                total_kb = line.split_whitespace().nth(1).and_then(|v| v.parse().ok()).unwrap_or(0);
-            } else if line.starts_with("MemAvailable:") {
-                available_kb = line.split_whitespace().nth(1).and_then(|v| v.parse().ok()).unwrap_or(0);
-            }
-        }
-        return ((total_kb.saturating_sub(available_kb)) / 1024, total_kb / 1024);
-    }
-
-    #[allow(unreachable_code)]
-    (0, 0)
+    let mut sys = System::new();
+    sys.refresh_memory();
+    let total = sys.total_memory() / (1024 * 1024);
+    let used = (sys.total_memory() - sys.available_memory()) / (1024 * 1024);
+    (used as u64, total as u64)
 }
 
 fn get_git_branch(cwd: Option<&str>) -> Option<String> {
@@ -111,7 +74,7 @@ fn get_git_branch(cwd: Option<&str>) -> Option<String> {
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        cmd.creation_flags(0x08000000);
     }
 
     if let Some(dir) = cwd {
@@ -123,6 +86,13 @@ fn get_git_branch(cwd: Option<&str>) -> Option<String> {
         .filter(|o| o.status.success())
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .filter(|s| !s.is_empty() && s != "HEAD")
+}
+
+#[command]
+pub fn get_current_pwd() -> Result<String, String> {
+    std::env::current_dir()
+        .map(|p| p.to_string_lossy().into_owned())
+        .map_err(|e| e.to_string())
 }
 
 // ─── Shell history reader ──────────────────────────────────────────────────────

@@ -53,3 +53,8 @@ export const process = {
   list: () => invoke<ProcessInfo[]>("process_list"),
   kill: (pid: number) => invoke<void>("process_kill", { pid }),
 };
+
+export const system = {
+  getCurrentPwd: () =>
+    invoke<string>("get_current_pwd"),
+};

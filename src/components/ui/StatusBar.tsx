@@ -32,10 +32,13 @@ export function StatusBar({ cwd }: { cwd?: string }) {
     encoding: "UTF-8",
   });
 
+  const cwdRef = useRef(cwd);
+  cwdRef.current = cwd;
+
   useEffect(() => {
     async function fetchInfo() {
       try {
-        const info = await invoke<SystemInfo>("get_system_info", { cwd: null });
+        const info = await invoke<SystemInfo>("get_system_info", { cwd: cwdRef.current });
         setSysInfo(info);
       } catch (e) {
         // fallback — keep defaults
@@ -43,13 +46,12 @@ export function StatusBar({ cwd }: { cwd?: string }) {
     }
 
     fetchInfo();
-    // Refresh every 8 seconds
-    const interval = setInterval(fetchInfo, 8000);
+    const interval = setInterval(fetchInfo, 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [cwd]);
 
   return (
-    <footer id="aurora-status-bar" className="flex justify-between items-center px-4 h-7 w-full bg-surface-container-lowest border-t border-outline-variant/5 z-50 select-none text-[10px] font-code-sm font-medium">
+    <footer id="aurora-status-bar" className="flex justify-between items-center px-4 h-7 w-full bg-surface-container-lowest border-t border-outline-variant/5 z-50 select-none text-[10px] font-medium">
       {/* Left side */}
       <div className="flex items-center gap-4">
         {/* Git branch */}
