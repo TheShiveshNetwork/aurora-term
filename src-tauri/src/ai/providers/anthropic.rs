@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use futures_util::StreamExt;
 use reqwest::header::{HeaderMap, HeaderValue};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::Value;
 use crate::error::AppError;
 use crate::ai::router::TaskTier;

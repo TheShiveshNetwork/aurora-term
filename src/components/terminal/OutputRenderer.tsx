@@ -161,7 +161,7 @@ export function OutputRenderer({
     chunk = chunk.replace(
       /(?:\r?\n)?__AURORA_CWD__=([^\r\n]+)\r?\n?/g,
       (_m, rawPath) => {
-        const path = stripAnsi(rawPath).trim();
+        const path = stripAnsi(rawPath).replace(/\[K$/, "").trim();
         if (isValidPath(path)) {
           cwdRef.current = path;
           window.dispatchEvent(new CustomEvent("cwd-change", { detail: { path, sessionId } }));

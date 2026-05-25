@@ -57,4 +57,8 @@ export const process = {
 export const system = {
   getCurrentPwd: () =>
     invoke<string>("get_current_pwd"),
+  revealInExplorer: (path: string) =>
+    invoke<void>("reveal_in_explorer", { path }),
+  getGitBranch: (cwd: string) =>
+    invoke<string | null>("get_git_branch", { cwd }),
 };

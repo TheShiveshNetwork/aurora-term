@@ -1,6 +1,6 @@
 use std::fs;
 use std::path::PathBuf;
-use tauri::Manager;
+
 use crate::config::schema::AppConfig;
 use crate::error::AppError;
 

@@ -52,7 +52,7 @@ fn get_git_branch_cached(cwd: Option<&str>) -> Option<String> {
             }
         }
     }
-    let result = get_git_branch(cwd);
+    let result = get_git_branch_helper(cwd);
     if let Ok(mut cache) = GIT_CACHE.lock() {
         *cache = Some((result.clone(), Instant::now()));
     }
@@ -67,7 +67,7 @@ fn get_ram_usage() -> (u64, u64) {
     (used as u64, total as u64)
 }
 
-fn get_git_branch(cwd: Option<&str>) -> Option<String> {
+fn get_git_branch_helper(cwd: Option<&str>) -> Option<String> {
     let mut cmd = Command::new("git");
     cmd.args(["rev-parse", "--abbrev-ref", "HEAD"]);
 
@@ -86,6 +86,20 @@ fn get_git_branch(cwd: Option<&str>) -> Option<String> {
         .filter(|o| o.status.success())
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .filter(|s| !s.is_empty() && s != "HEAD")
+}
+
+#[command]
+pub async fn get_git_branch(cwd: String) -> Result<Option<String>, crate::error::AppError> {
+    let head = std::path::Path::new(&cwd).join(".git/HEAD");
+    if !head.exists() { return Ok(None) }
+    let content = tokio::fs::read_to_string(head).await?;
+    let content_trimmed = content.trim();
+    if content_trimmed.starts_with("ref: refs/heads/") {
+        Ok(Some(content_trimmed["ref: refs/heads/".len()..].to_string()))
+    } else {
+        // detached HEAD or hex sha
+        Ok(Some(content_trimmed.chars().take(7).collect()))
+    }
 }
 
 #[command]

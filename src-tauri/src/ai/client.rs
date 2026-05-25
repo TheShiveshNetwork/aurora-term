@@ -1,6 +1,6 @@
 use reqwest::Client;
 use std::time::Duration;
-use crate::error::AppError;
+
 
 pub struct AiHttpClient {
     pub client: Client,

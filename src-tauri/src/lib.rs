@@ -12,11 +12,17 @@ use config::{ConfigLoader, AppConfig};
 use history::HistoryDb;
 use pty::PtyManager;
 use tauri::Manager;
+use tauri_plugin_prevent_default::Flags;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(
+            tauri_plugin_prevent_default::Builder::new()
+                .with_flags(Flags::keyboard())
+                .build()
+        )
         .setup(|app| {
             // Load config or write default
             let config_loader = ConfigLoader::new(app)?;
@@ -65,6 +71,7 @@ pub fn run() {
             commands::select_folder,
             commands::select_file,
             commands::watch_directory,
+            commands::get_git_branch,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

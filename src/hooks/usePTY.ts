@@ -53,12 +53,7 @@ export function usePTY() {
         const state = useBlockStore.getState();
         const blockId = state.runningBlockId[session_id];
         if (blockId) {
-          state.updateBlock(session_id, blockId, {
-            status: exit_code === 0 ? "success" : "error",
-            exit_code,
-            finished_at: Date.now(),
-          });
-          state.setRunningBlockId(session_id, null);
+          state.finalizeBlock(session_id, blockId, exit_code);
           state.setCommandOutputReceived(session_id, false);
         }
 

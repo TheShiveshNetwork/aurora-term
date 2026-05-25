@@ -4,17 +4,20 @@ import { Tab } from "../types/session";
 interface SessionStore {
   tabs: Tab[];
   activeTabId: string | null;
+  alternateBufferActive: Record<string, boolean>; // keyed by sessionId
   addTab: (tab: Tab) => void;
   removeTab: (id: string) => void;
   setActiveTabId: (id: string) => void;
   updateTabCwd: (id: string, cwd: string) => void;
   updateTab: (id: string, partial: Partial<Tab>) => void;
   reorderTabs: (fromIndex: number, toIndex: number) => void;
+  setAlternateBufferActive: (id: string, active: boolean) => void;
 }
 
 export const useSessionStore = create<SessionStore>((set) => ({
   tabs: [],
   activeTabId: null,
+  alternateBufferActive: {},
   addTab: (tab) =>
     set((state) => ({
       tabs: [...state.tabs, tab],
@@ -48,4 +51,11 @@ export const useSessionStore = create<SessionStore>((set) => ({
       tabs.splice(toIndex, 0, moved);
       return { tabs };
     }),
+  setAlternateBufferActive: (id, active) =>
+    set((state) => ({
+      alternateBufferActive: {
+        ...state.alternateBufferActive,
+        [id]: active,
+      },
+    })),
 }));
