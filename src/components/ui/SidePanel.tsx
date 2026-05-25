@@ -502,7 +502,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
       return;
     }
     try {
-      await invoke("rename_path", { oldPath: renameState.path, newName });
+      await invoke("rename_path", { oldPath: renameState.path, newName: newName });
       setRenameState(null);
       // Refresh the tree
       if (resolvedCwd) loadTree(resolvedCwd);

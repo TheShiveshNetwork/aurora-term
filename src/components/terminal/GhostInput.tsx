@@ -77,7 +77,7 @@ export function GhostInput({
   const histNavRef = useRef<number>(-1);
   const draftRef = useRef<string>("");
 
-  const uniqueHistory = [...new Set(history.filter(Boolean))];
+  const uniqueHistory = [...new Set(history.filter(Boolean).map(cmd => cmd.replace(/`+$/, '')))];
 
   const ghost = computeGhost(value, uniqueHistory);
 

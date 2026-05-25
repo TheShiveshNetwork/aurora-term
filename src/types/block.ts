@@ -14,4 +14,8 @@ export interface Block {
   ai_explain?: string;
   bookmarked: boolean;
   output_summary?: string;
+  anchor_row: number;         // xterm buffer row where this block's output starts
+  output_row_end: number;     // last xterm buffer row of output (updates during run)
+  anchor_y: number;           // pixel Y position calculated relative to terminal viewport
+  output_height_px?: number;  // pixel height calculated relative to terminal viewport
 }

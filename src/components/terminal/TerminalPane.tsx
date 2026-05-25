@@ -1,24 +1,21 @@
-/**
- * TerminalPane.tsx
- *
- * HEADLESS SIZING SHIM — xterm is no longer used for display.
- *
- * All PTY output is now rendered by <OutputRenderer>, which handles
- * ANSI parsing, virtual scrolling, and copy/selection natively.
- *
- * This component keeps a single headless xterm Terminal instance
- * (never mounted to the DOM) solely to:
- *   1. Measure accurate monospace cell dimensions (charWidth, lineHeight)
- *   2. Call pty.resize(cols, rows) when the container size changes
- *
- * If you want to remove xterm entirely, delete this file and pass
- * hardcoded { cellWidth: 8, cellHeight: 19.5 } to OutputRenderer.
- */
-
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, startTransition, useMemo } from "react";
 import { Terminal } from "@xterm/xterm";
+
 import { FitAddon } from "@xterm/addon-fit";
-import { OutputRenderer } from "./OutputRenderer";
+import { SearchAddon } from "@xterm/addon-search";
+import { WebLinksAddon } from "@xterm/addon-web-links";
+import { useBlockStore } from "../../stores/useBlockStore";
+import { useSettingsStore } from "../../stores/useSettingsStore";
+import { useSessionStore } from "../../stores/useSessionStore";
+import { buildXtermTheme } from "../../lib/xtermTheme";
+import { recalculateAnchors } from "../../lib/terminal/blockAnchors";
+// PromptBar and InputBar decoupled to App level
+import { TerminalBlock } from "./TerminalBlock";
+import { pty, system } from "../../lib/ipc";
+import { SquareTerminal, ShieldCheck } from "lucide-react";
+import { Block } from "../../types/block";
+
+const EMPTY_BLOCKS: Block[] = [];
 
 interface TerminalPaneProps {
   sessionId: string;
@@ -26,67 +23,391 @@ interface TerminalPaneProps {
   isRunning?: boolean;
 }
 
-// Fallback cell dimensions (JetBrains Mono 13px / line-height 1.5)
-const FALLBACK_CELL_WIDTH  = 7.8;
-const FALLBACK_CELL_HEIGHT = 19.5;
+export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const xtermRef = useRef<HTMLDivElement>(null);
+  const termRef = useRef<Terminal | null>(null);
+  const fitRef = useRef<FitAddon | null>(null);
+  // Layout context parameters
+  const [cwd, setCwd] = useState("~/workspace");
+  const [isCwdLoading, setIsCwdLoading] = useState(false);
 
-export function TerminalPane({ sessionId, isVisible, isRunning }: TerminalPaneProps) {
-  const [cellWidth,  setCellWidth]  = useState(FALLBACK_CELL_WIDTH);
-  const [cellHeight, setCellHeight] = useState(FALLBACK_CELL_HEIGHT);
+  // Read registered blocks for this session from state
+  const sessionBlocks = useBlockStore((state) => state.blocks[sessionId] || EMPTY_BLOCKS);
+  const runningBlockId = useBlockStore((state) => state.runningBlockId[sessionId]);
+  const isCommandRunning = !!runningBlockId;
+  const isAlternateActive = useSessionStore((state) => state.alternateBufferActive[sessionId] || false);
+  const theme = useSettingsStore((state) => state.theme);
 
-  // ── Headless xterm instance — measure cell size once on mount ─────────────
+  // Get dynamic cell dimensions to verify layout alignments
+  const [lineHeight, setLineHeight] = useState(19.5);
+
+  // Recalculate anchors and update store inside transition boundaries
+  const recalc = useMemo(() => {
+    let debounceTimer: ReturnType<typeof setTimeout>;
+    return () => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        const term = termRef.current;
+        if (!term || !(term as any)._core || !term.buffer) return;
+        const anchors = recalculateAnchors(term, sessionId);
+        startTransition(() => {
+          useBlockStore.getState().setAnchorY(sessionId, anchors);
+        });
+      }, 16); // Throttled to ~60fps
+    };
+  }, [sessionId]);
+
+  // Sync theme when dark/light mode switches
   useEffect(() => {
-    // Create a tiny off-screen container to mount xterm into temporarily
-    const offscreen = document.createElement("div");
-    offscreen.style.cssText = [
-      "position:absolute",
-      "top:-9999px",
-      "left:-9999px",
-      "width:500px",
-      "height:300px",
-      "visibility:hidden",
-      "pointer-events:none",
-    ].join(";");
-    document.body.appendChild(offscreen);
+    if (termRef.current) {
+      termRef.current.options.theme = buildXtermTheme();
+    }
+  }, [theme]);
 
+  useEffect(() => {
+    if (!xtermRef.current) return;
+
+    let isDisposed = false;
+
+    // 1. Construct the xterm.js instance
     const term = new Terminal({
-      fontFamily: "'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace",
-      fontSize: 13,
-      lineHeight: 1.5,
       allowProposedApi: true,
+      allowTransparency: true,
+      scrollback: 10000,
+      cursorBlink: true,
+      cursorStyle: "bar",
+      cursorWidth: 0,
+      fontFamily: "'JetBrains Mono', monospace",
+      theme: buildXtermTheme(),
+      disableStdin: true, // Decoupled input: disable direct keyboard inputs on xterm canvas
     });
 
+    termRef.current = term;
+
+    // 2. Instantiate addons
     const fit = new FitAddon();
+    const search = new SearchAddon();
+    const weblinks = new WebLinksAddon();
+    fitRef.current = fit;
+
     term.loadAddon(fit);
-    term.open(offscreen);
+    term.loadAddon(search);
+    term.loadAddon(weblinks);
+    term.open(xtermRef.current);
 
-    // Read cell metrics from the xterm renderer
-    try {
-      // @ts-expect-error — access internal renderer for accurate metrics
-      const renderer = term._core?._renderService?._renderer;
-      const dims = renderer?.dimensions;
-      if (dims) {
-        const cw = dims.css?.cell?.width  ?? dims.actualCellWidth  ?? FALLBACK_CELL_WIDTH;
-        const ch = dims.css?.cell?.height ?? dims.actualCellHeight ?? FALLBACK_CELL_HEIGHT;
-        if (cw > 0) setCellWidth(cw);
-        if (ch > 0) setCellHeight(ch);
+    // Connect xterm onData to PTY write for interactive sub-processes
+    const dataDisposable = term.onData((data) => {
+      if (
+        useBlockStore.getState().runningBlockId[sessionId] ||
+        useSessionStore.getState().alternateBufferActive[sessionId]
+      ) {
+        pty.write(sessionId, data).catch(console.error);
       }
-    } catch (_) {
-      // Use fallback values — perfectly acceptable
-    }
+    });
 
-    // Cleanup — unmount and dispose immediately after measuring
-    term.dispose();
-    document.body.removeChild(offscreen);
-  }, []); // runs once — font metrics are stable
+    // Listen to buffer change for alternate/normal screen buffer tracking
+    // NOTE: Disabled in favor of PTY stream escape sequence detection to avoid race conditions
+    // const bufferDisposable = term.buffer.onBufferChange((buffer) => {
+    //   const isAlternate = buffer.type === "alternate";
+    //   console.log(`[TerminalPane ${sessionId}] xterm buffer changed to: ${buffer.type} (isAlternate=${isAlternate})`);
+    //   useSessionStore.getState().setAlternateBufferActive(sessionId, isAlternate);
+    // });
+    const bufferDisposable = {
+      dispose: () => {} // no-op disposable for cleanup
+    } as any;
+
+    // Get exact row height from core renderer metrics
+    try {
+      const core = (term as any)._core;
+      const ch = core?.viewport?._rowHeight ?? 19.5;
+      if (ch > 0) setLineHeight(ch);
+    } catch (_) { }
+
+    // Try to fit, but ignore failures if dimensions are not available yet (e.g. during initial mount display:none)
+    try {
+      if (xtermRef.current && xtermRef.current.clientWidth > 0 && xtermRef.current.clientHeight > 0) {
+        fit.fit();
+      }
+    } catch (_) { }
+    recalc();
+
+    // 4. Hook up ResizeObserver to recalculate character cells on container changes
+    const ro = new ResizeObserver(() => {
+      if (isDisposed) return;
+      const container = xtermRef.current;
+      if (!container || !container.clientWidth || !container.clientHeight) return;
+      try {
+        fit.fit();
+        const { cols, rows } = term;
+        if (cols > 0 && rows > 0) {
+          pty.resize(sessionId, cols, rows).catch(console.error);
+          recalc();
+        }
+      } catch (err) {
+        console.warn("Resize fit failed:", err);
+      }
+    });
+    ro.observe(xtermRef.current);
+
+    // 5. Connect scroll calculation hooks
+    term.onScroll(() => {
+      if (isDisposed) return;
+      recalc();
+    });
+
+    // 6. Global PTY data stream listener
+    let dataBuffer = "";
+    let frameId = 0;
+    let lastAlternateBufferState = useSessionStore.getState().alternateBufferActive[sessionId] || false;
+    let leftoverBuffer = ""; // To catch sequences split across chunks
+
+    const syncAlternateBufferState = (active: boolean) => {
+      if (lastAlternateBufferState === active) return;
+      lastAlternateBufferState = active;
+      console.log(`[TerminalPane ${sessionId}] Alternate buffer transition: ${!active} -> ${active}`);
+      useSessionStore.getState().setAlternateBufferActive(sessionId, active);
+
+      if (!active && !useBlockStore.getState().runningBlockId[sessionId]) {
+        console.log(`[TerminalPane ${sessionId}] Restoring focus to input bar (no running command)`);
+        requestAnimationFrame(() => {
+          if (isDisposed) return;
+          window.dispatchEvent(
+            new CustomEvent("aurora-focus-terminal-input", { detail: { sessionId } })
+          );
+        });
+      }
+    };
+
+    const flushBuffer = () => {
+      if (isDisposed) return;
+      if (dataBuffer) {
+        let cleanData = leftoverBuffer + dataBuffer;
+        leftoverBuffer = "";
+
+        // Match alternate screen buffer escape sequences
+        const enterAltBuffer = /\x1b\[\??(?:1049|47|1047)h/.test(cleanData);
+        const leaveAltBuffer = /\x1b\[\??(?:1049|47|1047)l/.test(cleanData);
+
+        if (enterAltBuffer) {
+          console.log(`[TerminalPane ${sessionId}] Detected: Enter alternate buffer`);
+          syncAlternateBufferState(true);
+        }
+        if (leaveAltBuffer) {
+          console.log(`[TerminalPane ${sessionId}] Detected: Leave alternate buffer`);
+          syncAlternateBufferState(false);
+          // When leaving alternate buffer, the app is likely done or returning to shell.
+          // We should force a check for a new prompt soon if one isn't already here.
+        }
+
+        // Parse workspace CWD sentinels — hide them from terminal output
+        // We use a broader match that handles various line endings and potential split chunks
+        const sentinelRegex = /__AURORA_CWD__=([^\r\n]+)(?:\r?\n|$)/g;
+        let sMatch;
+        let foundSentinel = false;
+        while ((sMatch = sentinelRegex.exec(cleanData)) !== null) {
+          let path = sMatch[1].trim();
+          path = path.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, "");
+          path = path.replace(/\[K$/, "").trim();
+
+          console.log(`[TerminalPane ${sessionId}] Captured shell sentinel: ${path}`);
+          foundSentinel = true;
+          setCwd(path);
+          setIsCwdLoading(false);
+          
+          // Force UI transition out of full-screen/alternate mode if we're at a prompt
+          syncAlternateBufferState(false);
+
+          window.dispatchEvent(
+            new CustomEvent("cwd-change", { detail: { path, sessionId } })
+          );
+        }
+
+        // If we found a sentinel but a block is still marked as running, it might mean 
+        // the terminal doesn't support OSC 133 D. We should finalize it here as a fallback.
+        if (foundSentinel) {
+          const activeId = useBlockStore.getState().runningBlockId[sessionId];
+          if (activeId) {
+            console.log(`[TerminalPane ${sessionId}] Finalizing block via prompt sentinel fallback`);
+            useBlockStore.getState().finalizeBlock(sessionId, activeId, 0);
+          }
+        }
+
+        // Hide the entire sentinel lines from xterm, but preserve a newline to keep vertical spacing.
+        cleanData = cleanData.replace(/(?:\r?\n)?__AURORA_PROMPT_START__[\s\S]*?__AURORA_PROMPT_END__/g, "\r\n");
+
+        // Strip automated sentinel echoes (e.g. from manual cd commands)
+        cleanData = cleanData.replace(
+          /(?:\r?\n)?.*(?:Write-Host|echo)\s+["\x27]?__AURORA_[A-Z_]+__[^\r\n]*/g,
+          ""
+        );
+
+        // Standard OSC 133 sequences logic
+        const osc133Regex = /\x1b\]133;([A-D])(?:;(\d+))?\x07/g;
+        let match;
+        while ((match = osc133Regex.exec(cleanData)) !== null) {
+          const [, code, arg] = match;
+          const currentProgressId = useBlockStore.getState().runningBlockId[sessionId];
+          if (code === "D" && currentProgressId) {
+            const codeNum = parseInt(arg || "0", 10);
+            useBlockStore.getState().finalizeBlock(sessionId, currentProgressId, codeNum);
+          }
+        }
+
+        // Check if we ended with a partial sequence to preserve for next chunk
+        const lastEsc = cleanData.lastIndexOf("\x1b");
+        const lastAurora = cleanData.lastIndexOf("__AURORA_");
+        let splitIndex = -1;
+        if (lastEsc !== -1 && cleanData.length - lastEsc <= 2) {
+          splitIndex = lastEsc;
+        }
+        if (lastAurora !== -1 && lastAurora > cleanData.length - 55) {
+          if (splitIndex === -1 || lastAurora < splitIndex) {
+             splitIndex = lastAurora;
+          }
+        }
+        // Also buffer if we see a START but no END
+        const startPrompt = cleanData.lastIndexOf("__AURORA_PROMPT_START__");
+        if (startPrompt !== -1 && cleanData.indexOf("__AURORA_PROMPT_END__", startPrompt) === -1) {
+          if (splitIndex === -1 || startPrompt < splitIndex) {
+             splitIndex = startPrompt;
+          }
+        }
+
+        if (splitIndex !== -1) {
+          leftoverBuffer = cleanData.slice(splitIndex);
+          cleanData = cleanData.slice(0, splitIndex);
+        }
+
+        // Clean boundary sequences before feed
+        cleanData = cleanData.replace(/\x1b\]133;[^\x07]*\x07/g, "");
+
+        // Keep block summary records populated
+        const activeBlockId = useBlockStore.getState().runningBlockId[sessionId];
+        if (activeBlockId) {
+          const plainChunk = cleanData.replace(
+            /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g,
+            ""
+          );
+          useBlockStore.getState().appendBlockOutput(sessionId, activeBlockId, plainChunk);
+
+          const currentCursorRow = term.buffer.active.cursorY + term.buffer.active.baseY;
+          useBlockStore.getState().updateBlock(sessionId, activeBlockId, {
+            output_row_end: Math.max(currentCursorRow + 1, term.buffer.active.baseY + term.rows),
+          });
+        }
+
+        term.write(cleanData);
+        recalc();
+      }
+      dataBuffer = "";
+      frameId = 0;
+    };
+
+    const handlePtyData = (e: Event) => {
+      if (isDisposed) return;
+      const chunk = (e as CustomEvent<string>).detail;
+      dataBuffer += chunk;
+      if (!frameId) {
+        frameId = requestAnimationFrame(flushBuffer);
+      }
+    };
+
+    // Subscriptions
+    window.addEventListener(`pty-session-data:${sessionId}`, handlePtyData);
+
+    // Initial folder read
+    system
+      .getCurrentPwd()
+      .then((path) => {
+        if (isDisposed) return;
+        if (path) {
+          setCwd(path);
+        }
+      })
+      .catch(() => { });
+
+    // Focus global input bar by default
+    setTimeout(() => {
+      if (isDisposed) return;
+      window.dispatchEvent(
+        new CustomEvent("aurora-focus-terminal-input", { detail: { sessionId } })
+      );
+    }, 150);
+
+    return () => {
+      isDisposed = true;
+      termRef.current = null;
+      ro.disconnect();
+      try {
+        term.dispose();
+      } catch (err) {
+        console.warn("Failed to dispose terminal cleanly:", err);
+      }
+      window.removeEventListener(`pty-session-data:${sessionId}`, handlePtyData);
+      dataDisposable.dispose();
+      bufferDisposable.dispose();
+      cancelAnimationFrame(frameId);
+    };
+  }, [sessionId, recalc]);
+
+  // Forward keystrokes to global inputBar editor
+  const handleKeyDownCapture = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    // If a command is running or alternate buffer is active, let keystrokes flow naturally into xterm.
+    if (isCommandRunning || isAlternateActive) return;
+
+    // Escape standard propagation if scrolling or typing in input bar
+    const activeEl = document.activeElement;
+    if (activeEl?.classList.contains("aurora-ta")) return;
+
+    // Focus global input bar
+    window.dispatchEvent(
+      new CustomEvent("aurora-focus-terminal-input", { detail: { sessionId } })
+    );
+  };
+
+  // Dynamically toggle disableStdin based on command execution state and buffer swap states
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term) return;
+
+    // Enable direct stdin inside xterm when a command is running OR when alternate screen buffer is active.
+    // Otherwise disable direct stdin to force typing into the custom input bar.
+    term.options.disableStdin = !isCommandRunning && !isAlternateActive;
+  }, [isCommandRunning, isAlternateActive]);
 
   return (
-    <OutputRenderer
-      sessionId={sessionId}
-      isVisible={isVisible}
-      cellWidth={cellWidth}
-      cellHeight={cellHeight}
-      isRunning={isRunning}
-    />
+    <div
+      ref={containerRef}
+      onKeyDownCapture={handleKeyDownCapture}
+      className="relative flex flex-col h-full w-full"
+      style={{
+        display: isVisible ? "flex" : "none",
+        contain: "layout size style",
+        isolation: "isolate",
+      }}
+    >
+      {/* ── Layer 0: xterm canvas container ─────────────────────────────────── */}
+      <div
+        ref={xtermRef}
+        className="flex-1 w-full relative select-text bg-transparent"
+      >
+        {/* ── Layer 1: GPU composited React block overlays ─────────────────────── */}
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          zIndex: 1,
+          willChange: "transform",
+          transform: "translateZ(0)",
+        }}
+      >
+        {sessionBlocks.map((block) => (
+          <TerminalBlock key={block.id} sessionId={sessionId} block={block} />
+        ))}
+        </div>
+      </div>
+    </div>
   );
 }
+
+
