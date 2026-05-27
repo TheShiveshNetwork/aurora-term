@@ -195,18 +195,6 @@
   outline: none !important;
 }
 
-/* Hide Xterm Cursor — match DOM renderer selector specificity to override injected styles */
-.xterm .xterm-rows .xterm-cursor.xterm-cursor-block,
-.xterm .xterm-rows .xterm-cursor.xterm-cursor-outline,
-.xterm .xterm-rows .xterm-cursor.xterm-cursor-bar,
-.xterm .xterm-rows .xterm-cursor.xterm-cursor-underline {
-  background-color: transparent !important;
-  color: transparent !important;
-  outline: none !important;
-  outline-offset: 0 !important;
-  box-shadow: none !important;
-  border-bottom: none !important;
-}
 
 /* Ghost text suggestion fade-in */
 @keyframes ghost-fade-in {

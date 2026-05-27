@@ -65,6 +65,41 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
     }
   }, [theme]);
 
+  // Dynamically toggle font family based on running state or alternate screen buffer state (Option A)
+  const isRunningOrAlt = isCommandRunning || isAlternateActive;
+  useEffect(() => {
+    const term = termRef.current;
+    const fit = fitRef.current;
+    if (!term) return;
+
+    term.options.fontFamily = isRunningOrAlt
+      ? "Consolas, 'Cascadia Code', Menlo, Monaco, monospace" // clean system sans-serif monospace for perfect gapless TUI borders
+      : "'JetBrains Mono', monospace"; // custom font for sleek prompt view
+
+    // Allow xterm.js to apply the new font styles to its DOM elements,
+    // then re-measure cell size, re-fit the layout, resize the PTY, and recalculate coordinates.
+    const timer = setTimeout(() => {
+      try {
+        if (fit && xtermRef.current && xtermRef.current.clientWidth > 0 && xtermRef.current.clientHeight > 0) {
+          fit.fit();
+          const { cols, rows } = term;
+          if (cols > 0 && rows > 0) {
+            pty.resize(sessionId, cols, rows).catch(console.error);
+          }
+        }
+        // Re-measure exact core row height for dynamic overlay positioning
+        const core = (term as any)._core;
+        const ch = core?.viewport?._rowHeight ?? 19.5;
+        if (ch > 0) setLineHeight(ch);
+        recalc();
+      } catch (err) {
+        console.warn("Dynamic font refit failed:", err);
+      }
+    }, 60);
+
+    return () => clearTimeout(timer);
+  }, [isRunningOrAlt, sessionId, recalc]);
+
   useEffect(() => {
     if (!xtermRef.current) return;
 
@@ -77,8 +112,8 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
       scrollback: 10000,
       cursorBlink: true,
       cursorStyle: "bar",
+      cursorInactiveStyle: "none",
       cursorWidth: 0,
-      fontFamily: "'JetBrains Mono', monospace",
       theme: buildXtermTheme(),
       disableStdin: true, // Decoupled input: disable direct keyboard inputs on xterm canvas
     });
@@ -106,16 +141,21 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
       }
     });
 
-    // Listen to buffer change for alternate/normal screen buffer tracking
-    // NOTE: Disabled in favor of PTY stream escape sequence detection to avoid race conditions
-    // const bufferDisposable = term.buffer.onBufferChange((buffer) => {
-    //   const isAlternate = buffer.type === "alternate";
-    //   console.log(`[TerminalPane ${sessionId}] xterm buffer changed to: ${buffer.type} (isAlternate=${isAlternate})`);
-    //   useSessionStore.getState().setAlternateBufferActive(sessionId, isAlternate);
-    // });
-    const bufferDisposable = {
-      dispose: () => {} // no-op disposable for cleanup
-    } as any;
+    const bufferDisposable = term.buffer.onBufferChange((buffer) => {
+      const isAlternate = buffer.type === "alternate";
+      console.log(`[TerminalPane ${sessionId}] xterm buffer changed to: ${buffer.type} (isAlternate=${isAlternate})`);
+
+      // Failsafe: If we are leaving the alternate buffer, check if a block is running and finalize it!
+      if (!isAlternate) {
+        const activeId = useBlockStore.getState().runningBlockId[sessionId];
+        if (activeId) {
+          console.log(`[TerminalPane ${sessionId}] Finalizing block via alternate buffer exit failsafe`);
+          useBlockStore.getState().finalizeBlock(sessionId, activeId, 0);
+        }
+      }
+
+      useSessionStore.getState().setAlternateBufferActive(sessionId, isAlternate);
+    });
 
     // Get exact row height from core renderer metrics
     try {
@@ -214,7 +254,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
           foundSentinel = true;
           setCwd(path);
           setIsCwdLoading(false);
-          
+
           // Force UI transition out of full-screen/alternate mode if we're at a prompt
           syncAlternateBufferState(false);
 
@@ -263,14 +303,14 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
         }
         if (lastAurora !== -1 && lastAurora > cleanData.length - 55) {
           if (splitIndex === -1 || lastAurora < splitIndex) {
-             splitIndex = lastAurora;
+            splitIndex = lastAurora;
           }
         }
         // Also buffer if we see a START but no END
         const startPrompt = cleanData.lastIndexOf("__AURORA_PROMPT_START__");
         if (startPrompt !== -1 && cleanData.indexOf("__AURORA_PROMPT_END__", startPrompt) === -1) {
           if (splitIndex === -1 || startPrompt < splitIndex) {
-             splitIndex = startPrompt;
+            splitIndex = startPrompt;
           }
         }
 
@@ -393,17 +433,17 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
         className="flex-1 w-full relative select-text bg-transparent"
       >
         {/* ── Layer 1: GPU composited React block overlays ─────────────────────── */}
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{
-          zIndex: 1,
-          willChange: "transform",
-          transform: "translateZ(0)",
-        }}
-      >
-        {sessionBlocks.map((block) => (
-          <TerminalBlock key={block.id} sessionId={sessionId} block={block} />
-        ))}
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            zIndex: 1,
+            willChange: "transform",
+            transform: "translateZ(0)",
+          }}
+        >
+          {sessionBlocks.map((block) => (
+            <TerminalBlock key={block.id} sessionId={sessionId} block={block} />
+          ))}
         </div>
       </div>
     </div>

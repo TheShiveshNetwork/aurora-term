@@ -320,7 +320,7 @@ export function OutputRenderer({
               new CustomEvent("cwd-change", { detail: { path, sessionId } })
             );
           }
-        }).catch(() => {});
+        }).catch(() => { });
       }, 100);
     };
 
@@ -490,49 +490,49 @@ export function OutputRenderer({
       >
         <div className="flex flex-col min-h-full w-full" style={{ padding: "8px 0", boxSizing: "border-box" }}>
           {/* Spacer with margin-top: auto pushes content to the bottom when smaller than container */}
-        <div style={{ height: totalHeight, position: "relative", marginTop: "auto", flexShrink: 0 }}>
-          <div
-            style={{
-              position: "absolute",
-              top: 0,
-              left: 0,
-              right: 0,
-              paddingTop,
-              paddingBottom,
-            }}
-          >
-            {visibleLines.map((line, i) => {
-              const isLastLine = visibleStart + i === displayLines.length - 1;
-              return (
-                <RenderedLine
-                  key={visibleStart + i}
-                  line={line}
-                  showCursor={isRunning && isLastLine}
-                />
-              );
-            })}
+          <div style={{ height: totalHeight, position: "relative", marginTop: "auto", flexShrink: 0 }}>
+            <div
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                right: 0,
+                paddingTop,
+                paddingBottom,
+              }}
+            >
+              {visibleLines.map((line, i) => {
+                const isLastLine = visibleStart + i === displayLines.length - 1;
+                return (
+                  <RenderedLine
+                    key={visibleStart + i}
+                    line={line}
+                    showCursor={isRunning && isLastLine}
+                  />
+                );
+              })}
+            </div>
           </div>
-        </div>
 
-        {/* ── Live prompt row ── shown when idle (not running) ─────────────────
+          {/* ── Live prompt row ── shown when idle (not running) ─────────────────
             Text is NOT mirrored here while typing — it only appears after Enter
             as the permanent command header written by onCommandRun.             */}
-        {!isRunning && (() => {
-          const folder = cwdRef.current.split(/[/\\]/).filter(Boolean).pop() || cwdRef.current;
-          const branch = branchRef.current;
-          return (
-            <div className="output-prompt-row" style={{ flexShrink: 0 }} aria-hidden="true">
-              {/* Folder */}
-              <span style={{ color: "#89dceb", fontWeight: 700 }}>{folder}</span>
-              {/* Branch */}
-              {branch && (
-                <span style={{ color: "#a6e3a1" }}>&nbsp;({branch})</span>
-              )}
-              {/* Separator */}
-              <span style={{ color: "#a6adc8", margin: "0 4px" }}>›</span>
-            </div>
-          );
-        })()}
+          {!isRunning && (() => {
+            const folder = cwdRef.current.split(/[/\\]/).filter(Boolean).pop() || cwdRef.current;
+            const branch = branchRef.current;
+            return (
+              <div className="output-prompt-row" style={{ flexShrink: 0 }} aria-hidden="true">
+                {/* Folder */}
+                <span style={{ color: "#89dceb", fontWeight: 700 }}>{folder}</span>
+                {/* Branch */}
+                {branch && (
+                  <span style={{ color: "#a6e3a1" }}>&nbsp;({branch})</span>
+                )}
+                {/* Separator */}
+                <span style={{ color: "#a6adc8", margin: "0 4px" }}>›</span>
+              </div>
+            );
+          })()}
         </div>
       </div>
     </div>

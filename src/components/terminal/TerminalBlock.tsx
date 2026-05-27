@@ -59,23 +59,16 @@ export function TerminalBlock({ sessionId, block }: TerminalBlockProps) {
 
   return (
     <div
-      className="absolute left-0 right-0 block-frame group/frame border-l-2"
+      className="absolute left-0 right-0 block-frame group/frame"
       style={{
         top: block.anchor_y,
         height: block.output_height_px ?? "auto",
         pointerEvents: "none",
-        borderLeftColor: isRunning
-          ? "var(--color-primary, #f0c060)"
+        backgroundColor: isRunning
+          ? "rgba(240, 192, 96, 0.015)"
           : isError
-          ? "#f38ba8"
-          : isSuccess
-          ? "#a6e3a1"
-          : "transparent",
-        backgroundColor: isRunning 
-          ? "rgba(240, 192, 96, 0.015)" 
-          : isError 
-          ? "rgba(243, 139, 168, 0.01)" 
-          : "transparent",
+            ? "rgba(243, 139, 168, 0.01)"
+            : "transparent",
       }}
     >
       {/* ── Left Bounding Widget Panel (Hover Controls) ─────────────────────── */}
@@ -124,9 +117,8 @@ export function TerminalBlock({ sessionId, block }: TerminalBlockProps) {
           <button
             type="button"
             onClick={handleExplainError}
-            className={`p-1 hover:bg-[var(--color-term-bg)] rounded text-[var(--color-ui-text)] hover:text-primary transition-colors cursor-pointer flex items-center gap-0.5 ${
-              explaining ? "animate-pulse" : ""
-            }`}
+            className={`p-1 hover:bg-[var(--color-term-bg)] rounded text-[var(--color-ui-text)] hover:text-primary transition-colors cursor-pointer flex items-center gap-0.5 ${explaining ? "animate-pulse" : ""
+              }`}
             title="Ask AI to diagnose error"
             disabled={explaining}
           >
@@ -138,7 +130,7 @@ export function TerminalBlock({ sessionId, block }: TerminalBlockProps) {
       {/* ── Inline AI Diagnostic Card (error only) ─────────────────────────── */}
       {block.ai_explain && (
         <div
-          className="absolute left-6 right-6 bottom-4 pointer-events-auto select-text z-10 bg-[var(--color-ai-bar,#161b22)] border border-[#f38ba8]/30 rounded-lg p-3 text-xs font-mono shadow-2xl flex flex-col gap-2 animate-in slide-in-from-bottom-2 duration-200"
+          className="absolute left-6 right-6 bottom-4 pointer-events-auto select-text z-10 bg-[var(--color-ai-bar,#161b22)] border border-[#f38ba8]/30 rounded-lg p-3 text-xs shadow-2xl flex flex-col gap-2 animate-in slide-in-from-bottom-2 duration-200"
         >
           <div className="flex items-center gap-1.5 font-bold text-red-300">
             <ShieldAlert size={14} />
