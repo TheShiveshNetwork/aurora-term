@@ -10,7 +10,7 @@ export function buildXtermTheme(): ITheme {
   return {
     background:          "#00000000",
     foreground:          v("--color-term-fg") || "#e8e8e8",
-    cursor:              v("--color-primary") || "#dbfcff",
+    cursor:              "transparent",
     cursorAccent:        v("--color-background") || "#131314",
     selectionBackground: v("--color-term-selection") || "rgba(255, 255, 255, 0.15)",
     black:               "#1a1a1a",

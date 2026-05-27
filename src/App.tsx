@@ -901,12 +901,19 @@ export default function App() {
 
           {/* Content Area — Terminal or File Editor (Full Height) */}
           <div
-            className={`flex-1 overflow-hidden w-full flex flex-col relative ${ (tabs.find(t => t.id === activeTabId)?.type === "file" || isAlternateActive)
+            className={`flex-1 overflow-hidden w-full flex flex-col relative ${ (tabs.find(t => t.id === activeTabId)?.type === "file")
               ? ""
               : "px-3 pt-3"
               }`}
             onMouseDown={(e) => {
               const activeTab = tabs.find(t => t.id === activeTabId);
+              
+              // Do not steal focus if they clicked inside the xterm terminal viewport, preserving text selection
+              const target = e.target as HTMLElement;
+              if (target.closest(".xterm")) {
+                return;
+              }
+
               // Only auto-focus GhostInput if no block is running and we're not in a full-screen app.
               // This allows direct interaction with TUI/full-screen CLI apps.
               if (activeTab?.type === "terminal" && !isCommandRunning && !isAlternateActive) {

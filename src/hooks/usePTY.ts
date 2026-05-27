@@ -74,22 +74,26 @@ export function usePTY() {
     shell: string = "powershell.exe",
     args: string[] = [],
     env: Record<string, string> = {},
-    cwd?: string
+    cwd?: string,
+    existingSessionId?: string
   ) => {
     try {
-      const sessionId = await pty.spawn(shell, args, env, cwd);
+      const sessionId = await pty.spawn(shell, args, env, cwd, existingSessionId);
 
-      const newTab: Tab = {
-        id: sessionId,
-        name: `Terminal (${shell.split(".")[0]})`,
-        type: "terminal",
-        shell,
-        cwd: cwd || "~",
-        created_at: Date.now(),
-      };
+      const tab = tabs.find(t => t.id === sessionId);
+      if (!tab) {
+        const newTab: Tab = {
+          id: sessionId,
+          name: `Terminal (${shell.split(".")[0]})`,
+          type: "terminal",
+          shell,
+          cwd: cwd || "~",
+          created_at: Date.now(),
+        };
 
-      addTab(newTab);
-      setActiveTabId(sessionId);
+        addTab(newTab);
+        setActiveTabId(sessionId);
+      }
 
       return sessionId;
     } catch (err) {

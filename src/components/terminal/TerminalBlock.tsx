@@ -61,7 +61,8 @@ export function TerminalBlock({ sessionId, block }: TerminalBlockProps) {
     <div
       className="absolute left-0 right-0 block-frame group/frame"
       style={{
-        top: block.anchor_y,
+        transform: `translate3d(0, ${block.anchor_y}px, 0)`,
+        willChange: "transform",
         height: block.output_height_px ?? "auto",
         pointerEvents: "none",
         backgroundColor: isRunning

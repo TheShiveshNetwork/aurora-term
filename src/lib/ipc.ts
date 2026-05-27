@@ -3,8 +3,8 @@ import { ProviderName } from "../types/ai";
 import { ProcessInfo } from "../types/ipc";
 
 export const pty = {
-  spawn: (shell: string, args: string[], env: Record<string, string>, cwd?: string) =>
-    invoke<string>("pty_spawn", { shell, args, env, cwd }),
+  spawn: (shell: string, args: string[], env: Record<string, string>, cwd?: string, sessionId?: string) =>
+    invoke<string>("pty_spawn", { shell, args, env, cwd, sessionId }),
 
   write: (sessionId: string, data: string) =>
     invoke<void>("pty_write", { sessionId, data }),

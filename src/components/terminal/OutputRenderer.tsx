@@ -83,12 +83,12 @@ function spanStyle(span: AnsiSpan): React.CSSProperties {
 
 // ─── Single rendered line ─────────────────────────────────────────────────────
 
-function RenderedLine({ line, showCursor }: { line: StyledLine, showCursor?: boolean }) {
+function RenderedLine({ line }: { line: StyledLine }) {
   if (line.spans.length === 0) {
     // Empty line — preserve vertical space
     return (
       <div className="output-line">
-        &nbsp;{showCursor && <span className="output-cursor" />}
+        &nbsp;
       </div>
     );
   }
@@ -104,7 +104,6 @@ function RenderedLine({ line, showCursor }: { line: StyledLine, showCursor?: boo
           <span key={i}>{span.text}</span>
         );
       })}
-      {showCursor && <span className="output-cursor" />}
     </div>
   );
 }
@@ -502,12 +501,10 @@ export function OutputRenderer({
               }}
             >
               {visibleLines.map((line, i) => {
-                const isLastLine = visibleStart + i === displayLines.length - 1;
                 return (
                   <RenderedLine
                     key={visibleStart + i}
                     line={line}
-                    showCursor={isRunning && isLastLine}
                   />
                 );
               })}
