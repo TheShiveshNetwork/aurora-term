@@ -85,6 +85,8 @@ pub fn run() {
             aurora_commands::reveal_in_explorer,
             aurora_commands::delete_path,
             aurora_commands::rename_path,
+            aurora_commands::copy_path,
+            aurora_commands::move_path,
             aurora_commands::select_folder,
             aurora_commands::select_file,
             aurora_commands::watch_directory,

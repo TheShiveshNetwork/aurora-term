@@ -7,6 +7,7 @@ pub struct AppConfig {
     pub ai: AiConfig,
     pub keybindings: KeybindingsConfig,
     pub appearance: AppearanceConfig,
+    pub ui: UiStateConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,6 +57,23 @@ pub struct AppearanceConfig {
     pub compact_ui: bool,
     pub show_statusbar: bool,
     pub blur_sidebar: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UiStateConfig {
+    pub sidebar_collapsed: bool,
+    pub tab_bar_visible: bool,
+    pub pinned_tabs: Vec<String>,
+}
+
+impl Default for UiStateConfig {
+    fn default() -> Self {
+        Self {
+            sidebar_collapsed: false,
+            tab_bar_visible: true,
+            pinned_tabs: Vec::new(),
+        }
+    }
 }
 
 impl Default for AppConfig {
@@ -123,6 +141,7 @@ impl Default for AppConfig {
                 show_statusbar: true,
                 blur_sidebar: false,
             },
+            ui: UiStateConfig::default(),
         }
     }
 }

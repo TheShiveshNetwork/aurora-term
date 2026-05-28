@@ -2,14 +2,25 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   Folder, FileText, ChevronDown, ChevronRight, Search, RefreshCw,
   Copy, FolderOpen, Terminal, ExternalLink, ClipboardCopy, Pencil, Trash2, AlertTriangle,
+  ClipboardList, Scissors,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import type { DragDropEvent } from "@tauri-apps/api/webview";
 import {
   RightClickMenuItem,
   RightClickMenuPanel,
   RightClickMenuSeparator,
 } from "./RightClickMenu";
+
+// ─── Normalize path for comparison (case-insensitive on Windows, normalize separators) ──
+function pathsEqual(a: string, b: string): boolean {
+  if (a === b) return true;
+  const normalize = (p: string) =>
+    p.toLowerCase().replace(/[/\\]+/g, "\\").replace(/[\\/]$/, "");
+  return normalize(a) === normalize(b);
+}
 
 interface SidePanelProps {
   collapsed: boolean;
@@ -39,6 +50,17 @@ interface RenameState {
   value: string;    // current input value
 }
 
+// ─── Clipboard state for copy/cut operations ────────────────────────────────
+interface ClipboardState {
+  path: string;
+  operation: "copy" | "cut";
+}
+
+// ─── Drag-over highlight target (internal tree drag) ─────────────────────────
+interface DragTargetState {
+  path: string;
+}
+
 // ─── Delete confirm state ────────────────────────────────────────────────────
 interface DeleteConfirmState {
   node: FileNode;
@@ -54,6 +76,17 @@ const isExcluded = (name: string): boolean => {
     name.startsWith("~")
   );
 };
+
+// ─── Sort: folders first, then files; dot-prefixed at top of each group ────
+function sortNodes(nodes: FileNode[]): FileNode[] {
+  return [...nodes].sort((a, b) => {
+    if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
+    const aDot = a.name.startsWith(".");
+    const bDot = b.name.startsWith(".");
+    if (aDot !== bDot) return aDot ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
+}
 
 // ─────────────────────── TreeNode ────────────────────────
 function pathStartsWith(path: string, prefix: string): boolean {
@@ -75,6 +108,11 @@ function TreeNode({
   onRenameChange,
   onRenameCommit,
   onRenameCancel,
+  dragOverPath,
+  draggedNodePath,
+  onPointerDown,
+  expandPath,
+  collapsePath,
 }: {
   node: FileNode;
   depth: number;
@@ -88,6 +126,11 @@ function TreeNode({
   onRenameChange: (val: string) => void;
   onRenameCommit: () => void;
   onRenameCancel: () => void;
+  dragOverPath: string | null;
+  draggedNodePath: string | null;
+  onPointerDown: (e: React.PointerEvent, node: FileNode) => void;
+  expandPath: string | null;
+  collapsePath: string | null;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [children, setChildren] = useState<FileNode[]>([]);
@@ -110,6 +153,26 @@ function TreeNode({
       setIsOpen(true);
     }
   }, [activePath, node.path, node.is_dir]);
+
+  // Auto-expand folder when drag-hover timer fires (expandPath matches)
+  useEffect(() => {
+    if (!node.is_dir || !expandPath || expandPath !== node.path) return;
+    if (!loadedRef.current) {
+      loadedRef.current = true;
+      setLoading(true);
+      invoke<FileNode[]>("read_dir", { path: node.path })
+        .then(setChildren)
+        .catch(console.error)
+        .finally(() => setLoading(false));
+    }
+    setIsOpen(true);
+  }, [expandPath, node.path, node.is_dir]);
+
+  // Collapse folder when drag moves away from an auto-expanded folder
+  useEffect(() => {
+    if (!node.is_dir || !collapsePath || collapsePath !== node.path) return;
+    setIsOpen(false);
+  }, [collapsePath, node.path, node.is_dir]);
 
   const handleToggle = async () => {
     if (node.is_dir) {
@@ -156,7 +219,7 @@ function TreeNode({
     : isActiveFolder
       ? "text-primary"
       : isGitignored
-        ? "text-on-surface-variant/35"
+        ? "text-on-surface-variant/70"
         : "text-on-surface-variant/80";
 
   const rowClass = `group flex items-center gap-1.5 cursor-pointer transition-colors ${isActive
@@ -175,6 +238,8 @@ function TreeNode({
     }`;
 
   const isRenaming = renamingPath === node.path;
+  const isDragOver = dragOverPath === node.path && node.is_dir;
+  const isBeingDragged = draggedNodePath === node.path;
 
   return (
     <div className="select-none">
@@ -186,7 +251,10 @@ function TreeNode({
           if (!isRenaming) onContextMenu(e, node);
         }}
         title={isRenaming ? undefined : node.name}
-        className={`${rowClass} ${textColorClass}`}
+        data-path={node.path}
+        data-is-dir={node.is_dir ? "true" : "false"}
+        onPointerDown={(e) => { if (!node.is_dir) onPointerDown(e, node); }}
+        className={`${rowClass} ${textColorClass} ${isDragOver ? "ring-2 ring-primary/60 bg-primary/10" : ""} ${isBeingDragged ? "opacity-40" : ""}`}
         style={{
           paddingLeft: isSelected && !node.is_dir ? `${indent - 2}px` : `${indent}px`,
           paddingRight: "8px",
@@ -232,10 +300,6 @@ function TreeNode({
             {node.name}
           </span>
         )}
-
-        {isGitignored && !isRenaming && (
-          <span className="shrink-0 w-1 h-1 rounded-full bg-outline/20 mr-0.5 transition-colors group-hover:bg-primary/30" aria-hidden="true" />
-        )}
       </div>
 
       {node.is_dir && isOpen && (
@@ -255,8 +319,7 @@ function TreeNode({
               Empty
             </div>
           ) : (
-            children
-              .filter((child) => !isExcluded(child.name))
+            sortNodes(children.filter((child) => !isExcluded(child.name)))
               .map((child) => (
                 <TreeNode
                   key={child.path}
@@ -272,6 +335,11 @@ function TreeNode({
                   onRenameChange={onRenameChange}
                   onRenameCommit={onRenameCommit}
                   onRenameCancel={onRenameCancel}
+                  dragOverPath={dragOverPath}
+                  draggedNodePath={draggedNodePath}
+                  onPointerDown={onPointerDown}
+                  expandPath={expandPath}
+                  collapsePath={collapsePath}
                 />
               ))
           )}
@@ -323,6 +391,16 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
   const dragStartWidth = useRef(DEFAULT_WIDTH);
   const panelRef = useRef<HTMLElement>(null);
   const loadSeqRef = useRef(0);
+  const hasDataRef = useRef(false);
+
+  // In-app clipboard for copy/cut/paste
+  const clipboardRef = useRef<ClipboardState | null>(null);
+  const [clipboardHasContent, setClipboardHasContent] = useState(false);
+
+  // Drag & drop state
+  const [dragOverPath, setDragOverPath] = useState<string | null>(null);
+  const [isExternalDragging, setIsExternalDragging] = useState(false);
+  const dragSourcePathRef = useRef<string | null>(null);
 
   // ── Close file menu on outside click ─────────────────────
   useEffect(() => {
@@ -345,7 +423,9 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
   // ── Load file tree for a given absolute path ──────────────
   const loadTree = useCallback(async (absolutePath: string) => {
     const seq = ++loadSeqRef.current;
-    setIsLoading(true);
+    if (!hasDataRef.current) {
+      setIsLoading(true);
+    }
     setError(null);
     setActivePath("");
     setSelectedFile("");
@@ -355,6 +435,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
       const res = await invoke<FileNode[]>("read_dir", { path: absolutePath });
       if (seq !== loadSeqRef.current) return;
       serializedRootRef.current = JSON.stringify(res);
+      hasDataRef.current = true;
       setRootNodes(res);
     } catch (err) {
       if (seq !== loadSeqRef.current) return;
@@ -383,7 +464,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
 
   // ── React to cwd prop changes (cd command / tab switch) ──
   useEffect(() => {
-    if (!cwd || cwd === resolvedCwd) return;
+    if (!cwd || pathsEqual(cwd, resolvedCwd)) return;
     setResolvedCwd(cwd);
     loadTree(cwd);
   }, [cwd, resolvedCwd, loadTree]);
@@ -393,7 +474,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
   useEffect(() => {
     const handler = (e: Event) => {
       const { path } = (e as CustomEvent<{ path: string }>).detail;
-      if (!path || path === resolvedCwd || path === lastLoadedPathRef.current) return;
+      if (!path || pathsEqual(path, resolvedCwd) || pathsEqual(path, lastLoadedPathRef.current)) return;
       lastLoadedPathRef.current = path;
       setResolvedCwd(path);
       loadTree(path);
@@ -549,12 +630,217 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
     }
   };
 
-  // ── Filter helper ─────────────────────────────────────────
-  const filteredNodes = rootNodes
-    .filter((n) => !isExcluded(n.name))
-    .filter((n) =>
-      !filterQuery.trim() || n.name.toLowerCase().includes(filterQuery.toLowerCase())
-    );
+  // ── Copy / Cut / Paste actions ────────────────────────────
+  const handleCopy = useCallback((node: FileNode) => {
+    clipboardRef.current = { path: node.path, operation: "copy" };
+    setClipboardHasContent(true);
+    setFileMenu(null);
+  }, []);
+
+  const handleCut = useCallback((node: FileNode) => {
+    clipboardRef.current = { path: node.path, operation: "cut" };
+    setClipboardHasContent(true);
+    setFileMenu(null);
+  }, []);
+
+  const handlePaste = useCallback(async () => {
+    if (!clipboardRef.current || !resolvedCwd) return;
+    setFileMenu(null);
+    const { path: srcPath, operation } = clipboardRef.current;
+    try {
+      if (operation === "cut") {
+        // Move to resolvedCwd root
+        const name = srcPath.split(/[/\\]/).pop() || "";
+        const dest = `${resolvedCwd}\\${name}`;
+        await invoke("rename_path", { oldPath: srcPath, newName: name });
+      } else {
+        // Copy to resolvedCwd root
+        await invoke("copy_path", { source: srcPath, targetDir: resolvedCwd });
+      }
+      clipboardRef.current = null;
+      setClipboardHasContent(false);
+      if (resolvedCwd) loadTree(resolvedCwd);
+    } catch (err) {
+      console.error("Paste failed:", err);
+      clipboardRef.current = null;
+      setClipboardHasContent(false);
+    }
+  }, [resolvedCwd, loadTree]);
+
+  // ── Pointer-based internal DnD (works on all platforms, unlike HTML5 draggable) ──
+  const [draggedNodePath, setDraggedNodePath] = useState<string | null>(null);
+  const isPointerDragging = useRef(false);
+  const dragPointerStart = useRef<{ x: number; y: number } | null>(null);
+  const dragActiveRef = useRef(false);
+
+  // Hover-to-expand during drag
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastHoverPathRef = useRef<string | null>(null);
+  const hoverExpandedPathRef = useRef<string | null>(null);
+  const [expandPath, setExpandPath] = useState<string | null>(null);
+  const [collapsePath, setCollapsePath] = useState<string | null>(null);
+
+  const handlePointerDown = useCallback((e: React.PointerEvent, node: FileNode) => {
+    if (node.is_dir) return;
+    e.preventDefault();
+    e.stopPropagation();
+    dragSourcePathRef.current = node.path;
+    isPointerDragging.current = true;
+    dragPointerStart.current = { x: e.clientX, y: e.clientY };
+    dragActiveRef.current = false;
+    setDraggedNodePath(node.path);
+  }, []);
+
+  // Global pointer tracking for internal drag
+  useEffect(() => {
+    const handlePointerMove = (e: PointerEvent) => {
+      if (!isPointerDragging.current || !dragPointerStart.current) return;
+      if (!dragActiveRef.current) {
+        const dx = e.clientX - dragPointerStart.current.x;
+        const dy = e.clientY - dragPointerStart.current.y;
+        if (dx * dx + dy * dy < 25) return; // threshold ~5px
+        dragActiveRef.current = true;
+      }
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const treeRow = el?.closest<HTMLElement>("[data-path]") ?? null;
+      if (treeRow && treeRow.dataset.isDir === "true") {
+        const newPath = treeRow.dataset.path ?? null;
+        setDragOverPath(newPath);
+        if (newPath !== lastHoverPathRef.current) {
+          // Collapse previous auto-expanded folder when hovering a different folder
+          if (hoverExpandedPathRef.current && hoverExpandedPathRef.current !== newPath) {
+            setCollapsePath(hoverExpandedPathRef.current);
+            hoverExpandedPathRef.current = null;
+          }
+          lastHoverPathRef.current = newPath;
+          if (hoverTimerRef.current) {
+            clearTimeout(hoverTimerRef.current);
+            hoverTimerRef.current = null;
+          }
+          if (newPath) {
+            hoverTimerRef.current = setTimeout(() => {
+              setExpandPath(newPath);
+              hoverExpandedPathRef.current = newPath;
+              hoverTimerRef.current = null;
+            }, 500);
+          }
+        }
+      } else {
+        // Not hovering a folder — don't collapse auto-expanded folders here,
+        // only collapse on drag end to avoid flicker when moving over child files
+        lastHoverPathRef.current = null;
+        if (hoverTimerRef.current) {
+          clearTimeout(hoverTimerRef.current);
+          hoverTimerRef.current = null;
+        }
+        setDragOverPath(null);
+      }
+    };
+
+    const handlePointerUp = async (e: PointerEvent) => {
+      if (!isPointerDragging.current) return;
+      const srcPath = dragSourcePathRef.current;
+      if (dragActiveRef.current && srcPath) {
+        const el = document.elementFromPoint(e.clientX, e.clientY);
+        const treeRow = el?.closest<HTMLElement>("[data-path]") ?? null;
+        const targetPath = treeRow?.dataset.path;
+        const isDir = treeRow?.dataset.isDir === "true";
+        if (targetPath && isDir) {
+          try {
+            await invoke("move_path", { source: srcPath, targetDir: targetPath });
+            if (resolvedCwd) loadTree(resolvedCwd);
+          } catch (err) {
+            console.error("Move failed:", err);
+          }
+        }
+      }
+      // Collapse the auto-expanded folder on drag end
+      if (hoverExpandedPathRef.current) {
+        setCollapsePath(hoverExpandedPathRef.current);
+        hoverExpandedPathRef.current = null;
+      }
+      isPointerDragging.current = false;
+      dragPointerStart.current = null;
+      dragActiveRef.current = false;
+      dragSourcePathRef.current = null;
+      lastHoverPathRef.current = null;
+      if (hoverTimerRef.current) {
+        clearTimeout(hoverTimerRef.current);
+        hoverTimerRef.current = null;
+      }
+      setDragOverPath(null);
+      setDraggedNodePath(null);
+      setExpandPath(null);
+    };
+
+    const handlePointerCancel = () => {
+      if (hoverExpandedPathRef.current) {
+        setCollapsePath(hoverExpandedPathRef.current);
+        hoverExpandedPathRef.current = null;
+      }
+      isPointerDragging.current = false;
+      dragPointerStart.current = null;
+      dragActiveRef.current = false;
+      dragSourcePathRef.current = null;
+      lastHoverPathRef.current = null;
+      if (hoverTimerRef.current) {
+        clearTimeout(hoverTimerRef.current);
+        hoverTimerRef.current = null;
+      }
+      setDragOverPath(null);
+      setDraggedNodePath(null);
+      setExpandPath(null);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerCancel);
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerCancel);
+    };
+  }, [resolvedCwd, loadTree]);
+
+  // ── External DnD: handle files dragged from OS file manager ──
+  useEffect(() => {
+    const appWindow = getCurrentWebviewWindow();
+    let unlisten: (() => void) | null = null;
+
+    appWindow.onDragDropEvent((event) => {
+      const payload = event.payload;
+      if (payload.type === "over") {
+        setIsExternalDragging(true);
+      } else if (payload.type === "leave") {
+        setIsExternalDragging(false);
+        setDragOverPath(null);
+      } else if (payload.type === "drop") {
+        setIsExternalDragging(false);
+        setDragOverPath(null);
+        const paths = payload.paths;
+        // Copy each dropped file into the resolvedCwd
+        if (resolvedCwd) {
+          for (const p of paths) {
+            invoke("copy_path", { source: p, targetDir: resolvedCwd }).catch((err) => {
+              console.error("Failed to copy dropped file:", err);
+            });
+          }
+          loadTree(resolvedCwd);
+        }
+      }
+    }).then((fn) => { unlisten = fn; });
+
+    return () => { if (unlisten) unlisten(); };
+  }, [resolvedCwd, loadTree]);
+
+  // ── Filter + sort helper ─────────────────────────────────
+  const filteredNodes = sortNodes(
+    rootNodes
+      .filter((n) => !isExcluded(n.name))
+      .filter((n) =>
+        !filterQuery.trim() || n.name.toLowerCase().includes(filterQuery.toLowerCase())
+      )
+  );
 
   if (collapsed) return null;
 
@@ -595,7 +881,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
       </div>
 
       {/* File tree — scrollable */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden pb-4 no-scrollbar">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden pb-4 sidepanel-scroll">
         {isLoading ? (
           <div className="text-outline/35 text-xs italic px-4 py-3 flex items-center gap-2 select-none">
             Loading workspace...
@@ -622,6 +908,11 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
               onRenameChange={(val) => setRenameState(prev => prev ? { ...prev, value: val } : null)}
               onRenameCommit={commitRename}
               onRenameCancel={cancelRename}
+              dragOverPath={dragOverPath}
+              draggedNodePath={draggedNodePath}
+              onPointerDown={handlePointerDown}
+              expandPath={expandPath}
+              collapsePath={collapsePath}
             />
           ))
         )}
@@ -641,19 +932,36 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
         <RightClickMenuPanel anchorX={fileMenu.x} anchorY={fileMenu.y} open={true}>
           {/* File header — shows what item was right-clicked */}
           <div className="px-3 pt-1 pb-2 flex items-center gap-2 border-b border-outline-variant/10 mb-1">
-            {fileMenu.node.is_dir && <Folder size={11} className="text-primary/70 shrink-0" />}
-            <span className="text-[11px] text-on-surface-variant/60 overflow-hidden text-ellipsis whitespace-nowrap">{fileMenu.node.name}</span>
+            {fileMenu.node.is_dir && <Folder size={12} className="text-primary/70 shrink-0" />}
+            <span className="text-sm text-on-surface-variant/60 overflow-hidden text-ellipsis whitespace-nowrap">{fileMenu.node.name}</span>
           </div>
 
-          {/* Copy File Name */}
+          {/* Copy Name */}
           <RightClickMenuItem icon={<ClipboardCopy size={13} />} onClick={() => { copyToClipboard(fileMenu.node.name); setFileMenu(null); }}>
             Copy Name
           </RightClickMenuItem>
 
-          {/* Copy File Path */}
+          {/* Copy Path */}
           <RightClickMenuItem icon={<Copy size={13} />} onClick={() => { copyToClipboard(fileMenu.node.path); setFileMenu(null); }}>
             Copy Path
           </RightClickMenuItem>
+
+          {/* Copy (to clipboard buffer) */}
+          <RightClickMenuItem icon={<ClipboardList size={13} />} onClick={() => handleCopy(fileMenu.node)}>
+            Copy
+          </RightClickMenuItem>
+
+          {/* Cut (to clipboard buffer) */}
+          <RightClickMenuItem icon={<Scissors size={13} />} onClick={() => handleCut(fileMenu.node)}>
+            Cut
+          </RightClickMenuItem>
+
+          {/* Paste (only when clipboard has content) */}
+          {clipboardHasContent && (
+            <RightClickMenuItem icon={<ClipboardList size={13} />} onClick={handlePaste}>
+              Paste
+            </RightClickMenuItem>
+          )}
 
           <RightClickMenuSeparator />
 

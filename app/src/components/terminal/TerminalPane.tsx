@@ -134,6 +134,21 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
     return () => clearTimeout(timer);
   }, [fontFamily, fontSize, sessionId, recalc, debouncedResize]);
 
+  // When alternate buffer toggles, refit xterm to catch up with the layout change
+  // (e.g. input bar appearing/disappearing changes the terminal container height)
+  useEffect(() => {
+    const term = termRef.current;
+    const fit = fitRef.current;
+    if (!term || !fit) return;
+    requestAnimationFrame(() => {
+      try {
+        fit.fit();
+      } catch {
+        // silently ignore
+      }
+    });
+  }, [isAlternateActive]);
+
   useEffect(() => {
     if (!xtermRef.current) return;
 
@@ -771,7 +786,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
       }}
     >
       {/* ── Terminal Viewer Container (positioned context for layers) ───────────────── */}
-      <div className="flex-1 w-full relative select-none bg-transparent">
+      <div className="flex-1 w-full relative select-none bg-transparent overflow-hidden">
         {/* ── Layer 0: xterm canvas mount container ─────────────────────────── */}
         <div
           ref={xtermRef}

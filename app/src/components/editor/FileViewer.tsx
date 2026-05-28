@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { EditorView, basicSetup } from "codemirror";
 import { EditorState } from "@codemirror/state";
 import { javascript } from "@codemirror/lang-javascript";
@@ -150,12 +150,14 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
   const [naturalSize, setNaturalSize] = useState({ w: 0, h: 0 });
   const [containerSize, setContainerSize] = useState({ w: 0, h: 0 });
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = imageScrollRef.current;
     if (!el) return;
+    const { width, height } = el.getBoundingClientRect();
+    setContainerSize({ w: Math.round(width), h: Math.round(height) });
     const ro = new ResizeObserver((entries) => {
-      const { width, height } = entries[0].contentRect;
-      setContainerSize({ w: Math.round(width), h: Math.round(height) });
+      const { width: cw, height: ch } = entries[0].contentRect;
+      setContainerSize({ w: Math.round(cw), h: Math.round(ch) });
     });
     ro.observe(el);
     return () => ro.disconnect();
@@ -192,7 +194,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
     };
     el.addEventListener("wheel", handler, { passive: false });
     return () => el.removeEventListener("wheel", handler);
-  }, []);
+  }, [imageSrc]);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     const el = imageScrollRef.current;
@@ -365,7 +367,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
 
         {isImage ? (
           <div className="h-full w-full flex flex-col">
-            <div className="flex items-center justify-center gap-2 border-b border-outline/10 py-2 px-4 shrink-0">
+            <div className="flex items-center justify-center gap-2 border-b border-outline/10 z-10 bg-surface-container-low/60 py-2 px-4 shrink-0">
               <button
                 onClick={() => setZoom((z) => Math.max(ZOOM_MIN, z - ZOOM_STEP))}
                 className="p-1 rounded hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface"
@@ -391,26 +393,28 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
             {imageSrc && (
               <div
                 ref={imageScrollRef}
-                className={`flex-1 overflow-auto image-scroll ${isDragging ? "cursor-grabbing select-none" : "cursor-grab"}`}
-                style={{
-                  display: "flex",
-                  alignItems: needsScroll ? "flex-start" : "center",
-                  justifyContent: needsScroll ? "flex-start" : "center",
-                }}
+                className={`flex h-full w-full overflow-auto image-scroll ${needsScroll ? "items-start justify-start" : "items-center justify-center"}
+                   ${isDragging ? "cursor-grabbing select-none" : "cursor-grab"}`}
                 onMouseDown={handleMouseDown}
                 onMouseMove={handleMouseMove}
                 onMouseUp={handleMouseUp}
                 onMouseLeave={handleMouseUp}
               >
-                <img
-                  src={imageSrc}
-                  alt={fileName}
-                  width={displayW}
-                  height={displayH}
-                  onLoad={handleImageLoad}
-                  style={{ imageRendering: zoom > 2 ? "pixelated" : "auto" }}
-                  draggable={false}
-                />
+                {imageSrc && (
+                  <img
+                    src={imageSrc}
+                    alt={fileName}
+                    onLoad={handleImageLoad}
+                    style={{
+                      width: displayW,
+                      height: displayH,
+                      maxWidth: "none",
+                      objectFit: "contain",
+                      imageRendering: zoom > 2 ? "pixelated" : "auto",
+                    }}
+                    draggable={false}
+                  />
+                )}
               </div>
             )}
           </div>
