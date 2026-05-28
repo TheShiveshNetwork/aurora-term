@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use futures_util::StreamExt;
 use reqwest::header::{HeaderMap, HeaderValue};
-use serde::Deserialize;
+// use serde::Deserialize;
 use serde_json::Value;
 use aurora_core::AppError;
 use aurora_core::types::ai::{TaskTier, AiMessage, AIStreamChunkEvent};

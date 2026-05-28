@@ -1,3 +1,21 @@
+<p align="center">
+  <img src="tauri/icons/Square142x142Logo.png" width="96" alt="Aurora logo" />
+</p>
+
+# Aurora Term
+
+> A fast, agentic terminal for developers — lightweight, extensible, and AI-native.
+
+- Native Rust backend (PTYs, AI providers, SQLite history) with a React + Vite frontend.
+- Decoupled input and presentation: command output is rendered as discrete blocks for replay, annotation, and AI integration.
+- Multi-provider AI streaming adapters, OS keychain storage for secrets, and focused crate-by-concern Rust workspace.
+
+Quick start:
+
+```
+pnpm --dir app dev
+pnpm run tauri:dev
+```
 # 🌌 Aurora Term
 
 A lightweight, high-performance, and extremely powerful **Agentic Terminal** designed for developers and AI-assisted workflows. Powered by **Tauri v2**, **React 19**, **Rust**, and **xterm.js**, Aurora provides a beautiful, modern terminal experience with full command decoupling, sandboxed tab execution, and future-proof AI integration.
