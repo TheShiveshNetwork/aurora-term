@@ -39,6 +39,7 @@ pub fn run() {
                 .with_flags(Flags::keyboard())
                 .build()
         )
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .setup(|app| {
             let config_loader = ConfigLoader::new(app)?;
             let config = config_loader.load().unwrap_or_else(|_| AppConfig::default());

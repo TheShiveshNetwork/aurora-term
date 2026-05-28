@@ -50,6 +50,7 @@ export interface UiStateConfig {
   sidebar_collapsed: boolean;
   tab_bar_visible: boolean;
   pinned_tabs: string[];
+  workspace_cwd?: string;
 }
 
 export interface AppConfig {

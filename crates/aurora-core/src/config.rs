@@ -64,6 +64,8 @@ pub struct UiStateConfig {
     pub sidebar_collapsed: bool,
     pub tab_bar_visible: bool,
     pub pinned_tabs: Vec<String>,
+    #[serde(default)]
+    pub workspace_cwd: Option<String>,
 }
 
 impl Default for UiStateConfig {
@@ -72,6 +74,7 @@ impl Default for UiStateConfig {
             sidebar_collapsed: false,
             tab_bar_visible: true,
             pinned_tabs: Vec::new(),
+            workspace_cwd: None,
         }
     }
 }

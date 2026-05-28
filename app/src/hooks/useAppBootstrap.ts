@@ -69,7 +69,8 @@ export function useAppBootstrap() {
       .catch(() => {});
 
     config.get()
-      .then((cfg) => {
+      .then(async (cfg) => {
+        let initialCwd = "";
         if (cfg?.ui) {
           useAppShellStore.getState().setSidebarCollapsed(cfg.ui.sidebar_collapsed);
           useAppShellStore.getState().setTabBarVisible(cfg.ui.tab_bar_visible);
@@ -79,19 +80,26 @@ export function useAppBootstrap() {
               store.updateTab(tab.id, { pinned: true });
             }
           }
+          if (cfg.ui.workspace_cwd) {
+            initialCwd = cfg.ui.workspace_cwd;
+          }
         }
-      })
-      .catch(() => {});
 
-    invoke<string>("get_cwd")
-      .then((cwd) => {
-        useAppShellStore.getState().setWorkspaceCwd(cwd);
+        if (!initialCwd) {
+          try {
+            initialCwd = await invoke<string>("get_cwd");
+          } catch {
+            initialCwd = "";
+          }
+        }
+
+        useAppShellStore.getState().setWorkspaceCwd(initialCwd);
 
         const { shell, args } = getDefaultShellLaunch();
-        spawnSession(shell, args, {}, cwd)
+        spawnSession(shell, args, {}, initialCwd)
           .then((sessionId) => {
             setActiveTabId(sessionId);
-            useAppShellStore.getState().setSessionCwd(sessionId, cwd);
+            useAppShellStore.getState().setSessionCwd(sessionId, initialCwd);
 
             const initBlock: Block = {
               id: uuidv4(),
@@ -112,7 +120,40 @@ export function useAppBootstrap() {
           })
           .catch(console.error);
       })
-      .catch(console.error);
+      .catch(async () => {
+        let initialCwd = "";
+        try {
+          initialCwd = await invoke<string>("get_cwd");
+        } catch {
+          initialCwd = "";
+        }
+        useAppShellStore.getState().setWorkspaceCwd(initialCwd);
+
+        const { shell, args } = getDefaultShellLaunch();
+        spawnSession(shell, args, {}, initialCwd)
+          .then((sessionId) => {
+            setActiveTabId(sessionId);
+            useAppShellStore.getState().setSessionCwd(sessionId, initialCwd);
+
+            const initBlock: Block = {
+              id: uuidv4(),
+              session_id: sessionId,
+              command: "init-aurora",
+              started_at: Date.now(),
+              status: "success",
+              output_type: "plain",
+              collapsed: false,
+              bookmarked: false,
+              output_summary: "Welcome to Aurora Terminal. Interactive AI console active.",
+              anchor_row: 0,
+              output_row_end: 0,
+              anchor_y: 0,
+            };
+
+            useBlockStore.getState().addBlock(sessionId, initBlock);
+          })
+          .catch(console.error);
+      });
 
     const handleToggleCommandPalette = () => {
       const current = useAppShellStore.getState().showSettings;

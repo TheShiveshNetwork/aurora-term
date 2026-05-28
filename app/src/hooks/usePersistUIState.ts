@@ -8,6 +8,7 @@ export function usePersistUIState() {
     sidebarCollapsed: useAppShellStore.getState().sidebarCollapsed,
     tabBarVisible: useAppShellStore.getState().tabBarVisible,
     pinnedTabs: useSessionStore.getState().tabs.filter((t) => t.pinned).map((t) => t.id),
+    workspaceCwd: useAppShellStore.getState().cwdAbsolute,
   });
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -16,12 +17,13 @@ export function usePersistUIState() {
     const scheduleWrite = () => {
       if (timerRef.current) clearTimeout(timerRef.current);
       timerRef.current = setTimeout(() => {
-        const { sidebarCollapsed, tabBarVisible, pinnedTabs } = latestRef.current;
+        const { sidebarCollapsed, tabBarVisible, pinnedTabs, workspaceCwd } = latestRef.current;
         config.get()
           .then((cfg) => {
             cfg.ui.sidebar_collapsed = sidebarCollapsed;
             cfg.ui.tab_bar_visible = tabBarVisible;
             cfg.ui.pinned_tabs = pinnedTabs;
+            cfg.ui.workspace_cwd = workspaceCwd || undefined;
             return config.set(cfg);
           })
           .catch(() => {});
@@ -31,6 +33,7 @@ export function usePersistUIState() {
     const unsub1 = useAppShellStore.subscribe((state) => {
       latestRef.current.sidebarCollapsed = state.sidebarCollapsed;
       latestRef.current.tabBarVisible = state.tabBarVisible;
+      latestRef.current.workspaceCwd = state.cwdAbsolute;
       scheduleWrite();
     });
 
