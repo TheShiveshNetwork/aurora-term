@@ -10,7 +10,6 @@ interface TerminalBlockProps {
 }
 
 export function TerminalBlock({ sessionId, block }: TerminalBlockProps) {
-  const store = useBlockStore();
   const [copied, setCopied] = useState(false);
   const [explaining, setExplaining] = useState(false);
 
@@ -27,12 +26,12 @@ export function TerminalBlock({ sessionId, block }: TerminalBlockProps) {
 
   const handleBookmarkToggle = (e: React.MouseEvent) => {
     e.stopPropagation();
-    store.toggleBookmark(sessionId, block.id);
+    useBlockStore.getState().toggleBookmark(sessionId, block.id);
   };
 
   const handleCollapseToggle = (e: React.MouseEvent) => {
     e.stopPropagation();
-    store.toggleCollapse(sessionId, block.id);
+    useBlockStore.getState().toggleCollapse(sessionId, block.id);
   };
 
   const handleExplainError = async (e: React.MouseEvent) => {

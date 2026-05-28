@@ -165,17 +165,22 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
       viewRef.current = view;
 
       // Connect Vim mode transitions to parent callback
+      const handleVimModeChange = ({ mode }: { mode: string }) => {
+        if (onModeChange) {
+          onModeChange(mode.toUpperCase() as EditorMode);
+        }
+      };
+
       if (CodeMirror && typeof (CodeMirror as any).on === "function") {
-        (CodeMirror as any).on(Vim, "vim-mode-change", ({ mode }: { mode: string }) => {
-          if (onModeChange) {
-            onModeChange(mode.toUpperCase() as EditorMode);
-          }
-        });
+        (CodeMirror as any).on(Vim, "vim-mode-change", handleVimModeChange);
       }
 
       // Clear static modes if editor view unmounts
       return () => {
         view.destroy();
+        if (CodeMirror && typeof (CodeMirror as any).off === "function") {
+          (CodeMirror as any).off(Vim, "vim-mode-change", handleVimModeChange);
+        }
       };
     }, [sessionId, onSubmit, history, onModeChange]);
 

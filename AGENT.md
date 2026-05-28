@@ -393,8 +393,6 @@ export default defineConfig({
   --color-ui-border:     #2a2a2a;
   --color-ui-accent:     #f0c060;
   --color-ai-bar:        #161b22;
-
-  --font-mono:           "JetBrains Mono", "Cascadia Code", monospace;
 }
 ```
 

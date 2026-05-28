@@ -82,9 +82,24 @@ export function usePTY() {
 
       const tab = tabs.find(t => t.id === sessionId);
       if (!tab) {
+        const currentTabs = useSessionStore.getState().tabs;
+        let maxNum = 0;
+        currentTabs.forEach((t) => {
+          if (t.type === "terminal") {
+            const match = t.name.match(/^Terminal\s+(\d+)$/i);
+            if (match) {
+              const num = parseInt(match[1], 10);
+              if (num > maxNum) {
+                maxNum = num;
+              }
+            }
+          }
+        });
+        const terminalNumber = maxNum + 1;
+
         const newTab: Tab = {
           id: sessionId,
-          name: `Terminal (${shell.split(".")[0]})`,
+          name: `Terminal ${terminalNumber}`,
           type: "terminal",
           shell,
           cwd: cwd || "~",

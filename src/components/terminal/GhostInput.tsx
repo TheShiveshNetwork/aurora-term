@@ -61,7 +61,7 @@ export function GhostInput({
 }: GhostInputProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const mirrorRef = useRef<HTMLSpanElement>(null);
-  const textMetricsClass = "font-code-base text-[13px] font-normal leading-[22px]";
+  const textMetricsClass = "font-code-base text-sm font-normal leading-[22px]";
 
   useEffect(() => {
     const handleFocus = (e: Event) => {

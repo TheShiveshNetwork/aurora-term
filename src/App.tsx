@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from "react";
-import { FolderOpen, Settings, User, Command, Mic, Plus, Menu, Terminal, Search, Copy, Scissors, Trash2, SplitSquareHorizontal, PanelLeftClose, PanelLeft, SquareTerminal, RefreshCw, Clipboard, Square, Globe, History, FileText, ChevronRight, Folder, ExternalLink, LogOut } from "lucide-react";
+import { FolderOpen, Settings, User, Command, Mic, Plus, Menu, Terminal, Search, Copy, Scissors, Trash2, SplitSquareHorizontal, PanelLeftClose, PanelLeft, SquareTerminal, RefreshCw, Clipboard, Square, Globe, History, FileText, ChevronRight, Folder, ExternalLink, LogOut, PinIcon, PinOff } from "lucide-react";
 import { usePTY } from "./hooks/usePTY";
 import { pty } from "./lib/ipc";
 import { invoke } from "@tauri-apps/api/core";
@@ -29,7 +29,7 @@ import { Tab } from "./types/session";
 export default function App() {
   const { tabs, activeTabId, spawnSession, killSession, setActiveTabId, openFile } = usePTY();
   const { blocks, runningBlockId, addBlock, updateBlock, setAIExplain, toggleBookmark } = useBlockStore();
-  const { mode, setMode, theme, setTheme } = useSettingsStore();
+  const { theme, setTheme } = useSettingsStore();
   const alternateBufferActive = useSessionStore((state) => state.alternateBufferActive);
   const isAlternateActive = activeTabId ? alternateBufferActive[activeTabId] || false : false;
 
@@ -62,6 +62,7 @@ export default function App() {
   const hasHadTabsRef = useRef(false);
 
   const [showMenuDropdown, setShowMenuDropdown] = useState(false);
+  const [tabBarVisible, setTabBarVisible] = useState(true);
   const [localDirNodes, setLocalDirNodes] = useState<any[]>([]);
 
   const [lastActiveTerminalId, setLastActiveTerminalId] = useState<string | null>(null);
@@ -95,6 +96,21 @@ export default function App() {
     window.addEventListener("click", handleOutsideClick);
     return () => window.removeEventListener("click", handleOutsideClick);
   }, []);
+
+  // Listen for terminal session restarts to clear interaction state
+  useEffect(() => {
+    const handleSessionRestart = (e: Event) => {
+      const { sessionId } = (e as CustomEvent<{ sessionId: string }>).detail;
+      setInteractedSessions((prev) => {
+        const next = new Set(prev);
+        next.delete(sessionId);
+        return next;
+      });
+    };
+    window.addEventListener("terminal-session-restart", handleSessionRestart as EventListener);
+    return () => window.removeEventListener("terminal-session-restart", handleSessionRestart as EventListener);
+  }, []);
+
 
   const handleSelectFolderDirectly = (path: string) => {
     setCwdAbsolute(path);
@@ -164,7 +180,7 @@ export default function App() {
     setShowMenuDropdown(false);
     const isWin = window.navigator.userAgent.includes("Windows");
     const defaultShell = isWin ? "powershell.exe" : "bash";
-    const promptCmd = `function prompt { $cwd = $ExecutionContext.SessionState.Path.CurrentLocation; $branch = (git branch --show-current 2>$null); "__AURORA_PROMPT_START__" + [char]13 + [char]10 + "__AURORA_CWD__=$cwd" + [char]13 + [char]10 + "__AURORA_BRANCH__=$branch" + [char]13 + [char]10 + "__AURORA_PROMPT_END__" }; Clear-Host`;
+    const promptCmd = `function prompt { $cwd = $ExecutionContext.SessionState.Path.CurrentLocation; $branch = (git branch --show-current 2>$null); "__AURORA_PROMPT_START__" + [char]13 + [char]10 + "__AURORA_CWD__=$cwd" + [char]13 + [char]10 + "__AURORA_BRANCH__=$branch" + [char]13 + [char]10 + "__AURORA_PROMPT_END__"; return ' ' }; Clear-Host`;
     const args = isWin ? ["-NoLogo", "-NoExit", "-Command", promptCmd] : [];
     try {
       const sessionId = await spawnSession(defaultShell, args, {}, cwdAbsolute);
@@ -235,7 +251,7 @@ export default function App() {
 
       const isWin = window.navigator.userAgent.includes("Windows");
       const defaultShell = isWin ? "powershell.exe" : "bash";
-      const promptCmd = `function prompt { $cwd = $ExecutionContext.SessionState.Path.CurrentLocation; $branch = (git branch --show-current 2>$null); "__AURORA_PROMPT_START__" + [char]13 + [char]10 + "__AURORA_CWD__=$cwd" + [char]13 + [char]10 + "__AURORA_BRANCH__=$branch" + [char]13 + [char]10 + "__AURORA_PROMPT_END__" }; Clear-Host`;
+      const promptCmd = `function prompt { $cwd = $ExecutionContext.SessionState.Path.CurrentLocation; $branch = (git branch --show-current 2>$null); "__AURORA_PROMPT_START__" + [char]13 + [char]10 + "__AURORA_CWD__=$cwd" + [char]13 + [char]10 + "__AURORA_BRANCH__=$branch" + [char]13 + [char]10 + "__AURORA_PROMPT_END__"; return ' ' }; Clear-Host`;
       const args = isWin ? ["-NoLogo", "-NoExit", "-Command", promptCmd] : [];
 
       spawnSession(defaultShell, args, {}, dir).then((sessionId) => {
@@ -368,23 +384,11 @@ export default function App() {
         setIsCwdLoading(false);
       }
 
-      // The shell prints the prompt (and CWD sentinel) when it becomes idle.
-      // E.g. the running command has finished execution.
-      const state = useBlockStore.getState();
-      const currentRunningId = state.runningBlockId[sessionId];
-      if (currentRunningId) {
-        state.updateBlock(sessionId, currentRunningId, {
-          status: "success",
-          finished_at: Date.now(),
-        });
-        state.setRunningBlockId(sessionId, null);
-
-        // Ensure focus is restored to input bar once terminal is back to shell
-        if (sessionId === activeTabId) {
-          setTimeout(() => {
-            window.dispatchEvent(new CustomEvent("aurora-focus-terminal-input", { detail: { sessionId } }));
-          }, 50);
-        }
+      // Ensure focus is restored to input bar once terminal is back to shell
+      if (sessionId === activeTabId) {
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent("aurora-focus-terminal-input", { detail: { sessionId } }));
+        }, 50);
       }
     };
     window.addEventListener("cwd-change", handler);
@@ -461,9 +465,18 @@ export default function App() {
         next.delete(targetId);
         return next;
       });
-      // Send clear to the PTY so the shell actually executes it and xterm
-      // receives the escape sequences to clear its buffer
-      await pty.write(targetId, cmd + "\r\n");
+
+      // Clear the frontend xterm.js instance fully
+      window.dispatchEvent(
+        new CustomEvent("terminal-clear", { detail: { sessionId: targetId } })
+      );
+
+      // Send a fixed clear command to the PTY so the shell actually executes
+      // it and xterm receives the escape sequences to clear its buffer.
+      // Do not write the original user input here.
+      const isWindows = window.navigator.userAgent.toLowerCase().includes("windows");
+      const clearCommand = isWindows ? "cls\r\n" : "clear\r\n";
+      await pty.write(targetId, clearCommand);
       return;
     }
 
@@ -512,6 +525,14 @@ export default function App() {
           ? `Write-Host "__AURORA_CWD__=$PWD"\r\n`
           : `echo "__AURORA_CWD__=$(pwd)"\n`;
         setTimeout(() => {
+          // Double-check if the session has transitioned to alternate buffer mode during the 150ms delay window.
+          // Writing echoCmd while a TUI is active would inject keys directly into the TUI process stdin.
+          const inAlt = useSessionStore.getState().alternateBufferActive[targetId] || false;
+          if (inAlt) {
+            console.log(`[App] Skipping delayed CWD sentinel echo: session ${targetId} is in alternate screen buffer`);
+            setIsCwdLoading(false);
+            return;
+          }
           pty.write(targetId, echoCmd).catch(console.error);
         }, 150);
       }
@@ -621,7 +642,7 @@ export default function App() {
                   >
                     <FolderOpen size={13} className="text-outline/65" />
                     <span className="flex-1">Open Folder</span>
-                    <span className="text-[10px] text-outline/40 font-code-sm">Ctrl+O</span>
+                    <span className="text-[10px] text-outline/40">Ctrl+O</span>
                   </button>
                   <button
                     onClick={handleOpenFile}
@@ -629,7 +650,7 @@ export default function App() {
                   >
                     <FileText size={13} className="text-outline/65" />
                     <span className="flex-1">Open File</span>
-                    <span className="text-[10px] text-outline/40 font-code-sm">Ctrl+P</span>
+                    <span className="text-[10px] text-outline/40">Ctrl+P</span>
                   </button>
 
                   <div className="relative group/recent">
@@ -655,7 +676,7 @@ export default function App() {
                   >
                     <Plus size={13} className="text-outline/65" />
                     <span className="flex-1">New Window</span>
-                    <span className="text-[10px] text-outline/40 font-code-sm">Ctrl+Shift+N</span>
+                    <span className="text-[10px] text-outline/40">Ctrl+Shift+N</span>
                   </button>
                   <button
                     onClick={handleNewTab}
@@ -663,7 +684,7 @@ export default function App() {
                   >
                     <SquareTerminal size={13} className="text-outline/65" />
                     <span className="flex-1">New Tab</span>
-                    <span className="text-[10px] text-outline/40 font-code-sm">Ctrl+T</span>
+                    <span className="text-[10px] text-outline/40">Ctrl+T</span>
                   </button>
 
                   <div className="h-px bg-outline-variant/20 my-1 mx-2" />
@@ -681,7 +702,7 @@ export default function App() {
                   >
                     <Trash2 size={13} className="text-outline/65" />
                     <span className="flex-1">Close Tab</span>
-                    <span className="text-[10px] text-outline/40 font-code-sm">Ctrl+W</span>
+                    <span className="text-[10px] text-outline/40">Ctrl+W</span>
                   </button>
                   <button
                     onClick={handleCloseAllTabsExceptThis}
@@ -702,7 +723,7 @@ export default function App() {
                   >
                     <Command size={13} className="text-outline/65" />
                     <span className="flex-1">Command Palette</span>
-                    <span className="text-[10px] text-outline/40 font-code-sm">Ctrl+Shift+P</span>
+                    <span className="text-[10px] text-outline/40">Ctrl+Shift+P</span>
                   </button>
                   <button
                     onClick={handleToggleMode}
@@ -720,6 +741,13 @@ export default function App() {
                   </button>
                 </div>
               )}
+              <button
+                onClick={() => setTabBarVisible((v) => !v)}
+                className={`p-2 hover:bg-surface rounded-lg transition-colors text-on-surface-variant cursor-pointer ${!tabBarVisible ? "bg-surface text-primary" : ""}`}
+                title={tabBarVisible ? "Hide Tab Bar" : "Show Tab Bar"}
+              >
+                {tabBarVisible ? <PinIcon size={14} /> : <PinOff size={14} />}
+              </button>
             </div>
           </div>
           <div className="flex items-center gap-1 ml-1">
@@ -731,7 +759,7 @@ export default function App() {
                 if (!hasTerminal) {
                   const isWin = window.navigator.userAgent.includes("Windows");
                   const defaultShell = isWin ? "powershell.exe" : "bash";
-                  const promptCmd = `function prompt { $cwd = $ExecutionContext.SessionState.Path.CurrentLocation; $branch = (git branch --show-current 2>$null); "__AURORA_PROMPT_START__" + [char]13 + [char]10 + "__AURORA_CWD__=$cwd" + [char]13 + [char]10 + "__AURORA_BRANCH__=$branch" + [char]13 + [char]10 + "__AURORA_PROMPT_END__" }; Clear-Host`;
+                  const promptCmd = `function prompt { $cwd = $ExecutionContext.SessionState.Path.CurrentLocation; $branch = (git branch --show-current 2>$null); "__AURORA_PROMPT_START__" + [char]13 + [char]10 + "__AURORA_CWD__=$cwd" + [char]13 + [char]10 + "__AURORA_BRANCH__=$branch" + [char]13 + [char]10 + "__AURORA_PROMPT_END__"; return ' ' }; Clear-Host`;
                   const args = isWin ? ["-NoLogo", "-NoExit", "-Command", promptCmd] : [];
                   try {
                     const sessionId = await spawnSession(defaultShell, args, {}, cwdAbsolute);
@@ -802,7 +830,7 @@ export default function App() {
             <input
               type="text"
               placeholder="Search sessions, chats, agents, files..."
-              className="w-full bg-surface-container-high/40 border border-outline-variant/10 rounded-xl h-8 pl-9 pr-4 text-sm font-code-sm placeholder:text-outline/40 outline-none focus:border-primary/20 transition-all shadow-inner"
+              className="w-full bg-surface-container-high/40 border border-outline-variant/10 rounded-xl h-8 pl-9 pr-4 text-sm placeholder:text-outline/40 outline-none focus:border-primary/20 transition-all shadow-inner"
             />
           </div>
         </div>
@@ -837,6 +865,7 @@ export default function App() {
         <main className="flex-1 flex flex-col min-w-0 bg-surface-container-low overflow-hidden relative">
 
           {/* Safari Tab Bar */}
+          <div className={tabBarVisible ? "" : "hidden"}>
           <TabBar
             viewMode={viewMode}
             onSetViewMode={setViewMode}
@@ -844,7 +873,7 @@ export default function App() {
               if (type === "terminal") {
                 const isWin = window.navigator.userAgent.includes("Windows");
                 const defaultShell = isWin ? "powershell.exe" : "bash";
-                const promptCmd = `function prompt { $cwd = $ExecutionContext.SessionState.Path.CurrentLocation; $branch = (git branch --show-current 2>$null); "__AURORA_PROMPT_START__" + [char]13 + [char]10 + "__AURORA_CWD__=$cwd" + [char]13 + [char]10 + "__AURORA_BRANCH__=$branch" + [char]13 + [char]10 + "__AURORA_PROMPT_END__" }; Clear-Host`;
+                const promptCmd = `function prompt { $cwd = $ExecutionContext.SessionState.Path.CurrentLocation; $branch = (git branch --show-current 2>$null); "__AURORA_PROMPT_START__" + [char]13 + [char]10 + "__AURORA_CWD__=$cwd" + [char]13 + [char]10 + "__AURORA_BRANCH__=$branch" + [char]13 + [char]10 + "__AURORA_PROMPT_END__"; return ' ' }; Clear-Host`;
                 const args = isWin ? ["-NoLogo", "-NoExit", "-Command", promptCmd] : [];
                 try {
                   const sessionId = await spawnSession(defaultShell, args, {}, cwdAbsolute);
@@ -879,7 +908,7 @@ export default function App() {
               if (tab.type === "terminal") {
                 const isWin = window.navigator.userAgent.includes("Windows");
                 const defaultShell = isWin ? "powershell.exe" : "bash";
-                const promptCmd = `function prompt { $cwd = $ExecutionContext.SessionState.Path.CurrentLocation; $branch = (git branch --show-current 2>$null); "__AURORA_PROMPT_START__" + [char]13 + [char]10 + "__AURORA_CWD__=$cwd" + [char]13 + [char]10 + "__AURORA_BRANCH__=$branch" + [char]13 + [char]10 + "__AURORA_PROMPT_END__" }; Clear-Host`;
+                const promptCmd = `function prompt { $cwd = $ExecutionContext.SessionState.Path.CurrentLocation; $branch = (git branch --show-current 2>$null); "__AURORA_PROMPT_START__" + [char]13 + [char]10 + "__AURORA_CWD__=$cwd" + [char]13 + [char]10 + "__AURORA_BRANCH__=$branch" + [char]13 + [char]10 + "__AURORA_PROMPT_END__"; return ' ' }; Clear-Host`;
                 const args = isWin ? ["-NoLogo", "-NoExit", "-Command", promptCmd] : [];
                 spawnSession(defaultShell, args, {}, tab.cwd || cwdAbsolute)
                   .then((sessionId) => setSessionCwds((prev) => ({ ...prev, [sessionId]: tab.cwd || cwdAbsolute })))
@@ -898,16 +927,17 @@ export default function App() {
               }
             }}
           />
+          </div>
 
           {/* Content Area — Terminal or File Editor (Full Height) */}
           <div
-            className={`flex-1 overflow-hidden w-full flex flex-col relative ${ (tabs.find(t => t.id === activeTabId)?.type === "file")
+            className={`flex-1 overflow-hidden w-full flex flex-col relative ${(tabs.find(t => t.id === activeTabId)?.type === "file" || isAlternateActive)
               ? ""
               : "px-3 pt-3"
               }`}
             onMouseDown={(e) => {
               const activeTab = tabs.find(t => t.id === activeTabId);
-              
+
               // Do not steal focus if they clicked inside the xterm terminal viewport, preserving text selection
               const target = e.target as HTMLElement;
               if (target.closest(".xterm")) {
@@ -1022,11 +1052,11 @@ export default function App() {
               <div className="warp-input-glow flex flex-col bg-surface-container-high/20 border border-outline-variant/20 overflow-hidden shadow-2xl rounded-lg">
                 <div className="flex items-center px-4 py-1.5 bg-surface-container-high/30 border-b border-outline-variant/10 select-none h-[29px]">
                   {isCwdLoading ? (
-                    <span className="text-[10px] font-code-sm text-primary tracking-widest flex items-center gap-1.5 select-none animate-spin pr-1">
+                    <span className="text-[10px] text-primary tracking-widest flex items-center gap-1.5 select-none animate-spin pr-1">
                       <RefreshCw size={10} />
                     </span>
                   ) : (
-                    <span className="text-[10px] font-code-sm text-outline/50 tracking-widest flex items-center gap-1.5">
+                    <span className="text-[10px] text-outline/50 tracking-widest flex items-center gap-1.5">
                       <FolderOpen size={10} />
                       {cwd}
                     </span>
@@ -1038,12 +1068,12 @@ export default function App() {
                   <div className="flex items-center justify-between px-4 py-3 bg-surface-container-high/10">
                     <div className="flex items-center gap-2 text-on-surface text-sm">
                       <RefreshCw size={14} className="animate-spin text-primary" />
-                      <span className="font-code-sm text-primary">Executing command...</span>
+                      <span className="text-primary">Executing command...</span>
                       <span className="text-outline/50 text-xs">Ctrl + C to cancel</span>
                     </div>
                     <button
                       onClick={handleStopCurrentCommand}
-                      className="px-3 py-1.5 text-xs font-code-sm bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg transition-colors cursor-pointer border border-red-500/20"
+                      className="px-3 py-1.5 text-xs bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg transition-colors cursor-pointer border border-red-500/20"
                       title="Stop Command (Ctrl+C)"
                     >
                       <span className="flex items-center gap-1">
@@ -1110,7 +1140,6 @@ export default function App() {
 
         </main>
       </div>
-
       {/* Save confirmation modal for dirty file tabs */}
       {pendingCloseTabId && (() => {
         const pendingTab = tabs.find(t => t.id === pendingCloseTabId);
@@ -1133,7 +1162,7 @@ export default function App() {
               </div>
               <div className="flex justify-end gap-2 px-5 pb-4 pt-2">
                 <button
-                  className="px-3 py-1.5 text-[11px] font-code-sm rounded-lg border border-outline-variant/20 text-on-surface-variant hover:bg-surface-variant/20 transition-colors cursor-pointer"
+                  className="px-3 py-1.5 text-[11px] rounded-lg border border-outline-variant/20 text-on-surface-variant hover:bg-surface-variant/20 transition-colors cursor-pointer"
                   onClick={() => {
                     killSession(pendingCloseTabId);
                     setPendingCloseTabId(null);
@@ -1142,13 +1171,13 @@ export default function App() {
                   Don't Save
                 </button>
                 <button
-                  className="px-3 py-1.5 text-[11px] font-code-sm rounded-lg text-on-surface-variant hover:bg-surface-variant/20 transition-colors cursor-pointer"
+                  className="px-3 py-1.5 text-[11px] rounded-lg text-on-surface-variant hover:bg-surface-variant/20 transition-colors cursor-pointer"
                   onClick={() => setPendingCloseTabId(null)}
                 >
                   Cancel
                 </button>
                 <button
-                  className="px-3 py-1.5 text-[11px] font-code-sm rounded-lg bg-primary text-on-primary hover:bg-primary/90 transition-colors cursor-pointer font-semibold"
+                  className="px-3 py-1.5 text-[11px] rounded-lg bg-primary text-on-primary hover:bg-primary/90 transition-colors cursor-pointer font-semibold"
                   onClick={async () => {
                     const tab = useSessionStore.getState().tabs.find(t => t.id === pendingCloseTabId);
                     if (tab?.fileContent && tab.filePath) {
@@ -1212,6 +1241,11 @@ export default function App() {
                     new CustomEvent("terminal-clear", { detail: { sessionId: activeTabId } })
                   );
                   useBlockStore.getState().clearBlocks(activeTabId);
+                  setInteractedSessions((prev) => {
+                    const next = new Set(prev);
+                    next.delete(activeTabId);
+                    return next;
+                  });
                 }
                 setContextMenu(null);
               }}>

@@ -9,11 +9,11 @@ import { useBlockStore } from "../../stores/useBlockStore";
 import { useSettingsStore } from "../../stores/useSettingsStore";
 import { useSessionStore } from "../../stores/useSessionStore";
 import { buildXtermTheme } from "../../lib/xtermTheme";
-import { recalculateAnchors } from "../../lib/terminal/blockAnchors";
-// PromptBar and InputBar decoupled to App level
+import { recalculateAnchors, getRowHeight } from "../../lib/terminal/blockAnchors";
+
 import { TerminalBlock } from "./TerminalBlock";
 import { pty, system } from "../../lib/ipc";
-import { SquareTerminal, ShieldCheck } from "lucide-react";
+import { SquareTerminal } from "lucide-react";
 import { Block } from "../../types/block";
 
 const EMPTY_BLOCKS: Block[] = [];
@@ -31,9 +31,12 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
   const fitRef = useRef<FitAddon | null>(null);
   // Layout context parameters
   const [cwd, setCwd] = useState("~/workspace");
+  const cwdRef = useRef(cwd);
+  useEffect(() => { cwdRef.current = cwd; }, [cwd]);
   const [isCwdLoading, setIsCwdLoading] = useState(false);
   const [isSessionDead, setIsSessionDead] = useState(false);
   const [sessionExitCode, setSessionExitCode] = useState<number | null>(null);
+  const branchRef = useRef<string | null>(null);
 
   // Read registered blocks for this session from state
   const sessionBlocks = useBlockStore((state) => state.blocks[sessionId] || EMPTY_BLOCKS);
@@ -119,9 +122,8 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
             debouncedResize(cols, rows);
           }
         }
-        // Re-measure exact core row height for dynamic overlay positioning
-        const core = (term as any)._core;
-        const ch = core?.viewport?._rowHeight ?? 19.5;
+        // Re-measure exact row height for dynamic overlay positioning
+        const ch = getRowHeight(term);
         if (ch > 0) setLineHeight(ch);
         recalc();
       } catch (err) {
@@ -141,7 +143,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
     const syncAlternateBufferState = (active: boolean) => {
       const currentXtermAlternate = termRef.current?.buffer?.active?.type === "alternate";
       if (lastAlternateBufferState === active && currentXtermAlternate === active) return;
-      
+
       lastAlternateBufferState = active;
       console.log(`[TerminalPane ${sessionId}] Alternate buffer transition: ${!active} -> ${active}`);
       useSessionStore.getState().setAlternateBufferActive(sessionId, active);
@@ -326,49 +328,56 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
         if (dataBuffer) {
           let cleanData = leftoverBuffer + dataBuffer;
           leftoverBuffer = "";
+          dataBuffer = "";
 
-          // Match alternate screen buffer escape sequences
-          const enterAltBuffer = /\x1b\[\??(?:1049|47|1047)h/.test(cleanData);
-          const leaveAltBuffer = /\x1b\[\??(?:1049|47|1047)l/.test(cleanData);
 
-          if (enterAltBuffer) {
-            console.log(`[TerminalPane ${sessionId}] Detected: Enter alternate buffer`);
-            syncAlternateBufferState(true);
-          }
-          if (leaveAltBuffer) {
-            console.log(`[TerminalPane ${sessionId}] Detected: Leave alternate buffer`);
-            syncAlternateBufferState(false);
-          }
 
           // Parse workspace CWD sentinels — hide them from terminal output
-          const sentinelRegex = /__AURORA_CWD__=([^\r\n]+)(?:\r?\n|$)/g;
-          let sMatch;
+          // Only parse sentinels if we are NOT inside the alternate screen buffer (TUI running).
+          // This prevents files being edited in vim/nano containing sentinel strings from resetting the prompt mode and sidepanel.
+          const inAlt = useSessionStore.getState().alternateBufferActive[sessionId] || false;
           let foundSentinel = false;
-          while ((sMatch = sentinelRegex.exec(cleanData)) !== null) {
-            let path = sMatch[1].trim();
-            path = path.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, "");
-            path = path.replace(/\[K$/, "").trim();
 
-            console.log(`[TerminalPane ${sessionId}] Captured shell sentinel: ${path}`);
-            foundSentinel = true;
-            setCwd(path);
-            setIsCwdLoading(false);
+          if (!inAlt) {
+            const sentinelRegex = /__AURORA_CWD__=([^\r\n]+)(?:\r?\n|$)/g;
+            let sMatch;
+            while ((sMatch = sentinelRegex.exec(cleanData)) !== null) {
+              let path = sMatch[1].trim();
+              path = path.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, "");
+              path = path.replace(/\[K$/, "").trim();
 
-            // Force UI transition out of full-screen/alternate mode if we're at a prompt
-            syncAlternateBufferState(false);
+              console.log(`[TerminalPane ${sessionId}] Captured shell sentinel: ${path}`);
+              foundSentinel = true;
+              setCwd(path);
+              setIsCwdLoading(false);
 
-            window.dispatchEvent(
-              new CustomEvent("cwd-change", { detail: { path, sessionId } })
-            );
-          }
+              // Force UI transition out of full-screen/alternate mode if we're at a prompt
+              syncAlternateBufferState(false);
 
-          // If we found a sentinel but a block is still marked as running, it might mean 
-          // the terminal doesn't support OSC 133 D. We should finalize it here as a fallback.
-          if (foundSentinel) {
-            const activeId = useBlockStore.getState().runningBlockId[sessionId];
-            if (activeId) {
-              console.log(`[TerminalPane ${sessionId}] Finalizing block via prompt sentinel fallback`);
-              useBlockStore.getState().finalizeBlock(sessionId, activeId, 0);
+              window.dispatchEvent(
+                new CustomEvent("cwd-change", { detail: { path, sessionId } })
+              );
+            }
+
+            // Parse workspace branch sentinels
+            const branchRegex = /__AURORA_BRANCH__=([^\r\n]*)(?:\r?\n|$)/g;
+            let bMatch;
+            while ((bMatch = branchRegex.exec(cleanData)) !== null) {
+              let branchName = bMatch[1].trim();
+              branchName = branchName.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, "");
+              branchName = branchName.replace(/\[K$/, "").trim();
+              branchRef.current = branchName || null;
+              console.log(`[TerminalPane ${sessionId}] Captured branch sentinel: ${branchName}`);
+            }
+
+            // If we found a sentinel but a block is still marked as running, it might mean 
+            // the terminal doesn't support OSC 133 D. We should finalize it here as a fallback.
+            if (foundSentinel) {
+              const activeId = useBlockStore.getState().runningBlockId[sessionId];
+              if (activeId) {
+                console.log(`[TerminalPane ${sessionId}] Finalizing block via prompt sentinel fallback`);
+                useBlockStore.getState().finalizeBlock(sessionId, activeId, 0);
+              }
             }
           }
 
@@ -377,6 +386,11 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
             /(?:\r?\n)?.*(?:Write-Host|echo)\s+["\x27]?__AURORA_[A-Z_]+__[^\r\n]*/g,
             ""
           );
+
+          // Strip PowerShell prompts and continuation symbols (PS>, >>, etc.)
+          cleanData = cleanData.replace(/^\r?PS\s*>\s*/gm, "");  // Strip "PS> " at line start (optional \r prefix)
+          cleanData = cleanData.replace(/^\r?>+\s*/gm, "");    // Strip continuation prompts ("> ", ">> ", etc.) — optional \r prefix for PSReadLine
+          cleanData = cleanData.replace(/^\r?>+\s*$/gm, "");   // Strip any remaining prompt-only lines
 
           // Strip individual sentinel lines cleanly from output so they don't print to screen
           cleanData = cleanData.replace(/(?:\r?\n)?__AURORA_PROMPT_START__[^\r\n]*/g, "");
@@ -400,7 +414,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
           const lastEsc = cleanData.lastIndexOf("\x1b");
           const lastAurora = cleanData.lastIndexOf("__AURORA_");
           let splitIndex = -1;
-          
+
           if (lastEsc !== -1 && cleanData.length - lastEsc <= 6) {
             splitIndex = lastEsc;
           }
@@ -422,24 +436,38 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
                 leftoverBuffer = "";
 
                 // Parse CWD and finalize block in failsafe data if found
-                const failsafeCwdMatch = /__AURORA_CWD__=([^\r\n]+)(?:\r?\n|$)/.exec(failsafeData);
-                if (failsafeCwdMatch) {
-                  let path = failsafeCwdMatch[1].trim();
-                  path = path.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, "");
-                  path = path.replace(/\[K$/, "").trim();
-                  setCwd(path);
-                  setIsCwdLoading(false);
-                  syncAlternateBufferState(false);
-                  const activeId = useBlockStore.getState().runningBlockId[sessionId];
-                  if (activeId) {
-                    useBlockStore.getState().finalizeBlock(sessionId, activeId, 0);
+                const inAltFailsafe = useSessionStore.getState().alternateBufferActive[sessionId] || false;
+                if (!inAltFailsafe) {
+                  const failsafeCwdMatch = /__AURORA_CWD__=([^\r\n]+)(?:\r?\n|$)/.exec(failsafeData);
+                  if (failsafeCwdMatch) {
+                    let path = failsafeCwdMatch[1].trim();
+                    path = path.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, "");
+                    path = path.replace(/\[K$/, "").trim();
+                    setCwd(path);
+                    setIsCwdLoading(false);
+                    syncAlternateBufferState(false);
+                    const activeId = useBlockStore.getState().runningBlockId[sessionId];
+                    if (activeId) {
+                      useBlockStore.getState().finalizeBlock(sessionId, activeId, 0);
+                    }
+                    window.dispatchEvent(
+                      new CustomEvent("cwd-change", { detail: { path, sessionId } })
+                    );
                   }
-                  window.dispatchEvent(
-                    new CustomEvent("cwd-change", { detail: { path, sessionId } })
-                  );
+
+                  // Parse branch in failsafe data if found
+                  const failsafeBranchMatch = /__AURORA_BRANCH__=([^\r\n]*)(?:\r?\n|$)/.exec(failsafeData);
+                  if (failsafeBranchMatch) {
+                    let branchName = failsafeBranchMatch[1].trim();
+                    branchName = branchName.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, "");
+                    branchName = branchName.replace(/\[K$/, "").trim();
+                    branchRef.current = branchName || null;
+                  }
                 }
 
-                // Strip individual sentinel lines cleanly from failsafe data
+                // Strip PowerShell prompt symbols and sentinel lines from failsafe data
+                failsafeData = failsafeData.replace(/^\r?>+\s*/gm, "");
+                failsafeData = failsafeData.replace(/^\r?>+\s*$/gm, "");
                 failsafeData = failsafeData.replace(/(?:\r?\n)?__AURORA_PROMPT_START__[^\r\n]*/g, "");
                 failsafeData = failsafeData.replace(/(?:\r?\n)?__AURORA_CWD__[^\r\n]*/g, "");
                 failsafeData = failsafeData.replace(/(?:\r?\n)?__AURORA_BRANCH__[^\r\n]*/g, "");
@@ -484,7 +512,6 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
       } catch (err) {
         console.error(`[TerminalPane ${sessionId}] Error inside flushBuffer:`, err);
       } finally {
-        dataBuffer = "";
         frameId = 0;
       }
     };
@@ -500,9 +527,50 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
 
     const handleCommandRun = (e: Event) => {
       if (isDisposed) return;
-      const { cmd } = (e as CustomEvent<{ cmd: string }>).detail;
+      // const { cmd } = (e as CustomEvent<{ cmd: string }>).detail;
       const term = termRef.current;
       if (!term || !term.buffer || !term.buffer.active) return;
+
+      // Print thin full-width horizontal divider between commands using UI color
+      const E = "\x1b";
+
+      // Determine a suitable color from CSS variables (fallback to gray)
+      const cssColor = (typeof window !== "undefined")
+        ? getComputedStyle(document.documentElement).getPropertyValue("--color-ui-border")
+        : "";
+      const parseColor = (s: string) => {
+        const str = (s || "").trim();
+        if (!str) return null;
+        if (str.startsWith("#")) {
+          const hex = str.replace("#", "");
+          if (hex.length === 6) {
+            return { r: parseInt(hex.slice(0, 2), 16), g: parseInt(hex.slice(2, 4), 16), b: parseInt(hex.slice(4, 6), 16) };
+          }
+        }
+        const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(str);
+        if (m) return { r: +m[1], g: +m[2], b: +m[3] };
+        return null;
+      };
+
+      const rgb = parseColor(cssColor) || { r: 128, g: 128, b: 128 };
+      const colorSeq = `${E}[38;2;${rgb.r};${rgb.g};${rgb.b}m`;
+      const cols = (term.cols && term.cols > 0) ? term.cols : 80;
+      const line = "─".repeat(Math.max(cols, 1));
+      const divider = `\r\n\r\n${colorSeq}${line}${E}[0m\r\n\r\n`;
+      term.write(divider);
+
+      // Print the custom styled command header: folder (branch) > 
+      const folder = cwdRef.current.split(/[\/\\]/).filter(Boolean).pop() || cwdRef.current;
+      const branchStr = branchRef.current ? ` ${E}[1;32m(${branchRef.current})${E}[0m` : "";
+      const prefix = `${E}[1;36m${folder}${E}[0m${branchStr} ${E}[1;33m>${E}[0m `;
+      term.write(prefix);
+      term.scrollToBottom();
+
+      // Transfer focus from GhostInput to xterm so interactive CLI tools
+      // receive keystrokes (arrows, letters, etc.) via onData → pty.write.
+      // Must also enable stdin immediately — the React effect may lag behind.
+      term.focus();
+      term.options.disableStdin = false;
 
       const cursorRow = term.buffer.active.cursorY + term.buffer.active.baseY;
       console.log(`[TerminalPane ${sessionId}] Command run captured. Cursor row: ${cursorRow}`);
@@ -523,6 +591,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
       const term = termRef.current;
       if (term) {
         term.clear();
+        term.write("\x1b[3J\x1b[H\x1b[2J"); // Wipes screen & scrollback fully, homes cursor
       }
     };
 
@@ -610,7 +679,18 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
       setIsSessionDead(false);
       setSessionExitCode(null);
 
+      // Force-reset alternate buffer and execution states
+      useSessionStore.getState().setAlternateBufferActive(sessionId, false);
+      useBlockStore.getState().setRunningBlockId(sessionId, null);
+      useBlockStore.getState().setCommandOutputReceived(sessionId, false);
+
+      // Notify the parent App component to reset session interaction state
+      window.dispatchEvent(
+        new CustomEvent("terminal-session-restart", { detail: { sessionId } })
+      );
+
       if (termRef.current) {
+        termRef.current.write("\x1b[?1049l"); // Force exit alternate screen buffer
         termRef.current.clear();
         termRef.current.write("\x1b[3J\x1b[H\x1b[2J"); // Wipes screen & scrollback fully
       }
@@ -621,7 +701,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
       // Respawn process under same session_id!
       const isWin = window.navigator.userAgent.includes("Windows");
       const defaultShell = isWin ? "powershell.exe" : "bash";
-      const promptCmd = `function prompt { $cwd = $ExecutionContext.SessionState.Path.CurrentLocation; $branch = (git branch --show-current 2>$null); "__AURORA_PROMPT_START__" + [char]13 + [char]10 + "__AURORA_CWD__=$cwd" + [char]13 + [char]10 + "__AURORA_BRANCH__=$branch" + [char]13 + [char]10 + "__AURORA_PROMPT_END__" }; Clear-Host`;
+      const promptCmd = `function prompt { $cwd = $ExecutionContext.SessionState.Path.CurrentLocation; $branch = (git branch --show-current 2>$null); "__AURORA_PROMPT_START__" + [char]13 + [char]10 + "__AURORA_CWD__=$cwd" + [char]13 + [char]10 + "__AURORA_BRANCH__=$branch" + [char]13 + [char]10 + "__AURORA_PROMPT_END__"; return ' ' }; Clear-Host`;
       const args = isWin ? ["-NoLogo", "-NoExit", "-Command", promptCmd] : [];
 
       await pty.spawn(defaultShell, args, {}, cwd, sessionId);
@@ -653,14 +733,17 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
     );
   };
 
-  // Dynamically toggle disableStdin based on command execution state and buffer swap states
+  // Dynamically toggle disableStdin based on command execution state and buffer swap states.
+  // Also focus xterm to redirect keystrokes away from GhostInput during interactive CLI tools.
   useEffect(() => {
     const term = termRef.current;
     if (!term) return;
 
-    // Enable direct stdin inside xterm when a command is running OR when alternate screen buffer is active.
-    // Otherwise disable direct stdin to force typing into the custom input bar.
-    term.options.disableStdin = !isCommandRunning && !isAlternateActive;
+    const active = isCommandRunning || isAlternateActive;
+    term.options.disableStdin = !active;
+    if (active) {
+      term.focus();
+    }
   }, [isCommandRunning, isAlternateActive]);
 
   const handleContextMenu = (e: React.MouseEvent) => {
@@ -687,11 +770,14 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
         isolation: "isolate",
       }}
     >
-      {/* ── Layer 0: xterm canvas container ─────────────────────────────────── */}
-      <div
-        ref={xtermRef}
-        className="flex-1 w-full relative select-none bg-transparent"
-      >
+      {/* ── Terminal Viewer Container (positioned context for layers) ───────────────── */}
+      <div className="flex-1 w-full relative select-none bg-transparent">
+        {/* ── Layer 0: xterm canvas mount container ─────────────────────────── */}
+        <div
+          ref={xtermRef}
+          className="w-full h-full"
+        />
+
         {/* ── Layer 1: GPU composited React block overlays ─────────────────────── */}
         <div
           className="absolute inset-0 pointer-events-none"
@@ -722,7 +808,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
             </div>
             <button
               onClick={handleRestartSession}
-              className="w-full py-2 px-4 rounded-xl bg-primary text-on-primary font-semibold text-xs cursor-pointer hover:opacity-90 active:scale-[0.98] transition-all shadow-md shadow-primary/10"
+              className="py-2 px-4 rounded-xl bg-primary text-on-primary font-semibold text-xs cursor-pointer hover:opacity-90 active:scale-[0.98] transition-all shadow-md shadow-primary/10"
             >
               Restart Session
             </button>
