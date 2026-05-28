@@ -1,0 +1,27 @@
+[package]
+name    = "aurora-commands"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Workspace internal dependencies
+aurora-core    = { workspace = true }
+aurora-pty     = { workspace = true }
+aurora-db      = { workspace = true }
+aurora-config  = { workspace = true }
+aurora-sidecar = { workspace = true }
+aurora-ai      = { workspace = true }
+
+# Tauri & external crates
+tauri      = { workspace = true }
+tokio      = { workspace = true }
+serde      = { workspace = true }
+serde_json = { workspace = true }
+uuid       = { workspace = true }
+chrono     = { workspace = true }
+base64     = { workspace = true }
+ignore     = { workspace = true }
+sysinfo    = { workspace = true }
+notify     = { workspace = true }
+rfd        = { workspace = true }
+which      = { workspace = true }

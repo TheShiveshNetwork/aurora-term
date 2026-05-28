@@ -1,0 +1,17 @@
+[package]
+name    = "aurora-ai"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Workspace internal dependencies
+aurora-core = { workspace = true }
+
+# Tauri, HTTP and async utils
+tauri        = { workspace = true }
+reqwest      = { workspace = true }
+serde        = { workspace = true }
+serde_json   = { workspace = true }
+futures-util = { workspace = true }
+async-trait  = { workspace = true }
+uuid         = { workspace = true }

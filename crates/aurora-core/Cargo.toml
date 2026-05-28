@@ -1,0 +1,17 @@
+# ══════════════════════════════════════════════════════════
+# crates/aurora-core/Cargo.toml
+# No Tauri. No async. No I/O. Pure types and error defs.
+# Every other crate depends on this. Keep it lean.
+# ══════════════════════════════════════════════════════════
+[package]
+name    = "aurora-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde      = { workspace = true }
+serde_json = { workspace = true }
+thiserror  = { workspace = true }
+uuid       = { workspace = true }
+chrono     = { workspace = true }
+toml       = { workspace = true }
