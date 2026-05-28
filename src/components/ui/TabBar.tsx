@@ -31,6 +31,28 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
 
+  // Custom rename modal states
+  const [renameTabId, setRenameTabId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (renameTabId !== null) {
+      const t = setTimeout(() => {
+        inputRef.current?.focus();
+        inputRef.current?.select();
+      }, 50);
+      return () => clearTimeout(t);
+    }
+  }, [renameTabId]);
+
+  const handleRenameSubmit = () => {
+    if (renameTabId && renameValue.trim()) {
+      updateTab(renameTabId, { name: renameValue.trim() });
+    }
+    setRenameTabId(null);
+  };
+
   const expandedTabs = tabs.filter((t) => t.type === viewMode);
   const isScrollable = expandedTabs.length > 6;
 
@@ -211,14 +233,14 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
   }, [getTabIndexFromX, reorderTabs, sortedTabs, tabs]);
 
   return (
-    <div className="flex items-center w-full h-10 px-3 bg-background border-b border-outline-variant/5 gap-2">
+    <div className="flex items-center w-full h-12 px-3 bg-background border-b border-outline-variant/5 gap-2">
       {isScrollable && canScrollLeft && (
         <button
           onClick={slideLeft}
-          className="shrink-0 w-6 h-7 flex items-center justify-center rounded hover:bg-surface-variant/30 text-outline/50 hover:text-primary transition-all cursor-pointer animate-in fade-in duration-200"
+          className="shrink-0 w-7 h-8 flex items-center justify-center rounded hover:bg-surface-variant/30 text-outline/50 hover:text-primary transition-all cursor-pointer animate-in fade-in duration-200"
           title="Scroll Left"
         >
-          <ChevronLeft size={14} />
+          <ChevronLeft size={16} />
         </button>
       )}
 
@@ -227,9 +249,9 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
         id="aurora-tab-bar"
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
-        className={`flex items-start h-full pt-[2px] flex-1 gap-1 overflow-x-auto overflow-y-hidden min-w-0 relative ${isScrollable
-            ? `has-tabs-scrollbar ${isHovered ? "tabs-scroll-hovered" : ""}`
-            : "no-scrollbar"
+        className={`flex items-start h-full pt-[5px] flex-1 gap-1 overflow-x-auto overflow-y-hidden min-w-0 relative ${isScrollable
+          ? `has-tabs-scrollbar ${isHovered ? "tabs-scroll-hovered" : ""}`
+          : "no-scrollbar"
           }`}
       >
         {sortedTabs.map((tab, index) => {
@@ -258,8 +280,8 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
               className={`safari-tab select-none ${isActive ? "active" : ""} ${isOver ? "drag-over" : ""} ${isDragging ? "opacity-40" : ""} ${isExpanded && !isPinned ? "" : "!justify-center !p-0 !gap-0"
                 }`}
               style={{
-                flex: isExpanded && !isPinned ? (isScrollable ? "0 0 140px" : "1 1 0%") : "0 0 36px",
-                height: "32px",
+                flex: isExpanded && !isPinned ? (isScrollable ? "0 0 140px" : "1 1 0%") : "0 0 40px",
+                height: "36px",
                 padding: isPinned ? "0" : "0 12px",
                 order: index,
                 transform: isDragging ? "scale(0.95)" : "none",
@@ -268,9 +290,9 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
               title={isPinned ? `${tab.name} (Pinned)` : tab.name}
             >
               {tab.type === "file" ? (
-                <FileText size={12} className={`shrink-0 ${isActive ? "text-primary" : "text-outline/70"}`} />
+                <FileText size={14} className={`shrink-0 ${isActive ? "text-primary" : "text-outline/70"}`} />
               ) : (
-                <Terminal size={12} className={`shrink-0 ${isActive ? "text-outline" : "text-outline/70"}`} />
+                <Terminal size={14} className={`shrink-0 ${isActive ? "text-outline" : "text-outline/70"}`} />
               )}
 
               {isPinned ? null : (
@@ -290,10 +312,10 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
                     e.stopPropagation();
                     onKillTab(tab.id);
                   }}
-                  className={`absolute right-1 shrink-0 transition-all duration-200 hover:bg-surface-variant/40 rounded p-0.5 text-on-surface-variant/40 hover:text-error ${isExpanded ? "opacity-100" : "opacity-0 pointer-events-none"
+                  className={`absolute right-1.5 shrink-0 transition-all duration-200 hover:bg-surface-variant/40 rounded p-0.5 text-on-surface-variant/40 hover:text-error ${isExpanded ? "opacity-100" : "opacity-0 pointer-events-none"
                     }`}
                 >
-                  <X size={12} />
+                  <X size={14} />
                 </button>
               )}
             </div>
@@ -304,10 +326,10 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
       {isScrollable && canScrollRight && (
         <button
           onClick={slideRight}
-          className="shrink-0 w-6 h-7 flex items-center justify-center rounded hover:bg-surface-variant/30 text-outline/50 hover:text-primary transition-all cursor-pointer animate-in fade-in duration-200"
+          className="shrink-0 w-7 h-8 flex items-center justify-center rounded hover:bg-surface-variant/30 text-outline/50 hover:text-primary transition-all cursor-pointer animate-in fade-in duration-200"
           title="Scroll Right"
         >
-          <ChevronRight size={14} />
+          <ChevronRight size={16} />
         </button>
       )}
 
@@ -323,10 +345,10 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
               onAddTab("terminal");
             }
           }}
-          className="w-7 h-7 flex items-center justify-center rounded-lg text-on-surface-variant hover:bg-surface-variant/30 hover:scale-105 active:scale-95 text-on-surface hover:text-primary transition-all border border-outline-variant/10 cursor-pointer shadow-sm"
+          className="w-8 h-8 flex items-center justify-center rounded-lg text-on-surface-variant hover:bg-surface-variant/30 hover:scale-105 active:scale-95 text-on-surface hover:text-primary transition-all border border-outline-variant/10 cursor-pointer shadow-sm"
           title="New Tab Options"
         >
-          <Plus size={14} className={`transition-transform duration-200 ${showAddMenu ? "rotate-45" : ""}`} />
+          <Plus size={16} className={`transition-transform duration-200 ${showAddMenu ? "rotate-45" : ""}`} />
         </button>
 
         {showAddMenu && (
@@ -364,7 +386,7 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
           {/* Header */}
           <div className="px-3 pt-1 pb-2 flex items-center gap-2 border-b border-outline-variant/10 mb-1 select-none">
             {contextTab.tab.type === "file" ? <FileText size={11} className="text-primary/70 shrink-0" /> : <Terminal size={11} className="text-outline/70 shrink-0" />}
-            <span className="text-[11px] font-code-sm text-on-surface-variant/60 overflow-hidden text-ellipsis whitespace-nowrap">
+            <span className="text-[11px] text-on-surface-variant/60 overflow-hidden text-ellipsis whitespace-nowrap">
               {contextTab.tab.name}
             </span>
           </div>
@@ -385,10 +407,8 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
             <RightClickMenuItem
               icon={<Edit3 size={13} />}
               onClick={() => {
-                const newName = prompt("Enter new terminal tab name:", contextTab.tab.name);
-                if (newName && newName.trim()) {
-                  updateTab(contextTab.tab.id, { name: newName.trim() });
-                }
+                setRenameTabId(contextTab.tab.id);
+                setRenameValue(contextTab.tab.name);
                 setContextTab(null);
               }}
             >
@@ -509,6 +529,56 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
             </>
           )}
         </RightClickMenuPanel>
+      )}
+
+      {renameTabId && (
+        <div
+          className="fixed inset-0 z-[500] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+          onClick={() => setRenameTabId(null)}
+        >
+          <div
+            className="bg-surface border border-outline-variant/30 rounded-2xl p-6 w-[360px] shadow-2xl flex flex-col gap-4 animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div>
+              <h3 className="text-sm font-bold text-on-surface font-headline-md">Rename Terminal Tab</h3>
+              <p className="text-xs text-on-surface-variant/60 mt-1 leading-relaxed">
+                Provide a descriptive name for this terminal session.
+              </p>
+            </div>
+            
+            <input
+              ref={inputRef}
+              type="text"
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  handleRenameSubmit();
+                } else if (e.key === "Escape") {
+                  setRenameTabId(null);
+                }
+              }}
+              className="w-full bg-surface-container-lowest border border-outline-variant/30 rounded-xl px-3.5 py-2 text-sm text-on-surface outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all font-body-base"
+              placeholder="e.g. Server Logs, Build Terminal"
+            />
+
+            <div className="flex justify-end gap-2 mt-2">
+              <button
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-on-surface-variant hover:bg-surface-variant/20 hover:text-on-surface transition-colors cursor-pointer"
+                onClick={() => setRenameTabId(null)}
+              >
+                Cancel
+              </button>
+              <button
+                className="px-4 py-2 rounded-xl bg-primary text-on-primary text-xs font-semibold hover:opacity-90 active:scale-95 transition-all shadow-md shadow-primary/10 cursor-pointer"
+                onClick={handleRenameSubmit}
+              >
+                Rename
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -11,11 +11,12 @@ pub async fn pty_spawn(
     args: Vec<String>,
     env: HashMap<String, String>,
     cwd: Option<String>,
+    session_id: Option<String>,
 ) -> Result<String, AppError> {
-    let session_id = uuid::Uuid::new_v4().to_string();
+    let id = session_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let mut manager = state.pty_manager.lock().await;
-    manager.spawn(session_id.clone(), shell, args, env, cwd, window).await?;
-    Ok(session_id)
+    manager.spawn(id.clone(), shell, args, env, cwd, window).await?;
+    Ok(id)
 }
 
 #[command]

@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::io::Write;
+
 use tauri::Window;
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use crate::error::AppError;

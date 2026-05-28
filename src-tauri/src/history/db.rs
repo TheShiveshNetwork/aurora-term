@@ -1,6 +1,6 @@
 use std::fs;
-use std::path::PathBuf;
-use tauri::Manager;
+
+
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use crate::error::AppError;

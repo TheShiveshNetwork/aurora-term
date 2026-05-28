@@ -85,7 +85,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
         {/* Content Tabs area */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           <div className="space-y-4">
-            <div className="flex items-center gap-2 border-b border-outline-variant/10 pb-1.5 text-on-surface font-semibold text-[13px] font-code-sm">
+            <div className="flex items-center gap-2 border-b border-outline-variant/10 pb-1.5 text-on-surface font-semibold text-[13px]">
               <Shield size={14} className="text-secondary" />
               <span>AI ENGINES CREDENTIALS</span>
             </div>
@@ -100,8 +100,8 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                 <div
                   key={name}
                   className={`p-4 rounded-xl border transition-all ${isSelected
-                      ? "border-primary/30 bg-primary/5"
-                      : "border-outline-variant/10 bg-surface-container/20 hover:bg-surface-container/40"
+                    ? "border-primary/30 bg-primary/5"
+                    : "border-outline-variant/10 bg-surface-container/20 hover:bg-surface-container/40"
                     }`}
                 >
                   <div className="flex items-center justify-between mb-3">
@@ -121,8 +121,8 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                     <div className="flex items-center gap-2">
                       {name !== "ollama" && (
                         <span className={`text-[9px] font-label-caps uppercase px-2 py-0.5 rounded-full ${hasKey
-                            ? "bg-tertiary/10 text-tertiary border border-tertiary/20"
-                            : "bg-error/10 text-error border border-error/20"
+                          ? "bg-tertiary/10 text-tertiary border border-tertiary/20"
+                          : "bg-error/10 text-error border border-error/20"
                           }`}>
                           {hasKey ? "Key Configured" : "No Key"}
                         </span>
@@ -130,7 +130,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                       <button
                         onClick={() => handleTestConnection(name)}
                         disabled={testing[name]}
-                        className="text-[10px] font-code-sm px-2.5 py-1 rounded bg-surface-container-high hover:bg-surface-container-highest transition-colors border border-outline-variant/10 text-on-surface-variant"
+                        className="text-[10px] px-2.5 py-1 rounded bg-surface-container-high hover:bg-surface-container-highest transition-colors border border-outline-variant/10 text-on-surface-variant"
                       >
                         {testing[name] ? "Testing..." : "Test Link"}
                       </button>
@@ -162,7 +162,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                       {hasKey && (
                         <button
                           onClick={() => handleDeleteKey(name)}
-                          className="text-[10px] font-code-sm px-2.5 py-2 rounded bg-error/10 text-error hover:bg-error/20 transition-all font-bold"
+                          className="text-[10px] px-2.5 py-2 rounded bg-error/10 text-error hover:bg-error/20 transition-all font-bold"
                         >
                           Clear
                         </button>

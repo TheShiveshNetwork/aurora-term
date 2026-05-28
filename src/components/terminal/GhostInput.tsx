@@ -61,7 +61,7 @@ export function GhostInput({
 }: GhostInputProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const mirrorRef = useRef<HTMLSpanElement>(null);
-  const textMetricsClass = "font-code-base text-[13px] font-normal leading-[22px]";
+  const textMetricsClass = "font-code-base text-sm font-normal leading-[22px]";
 
   useEffect(() => {
     const handleFocus = (e: Event) => {
@@ -77,7 +77,7 @@ export function GhostInput({
   const histNavRef = useRef<number>(-1);
   const draftRef = useRef<string>("");
 
-  const uniqueHistory = [...new Set(history.filter(Boolean))];
+  const uniqueHistory = [...new Set(history.filter(Boolean).map(cmd => cmd.replace(/`+$/, '')))];
 
   const ghost = computeGhost(value, uniqueHistory);
 

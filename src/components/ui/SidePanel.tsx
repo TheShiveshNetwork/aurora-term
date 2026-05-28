@@ -44,6 +44,17 @@ interface DeleteConfirmState {
   node: FileNode;
 }
 
+// ─── Filter logic for unwanted system/temp files ─────────────────────────────
+const isExcluded = (name: string): boolean => {
+  return (
+    name === ".git" ||
+    name === ".DS_Store" ||
+    name.endsWith(".swp") ||
+    name.endsWith(".swo") ||
+    name.startsWith("~")
+  );
+};
+
 // ─────────────────────── TreeNode ────────────────────────
 function pathStartsWith(path: string, prefix: string): boolean {
   if (path === prefix) return true;
@@ -205,17 +216,17 @@ function TreeNode({
             value={renameValue}
             onChange={(e) => onRenameChange(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter")  { e.preventDefault(); onRenameCommit(); }
+              if (e.key === "Enter") { e.preventDefault(); onRenameCommit(); }
               if (e.key === "Escape") { e.preventDefault(); onRenameCancel(); }
             }}
             onBlur={onRenameCancel}
             onClick={(e) => e.stopPropagation()}
-            className="flex-1 min-w-0 text-[11.5px] font-code-sm bg-surface-container-high border border-primary/40 rounded px-1 outline-none text-on-surface focus:border-primary/70 transition-colors"
+            className="flex-1 min-w-0 text-sm bg-surface-container-high border border-primary/40 rounded px-1 outline-none text-on-surface focus:border-primary/70 transition-colors"
             style={{ lineHeight: "1.4", marginLeft: "2px" }}
           />
         ) : (
           <span
-            className={`text-[11.5px] font-code-sm overflow-hidden text-ellipsis whitespace-nowrap min-w-0 flex-1 transition-colors group-hover:text-on-surface ${isGitignored ? "italic opacity-60" : ""}`}
+            className={`text-sm overflow-hidden text-ellipsis whitespace-nowrap min-w-0 flex-1 transition-colors group-hover:text-on-surface ${isGitignored ? "italic opacity-60" : ""}`}
             style={{ lineHeight: "1.4" }}
           >
             {node.name}
@@ -244,23 +255,25 @@ function TreeNode({
               Empty
             </div>
           ) : (
-            children.map((child) => (
-              <TreeNode
-                key={child.path}
-                node={child}
-                depth={depth + 1}
-                selectedFile={selectedFile}
-                activePath={activePath}
-                onSelect={onSelect}
-                onActivate={onActivate}
-                onContextMenu={onContextMenu}
-                renamingPath={renamingPath}
-                renameValue={renameValue}
-                onRenameChange={onRenameChange}
-                onRenameCommit={onRenameCommit}
-                onRenameCancel={onRenameCancel}
-              />
-            ))
+            children
+              .filter((child) => !isExcluded(child.name))
+              .map((child) => (
+                <TreeNode
+                  key={child.path}
+                  node={child}
+                  depth={depth + 1}
+                  selectedFile={selectedFile}
+                  activePath={activePath}
+                  onSelect={onSelect}
+                  onActivate={onActivate}
+                  onContextMenu={onContextMenu}
+                  renamingPath={renamingPath}
+                  renameValue={renameValue}
+                  onRenameChange={onRenameChange}
+                  onRenameCommit={onRenameCommit}
+                  onRenameCancel={onRenameCancel}
+                />
+              ))
           )}
         </div>
       )}
@@ -393,7 +406,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
   const serializedRootRef = useRef("");
   useEffect(() => {
     if (!resolvedCwd) return;
-    invoke("watch_directory", { path: resolvedCwd }).catch(() => {});
+    invoke("watch_directory", { path: resolvedCwd }).catch(() => { });
   }, [resolvedCwd]);
 
   // ── Listen for fs-tree-changed events from file watcher ──
@@ -502,7 +515,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
       return;
     }
     try {
-      await invoke("rename_path", { oldPath: renameState.path, newName });
+      await invoke("rename_path", { oldPath: renameState.path, newName: newName });
       setRenameState(null);
       // Refresh the tree
       if (resolvedCwd) loadTree(resolvedCwd);
@@ -537,11 +550,11 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
   };
 
   // ── Filter helper ─────────────────────────────────────────
-  const filteredNodes = filterQuery.trim()
-    ? rootNodes.filter((n) =>
-      n.name.toLowerCase().includes(filterQuery.toLowerCase())
-    )
-    : rootNodes;
+  const filteredNodes = rootNodes
+    .filter((n) => !isExcluded(n.name))
+    .filter((n) =>
+      !filterQuery.trim() || n.name.toLowerCase().includes(filterQuery.toLowerCase())
+    );
 
   if (collapsed) return null;
 
@@ -556,13 +569,13 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
       {/* Header with search and dynamic loading indicator */}
       <div className={`flex items-center p-2.5 border-b border-outline-variant/5 transition-all duration-300 ${isLoading ? "gap-2" : "gap-0"}`}>
         <div className="relative flex-1 min-w-0 group">
-          <Search size={11} className="absolute left-2 top-1/2 -translate-y-1/2 text-outline/40 group-focus-within:text-primary transition-colors shrink-0" />
+          <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-outline/40 group-focus-within:text-primary transition-colors shrink-0" />
           <input
             type="text"
             value={filterQuery}
             onChange={(e) => setFilterQuery(e.target.value)}
             placeholder="Filter files…"
-            className="w-full bg-surface-container-high/30 border border-outline-variant/10 rounded-md pl-6 pr-2 py-1 text-[11px] font-code-sm placeholder:text-outline/25 focus:ring-0 focus:border-outline-variant/20 outline-none transition-all"
+            className="w-full bg-surface-container-high/30 border border-outline-variant/10 rounded-md pl-7 pr-2 py-1 text-sm placeholder:text-outline/25 focus:ring-0 focus:border-outline-variant/20 outline-none transition-all"
           />
         </div>
         <div
@@ -629,7 +642,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
           {/* File header — shows what item was right-clicked */}
           <div className="px-3 pt-1 pb-2 flex items-center gap-2 border-b border-outline-variant/10 mb-1">
             {fileMenu.node.is_dir && <Folder size={11} className="text-primary/70 shrink-0" />}
-            <span className="text-[11px] font-code-sm text-on-surface-variant/60 overflow-hidden text-ellipsis whitespace-nowrap">{fileMenu.node.name}</span>
+            <span className="text-[11px] text-on-surface-variant/60 overflow-hidden text-ellipsis whitespace-nowrap">{fileMenu.node.name}</span>
           </div>
 
           {/* Copy File Name */}
@@ -732,19 +745,19 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
                 )}
               </p>
               {deleteError && (
-                <p className="text-[11px] text-red-400 mt-2 font-code-sm">{deleteError}</p>
+                <p className="text-[11px] text-red-400 mt-2">{deleteError}</p>
               )}
             </div>
             <div className="flex justify-end gap-2 px-5 pb-4 pt-1">
               <button
-                className="px-3 py-1.5 text-[11px] font-code-sm rounded-lg border border-outline-variant/20 text-on-surface-variant hover:bg-surface-variant/20 transition-colors cursor-pointer"
+                className="px-3 py-1.5 text-[11px] rounded-lg border border-outline-variant/20 text-on-surface-variant hover:bg-surface-variant/20 transition-colors cursor-pointer"
                 onClick={() => setDeleteConfirm(null)}
                 disabled={isDeleting}
               >
                 Cancel
               </button>
               <button
-                className="px-3 py-1.5 text-[11px] font-code-sm rounded-lg bg-red-500/80 text-white hover:bg-red-500 transition-colors cursor-pointer font-semibold disabled:opacity-50"
+                className="px-3 py-1.5 text-[11px] rounded-lg bg-red-500/80 text-white hover:bg-red-500 transition-colors cursor-pointer font-semibold disabled:opacity-50"
                 onClick={confirmDelete}
                 disabled={isDeleting}
               >

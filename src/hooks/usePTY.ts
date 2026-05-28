@@ -53,12 +53,7 @@ export function usePTY() {
         const state = useBlockStore.getState();
         const blockId = state.runningBlockId[session_id];
         if (blockId) {
-          state.updateBlock(session_id, blockId, {
-            status: exit_code === 0 ? "success" : "error",
-            exit_code,
-            finished_at: Date.now(),
-          });
-          state.setRunningBlockId(session_id, null);
+          state.finalizeBlock(session_id, blockId, exit_code);
           state.setCommandOutputReceived(session_id, false);
         }
 
@@ -79,22 +74,41 @@ export function usePTY() {
     shell: string = "powershell.exe",
     args: string[] = [],
     env: Record<string, string> = {},
-    cwd?: string
+    cwd?: string,
+    existingSessionId?: string
   ) => {
     try {
-      const sessionId = await pty.spawn(shell, args, env, cwd);
+      const sessionId = await pty.spawn(shell, args, env, cwd, existingSessionId);
 
-      const newTab: Tab = {
-        id: sessionId,
-        name: `Terminal (${shell.split(".")[0]})`,
-        type: "terminal",
-        shell,
-        cwd: cwd || "~",
-        created_at: Date.now(),
-      };
+      const tab = tabs.find(t => t.id === sessionId);
+      if (!tab) {
+        const currentTabs = useSessionStore.getState().tabs;
+        let maxNum = 0;
+        currentTabs.forEach((t) => {
+          if (t.type === "terminal") {
+            const match = t.name.match(/^Terminal\s+(\d+)$/i);
+            if (match) {
+              const num = parseInt(match[1], 10);
+              if (num > maxNum) {
+                maxNum = num;
+              }
+            }
+          }
+        });
+        const terminalNumber = maxNum + 1;
 
-      addTab(newTab);
-      setActiveTabId(sessionId);
+        const newTab: Tab = {
+          id: sessionId,
+          name: `Terminal ${terminalNumber}`,
+          type: "terminal",
+          shell,
+          cwd: cwd || "~",
+          created_at: Date.now(),
+        };
+
+        addTab(newTab);
+        setActiveTabId(sessionId);
+      }
 
       return sessionId;
     } catch (err) {

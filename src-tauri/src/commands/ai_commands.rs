@@ -1,5 +1,5 @@
-use tauri::{command, State, AppHandle, Window};
-use serde::{Deserialize, Serialize};
+use tauri::{command, State, Window};
+use serde::Deserialize;
 use std::collections::HashMap;
 use keyring::Entry;
 use crate::state::AppState;

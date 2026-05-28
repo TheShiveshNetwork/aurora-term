@@ -15,6 +15,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2.1.1", features = ["image-png"] }
 tauri-plugin-opener = "2"
+tauri-plugin-prevent-default = "5"
 rfd = "0.15"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -40,7 +41,7 @@ sysinfo = "0.31"
 notify = "7.0"
 
 [profile.release]
-opt-level     = 2        # optimize for speed
+opt-level     = "z"      # optimize for size, not speed
 lto           = true     # link-time optimization — removes dead code across crates
 codegen-units = 1        # single codegen unit for maximum LTO effectiveness
 panic         = "abort"  # removes panic unwinding machinery (~10-20% size reduction)
