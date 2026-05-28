@@ -1,0 +1,19 @@
+# ══════════════════════════════════════════════════════════
+# crates/aurora-db/Cargo.toml
+# SQLite history + nucleo fuzzy search.
+# No Tauri. No PTY. No network.
+# Full unit tests with in-memory SQLite (rusqlite ":memory:").
+# ══════════════════════════════════════════════════════════
+[package]
+name    = "aurora-db"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+aurora-core = { workspace = true }
+rusqlite    = { workspace = true }
+nucleo      = { workspace = true }
+serde       = { workspace = true }
+thiserror   = { workspace = true }
+tracing     = { workspace = true }
+chrono      = { workspace = true }

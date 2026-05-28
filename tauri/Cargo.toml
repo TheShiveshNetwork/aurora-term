@@ -1,0 +1,39 @@
+[package]
+name    = "aurora-app"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "aurora_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "aurora-term"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { workspace = true }
+
+[dependencies]
+# Workspace internal dependencies
+aurora-core     = { workspace = true }
+aurora-pty      = { workspace = true }
+aurora-db       = { workspace = true }
+aurora-config   = { workspace = true }
+aurora-commands = { workspace = true }
+
+# Tauri dependencies
+tauri                        = { workspace = true }
+tauri-plugin-opener          = "2"
+tauri-plugin-prevent-default = "5"
+
+# Utility and async dependencies
+tokio      = { workspace = true }
+serde      = { workspace = true }
+serde_json = { workspace = true }
+thiserror  = { workspace = true }
+anyhow     = { workspace = true }
+tracing    = { workspace = true }
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]

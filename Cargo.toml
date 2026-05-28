@@ -1,0 +1,77 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/aurora-core",
+    "crates/aurora-pty",
+    "crates/aurora-db",
+    "crates/aurora-config",
+    "crates/aurora-sidecar",
+    "crates/aurora-ai",
+    "crates/aurora-commands",
+    "tauri",
+]
+
+[workspace.dependencies]
+# Internal crates
+aurora-core     = { path = "crates/aurora-core" }
+aurora-pty      = { path = "crates/aurora-pty" }
+aurora-db       = { path = "crates/aurora-db" }
+aurora-config   = { path = "crates/aurora-config" }
+aurora-sidecar  = { path = "crates/aurora-sidecar" }
+aurora-ai       = { path = "crates/aurora-ai" }
+aurora-commands = { path = "crates/aurora-commands" }
+
+
+# Serialization
+serde      = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml       = "0.8"
+
+# Error handling
+thiserror = "2.0"
+anyhow    = "1.0"
+
+# Async runtime
+tokio = { version = "1.38", features = ["full"] }
+
+# IDs and time
+uuid   = { version = "1.8", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+# Logging
+tracing            = "0.1"
+tracing-subscriber = "0.3"
+
+# PTY
+portable-pty = "0.8"
+which        = "7.0"
+
+# Database
+rusqlite = { version = "0.31", features = ["bundled"] }
+nucleo   = "0.5"
+
+# HTTP
+reqwest = { version = "0.12", features = ["json", "stream"] }
+
+# AI
+async-trait  = "0.1"
+futures-util = "0.3"
+
+# Tauri (only aurora-app and aurora-config use these)
+tauri               = { version = "2.1.1", features = ["image-png"] }
+tauri-build         = { version = "2", features = [] }
+
+# OS integration
+keyring = "2.1"
+base64  = "0.22"
+ignore  = "0.4"
+sysinfo = "0.31"
+notify  = "7.0"
+rfd     = "0.15"
+
+[profile.release]
+opt-level     = "z"
+lto           = true
+codegen-units = 1
+panic         = "abort"
+strip         = true

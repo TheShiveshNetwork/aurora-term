@@ -1,0 +1,26 @@
+# ══════════════════════════════════════════════════════════
+# crates/aurora-pty/Cargo.toml
+# PTY lifecycle. No Tauri. No DB. No AI.
+# Depends only on tokio + portable-pty + aurora-core.
+# All Tauri types (Window, AppHandle) are kept OUT —
+# the reader loop takes a channel sender instead.
+# This allows plain #[test] without Tauri context.
+# ══════════════════════════════════════════════════════════
+[package]
+name    = "aurora-pty"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+aurora-core  = { workspace = true }
+tokio        = { workspace = true }
+portable-pty = { workspace = true }
+serde        = { workspace = true }
+serde_json   = { workspace = true }
+thiserror    = { workspace = true }
+tracing      = { workspace = true }
+uuid         = { workspace = true }
+which        = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

@@ -8,7 +8,6 @@ A lightweight, high-performance, and extremely powerful **Agentic Terminal** des
 | :---: | :---: |
 | ![Startup Overview](https://raw.githubusercontent.com/TheShiveshNetwork/aurora-term/main/static/screenshots/terminal_empty_state.png) | ![Executing Command](https://raw.githubusercontent.com/TheShiveshNetwork/aurora-term/main/static/screenshots/command_output_blocks.png) |
 
----
 
 ## 🚀 The Vision
 Traditional terminals force you to look at raw shell prompts, repeated echos, and cluttered command inputs. **Aurora Term** completely reimagines this experience by:
@@ -17,7 +16,6 @@ Traditional terminals force you to look at raw shell prompts, repeated echos, an
 * Sandboxing every terminal session independently.
 * Paving the way for local and cloud-based AI agent execution directly in your workspace.
 
----
 
 ## 🛠️ Tech Stack & Versions
 
@@ -42,7 +40,6 @@ Aurora is built on a state-of-the-art native desktop and web technology stack:
 | **Rust** | `1.75+` | Safe, high-performance backend systems compiler |
 | **PTY Manager** | Custom (Rust) | Native Windows/Unix PTY process lifecycle controller |
 
----
 
 ## ✨ Features Implemented Till Now
 
@@ -70,29 +67,22 @@ Aurora is built on a state-of-the-art native desktop and web technology stack:
 * **Clear Visuals**: Wipes the active visual terminal screen and flushes the Zustand history lists instantly.
 * **Boundary-Aware Clamping**: Dynamically measures the menu's DOM dimensions (`useLayoutEffect`) and clamps its coordinates within the app view (up, down, left, right) with an `8px` safety margin to prevent boundary overflows.
 
----
 
 ## 🔮 Future Roadmap (To Be Implemented)
 
 We are actively developing Aurora into the ultimate lightweight agentic terminal interface:
 
-- [ ] **📂 Interactive File View**:
   - Embedded file previewer for fast file inspections.
   - Lightweight markdown rendering and code editor panels.
-- [ ] **🤖 Agentic System**:
   - Autonomous local workflow executor capable of running complex multi-step terminal actions.
   - Direct task tracking checklist rendering inside a dedicated side-panel.
-- [ ] **💻 Local Model Running**:
   - Offline LLM execution via Ollama, Llama.cpp, or ONNX runtimes.
   - Zero-latency local completion, command prediction, and explanation.
-- [ ] **☁️ Cloud Model Connections**:
   - Direct multi-provider connections for Anthropic (Claude), OpenAI (GPT-4o), Gemini, and DeepSeek.
   - Safe API-key vaults stored in local secure keychain credentials.
-- [ ] **⚡ Smart Command Palette**:
   - Visual keyboard-shortcut actions menu.
   - Multi-session CLI automation scripting.
 
----
 
 ## 🛠️ Development
 
@@ -121,3 +111,85 @@ We are actively developing Aurora into the ultimate lightweight agentic terminal
    ```bash
    npm run tauri build
    ```
+
+## Aurora Term
+
+![Aurora logo](static/aurora-logo.png)
+
+Aurora Term is a Tauri v2 desktop terminal built with a Rust backend and a React/Vite frontend.
+The repo now uses a pnpm workspace for the UI packages and a Cargo workspace for the Rust crates.
+
+## Workspace tree
+
+```text
+aurora-term/
+├── Cargo.toml
+├── Cargo.lock
+├── package.json
+├── pnpm-workspace.yaml
+├── turbo.json
+├── tsconfig.json
+├── index.html
+├── README.md
+├── AGENT.md
+├── app/
+│   ├── package.json
+│   ├── vite.config.ts
+│   └── src/
+├── packages/
+│   └── types/
+├── crates/
+│   ├── aurora-core/
+│   ├── aurora-pty/
+│   ├── aurora-db/
+│   ├── aurora-config/
+│   ├── aurora-sidecar/
+│   ├── aurora-ai/
+│   └── aurora-commands/
+├── tauri/
+├── scripts/
+└── static/
+```
+
+## What is built
+
+### Rust workspace crates
+
+| Crate | Why it exists | Main requirements |
+|---|---|---|
+| `aurora-core` | Shared domain types and errors used by every backend crate | `serde`, `serde_json`, `thiserror`, `uuid`, `chrono`, `toml` |
+| `aurora-pty` | PTY session lifecycle and terminal I/O | `tokio`, `portable-pty`, `aurora-core`, `which`, `tracing` |
+| `aurora-db` | SQLite command history and fuzzy search | `rusqlite`, `nucleo`, `aurora-core`, `chrono`, `tracing` |
+| `aurora-config` | Load/save app config and keychain-backed secrets | `tauri`, `toml`, `keyring`, `aurora-core` |
+| `aurora-sidecar` | Manage the sidecar process lifecycle and health checks | `tokio`, `reqwest`, `which`, `aurora-core`, `aurora-config` |
+| `aurora-ai` | AI provider abstraction and streaming responses | `tauri`, `reqwest`, `async-trait`, `futures-util`, `aurora-core` |
+| `aurora-commands` | Tauri command handlers that glue the backend together | `tauri`, `tokio`, `serde`, `uuid`, `chrono`, `base64`, `ignore`, `sysinfo`, `notify`, `rfd`, `which`, plus all core crates |
+| `tauri` (`aurora-app`) | Native app shell and binary entrypoint | `tauri-build`, `tauri`, `tauri-plugin-opener`, `tauri-plugin-prevent-default`, plus the core crates |
+
+### pnpm workspace packages
+
+| Package | Why it exists | Main requirements |
+|---|---|---|
+| `app` (`@aurora/app`) | Main React frontend for the Tauri window | `react`, `react-dom`, `vite`, `typescript`, `@tauri-apps/api`, `@xterm/*`, `zustand`, `tailwindcss` |
+| `packages/types` (`@aurora/types`) | Shared TypeScript types used by the frontend | TypeScript-only shared models; no runtime build output |
+
+## Requirements
+
+- **Rust**: stable toolchain with the Tauri v2 desktop prerequisites for your OS.
+- **Node.js**: Vite 8 needs Node 20.19+.
+- **pnpm**: used for the workspace frontend packages and Tauri dev scripts.
+- **Tauri CLI**: installed through the root workspace `package.json`.
+
+## Development
+
+```bash
+pnpm install
+pnpm --dir app typecheck
+pnpm tauri:dev
+```
+
+## Notes
+
+- The root `package.json` only orchestrates workspace scripts and the Tauri CLI.
+- Frontend source lives in `app/src`.
+- Shared UI types live in `packages/types` and are resolved through `@aurora/types`.

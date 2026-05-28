@@ -23,7 +23,7 @@
 | Tauri v2 Security | https://v2.tauri.app/security/ | Capabilities, permissions, CSP |
 | Tauri v2 Capabilities | https://v2.tauri.app/security/capabilities/ | How to grant shell/fs/path permissions |
 | Tauri v2 Config Files | https://v2.tauri.app/develop/configuration-files/ | `tauri.conf.json` schema |
-| Tauri v2 Updating Deps | https://v2.tauri.app/develop/updating-dependencies/ | Keep npm + Cargo versions in sync |
+| Tauri v2 Updating Deps | https://v2.tauri.app/develop/updating-dependencies/ | Keep pnpm + Cargo versions in sync |
 | Tailwind CSS v4 + Vite | https://tailwindcss.com/docs/installation/using-vite | v4 CSS-first config, `@tailwindcss/vite` plugin |
 | Tailwind CSS v4 Overview | https://tailwindcss.com/docs/v4-beta | What changed from v3 — no `tailwind.config.js` by default |
 
@@ -44,7 +44,7 @@
 | Target OS | Windows (primary), macOS, Linux |
 | Rust edition | 2021 |
 | Node | ≥ 20.19 (required by Vite 8) |
-| Package manager | `npm` (never pnpm or yarn unless explicitly migrated) |
+| Package manager | `pnpm` |
 
 ---
 
@@ -52,7 +52,7 @@
 
 **Always use these exact major versions. Do not downgrade. Check npm/crates.io for latest patch.**
 
-### Frontend (npm)
+### Frontend (pnpm)
 
 | Package | Version | Notes |
 |---|---|---|
@@ -98,7 +98,7 @@
 | `async-trait` | `^0.1` | Required for `AiProvider` trait with async methods |
 | `tauri-plugin-keyring` | `^2` | OS-native keychain storage for API keys |
 
-> **Sync rule:** After any `npm update`, run `cargo update` and verify `@tauri-apps/api`
+> **Sync rule:** After any `pnpm update`, run `cargo update` and verify `@tauri-apps/api`
 > and `tauri` crate minor versions still match. If they diverge, the build will fail at runtime.
 
 ---
@@ -201,23 +201,26 @@ aurora-term/
 ├── tsconfig.json
 ├── .env.example                     ← never commit .env
 │
-├── src/                             ← React / TypeScript frontend
-│   ├── main.tsx                     ← Vite entry, mounts <App />
-│   ├── App.tsx                      ← root layout: TabBar + ActivePane
+├── app/
+│   ├── package.json                 ← @aurora/app workspace package
+│   ├── vite.config.ts
+│   └── src/                         ← React / TypeScript frontend
+│       ├── main.tsx                 ← Vite entry, mounts <App />
+│       ├── App.tsx                  ← root layout: TabBar + ActivePane
 │   │
-│   ├── components/
-│   │   ├── terminal/
-│   │   │   ├── TerminalPane.tsx     ← xterm.js wrapper, one per tab
-│   │   │   ├── TerminalBlock.tsx    ← single command+output block
-│   │   │   ├── BlockAIBar.tsx       ← per-block AI context panel
-│   │   │   └── OutputRenderer.tsx  ← diff / JSON / plain switch
-│   │   ├── ui/
-│   │   │   ├── TabBar.tsx
-│   │   │   ├── CommandPalette.tsx
-│   │   │   ├── StatusBar.tsx
-│   │   │   ├── SidePanel.tsx        ← process manager, port manager
-│   │   │   └── Toast.tsx
-│   │   ├── ai/
+│       ├── components/
+│       │   ├── terminal/
+│       │   │   ├── TerminalPane.tsx ← xterm.js wrapper, one per tab
+│       │   │   ├── TerminalBlock.tsx ← single command+output block
+│       │   │   ├── BlockAIBar.tsx   ← per-block AI context panel
+│       │   │   └── OutputRenderer.tsx ← diff / JSON / plain switch
+│       │   ├── ui/
+│       │   │   ├── TabBar.tsx
+│       │   │   ├── CommandPalette.tsx
+│       │   │   ├── StatusBar.tsx
+│       │   │   ├── SidePanel.tsx    ← process manager, port manager
+│       │   │   └── Toast.tsx
+│       │   ├── ai/
 │   │   │   ├── AICommandBar.tsx     ← natural language → command
 │   │   │   └── InlineExplain.tsx   ← error explanation overlay
 │   │   └── settings/
@@ -257,55 +260,78 @@ aurora-term/
 │   └── styles/
 │       └── globals.css              ← @import "tailwindcss"; + @theme {} blocks
 │
-├── src-tauri/                       ← Rust backend
-│   ├── Cargo.toml
-│   ├── tauri.conf.json
-│   ├── build.rs
+├── crates/                          ← Rust modular workspace backend (no Tauri dependencies)
+│   ├── aurora-core/                 ← Shared Types, Errors & Config Schema (pure library)
+│   │   ├── Cargo.toml
+│   │   └── src/
+│   │       ├── lib.rs
+│   │       ├── error.rs
+│   │       ├── config.rs
+│   │       └── types/               ← Domain types (block, session, ai)
 │   │
-│   └── src/
-│       ├── main.rs                  ← Tauri builder, plugin registration
-│       ├── lib.rs                   ← pub mod declarations
-│       ├── error.rs                 ← unified AppError type
-│       │
-│       ├── pty/
-│       │   ├── mod.rs
-│       │   ├── manager.rs           ← PtyManager: spawn, kill, resize sessions
-│       │   └── session.rs           ← PtySession struct, reader loop
-│       │
-│       ├── ai/
-│       │   ├── mod.rs
-│       │   ├── client.rs            ← reqwest HTTP client, streaming SSE
-│       │   ├── providers/
-│       │   │   ├── anthropic.rs
-│       │   │   └── openai.rs
-│       │   └── prompts.rs           ← system prompts as constants
-│       │
-│       ├── history/
-│       │   ├── mod.rs
-│       │   ├── db.rs                ← rusqlite setup, migrations
-│       │   └── search.rs            ← nucleo fuzzy search over history
-│       │
-│       ├── config/
-│       │   ├── mod.rs
-│       │   ├── schema.rs            ← Config struct (serde + toml)
-│       │   └── loader.rs            ← read/write config via Tauri path API
-│       │
-│       ├── commands/                ← ALL Tauri #[tauri::command] fns live here
-│       │   ├── mod.rs               ← re-exports all commands for main.rs
-│       │   ├── pty_commands.rs
-│       │   ├── ai_commands.rs
-│       │   ├── history_commands.rs
-│       │   ├── config_commands.rs
-│       │   └── process_commands.rs
-│       │
-│       └── state/
-│           └── mod.rs               ← AppState struct (Arc-wrapped shared state)
+│   ├── aurora-pty/                  ← Decoupled PTY Process Lifecycle manager
+│   │   ├── Cargo.toml
+│   │   └── src/
+│   │       ├── lib.rs
+│   │       ├── manager.rs           ← PtyManager: spawn, kill, resize
+│   │       ├── session.rs           ← PtySession & async reader loop
+│   │       └── shell.rs             ← OS shell detection & default envs
+│   │
+│   ├── aurora-db/                   ← Decoupled SQLite History & Search engine
+│   │   ├── Cargo.toml
+│   │   └── src/
+│   │       ├── lib.rs
+│   │       ├── db.rs                ← schema migrations, add/get history entries
+│   │       └── search.rs            ← Nucleo fuzzy finder over history entries
+│   │
+│   ├── aurora-config/               ← Configuration I/O & Keychain integration
+│   │   ├── Cargo.toml
+│   │   └── src/
+│   │       ├── lib.rs
+│   │       ├── loader.rs            ← Load/save config.toml
+│   │       └── keychain.rs          ← OS Keychain API key management
+│   │
+│   ├── aurora-sidecar/              ← OpenCode process lifecycle wrapper (scaffolded stubs)
+│   │   ├── Cargo.toml
+│   │   └── src/
+│   │       ├── lib.rs
+│   │       ├── manager.rs
+│   │       ├── config_writer.rs
+│   │       └── monitor.rs
+│   │
+│   ├── aurora-ai/                   ← Dedicated AI Crate (pure logic, router, streaming client)
+│   │   ├── Cargo.toml
+│   │   └── src/
+│   │       ├── lib.rs
+│   │       ├── client.rs            ← HTTP Client & SSE Reader
+│   │       ├── router.rs            ← Task Routing & Classification
+│   │       ├── prompts.rs           ← System instructions
+│   │       └── providers/           ← Multi-provider clients (anthropic, gemini, etc.)
+│   │
+│   └── aurora-commands/             ← Dedicated Commands Crate (Tauri bridge, watchers, app state)
+│       ├── Cargo.toml
+│       └── src/
+│           ├── lib.rs
+│           ├── state.rs             ← Shared AppState
+│           ├── watcher.rs           ← Directory watch utilities
+│           └── commands/            ← Tauri IPC command handlers rewired to logic libraries
 │
-└── scripts/
-    ├── dev.ps1                      ← Windows dev helper
-    ├── build.ps1
-    └── size-audit.ps1               ← runs cargo bloat + bundle visualizer
-```
+├── tauri/                           ← Standard Tauri Application Harness (at root)
+│   ├── Cargo.toml                   ← depends on aurora-commands, aurora-ai, tauri itself
+│   ├── build.rs                     ← tauri build scripts hook
+│   ├── tauri.conf.json              ← configuration pointing frontendDist to ../dist
+│   ├── capabilities/                ← Tauri security capabilities
+│   ├── icons/                       ← application icons
+│   └── src/
+│       ├── lib.rs                   ← bootstraps app and registers states/commands
+│       └── main.rs                  ← 3-line application binary entry calling run()
+│
+└── scripts/                         ← Helper Scripts & Automation
+    ├── dev.ps1                      ← Windows dev helper (runs tauri dev --config)
+    ├── build.ps1                    ← Windows production build helper
+    ├── size-audit.ps1               ← check cargo bloat and bundle sizes
+    └── fetch-opencode-binary.sh     ← fetch sidecar binary per platform
+``````
 
 ---
 
