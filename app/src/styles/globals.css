@@ -72,19 +72,64 @@
   border-radius: 4px;
 }
 
-/* Xterm overlay scrollbar — flush to right edge, hidden by default */
+/* Themed sidepanel scrollbar — hidden by default, visible on sidebar hover/focus */
+.sidepanel-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+.sidepanel-scroll::-webkit-scrollbar {
+  width: 7px;
+}
+.sidepanel-scroll::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 4px;
+  margin-top: 4px;
+  margin-bottom: 4px;
+  transition: background 0.15s ease;
+}
+.sidepanel-scroll::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 4px;
+  min-height: 32px;
+  transition: background 0.15s ease;
+}
+
+/* Visible when #main-sidebar is hovered or gets focus (e.g. search input) */
+#main-sidebar:hover .sidepanel-scroll::-webkit-scrollbar-thumb,
+#main-sidebar:focus-within .sidepanel-scroll::-webkit-scrollbar-thumb {
+  background: var(--color-outline-variant);
+  border: 1px solid transparent;
+  background-clip: content-box;
+}
+#main-sidebar:hover .sidepanel-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--color-outline);
+}
+#main-sidebar:hover .sidepanel-scroll::-webkit-scrollbar-thumb:active,
+#main-sidebar:focus-within .sidepanel-scroll::-webkit-scrollbar-thumb:active {
+  background: var(--color-primary-fixed-dim);
+}
+#main-sidebar:hover .sidepanel-scroll::-webkit-scrollbar-track,
+#main-sidebar:focus-within .sidepanel-scroll::-webkit-scrollbar-track {
+  background: var(--color-surface-container-high);
+}
+#main-sidebar:hover .sidepanel-scroll,
+#main-sidebar:focus-within .sidepanel-scroll {
+  scrollbar-color: var(--color-outline-variant) var(--color-surface-container-high);
+}
+
+/* Xterm overlay scrollbar — consistent with sidepanel style */
 .xterm-viewport {
   overflow-y: auto !important;
   scrollbar-width: thin !important;
-  -ms-overflow-style: none !important;
+  scrollbar-color: var(--color-outline-variant) var(--color-surface-container-high) !important;
   background-color: transparent !important;
   margin: 0 !important;
   padding: 0 !important;
   scrollbar-gutter: stable;
 }
 .xterm-viewport::-webkit-scrollbar {
-  width: 6px !important;
-  background: var(--color-primary) !important;
+  width: 7px !important;
+  background: transparent !important;
 }
 .xterm-viewport::-webkit-scrollbar-track {
   background: var(--color-surface-container-high) !important;
@@ -96,9 +141,10 @@
 }
 .xterm-viewport::-webkit-scrollbar-thumb {
   background: var(--color-outline-variant) !important;
-  border: none !important;
+  border: 1px solid transparent !important;
+  background-clip: content-box !important;
   border-radius: 4px;
-  min-height: 24px;
+  min-height: 32px;
 }
 .xterm-viewport::-webkit-scrollbar-thumb:hover {
   background: var(--color-outline) !important;

@@ -1,6 +1,65 @@
 import { invoke } from "@tauri-apps/api/core";
 import { ProviderName, ProcessInfo } from "@aurora/types";
 
+// ─── Config types mirrored from Rust side ────────────────────────────────
+export interface TerminalConfig {
+  shell: string;
+  font_family: string;
+  font_size: number;
+  scrollback: number;
+  theme: string;
+  cursor_style: string;
+  cursor_blink: boolean;
+}
+
+export interface AiConfig {
+  active_provider: string;
+  auto_explain: boolean;
+  context_lines: number;
+  anthropic: ProviderConfig;
+  openai: ProviderConfig;
+  gemini: ProviderConfig;
+  nvidia: ProviderConfig;
+  ollama: ProviderConfig;
+}
+
+export interface ProviderConfig {
+  fast_model: string;
+  balanced_model: string;
+  powerful_model: string;
+  base_url: string | null;
+}
+
+export interface KeybindingsConfig {
+  mode: string;
+  open_palette: string;
+  open_ai_bar: string;
+  new_tab: string;
+  close_tab: string;
+  split_h: string;
+  split_v: string;
+}
+
+export interface AppearanceConfig {
+  compact_ui: boolean;
+  show_statusbar: boolean;
+  blur_sidebar: boolean;
+}
+
+export interface UiStateConfig {
+  sidebar_collapsed: boolean;
+  tab_bar_visible: boolean;
+  pinned_tabs: string[];
+}
+
+export interface AppConfig {
+  terminal: TerminalConfig;
+  ai: AiConfig;
+  keybindings: KeybindingsConfig;
+  appearance: AppearanceConfig;
+  ui: UiStateConfig;
+}
+
 export const pty = {
   spawn: (shell: string, args: string[], env: Record<string, string>, cwd?: string, sessionId?: string) =>
     invoke<string>("pty_spawn", { shell, args, env, cwd, sessionId }),
@@ -44,8 +103,8 @@ export const history = {
 };
 
 export const config = {
-  get: () => invoke<any>("config_get"),
-  set: (appConfig: any) => invoke<void>("config_set", { config: appConfig }),
+  get: () => invoke<AppConfig>("config_get"),
+  set: (appConfig: AppConfig) => invoke<void>("config_set", { config: appConfig }),
 };
 
 export const process = {

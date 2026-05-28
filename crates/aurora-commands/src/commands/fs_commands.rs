@@ -222,6 +222,51 @@ pub fn delete_path(path: String) -> Result<(), AppError> {
     Ok(())
 }
 
+// ─── Copy a file or directory to a target folder ──────────────────────────────
+#[command]
+pub fn copy_path(source: String, target_dir: String) -> Result<String, AppError> {
+    let src = PathBuf::from(&source);
+    if !src.exists() {
+        return Err(AppError::Io(format!("Source not found: {}", source)));
+    }
+    let dest_dir = PathBuf::from(&target_dir);
+    if !dest_dir.is_dir() {
+        return Err(AppError::Io(format!("Target is not a directory: {}", target_dir)));
+    }
+
+    let name = src.file_name()
+        .ok_or_else(|| AppError::Io("Invalid source path".to_string()))?;
+    let dest = dest_dir.join(name);
+
+    if dest.exists() {
+        return Err(AppError::Io(format!("'{}' already exists in target", name.to_string_lossy())));
+    }
+
+    if src.is_dir() {
+        copy_dir_recursive(&src, &dest)?;
+    } else {
+        std::fs::copy(&src, &dest)?;
+    }
+
+    Ok(dest.to_string_lossy().into_owned())
+}
+
+fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<(), AppError> {
+    std::fs::create_dir_all(dest)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        let next_src = entry.path();
+        let next_dest = dest.join(entry.file_name());
+        if ty.is_dir() {
+            copy_dir_recursive(&next_src, &next_dest)?;
+        } else {
+            std::fs::copy(&next_src, &next_dest)?;
+        }
+    }
+    Ok(())
+}
+
 // ─── Rename / move a file or directory ────────────────────────────────────────
 #[command]
 pub fn rename_path(old_path: String, new_name: String) -> Result<String, AppError> {
@@ -236,6 +281,27 @@ pub fn rename_path(old_path: String, new_name: String) -> Result<String, AppErro
         return Err(AppError::Io(format!("'{}' already exists", new_name)));
     }
     std::fs::rename(&old, &new_path)
+        .map_err(|e| AppError::Io(e.to_string()))?;
+    Ok(new_path.to_string_lossy().into_owned())
+}
+
+#[command]
+pub fn move_path(source: String, target_dir: String) -> Result<String, AppError> {
+    let src = PathBuf::from(&source);
+    if !src.exists() {
+        return Err(AppError::Io(format!("Source not found: {}", source)));
+    }
+    let target = PathBuf::from(&target_dir);
+    if !target.is_dir() {
+        return Err(AppError::Io(format!("Target is not a directory: {}", target_dir)));
+    }
+    let name = src.file_name()
+        .ok_or_else(|| AppError::Io("Cannot get file name".to_string()))?;
+    let new_path = target.join(name);
+    if new_path.exists() {
+        return Err(AppError::Io(format!("'{}' already exists in target", name.to_string_lossy())));
+    }
+    std::fs::rename(&src, &new_path)
         .map_err(|e| AppError::Io(e.to_string()))?;
     Ok(new_path.to_string_lossy().into_owned())
 }
