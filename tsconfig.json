@@ -5,10 +5,8 @@
     "lib": ["ES2020", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "skipLibCheck": true,
-    "baseUrl": ".",
-    "ignoreDeprecations": "6.0",
     "paths": {
-      "@aurora/types": ["packages/types/src/index.ts"]
+      "@aurora/types": ["./packages/types/src/index.ts"]
     },
 
     /* Bundler mode */
