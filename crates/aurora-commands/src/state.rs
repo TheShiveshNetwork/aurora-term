@@ -10,6 +10,7 @@ pub struct AppState {
     pub history_db: Arc<Mutex<HistoryDb>>,
     pub config: Arc<Mutex<AppConfig>>,
     pub file_watcher: FileWatcher,
+    pub sidecar: Arc<Mutex<aurora_sidecar::manager::SidecarManager>>,
     /// Channel sender for PTY events — passed to PtyManager on spawn.
     pub pty_event_sender: tokio::sync::mpsc::UnboundedSender<PtyEvent>,
 }
@@ -26,6 +27,7 @@ impl AppState {
             history_db: Arc::new(Mutex::new(history_db)),
             config: Arc::new(Mutex::new(config)),
             file_watcher: FileWatcher::new(),
+            sidecar: Arc::new(Mutex::new(aurora_sidecar::manager::SidecarManager::new())),
             pty_event_sender,
         }
     }
