@@ -267,6 +267,28 @@ fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<(), AppError> {
     Ok(())
 }
 
+// ─── Create a file or directory at a given path ──────────────────────────────
+#[command]
+pub fn create_path(parent_dir: String, name: String, is_dir: bool) -> Result<String, AppError> {
+    let parent = PathBuf::from(&parent_dir);
+    if !parent.is_dir() {
+        return Err(AppError::Io(format!("Parent is not a directory: {}", parent_dir)));
+    }
+    let new_path = parent.join(&name);
+    if new_path.exists() {
+        return Err(AppError::Io(format!("'{}' already exists", name)));
+    }
+    if is_dir {
+        std::fs::create_dir(&new_path)
+            .map_err(|e| AppError::Io(e.to_string()))?;
+    } else {
+        // Create with empty content
+        std::fs::write(&new_path, "")
+            .map_err(|e| AppError::Io(e.to_string()))?;
+    }
+    Ok(new_path.to_string_lossy().into_owned())
+}
+
 // ─── Rename / move a file or directory ────────────────────────────────────────
 #[command]
 pub fn rename_path(old_path: String, new_name: String) -> Result<String, AppError> {

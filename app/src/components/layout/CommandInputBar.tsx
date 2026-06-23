@@ -1,5 +1,5 @@
 import { type FormEvent } from "react";
-import { Command, Mic, Plus, RefreshCw, FolderOpen, Square, Terminal, Sparkles } from "lucide-react";
+import { Command, Plus, RefreshCw, FolderOpen, Square, Mic } from "lucide-react";
 
 import { GhostInput } from "../terminal/GhostInput";
 import type { InputMode } from "../../lib/nlClassifier";
@@ -41,7 +41,7 @@ export function CommandInputBar({
 
   return (
     <div
-      className={isPrompt ? "absolute bottom-3 left-3 right-3 z-20" : "p-3 w-full"}
+      className={isPrompt ? "absolute bottom-3 left-3 right-3 z-20" : "px-3 pb-3 w-full"}
       onContextMenu={(event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -50,22 +50,30 @@ export function CommandInputBar({
       }}
     >
       <div
-        className={
-          isPrompt
-            ? "warp-input-glow flex flex-col bg-surface-container-low/60 backdrop-blur-xl border border-white/10 overflow-hidden shadow-2xl rounded-xl"
-            : "warp-input-glow flex flex-col bg-surface-container-high/20 border border-outline-variant/20 overflow-hidden shadow-2xl rounded-lg"
-        }
+        className="warp-input-glow flex flex-col overflow-hidden rounded-md"
+        style={{
+          background: "rgba(255,255,255,0.03)",
+          border: "1px solid rgba(255,255,255,0.07)",
+          boxShadow: "0 4px 24px rgba(0,0,0,0.25)",
+        }}
       >
+        {/* CWD breadcrumb */}
         {!isPrompt && (
-          <div className="flex items-center justify-between px-4 py-1.5 bg-surface-container-high/30 border-b border-outline-variant/10 select-none h-[29px]">
-            <div className="flex items-center gap-3 flex-1 min-w-0">
+          <div
+            className="flex items-center justify-between px-4 py-1.5 select-none"
+            style={{
+              borderBottom: "1px solid rgba(255,255,255,0.05)",
+              minHeight: "28px",
+            }}
+          >
+            <div className="flex items-center gap-2 flex-1 min-w-0">
               {isLoading ? (
-                <span className="text-[10px] text-primary tracking-widest flex items-center gap-1.5 select-none animate-spin shrink-0">
-                  <RefreshCw size={10} />
+                <span className="flex items-center gap-1.5 text-[10px]" style={{ color: "#4F8CFF" }}>
+                  <RefreshCw size={10} className="animate-spin shrink-0" />
                 </span>
               ) : (
-                <span className="text-[10px] text-outline/50 tracking-widest flex items-center gap-1.5 truncate">
-                  <FolderOpen size={10} />
+                <span className="flex items-center gap-1.5 text-[10px] truncate" style={{ color: "rgba(232,234,240,0.3)" }}>
+                  <FolderOpen size={10} className="shrink-0" />
                   {cwd}
                 </span>
               )}
@@ -73,37 +81,86 @@ export function CommandInputBar({
           </div>
         )}
 
+        {/* Body */}
         {isRunning ? (
-          <div className="flex items-center justify-between px-4 py-3 bg-surface-container-high/10">
-            <div className="flex items-center gap-2 text-on-surface text-sm">
-              <RefreshCw size={14} className="animate-spin text-primary" />
-              <span className="text-primary">Executing command...</span>
-              <span className="text-outline/50 text-xs">Ctrl + C to cancel</span>
+          <div className="flex items-center justify-between px-4 py-3">
+            <div className="flex items-center gap-2.5 text-sm" style={{ color: "#4F8CFF" }}>
+              <RefreshCw size={13} className="animate-spin shrink-0" />
+              <span className="text-[13px] font-medium">Executing…</span>
+              <span className="text-[11px]" style={{ color: "rgba(232,234,240,0.3)" }}>Ctrl+C to cancel</span>
             </div>
-            <button onClick={onStop} className="px-3 py-1.5 text-xs bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg transition-colors cursor-pointer border border-red-500/20" title="Stop Command (Ctrl+C)">
-              <span className="flex items-center gap-1">
-                <Square size={10} />
-                Stop
-              </span>
+            <button
+              onClick={onStop}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold rounded-[10px] transition-all cursor-pointer"
+              style={{
+                background: "rgba(255,107,107,0.08)",
+                border: "1px solid rgba(255,107,107,0.20)",
+                color: "#FF6B6B",
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,107,107,0.14)")}
+              onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,107,107,0.08)")}
+              title="Stop Command (Ctrl+C)"
+            >
+              <Square size={10} />
+              Stop
             </button>
           </div>
         ) : (
           <div className="flex items-start">
-            <GhostInput sessionId={sessionId} value={value} onChange={onChange} onSubmit={onSubmit} history={history} placeholder="Type a command or describe goal..." className="flex-1" inputMode={inputMode} />
-            <div className="flex items-center gap-1 pr-3 py-3 self-end">
-              <button type="button" className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-variant/30 text-outline/50 hover:text-primary transition-all cursor-pointer" title="Add File">
+            <GhostInput
+              sessionId={sessionId}
+              value={value}
+              onChange={onChange}
+              onSubmit={onSubmit}
+              history={history}
+              placeholder="Type a command or describe a goal…"
+              className="flex-1"
+              inputMode={inputMode}
+            />
+            <div className="flex items-center gap-0.5 pr-3 py-3 self-end">
+              <IconButton title="Attach File">
                 <Plus size={14} />
-              </button>
-              <button type="button" onClick={onOpenAiBar} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-variant/30 text-outline/50 hover:text-primary transition-all cursor-pointer" title="Ask AI">
+              </IconButton>
+              <IconButton onClick={onOpenAiBar} title="Agent (⌘K)">
                 <Command size={14} />
-              </button>
-              <button type="button" className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-variant/30 text-outline/50 hover:text-secondary transition-all cursor-pointer" title="Audio Mode">
+              </IconButton>
+              <IconButton title="Voice Input">
                 <Mic size={14} />
-              </button>
+              </IconButton>
             </div>
           </div>
         )}
       </div>
     </div>
+  );
+}
+
+function IconButton({
+  children,
+  onClick,
+  title,
+}: {
+  children: React.ReactNode;
+  onClick?: () => void;
+  title?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      className="w-8 h-8 flex items-center justify-center rounded-[10px] transition-all cursor-pointer"
+      style={{ color: "rgba(232,234,240,0.35)" }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = "rgba(255,255,255,0.06)";
+        e.currentTarget.style.color = "#4F8CFF";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = "transparent";
+        e.currentTarget.style.color = "rgba(232,234,240,0.35)";
+      }}
+    >
+      {children}
+    </button>
   );
 }

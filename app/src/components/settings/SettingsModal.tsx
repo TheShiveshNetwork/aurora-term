@@ -83,7 +83,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
         </div>
 
         {/* Content Tabs area */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        <div className="flex-1 scrollable-overlay p-6 space-y-6">
           <div className="space-y-4">
             <div className="flex items-center gap-2 border-b border-outline-variant/10 pb-1.5 text-on-surface font-semibold text-[13px]">
               <Shield size={14} className="text-secondary" />
@@ -141,7 +141,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                   {name !== "ollama" && (
                     <div className="flex items-center gap-2 mt-2">
                       <div className="relative flex-1">
-                        <Key size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-outline/40" />
+                        <Key size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface-variant/60" />
                         <input
                           type="password"
                           value={providerKeys[name] || ""}
@@ -149,7 +149,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                             setProviderKeys((prev) => ({ ...prev, [name]: e.target.value }))
                           }
                           placeholder={hasKey ? "••••••••••••••••••••••••" : "Enter API Key..."}
-                          className="w-full bg-surface-container-lowest border border-outline-variant/10 rounded-lg pl-7 pr-3 py-1.5 text-code-sm placeholder:text-outline/30 outline-none"
+                          className="w-full bg-surface-container-lowest border border-outline-variant/10 rounded-lg pl-7 pr-3 py-1.5 text-code-sm placeholder:text-on-surface-variant/40 outline-none"
                         />
                       </div>
                       <button

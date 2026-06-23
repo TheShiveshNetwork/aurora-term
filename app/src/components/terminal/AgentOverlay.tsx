@@ -39,7 +39,7 @@ function ActiveSubagentBadge({ subagent }: { subagent: string | null }) {
 // ── Log panel ─────────────────────────────────────────────────────────────
 function LogPanel({ logs }: { logs: { timestamp: number; type: string; content: string; subagent?: string }[] }) {
   return (
-    <div className="flex flex-col gap-1 max-h-32 overflow-y-auto aurora-ta text-[10px] text-outline/60">
+    <div className="flex flex-col gap-1 max-h-32 scrollable-overlay aurora-ta text-[10px] text-on-surface-variant/60">
       {logs.map((log, i) => (
         <div key={i} className="leading-relaxed break-all">
           {log.content}
@@ -278,12 +278,19 @@ function ConversationTurn({
 
   return (
     <div className="flex flex-col">
-      {/* ── User message — sticky so it stays in view while AI response scrolls ── */}
+      {/* ── User message ── sticky so it stays in view while AI response scrolls */}
       <div
         className="sticky top-0 z-10 pb-2"
-        style={{ background: "var(--color-background, #0d0d0f)" }}
+        style={{ background: "#0F131A" }}
       >
-        <div className="rounded-2xl px-4 py-3 text-[13px] text-on-surface/90 font-medium leading-relaxed bg-surface-container-high/40 border border-on-surface/10 shadow-sm">
+        <div
+          className="rounded-[14px] px-4 py-3 text-[13px] font-medium leading-relaxed"
+          style={{
+            background: "rgba(255,255,255,0.04)",
+            border: "1px solid rgba(255,255,255,0.08)",
+            color: "rgba(232,234,240,0.90)",
+          }}
+        >
           {userMsg.content}
         </div>
       </div>
@@ -297,17 +304,17 @@ function ConversationTurn({
               onClick={onToggleDetails}
               className="flex items-center gap-2 cursor-pointer select-none group"
             >
-              <div className="flex items-center gap-2 text-[11px] text-outline/50 group-hover:text-outline/70 transition-colors">
+              <div className="flex items-center gap-2 text-[11px] text-on-surface-variant/50 group-hover:text-on-surface-variant/70 transition-colors">
                 {isThinking ? (
                   <div className="flex items-center gap-2 text-primary/70">
                     <SproutFarmingIcon />
                     <span className="font-semibold animate-pulse">Farming…</span>
                     {stepCount > 0 && (
-                      <span className="text-outline/35 text-[9px] font-normal">(step {stepCount}/{maxSteps})</span>
+                      <span className="text-on-surface-variant/45 text-[9px] font-normal">(step {stepCount}/{maxSteps})</span>
                     )}
                   </div>
                 ) : (
-                  <span className="font-medium text-outline/45">
+                  <span className="font-medium text-on-surface-variant/70">
                     Worked for {assistantMsg?.durationMs !== undefined ? Math.round(assistantMsg.durationMs / 1000) : durationSecs}s
                   </span>
                 )}
@@ -315,13 +322,13 @@ function ConversationTurn({
               {chainNodes.length > 0 && (
                 <ChevronRight
                   size={11}
-                  className={`text-outline/30 transition-transform duration-200 ${detailsOpen ? "rotate-90" : ""}`}
+                  className={`text-on-surface-variant/70 transition-transform duration-200 ${detailsOpen ? "rotate-90" : ""}`}
                 />
               )}
             </div>
 
             {detailsOpen && (
-              <div className="pl-3 py-2 space-y-3 border-l border-outline-variant/15 ml-3 text-[11px] text-outline/80 leading-normal animate-fadeIn">
+              <div className="pl-3 py-2 space-y-3 border-l border-outline-variant/15 ml-3 text-[11px] text-on-surface-variant/80 leading-normal animate-fadeIn">
                 {/* Chain Flow */}
                 {chainNodes.length > 0 && (
                   <div className="space-y-2">
@@ -366,7 +373,7 @@ function ConversationTurn({
                               </button>
                               <button
                                 onClick={clearTask}
-                                className="text-[10px] font-semibold text-outline underline cursor-pointer"
+                                className="text-[10px] font-semibold text-on-surface-variant underline cursor-pointer"
                               >
                                 Cancel
                               </button>
@@ -381,7 +388,7 @@ function ConversationTurn({
                 {/* Execution Log */}
                 {agentLogs.length > 0 && (
                   <div className="pt-2 border-t border-outline-variant/10">
-                    <div className="text-[10px] font-bold text-outline/50 uppercase tracking-wider mb-1">Execution Log</div>
+                    <div className="text-[10px] font-bold text-on-surface-variant/50 uppercase tracking-wider mb-1">Execution Log</div>
                     <LogPanel logs={agentLogs} />
                   </div>
                 )}
@@ -392,17 +399,30 @@ function ConversationTurn({
 
         {/* Sensitive command approval gate */}
         {isLastTurn && isPaused && pendingApprovalCmd && (
-          <div className="p-3.5 rounded-xl bg-amber-500/5 border border-amber-500/20 flex flex-col gap-2.5 mt-1">
+          <div
+            className="p-3.5 rounded-[14px] flex flex-col gap-2.5 mt-1"
+            style={{
+              background: "rgba(255,180,84,0.05)",
+              border: "1px solid rgba(255,180,84,0.18)",
+            }}
+          >
             <div className="flex items-start gap-2">
-              <ShieldCheck className="text-amber-400/80 mt-0.5 shrink-0" size={14} />
+              <ShieldCheck className="shrink-0 mt-0.5" size={14} style={{ color: "rgba(255,180,84,0.80)" }} />
               <div className="flex-1 min-w-0">
-                <span className="text-[9px] text-amber-400/80 font-bold uppercase tracking-wider block">
+                <span className="text-[9px] font-bold uppercase tracking-wider block" style={{ color: "rgba(255,180,84,0.80)" }}>
                   Aura approval required
                 </span>
-                <code className="text-[11px] font-mono text-on-surface/95 break-all block mt-1.5 bg-surface-variant/20 p-2 rounded-lg border border-outline-variant/10">
+                <code
+                  className="text-[11px] font-mono break-all block mt-1.5 p-2 rounded-[10px]"
+                  style={{
+                    color: "rgba(232,234,240,0.95)",
+                    background: "rgba(255,255,255,0.05)",
+                    border: "1px solid rgba(255,255,255,0.07)",
+                  }}
+                >
                   {pendingApprovalCmd.command}
                 </code>
-                <span className="text-[10px] text-outline/50 block mt-1.5 leading-normal">
+                <span className="text-[10px] block mt-1.5 leading-normal" style={{ color: "rgba(232,234,240,0.45)" }}>
                   {pendingApprovalCmd.explanation}
                 </span>
               </div>
@@ -410,13 +430,23 @@ function ConversationTurn({
             <div className="flex gap-2">
               <button
                 onClick={approveAndRunPending}
-                className="flex-1 flex items-center justify-center gap-1.5 text-[10px] font-bold py-1.5 px-3 rounded-lg bg-amber-500 hover:bg-amber-600 text-black transition-all cursor-pointer shadow-sm"
+                className="flex-1 flex items-center justify-center gap-1.5 text-[10px] font-bold py-1.5 px-3 rounded-[10px] transition-all cursor-pointer"
+                style={{ background: "rgba(255,180,84,0.90)", color: "#000", boxShadow: "0 2px 8px rgba(255,180,84,0.15)" }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,180,84,1)")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,180,84,0.90)")}
               >
                 Approve
               </button>
               <button
                 onClick={clearTask}
-                className="flex-1 flex items-center justify-center gap-1.5 text-[10px] font-semibold py-1.5 px-3 rounded-lg bg-surface-variant/30 hover:bg-surface-variant/50 text-on-surface/80 border border-outline-variant/10 transition-all cursor-pointer"
+                className="flex-1 flex items-center justify-center gap-1.5 text-[10px] font-semibold py-1.5 px-3 rounded-[10px] transition-all cursor-pointer"
+                style={{
+                  background: "rgba(255,255,255,0.04)",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  color: "rgba(232,234,240,0.70)",
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.08)")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}
               >
                 Cancel
               </button>
@@ -434,7 +464,7 @@ function ConversationTurn({
             </div>
 
             {/* Action buttons */}
-            <div className="flex items-center justify-end gap-3 pl-7 text-outline/35">
+            <div className="flex items-center justify-end gap-3 pl-7 text-on-surface-variant/80">
               <button
                 onClick={handleCopy}
                 className="hover:text-on-surface/70 p-1 rounded transition-colors cursor-pointer"
@@ -449,7 +479,14 @@ function ConversationTurn({
               <div className="flex gap-2 pt-1">
                 <button
                   onClick={retryTask}
-                  className="flex-1 flex items-center justify-center gap-1.5 text-[10px] font-bold py-1.5 px-3 rounded-lg transition-all cursor-pointer bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20"
+                  className="flex-1 flex items-center justify-center gap-1.5 text-[10px] font-bold py-1.5 px-3 rounded-[10px] transition-all cursor-pointer"
+                  style={{
+                    background: "rgba(79,140,255,0.10)",
+                    border: "1px solid rgba(79,140,255,0.20)",
+                    color: "#4F8CFF",
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(79,140,255,0.16)")}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(79,140,255,0.10)")}
                 >
                   <RotateCcw size={11} />
                   Retry
@@ -614,8 +651,16 @@ export function AgentOverlay({ sessionId }: AgentOverlayProps) {
 
   return (
     <div
-      className="relative bg-background border border-outline-variant/10 rounded-2xl flex flex-col z-25 py-3 px-0 select-text"
-      style={{ width, minWidth: MIN_WIDTH, maxWidth: MAX_WIDTH, flexShrink: 0 }}
+      className="relative flex flex-col z-25 mb-3 rounded-md select-text"
+      style={{
+        width,
+        minWidth: MIN_WIDTH,
+        maxWidth: MAX_WIDTH,
+        flexShrink: 0,
+        background: "#0F131A",
+        border: "1px solid rgba(255,255,255,0.06)",
+        boxShadow: "-4px 0 24px rgba(0,0,0,0.25)",
+      }}
     >
       {/* ── Drag handle on left edge ── */}
       <div
@@ -623,7 +668,12 @@ export function AgentOverlay({ sessionId }: AgentOverlayProps) {
         className="absolute top-0 left-0 w-1.5 h-full cursor-col-resize z-30 group select-none"
         title="Drag to resize"
       >
-        <div className="w-px h-full mr-auto group-hover:bg-primary/40 transition-colors" />
+        <div
+          className="w-px h-full mr-auto transition-colors"
+          style={{ background: "transparent" }}
+          onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(79,140,255,0.35)")}
+          onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+        />
       </div>
 
       {/* ── Custom animations ── */}
@@ -646,17 +696,20 @@ export function AgentOverlay({ sessionId }: AgentOverlayProps) {
 
       {/* ── Header ── */}
       <div
-        className="flex items-center justify-between px-4 pb-2 shrink-0"
-        style={{ borderBottom: "1px solid rgba(var(--color-outline-variant-rgb, 100,100,120), 0.10)" }}
+        className="flex items-center justify-between px-4 py-3 shrink-0"
+        style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
       >
         <div className="flex items-center gap-2">
-          <span className="text-[11px] font-bold tracking-wide text-on-surface">Aura Agent</span>
+          <span className="text-[12px] font-semibold tracking-wide" style={{ color: "#E8EAF0" }}>Aura</span>
           <ActiveSubagentBadge subagent={activeSubagent} />
         </div>
 
         <button
           onClick={clearTask}
-          className="text-outline/40 hover:text-on-surface hover:bg-surface-variant/20 p-1.5 rounded-lg transition-all cursor-pointer"
+          className="p-1.5 rounded-[8px] transition-all cursor-pointer"
+          style={{ color: "rgba(232,234,240,0.3)" }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; e.currentTarget.style.color = "#E8EAF0"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "rgba(232,234,240,0.3)"; }}
           title="Clear chat"
         >
           <X size={13} />
@@ -666,18 +719,24 @@ export function AgentOverlay({ sessionId }: AgentOverlayProps) {
       {/* ── Scrollable Chat Area ── */}
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto px-4 pt-3 aurora-ta"
+        className="flex-1 scrollable-overlay px-4 pt-3 aurora-ta"
         style={{ scrollbarGutter: "stable" }}
       >
         {turns.length === 0 && (
-          /* Empty state — only shown when there's status but no history yet */
+          /* Empty state */
           <div className="flex flex-col items-center justify-center h-full py-12 gap-3 text-center">
-            <div className="w-10 h-10 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center">
-              <Brain size={18} className="text-primary/60" />
+            <div
+              className="w-10 h-10 rounded-[12px] flex items-center justify-center"
+              style={{
+                background: "rgba(79,140,255,0.08)",
+                border: "1px solid rgba(79,140,255,0.15)",
+              }}
+            >
+              <Brain size={18} style={{ color: "rgba(79,140,255,0.6)" }} />
             </div>
             <div>
-              <p className="text-[12px] font-semibold text-on-surface/60">Aura is ready</p>
-              <p className="text-[10px] text-outline/40 mt-0.5">Describe a task to get started</p>
+              <p className="text-[12px] font-semibold" style={{ color: "rgba(232,234,240,0.5)" }}>Aura is ready</p>
+              <p className="text-[10px] mt-0.5" style={{ color: "rgba(232,234,240,0.25)" }}>Describe a task to get started</p>
             </div>
           </div>
         )}

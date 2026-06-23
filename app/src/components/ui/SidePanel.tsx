@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
-  Folder, FileText, ChevronDown, ChevronRight, Search, RefreshCw,
+  Folder, FileText, FileCode, FileImage, FileJson, FileSpreadsheet, FileAudio, FileVideo, FileArchive,
+  ChevronDown, ChevronRight, RefreshCw,
   Copy, FolderOpen, Terminal, ExternalLink, ClipboardCopy, Pencil, Trash2, AlertTriangle,
   ClipboardList, Scissors,
+  CopyMinus,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -113,6 +115,14 @@ function TreeNode({
   onPointerDown,
   expandPath,
   collapsePath,
+  creatingParent,
+  creatingType,
+  creatingName,
+  onCreatingNameChange,
+  onCreatingCommit,
+  onCreatingCancel,
+  collapseKey,
+  refreshKey,
 }: {
   node: FileNode;
   depth: number;
@@ -131,6 +141,14 @@ function TreeNode({
   onPointerDown: (e: React.PointerEvent, node: FileNode) => void;
   expandPath: string | null;
   collapsePath: string | null;
+  creatingParent: string | null;
+  creatingType: "file" | "folder" | null;
+  creatingName: string;
+  onCreatingNameChange: (val: string) => void;
+  onCreatingCommit: () => void;
+  onCreatingCancel: () => void;
+  collapseKey?: number;
+  refreshKey?: number;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [children, setChildren] = useState<FileNode[]>([]);
@@ -174,6 +192,37 @@ function TreeNode({
     setIsOpen(false);
   }, [collapsePath, node.path, node.is_dir]);
 
+  // Auto-expand folder when creating inside it
+  useEffect(() => {
+    if (!node.is_dir || !creatingParent || creatingParent !== node.path) return;
+    if (!loadedRef.current) {
+      loadedRef.current = true;
+      setLoading(true);
+      invoke<FileNode[]>("read_dir", { path: node.path })
+        .then(setChildren)
+        .catch(console.error)
+        .finally(() => setLoading(false));
+    }
+    setIsOpen(true);
+  }, [creatingParent, node.path, node.is_dir]);
+
+  // Collapse self when collapseAll triggered
+  useEffect(() => {
+    if (node.is_dir) {
+      setIsOpen(false);
+      loadedRef.current = false;
+      setChildren([]);
+    }
+  }, [collapseKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Clear loaded children and force reload when refreshKey changes
+  useEffect(() => {
+    if (node.is_dir) {
+      loadedRef.current = false;
+      setChildren([]);
+    }
+  }, [refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleToggle = async () => {
     if (node.is_dir) {
       onActivate(node.path);
@@ -212,34 +261,22 @@ function TreeNode({
 
   // ── Visual state helpers ──────────────────────────────────────────────────
   const isGitignored = node.is_gitignored;
-  // const isHidden = node.is_hidden;
-
-  const textColorClass = isActive
-    ? "text-primary"
-    : isActiveFolder
-      ? "text-primary"
-      : isGitignored
-        ? "text-on-surface-variant/70"
-        : "text-on-surface-variant/80";
-
-  const rowClass = `group flex items-center gap-1.5 cursor-pointer transition-colors ${isActive
-    ? "bg-primary/8 border-l-2 border-primary shadow-[inset_0_0_0_1px_rgba(0,240,255,0.08)]"
-    : isActiveFolder
-      ? "bg-primary/8 border-l-2 border-primary shadow-[inset_0_0_0_1px_rgba(0,240,255,0.08)]"
-      : "hover:bg-surface-variant/20 hover:border-outline-variant/30 border-l-2 border-transparent"
-    }`;
-
-  const folderIconClass = `shrink-0 ${isGitignored
-    ? isOpen ? "text-primary/30" : "text-primary-container/30"
-    : isOpen ? "text-primary/80" : "text-primary-container/80"
-    }`;
-
-  const fileIconClass = `shrink-0 ml-[15px] ${isSelected ? "text-primary" : isGitignored ? "text-outline/25" : "text-outline/50"
-    }`;
-
   const isRenaming = renamingPath === node.path;
   const isDragOver = dragOverPath === node.path && node.is_dir;
   const isBeingDragged = draggedNodePath === node.path;
+
+  const isCreating = creatingParent === node.path && node.is_dir;
+
+  const rowBg = isActive
+    ? "rgba(79,140,255,0.10)"
+    : isDragOver
+      ? "rgba(79,140,255,0.08)"
+      : undefined;
+
+  const rowBorderLeft = isActive ? "2px solid rgba(79,140,255,0.55)" : "2px solid transparent";
+
+  const folderColor = "#61AFEF";
+  const chevronColor = "rgba(232,234,240,0.35)";
 
   return (
     <div className="select-none">
@@ -254,27 +291,31 @@ function TreeNode({
         data-path={node.path}
         data-is-dir={node.is_dir ? "true" : "false"}
         onPointerDown={(e) => { if (!node.is_dir) onPointerDown(e, node); }}
-        className={`${rowClass} ${textColorClass} ${isDragOver ? "ring-2 ring-primary/60 bg-primary/10" : ""} ${isBeingDragged ? "opacity-40" : ""}`}
+        className={`flex items-center gap-1.5 cursor-pointer transition-colors ${isBeingDragged ? "opacity-40" : ""}`}
         style={{
-          paddingLeft: isSelected && !node.is_dir ? `${indent - 2}px` : `${indent}px`,
+          paddingLeft: `${indent}px`,
           paddingRight: "8px",
-          paddingTop: "5px",
-          paddingBottom: "5px",
-          minHeight: "26px",
-          lineHeight: "1.4",
+          paddingTop: "4px",
+          paddingBottom: "4px",
+          minHeight: "24px",
+          background: rowBg,
+          borderLeft: rowBorderLeft,
         }}
       >
         {node.is_dir ? (
           <>
             {isOpen ? (
-              <ChevronDown size={11} className="text-outline/60 shrink-0 transition-colors group-hover:text-primary/80" />
+              <ChevronDown size={11} className="shrink-0" style={{ color: chevronColor }} />
             ) : (
-              <ChevronRight size={11} className="text-outline/60 shrink-0 transition-colors group-hover:text-primary/80" />
+              <ChevronRight size={11} className="shrink-0" style={{ color: chevronColor }} />
             )}
-            <Folder size={12} className={`${folderIconClass} transition-colors group-hover:text-primary ${isActiveFolder ? "text-primary" : ""}`} />
+            {isOpen
+              ? <FolderOpen size={12} className="shrink-0" style={{ color: folderColor }} />
+              : <Folder size={12} className="shrink-0" style={{ color: folderColor }} />
+            }
           </>
         ) : (
-          <FileText size={12} className={`${fileIconClass} transition-colors group-hover:text-primary ${isActive ? "text-primary" : ""}`} />
+          <FileIcon fileName={node.name} isActive={isActive} isGitignored={isGitignored} />
         )}
 
         {isRenaming ? (
@@ -306,17 +347,10 @@ function TreeNode({
         <div>
           {loading ? (
             <div
-              className="text-outline/40 text-[10px] italic py-1"
+              className="text-on-surface-variant/40 text-[10px] italic py-1"
               style={{ paddingLeft: `${indent + 24}px` }}
             >
               Loading…
-            </div>
-          ) : children.length === 0 ? (
-            <div
-              className="text-outline/30 text-[10px] italic py-1"
-              style={{ paddingLeft: `${indent + 24}px` }}
-            >
-              Empty
             </div>
           ) : (
             sortNodes(children.filter((child) => !isExcluded(child.name)))
@@ -340,8 +374,46 @@ function TreeNode({
                   onPointerDown={onPointerDown}
                   expandPath={expandPath}
                   collapsePath={collapsePath}
+                  creatingParent={creatingParent}
+                  creatingType={creatingType}
+                  creatingName={creatingName}
+                  onCreatingNameChange={onCreatingNameChange}
+                  onCreatingCommit={onCreatingCommit}
+                  onCreatingCancel={onCreatingCancel}
+                  collapseKey={collapseKey}
+                  refreshKey={refreshKey}
                 />
               ))
+          )}
+          {/* ── Inline create input at end of children ── */}
+          {isCreating && (
+            <div
+              className="flex items-center gap-1.5"
+              style={{ paddingLeft: `${indent + 24}px`, paddingTop: "4px", paddingBottom: "4px", minHeight: "24px" }}
+            >
+              <input
+                autoFocus
+                value={creatingName}
+                onChange={(e) => onCreatingNameChange(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") { e.preventDefault(); onCreatingCommit(); }
+                  if (e.key === "Escape") { e.preventDefault(); onCreatingCancel(); }
+                }}
+                onBlur={onCreatingCancel}
+                onClick={(e) => e.stopPropagation()}
+                placeholder={creatingType === "folder" ? "folder name" : "file name"}
+                className="flex-1 min-w-0 text-sm bg-surface-container-high border border-primary/40 rounded px-1 outline-none text-on-surface placeholder:text-outline/30 focus:border-primary/70 transition-colors"
+                style={{ lineHeight: "1.4", marginLeft: "2px" }}
+              />
+            </div>
+          )}
+          {!loading && children.length === 0 && !isCreating && (
+            <div
+              className="text-on-surface-variant/60 text-sm italic py-1"
+              style={{ paddingLeft: `${indent + 24}px` }}
+            >
+              Empty
+            </div>
           )}
         </div>
       )}
@@ -371,6 +443,12 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
   const [workspaceName, setWorkspaceName] = useState("Workspace");
   const [resolvedCwd, setResolvedCwd] = useState<string>("");
   const [filterQuery, setFilterQuery] = useState("");
+  const [workspaceExpanded, setWorkspaceExpanded] = useState(true);
+  const [creatingIn, setCreatingIn] = useState<{ parentPath: string; type: 'file' | 'folder' } | null>(null);
+  const [creatingName, setCreatingName] = useState("");
+  const [collapseAllKey, setCollapseAllKey] = useState(0);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const creatingInputRef = useRef<HTMLInputElement>(null);
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -581,6 +659,72 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
     );
     setFileMenu(null);
   };
+
+  // ── Create file / folder actions ─────────────────────────
+  const handleCreateFile = useCallback(() => {
+    if (!resolvedCwd) return;
+    setCreatingIn({ parentPath: resolvedCwd, type: "file" });
+    setCreatingName("");
+  }, [resolvedCwd]);
+
+  const handleCreateFolder = useCallback(() => {
+    if (!resolvedCwd) return;
+    setCreatingIn({ parentPath: resolvedCwd, type: "folder" });
+    setCreatingName("");
+  }, [resolvedCwd]);
+
+  const commitCreate = useCallback(async () => {
+    if (!creatingIn) return;
+    const name = creatingName.trim();
+    if (!name) { setCreatingIn(null); return; }
+    try {
+      // Handle nested paths like "temp/temp.md" � create intermediate dirs first
+      const segments = name.replace(/\\/g, "/").split("/");
+      let currentParent = creatingIn.parentPath;
+      for (let i = 0; i < segments.length; i++) {
+        const seg = segments[i];
+        if (!seg) continue;
+        const isLast = i === segments.length - 1;
+        if (isLast) {
+          // Final segment � create the file or folder
+          await invoke("create_path", {
+            parentDir: currentParent,
+            name: seg,
+            isDir: creatingIn.type === "folder",
+          });
+        } else {
+          // Intermediate directory � ensure it exists
+          await invoke("create_path", {
+            parentDir: currentParent,
+            name: seg,
+            isDir: true,
+          }).catch(() => { });
+          currentParent = currentParent + "/" + seg;
+        }
+      }
+      setCreatingIn(null);
+      setCreatingName("");
+      // Collapse all and reload so tree picks up new structure
+      setCollapseAllKey((k) => k + 1);
+      if (resolvedCwd) loadTree(resolvedCwd);
+    } catch (err) {
+      console.error("Failed to create:", err);
+      setCreatingIn(null);
+    }
+  }, [creatingIn, creatingName, resolvedCwd, loadTree]);
+
+  const cancelCreate = useCallback(() => {
+    setCreatingIn(null);
+    setCreatingName("");
+  }, []);
+
+  useEffect(() => {
+    if (creatingIn) creatingInputRef.current?.focus();
+  }, [creatingIn]);
+
+  const handleCollapseAll = useCallback(() => {
+    setCollapseAllKey((k) => k + 1);
+  }, []);
 
   // ── Rename actions ────────────────────────────────────────
   const startRename = (node: FileNode) => {
@@ -848,83 +992,171 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
     <aside
       ref={panelRef}
       id="main-sidebar"
-      className="relative bg-background border-r border-outline-variant/10 flex flex-col shadow-lg z-20 overflow-hidden"
-      style={{ width, minWidth: MIN_WIDTH, maxWidth: MAX_WIDTH, flexShrink: 0 }}
-      onContextMenu={(e) => e.preventDefault()} // suppress browser default in sidebar
+      className="relative flex flex-col z-20 overflow-hidden"
+      style={{
+        width,
+        minWidth: MIN_WIDTH,
+        maxWidth: MAX_WIDTH,
+        flexShrink: 0,
+        background: "#0F131A",
+        borderRight: "1px solid rgba(255,255,255,0.06)",
+        boxShadow: "4px 0 24px rgba(0,0,0,0.25)",
+      }}
+      onContextMenu={(e) => e.preventDefault()}
     >
-      {/* Header with search and dynamic loading indicator */}
-      <div className={`flex items-center p-2.5 border-b border-outline-variant/5 transition-all duration-300 ${isLoading ? "gap-2" : "gap-0"}`}>
-        <div className="relative flex-1 min-w-0 group">
-          <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-outline/40 group-focus-within:text-primary transition-colors shrink-0" />
-          <input
-            type="text"
-            value={filterQuery}
-            onChange={(e) => setFilterQuery(e.target.value)}
-            placeholder="Filter files…"
-            className="w-full bg-surface-container-high/30 border border-outline-variant/10 rounded-md pl-7 pr-2 py-1 text-sm placeholder:text-outline/25 focus:ring-0 focus:border-outline-variant/20 outline-none transition-all"
-          />
-        </div>
+      {/* ── Explorer section (group enables hover for dir toolbar) ── */}
+      <div className="flex flex-col flex-1 min-h-0 group">
+        {/* ── EXPLORER header bar ── */}
         <div
-          className={`flex items-center justify-center shrink-0 transition-all duration-300 ease-in-out ${isLoading ? "w-4 opacity-100 pl-1" : "w-0 opacity-0 overflow-hidden"
-            }`}
+          className="flex items-center justify-between px-3 select-none"
+          style={{
+            height: "34px",
+            borderBottom: "1px solid rgba(255,255,255,0.05)",
+          }}
         >
-          <RefreshCw size={11} className="text-primary animate-spin" />
+          <span
+            className="text-[11px] font-bold tracking-[0.08em] uppercase"
+            style={{ color: "rgba(255,255,255,0.35)" }}
+          >
+            Explorer
+          </span>
+          {/* toolbar moved to dir heading below */}
         </div>
-      </div>
 
-      {/* Workspace label */}
-      <div
-        className="text-sm text-outline/50 px-3 pt-2 pb-1 tracking-widest font-bold overflow-hidden text-ellipsis whitespace-nowrap"
-        title={workspaceName}
-      >
-        {workspaceName}
-      </div>
-
-      {/* File tree — scrollable */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden pb-4 sidepanel-scroll">
-        {isLoading ? (
-          <div className="text-outline/35 text-xs italic px-4 py-3 flex items-center gap-2 select-none">
-            Loading workspace...
-          </div>
-        ) : error ? (
-          <div className="text-red-400 text-xs px-4 py-3 whitespace-pre-wrap break-words leading-relaxed select-text">
-            {error}
-          </div>
-        ) : filteredNodes.length === 0 ? (
-          <div className="text-outline/30 text-sm italic px-4 py-3">No files</div>
-        ) : (
-          filteredNodes.map((node) => (
-            <TreeNode
-              key={node.path}
-              node={node}
-              depth={0}
-              selectedFile={selectedFile}
-              activePath={activePath}
-              onSelect={setSelectedFile}
-              onActivate={handleActivateNode}
-              onContextMenu={handleFileContextMenu}
-              renamingPath={renameState?.path ?? ""}
-              renameValue={renameState?.value ?? ""}
-              onRenameChange={(val) => setRenameState(prev => prev ? { ...prev, value: val } : null)}
-              onRenameCommit={commitRename}
-              onRenameCancel={cancelRename}
-              dragOverPath={dragOverPath}
-              draggedNodePath={draggedNodePath}
-              onPointerDown={handlePointerDown}
-              expandPath={expandPath}
-              collapsePath={collapsePath}
+        {/* ── Workspace section heading ── */}
+        <div
+          className="flex items-center justify-between px-3 cursor-pointer select-none group"
+          style={{ height: "30px", minHeight: "30px" }}
+          onClick={() => setWorkspaceExpanded((p) => !p)}
+        >
+          <div className="flex items-center gap-1.5">
+            <ChevronDown
+              size={11}
+              style={{ color: "rgba(232,234,240,0.4)" }}
+              className={`shrink-0 transition-transform ${workspaceExpanded ? "" : "-rotate-90"}`}
             />
-          ))
-        )}
-      </div>
+            <span
+              className="text-[11px] font-bold tracking-[0.08em] truncate"
+              style={{ color: "rgba(232,234,240,0.6)" }}
+              title={workspaceName}
+            >
+              {workspaceName}
+            </span>
+          </div>
+          <div className={`flex items-center gap-0.5 ${resolvedCwd ? "invisible group-hover:visible" : "hidden"}`} onClick={(e) => e.stopPropagation()}>
+            {/* New file */}
+            <SidebarIconBtn title="New File" onClick={handleCreateFile}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14,2 14,8 20,8" />
+                <line x1="12" y1="13" x2="12" y2="17" />
+                <line x1="10" y1="15" x2="14" y2="15" />
+              </svg>
+            </SidebarIconBtn>
+            {/* New folder */}
+            <SidebarIconBtn title="New Folder" onClick={handleCreateFolder}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                <line x1="12" y1="11" x2="12" y2="17" />
+                <line x1="9" y1="14" x2="15" y2="14" />
+              </svg>
+            </SidebarIconBtn>
+            {/* Refresh */}
+            <SidebarIconBtn title="Refresh" onClick={() => { setRefreshKey((k) => k + 1); loadTree(resolvedCwd); }}>
+              <RefreshCw size={12} />
+            </SidebarIconBtn>
+            {/* Collapse all */}
+            <SidebarIconBtn title="Collapse All" onClick={handleCollapseAll}>
+              <CopyMinus size={12} />
+            </SidebarIconBtn>
+          </div>
+          {isLoading && <RefreshCw size={10} className="animate-spin shrink-0" style={{ color: "#4F8CFF" }} />}
+        </div>
 
-      {/* ── Drag handle ── */}
+        {/* ── File tree — scrollable ── */}
+        {workspaceExpanded && (
+          <div className="flex-1 overflow-y-auto overflow-x-hidden sidepanel-scroll">
+            {error ? (
+              <div className="text-[11px] px-3 py-3 whitespace-pre-wrap break-words leading-relaxed select-text" style={{ color: "#FF6B6B" }}>
+                {error}
+              </div>
+            ) : (
+              <>
+                {filteredNodes.length === 0 && !isLoading && <div className="text-[11px] italic px-3 py-3" style={{ color: "rgba(232,234,240,0.2)" }}>No files</div>}
+                {filteredNodes.map((node) => (
+                  <TreeNode
+                    key={node.path}
+                    node={node}
+                    depth={0}
+                    selectedFile={selectedFile}
+                    activePath={activePath}
+                    onSelect={setSelectedFile}
+                    onActivate={handleActivateNode}
+                    onContextMenu={handleFileContextMenu}
+                    renamingPath={renameState?.path ?? ""}
+                    renameValue={renameState?.value ?? ""}
+                    onRenameChange={(val) => setRenameState(prev => prev ? { ...prev, value: val } : null)}
+                    onRenameCommit={commitRename}
+                    onRenameCancel={cancelRename}
+                    dragOverPath={dragOverPath}
+                    draggedNodePath={draggedNodePath}
+                    onPointerDown={handlePointerDown}
+                    expandPath={expandPath}
+                    collapsePath={collapsePath}
+                    creatingParent={creatingIn?.parentPath ?? null}
+                    creatingType={creatingIn?.type ?? null}
+                    creatingName={creatingName}
+                    onCreatingNameChange={setCreatingName}
+                    onCreatingCommit={commitCreate}
+                    onCreatingCancel={cancelCreate}
+                    collapseKey={collapseAllKey}
+                    refreshKey={refreshKey}
+                  />
+                ))}
+                {/* ── Root-level inline create input ── */}
+                {creatingIn && creatingIn.parentPath === resolvedCwd && (
+                  <div
+                    className="flex items-center gap-1.5"
+                    style={{ paddingLeft: "10px", paddingTop: "4px", paddingBottom: "4px", minHeight: "24px" }}
+                  >
+                    <input
+                      ref={creatingInputRef}
+                      autoFocus
+                      value={creatingName}
+                      onChange={(e) => setCreatingName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") { e.preventDefault(); commitCreate(); }
+                        if (e.key === "Escape") { e.preventDefault(); cancelCreate(); }
+                      }}
+                      onBlur={cancelCreate}
+                      onClick={(e) => e.stopPropagation()}
+                      placeholder={creatingIn.type === "folder" ? "folder name" : "file name"}
+                      className="flex-1 min-w-0 text-sm bg-surface-container-high border border-primary/40 rounded px-1 outline-none text-on-surface placeholder:text-outline/30 focus:border-primary/70 transition-colors"
+                      style={{ lineHeight: "1.4", marginLeft: "2px" }}
+                    />
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ── OUTLINE collapsed section ── */}
+        <CollapsedSection label="Outline" />
+
+        {/* ── TIMELINE collapsed section ── */}
+        <CollapsedSection label="Timeline" />
+      </div>{/* end explorer section group */}
+
       <div
         onMouseDown={onDragHandleMouseDown}
         className="absolute top-0 right-0 w-1.5 h-full cursor-col-resize z-30 group"
         title="Drag to resize"
       >
-        <div className="w-px h-full ml-auto group-hover:bg-primary/40 transition-colors" />
+        <div className="w-px h-full ml-auto transition-colors" style={{ background: "transparent" }}
+          onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(79,140,255,0.35)")}
+          onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+        />
       </div>
 
       {/* ── File Context Menu — rendered as fixed so it escapes overflow:hidden ── */}
@@ -1031,41 +1263,61 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
       {/* ── Delete confirmation modal ── */}
       {deleteConfirm && (
         <div
-          className="fixed inset-0 z-[300] flex items-center justify-center bg-black/50 backdrop-blur-sm"
+          className="fixed inset-0 z-[300] flex items-center justify-center backdrop-blur-sm"
+          style={{ background: "rgba(0,0,0,0.55)" }}
           onClick={() => { if (!isDeleting) setDeleteConfirm(null); }}
         >
           <div
-            className="bg-surface-container-high border border-outline-variant/20 rounded-xl shadow-2xl w-[380px] overflow-hidden"
+            className="w-[380px] overflow-hidden"
+            style={{
+              background: "#131A24",
+              border: "1px solid rgba(255,255,255,0.08)",
+              borderRadius: "18px",
+              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.03), 0 24px 64px rgba(0,0,0,0.6)",
+            }}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="px-5 pt-5 pb-3">
               <div className="flex items-center gap-2 mb-3">
-                <AlertTriangle size={16} className="text-red-400 shrink-0" />
-                <h3 className="text-sm font-semibold text-on-surface">
+                <AlertTriangle size={15} style={{ color: "#FF6B6B" }} className="shrink-0" />
+                <h3 className="text-[13px] font-semibold" style={{ color: "#E8EAF0" }}>
                   Delete {deleteConfirm.node.is_dir ? "folder" : "file"}?
                 </h3>
               </div>
-              <p className="text-xs text-on-surface-variant/80 leading-relaxed">
+              <p className="text-[12px] leading-relaxed" style={{ color: "rgba(232,234,240,0.55)" }}>
                 Are you sure you want to permanently delete{" "}
-                <span className="text-primary font-medium">{deleteConfirm.node.name}</span>?
+                <span style={{ color: "#4F8CFF", fontWeight: 500 }}>{deleteConfirm.node.name}</span>?
                 {deleteConfirm.node.is_dir && (
-                  <span className="text-red-400/80"> This will delete all contents inside.</span>
+                  <span style={{ color: "rgba(255,107,107,0.75)" }}> This will delete all contents inside.</span>
                 )}
               </p>
               {deleteError && (
-                <p className="text-[11px] text-red-400 mt-2">{deleteError}</p>
+                <p className="text-[11px] mt-2" style={{ color: "#FF6B6B" }}>{deleteError}</p>
               )}
             </div>
             <div className="flex justify-end gap-2 px-5 pb-4 pt-1">
               <button
-                className="px-3 py-1.5 text-[11px] rounded-lg border border-outline-variant/20 text-on-surface-variant hover:bg-surface-variant/20 transition-colors cursor-pointer"
+                className="px-3 py-1.5 text-[11px] rounded-[10px] transition-colors cursor-pointer"
+                style={{
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  color: "rgba(232,234,240,0.55)",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
                 onClick={() => setDeleteConfirm(null)}
                 disabled={isDeleting}
               >
                 Cancel
               </button>
               <button
-                className="px-3 py-1.5 text-[11px] rounded-lg bg-red-500/80 text-white hover:bg-red-500 transition-colors cursor-pointer font-semibold disabled:opacity-50"
+                className="px-3 py-1.5 text-[11px] rounded-[10px] font-semibold transition-colors cursor-pointer disabled:opacity-50"
+                style={{
+                  background: "rgba(255,107,107,0.15)",
+                  border: "1px solid rgba(255,107,107,0.25)",
+                  color: "#FF6B6B",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,107,107,0.22)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,107,107,0.15)"; }}
                 onClick={confirmDelete}
                 disabled={isDeleting}
               >
@@ -1076,5 +1328,104 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
         </div>
       )}
     </aside>
+  );
+}
+
+/* ── FileIcon ───────────────────────────────────────────────────────── */
+const FILE_ICON_MAP: Record<string, { icon: typeof FileText; color: string }> = {
+  ts: { icon: FileCode, color: "#3178C6" },
+  tsx: { icon: FileCode, color: "#3178C6" },
+  js: { icon: FileCode, color: "#F7DF1E" },
+  jsx: { icon: FileCode, color: "#F7DF1E" },
+  rs: { icon: FileCode, color: "#DEA584" },
+  py: { icon: FileCode, color: "#3572A5" },
+  go: { icon: FileCode, color: "#00ADD8" },
+  json: { icon: FileJson, color: "#8BC34A" },
+  css: { icon: FileCode, color: "#42A5F5" },
+  scss: { icon: FileCode, color: "#C6538C" },
+  html: { icon: FileCode, color: "#E44D26" },
+  svg: { icon: FileImage, color: "#FFB300" },
+  png: { icon: FileImage, color: "#29B6F6" },
+  jpg: { icon: FileImage, color: "#29B6F6" },
+  jpeg: { icon: FileImage, color: "#29B6F6" },
+  gif: { icon: FileImage, color: "#29B6F6" },
+  ico: { icon: FileImage, color: "#29B6F6" },
+  md: { icon: FileText, color: "#42A5F5" },
+  toml: { icon: FileCode, color: "#9C27B0" },
+  yaml: { icon: FileCode, color: "#6B2FA0" },
+  yml: { icon: FileCode, color: "#6B2FA0" },
+  lock: { icon: FileArchive, color: "#78909C" },
+  csv: { icon: FileSpreadsheet, color: "#43A047" },
+  mp3: { icon: FileAudio, color: "#FF7043" },
+  wav: { icon: FileAudio, color: "#FF7043" },
+  mp4: { icon: FileVideo, color: "#FF7043" },
+  zip: { icon: FileArchive, color: "#78909C" },
+  gz: { icon: FileArchive, color: "#78909C" },
+  sql: { icon: FileCode, color: "#E91E63" },
+  sh: { icon: FileCode, color: "#4CAF50" },
+  ps1: { icon: FileCode, color: "#012456" },
+};
+
+function FileIcon({ fileName, isActive, isGitignored }: { fileName: string; isActive: boolean; isGitignored: boolean }) {
+  const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
+  const match = FILE_ICON_MAP[ext];
+  const IconComponent = match?.icon ?? FileText;
+  const color = isActive ? "#4F8CFF" : match?.color ?? "rgba(232,234,240,0.4)";
+  const opacity = isGitignored ? 0.4 : 1;
+
+  return (
+    <IconComponent size={12} className="shrink-0" style={{ color, opacity }} />
+  );
+}
+
+/* ── SidebarIconBtn ─────────────────────────────────────────────────── */
+function SidebarIconBtn({
+  children,
+  title,
+  onClick,
+}: {
+  children: React.ReactNode;
+  title?: string;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      onClick={onClick}
+      className="w-6 h-6 flex items-center justify-center rounded-[6px] cursor-pointer transition-colors"
+      style={{ color: "rgba(232,234,240,0.4)" }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.07)"; e.currentTarget.style.color = "#E8EAF0"; }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "rgba(232,234,240,0.4)"; }}
+    >
+      {children}
+    </button>
+  );
+}
+
+/* ── CollapsedSection ───────────────────────────────────────────────── */
+function CollapsedSection({ label }: { label: string }) {
+  const [open, setOpen] = React.useState(false);
+  return (
+    <div style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center gap-1.5 px-3 cursor-pointer select-none transition-colors"
+        style={{ height: "30px", color: "rgba(232,234,240,0.35)" }}
+        onMouseEnter={(e) => (e.currentTarget.style.color = "rgba(232,234,240,0.65)")}
+        onMouseLeave={(e) => (e.currentTarget.style.color = "rgba(232,234,240,0.35)")}
+      >
+        {open
+          ? <ChevronDown size={11} className="shrink-0" />
+          : <ChevronRight size={11} className="shrink-0" />
+        }
+        <span className="text-[11px] font-bold uppercase tracking-[0.08em]">{label}</span>
+      </button>
+      {open && (
+        <div className="px-3 py-2 text-[11px]" style={{ color: "rgba(232,234,240,0.25)" }}>
+          No items
+        </div>
+      )}
+    </div>
   );
 }

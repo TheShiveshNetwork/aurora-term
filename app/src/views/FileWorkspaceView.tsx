@@ -17,10 +17,10 @@ export function FileWorkspaceView({ tab, onOpenFile, onOpenFolder }: FileWorkspa
   ) : (
     <div className="flex-1 flex flex-col items-center justify-center p-8 text-center max-w-sm mx-auto w-full text-on-surface select-text">
       <div className="mb-6 flex flex-col items-center">
-        <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center mb-4 text-primary">
+        <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center mb-4">
           <FolderOpen size={24} />
         </div>
-        <h2 className="text-xl font-bold tracking-tight text-primary">Aurora Workspace</h2>
+        <h2 className="text-xl font-bold tracking-tight">Aurora Workspace</h2>
         <p className="text-[11px] text-on-surface-variant/60 mt-1.5 leading-relaxed max-w-[240px]">
           No files are open. Select an option to start editing in this workspace.
         </p>

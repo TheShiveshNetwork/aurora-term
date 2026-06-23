@@ -266,14 +266,14 @@ export function GhostInput({
           spellCheck={false}
           rows={1}
           wrap="soft"
-          className={`aurora-ta w-full bg-transparent border-none focus:ring-0 mt-4 pb-1 px-5 placeholder:text-outline/30 outline-none text-on-surface relative z-10 resize-none overflow-x-hidden whitespace-pre-wrap break-words ${textMetricsClass} ${inputClassName}`}
+          className={`aurora-ta w-full bg-transparent border-none focus:ring-0 mt-4 pb-1 px-5 placeholder:text-outline/80 outline-none text-on-surface relative z-10 resize-none overflow-x-hidden whitespace-pre-wrap break-words ${textMetricsClass} ${inputClassName}`}
           style={{ caretColor: "var(--color-primary)", maxHeight: `${TA_MAX_HEIGHT}px` }}
         />
 
         {ghost && (
           <span
             aria-hidden="true"
-            className={`pointer-events-none absolute left-[var(--ghost-left)] top-4 pb-1 z-0 select-none whitespace-pre ${textMetricsClass} text-primary/20`}
+            className={`pointer-events-none absolute left-[var(--ghost-left)] top-4 pb-1 z-0 select-none whitespace-pre ${textMetricsClass} text-on-surface-variant/40`}
             style={{ ["--ghost-left" as string]: `${20 + ghostLeft}px` }}
           >
             {ghost}

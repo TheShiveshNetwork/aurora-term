@@ -1,8 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Cpu, GitBranch, Wifi, FileText, Copy, Folder } from "lucide-react";
+import { Cpu, GitBranch, Wifi, WifiOff, Copy, Folder } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAIStore } from "../../stores/useAIStore";
-import { useSettingsStore } from "../../stores/useSettingsStore";
 import { useSessionStore } from "../../stores/useSessionStore";
 
 interface SystemInfo {
@@ -17,9 +16,29 @@ function formatRam(mb: number): string {
   return `${mb} MB`;
 }
 
+const glassy = "rgba(19, 26, 36, 0.88)";
+
+function Tooltip({ children, show, className = "" }: { children: React.ReactNode; show: boolean; className?: string }) {
+  return show ? (
+    <div
+      className={`absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-3 py-2 z-[100] whitespace-nowrap flex items-center gap-2 transition-opacity duration-150 ${className}`}
+      style={{
+        background: glassy,
+        backdropFilter: "blur(10px)",
+        WebkitBackdropFilter: "blur(10px)",
+        border: "1px solid rgba(255,255,255,0.08)",
+        borderRadius: "10px",
+        boxShadow: "0 8px 24px rgba(0,0,0,0.45)",
+        pointerEvents: "auto",
+      }}
+    >
+      {children}
+    </div>
+  ) : null;
+}
+
 export function StatusBar({ cwd }: { cwd?: string }) {
   const { activeProvider } = useAIStore();
-  const { mode } = useSettingsStore();
   const { tabs, activeTabId } = useSessionStore();
   const activeFileTab = tabs.find(t => t.id === activeTabId && t.type === "file");
   const [showPathTooltip, setShowPathTooltip] = useState(false);
@@ -28,6 +47,9 @@ export function StatusBar({ cwd }: { cwd?: string }) {
   const [showCwdTooltip, setShowCwdTooltip] = useState(false);
   const [cwdCopied, setCwdCopied] = useState(false);
   const cwdTooltipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [showGitTooltip, setShowGitTooltip] = useState(false);
+  const [showRamTooltip, setShowRamTooltip] = useState(false);
+  const [showAiTooltip, setShowAiTooltip] = useState(false);
   const [sysInfo, setSysInfo] = useState<SystemInfo>({
     ram_used_mb: 0,
     ram_total_mb: 0,
@@ -72,27 +94,40 @@ export function StatusBar({ cwd }: { cwd?: string }) {
   }, [cwd, activeTabId]);
 
   return (
-    <footer id="aurora-status-bar" className="flex justify-between items-center px-4 h-7 w-full bg-surface-container-lowest border-t border-outline-variant/5 z-50 select-none text-[12px] font-medium">
+    <footer id="aurora-status-bar" className="flex justify-between items-center px-4 h-7 w-full z-50 select-none text-[11px] font-medium"
+      style={{
+        background: "#0A0D14",
+        borderTop: "1px solid rgba(255,255,255,0.05)",
+      }}
+    >
       {/* Left side */}
       <div className="flex items-center gap-4">
         {/* Git branch */}
         {sysInfo.git_branch && (
-          <div className="flex items-center gap-1.5 text-on-surface-variant/70">
-            <GitBranch size={12} className="text-tertiary/70" />
-            <span className="text-tertiary">{sysInfo.git_branch}</span>
+          <div
+            className="relative flex items-center gap-1.5"
+            style={{ color: "#3DDC84" }}
+            onMouseEnter={() => setShowGitTooltip(true)}
+            onMouseLeave={() => setShowGitTooltip(false)}
+          >
+            <GitBranch size={11} style={{ color: "rgba(61,220,132,0.7)" }} />
+            <span>{sysInfo.git_branch}</span>
+            <Tooltip show={showGitTooltip}>
+              <GitBranch size={11} style={{ color: "rgba(61,220,132,0.7)" }} />
+              <span className="text-[10px]" style={{ color: "rgba(232,234,240,0.7)" }}>{sysInfo.git_branch}</span>
+            </Tooltip>
           </div>
         )}
 
-        {/* Current Working Directory (CWD) and Active File */}
+        {/* CWD and Active File */}
         {cwd && (
           <>
-            {sysInfo.git_branch && <span className="text-outline/30 mx-0.5">|</span>}
-            <div className="flex items-center text-primary">
-              <Folder size={12} className="text-primary/70 shrink-0 mr-1.5" />
+            {sysInfo.git_branch && <span style={{ color: "rgba(255,255,255,0.15)" }}>|</span>}
+            <div className="flex items-center">
+              <Folder size={11} className="shrink-0 mr-1" style={{ color: "rgba(232,234,240,0.4)" }} />
 
-              {/* Folder name (with hover tooltip and click-to-copy complete path) */}
               <div
-                className="relative cursor-pointer hover:underline text-primary"
+                className="relative cursor-pointer hover:underline"
                 onMouseEnter={() => setShowCwdTooltip(true)}
                 onMouseLeave={() => {
                   setShowCwdTooltip(false);
@@ -108,30 +143,24 @@ export function StatusBar({ cwd }: { cwd?: string }) {
               >
                 {cwd.split(/[/\\]/).filter(Boolean).pop() || cwd}
 
-                {/* Tooltip pane */}
-                {showCwdTooltip && (
-                  <div
-                    className="absolute bottom-[calc(100%+6px)] left-0 bg-surface-container-high border border-outline-variant/20 rounded-lg px-3 py-2 shadow-xl z-[100] whitespace-nowrap flex items-center gap-2"
-                    style={{ pointerEvents: "auto" }}
-                  >
-                    <span className="text-[10px] text-on-surface-variant/70 max-w-[360px] truncate">
-                      {cwd}
-                    </span>
-                    {cwdCopied ? (
-                      <span className="text-[9px] text-primary/80 shrink-0">Copied!</span>
-                    ) : (
-                      <Copy size={12} className="text-outline/50 shrink-0" />
-                    )}
-                  </div>
-                )}
+                <Tooltip show={showCwdTooltip}>
+                  <Folder size={11} style={{ color: "rgba(79,140,255,0.6)" }} />
+                  <span className="text-[10px] max-w-[360px] truncate" style={{ color: "rgba(232,234,240,0.7)" }}>
+                    {cwd}
+                  </span>
+                  {cwdCopied ? (
+                    <span className="text-[9px] shrink-0" style={{ color: "#3DDC84" }}>Copied!</span>
+                  ) : (
+                    <Copy size={11} className="shrink-0" style={{ color: "rgba(232,234,240,0.35)" }} />
+                  )}
+                </Tooltip>
               </div>
 
               {activeFileTab && (
                 <>
-                  <span className="text-outline mx-0.5 select-none">/</span>
-                  {/* File name (with hover tooltip and click-to-copy complete path) */}
+                  <span className="mx-0.5 select-none" style={{ color: "rgba(255,255,255,0.2)" }}>/</span>
                   <div
-                    className="relative cursor-pointer hover:underline text-primary"
+                    className="relative cursor-pointer hover:underline"
                     onMouseEnter={() => setShowPathTooltip(true)}
                     onMouseLeave={() => {
                       setShowPathTooltip(false);
@@ -147,22 +176,16 @@ export function StatusBar({ cwd }: { cwd?: string }) {
                   >
                     {activeFileTab.name}
 
-                    {/* Tooltip pane */}
-                    {showPathTooltip && (
-                      <div
-                        className="absolute bottom-[calc(100%+6px)] left-0 bg-surface-container-high border border-outline-variant/20 rounded-lg px-3 py-2 shadow-xl z-[100] whitespace-nowrap flex items-center gap-2"
-                        style={{ pointerEvents: "auto" }}
-                      >
-                        <span className="text-[10px] text-on-surface-variant/70 max-w-[360px] truncate">
-                          {activeFileTab.filePath}
-                        </span>
-                        {tooltipCopied ? (
-                          <span className="text-[9px] text-primary/80 shrink-0">Copied!</span>
-                        ) : (
-                          <Copy size={12} className="text-outline/50 shrink-0" />
-                        )}
-                      </div>
-                    )}
+                    <Tooltip show={showPathTooltip}>
+                      <span className="text-[10px] max-w-[360px] truncate" style={{ color: "rgba(232,234,240,0.7)" }}>
+                        {activeFileTab.filePath}
+                      </span>
+                      {tooltipCopied ? (
+                        <span className="text-[9px] shrink-0" style={{ color: "#3DDC84" }}>Copied!</span>
+                      ) : (
+                        <Copy size={11} className="shrink-0" style={{ color: "rgba(232,234,240,0.35)" }} />
+                      )}
+                    </Tooltip>
                   </div>
                 </>
               )}
@@ -173,22 +196,53 @@ export function StatusBar({ cwd }: { cwd?: string }) {
 
       {/* Right side */}
       <div className="flex items-center gap-4">
-        {/* RAM usage — always shown, shows "…" while loading */}
-        <div className="flex items-center gap-1.5 text-on-surface-variant/70">
-          <Cpu size={12} className="text-primary/70" />
+        {/* RAM usage */}
+        <div
+          className="relative flex items-center gap-1.5"
+          onMouseEnter={() => setShowRamTooltip(true)}
+          onMouseLeave={() => setShowRamTooltip(false)}
+        >
+          <Cpu size={11} style={{ color: "rgba(232,234,240,0.35)" }} />
           <span>
             {sysInfo.ram_total_mb > 0
               ? `${formatRam(sysInfo.ram_used_mb)} / ${formatRam(sysInfo.ram_total_mb)}`
               : "RAM …"}
           </span>
+          <Tooltip show={showRamTooltip}>
+            <Cpu size={11} style={{ color: "rgba(79,140,255,0.6)" }} />
+            <span className="text-[10px]" style={{ color: "rgba(232,234,240,0.7)" }}>
+              RAM: {formatRam(sysInfo.ram_used_mb)} used / {formatRam(sysInfo.ram_total_mb)} total
+            </span>
+          </Tooltip>
         </div>
 
-        <span className="text-outline/40">•</span>
-
-        {/* AI engine */}
-        <div className="flex items-center gap-1.5 text-secondary">
-          <Wifi size={12} className="text-secondary/70" />
-          <span className="capitalize">{activeProvider} Engine</span>
+        {/* AI connectivity */}
+        <div
+          className="relative flex items-center gap-1.5"
+          onMouseEnter={() => setShowAiTooltip(true)}
+          onMouseLeave={() => setShowAiTooltip(false)}
+        >
+          {activeProvider
+            ? <Wifi size={11} style={{ color: "rgba(61,220,132,0.7)" }} />
+            : <WifiOff size={11} style={{ color: "rgba(232,234,240,0.25)" }} />
+          }
+          <Tooltip show={showAiTooltip}>
+            {activeProvider ? (
+              <>
+                <Wifi size={11} style={{ color: "rgba(61,220,132,0.7)" }} />
+                <span className="text-[10px]" style={{ color: "rgba(232,234,240,0.7)" }}>
+                  Connected — {activeProvider}
+                </span>
+              </>
+            ) : (
+              <>
+                <WifiOff size={11} style={{ color: "rgba(232,234,240,0.35)" }} />
+                <span className="text-[10px]" style={{ color: "rgba(232,234,240,0.5)" }}>
+                  No provider configured
+                </span>
+              </>
+            )}
+          </Tooltip>
         </div>
       </div>
     </footer>

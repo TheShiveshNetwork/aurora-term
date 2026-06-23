@@ -1,33 +1,33 @@
 import { Terminal, ITheme } from "@xterm/xterm";
 
 export function buildXtermTheme(): ITheme {
-  const v = (name: string) => {
-    const style = getComputedStyle(document.documentElement);
-    return style ? style.getPropertyValue(name).trim() : "";
-  };
-
   return {
+    // Background is transparent so the CSS bg-[#0D1117] of the container shows through
     background: "#00000000",
-    foreground: v("--color-term-fg"),
-    cursor: "transparent",
-    cursorAccent: v("--color-background"),
-    selectionBackground: v("--color-term-selection"),
-    black: "#1a1a1a",
-    red: "#e06c75",
-    green: "#98c379",
-    yellow: "#e5c07b",
-    blue: "#61afef",
-    magenta: "#c678dd",
-    cyan: "#56b6c2",
-    white: "#abb2bf",
-    brightBlack: "#5c6370",
-    brightRed: "#e06c75",
-    brightGreen: "#98c379",
-    brightYellow: "#e5c07b",
-    brightBlue: "#61afef",
-    brightMagenta: "#c678dd",
-    brightCyan: "#56b6c2",
-    brightWhite: "#ffffff",
+    foreground: "#E8EAF0",
+    // cursor:               "#4F8CFF",
+    cursorAccent: "#0A0D14",
+    selectionBackground: "rgba(79,140,255,0.25)",
+    selectionForeground: "#E8EAF0",
+
+    // One Dark Pro — aligned with Aurora palette
+    black: "#1E2430",
+    red: "#FF6B6B",
+    green: "#3DDC84",
+    yellow: "#FFB454",
+    blue: "#61AFEF",
+    magenta: "#9A7CFF",
+    cyan: "#42C6FF",
+    white: "#ABB2BF",
+
+    brightBlack: "#4B5263",
+    brightRed: "#FF6B6B",
+    brightGreen: "#3DDC84",
+    brightYellow: "#FFB454",
+    brightBlue: "#4F8CFF",
+    brightMagenta: "#C9A9FF",
+    brightCyan: "#56D5F8",
+    brightWhite: "#E8EAF0",
   };
 }
 

@@ -100,6 +100,7 @@ pub fn run() {
             aurora_commands::move_path,
             aurora_commands::select_folder,
             aurora_commands::select_file,
+            aurora_commands::create_path,
             aurora_commands::watch_directory,
             aurora_commands::get_git_branch,
             aurora_commands::agent_plan_step,

@@ -115,15 +115,17 @@ if (typeof document !== "undefined" && !document.getElementById(scrollbarStyleId
   style.id = scrollbarStyleId;
   style.textContent = [
     `.cm-scroller::-webkit-scrollbar { width: 6px; height: 6px; }`,
-    `.cm-scroller::-webkit-scrollbar-track { background: transparent; }`,
-    `.cm-scroller::-webkit-scrollbar-thumb { background: rgba(132,148,149,0.2); border-radius: 3px; }`,
-    `.cm-scroller::-webkit-scrollbar-thumb:hover { background: rgba(132,148,149,0.35); }`,
-    `.cm-scroller { scrollbar-width: thin; scrollbar-color: rgba(132,148,149,0.2) transparent; }`,
+    `.cm-scroller::-webkit-scrollbar-track { background: transparent !important; }`,
+    `.cm-scroller::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.08) !important; border-radius: 4px; border: 0.5px solid rgba(255, 255, 255, 0.03); }`,
+    `.cm-scroller:hover::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.16) !important; border-color: rgba(255, 255, 255, 0.06); }`,
+    `.cm-scroller::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.28) !important; border-color: rgba(255, 255, 255, 0.1) !important; }`,
+    `.cm-scroller { scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.08) transparent; overflow: overlay !important; }`,
     `.image-scroll::-webkit-scrollbar { width: 6px; height: 6px; }`,
-    `.image-scroll::-webkit-scrollbar-track { background: transparent; }`,
-    `.image-scroll::-webkit-scrollbar-thumb { background: rgba(132,148,149,0.2); border-radius: 3px; }`,
-    `.image-scroll::-webkit-scrollbar-thumb:hover { background: rgba(132,148,149,0.35); }`,
-    `.image-scroll { scrollbar-width: thin; scrollbar-color: rgba(132,148,149,0.2) transparent; }`,
+    `.image-scroll::-webkit-scrollbar-track { background: transparent !important; }`,
+    `.image-scroll::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.08) !important; border-radius: 4px; border: 0.5px solid rgba(255, 255, 255, 0.03); }`,
+    `.image-scroll:hover::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.16) !important; border-color: rgba(255, 255, 255, 0.06); }`,
+    `.image-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.28) !important; border-color: rgba(255, 255, 255, 0.1) !important; }`,
+    `.image-scroll { scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.08) transparent; overflow: overlay !important; }`,
   ].join("\n");
   document.head.appendChild(style);
 }

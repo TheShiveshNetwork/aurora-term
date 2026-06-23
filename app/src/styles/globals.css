@@ -1,156 +1,175 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap");
 @import "tailwindcss";
 
 @theme {
-  --color-background: #131314;
-  --color-on-background: #e5e2e3;
-  --color-surface: #131314;
-  --color-surface-dim: #131314;
-  --color-surface-bright: #3a393a;
+  /* ── Background Layers ──────────────────────────────────────────── */
+  --color-background: #0A0D14;
+  --color-surface: #0F131A;
+  --color-surface-dim: #0A0D14;
+  --color-surface-bright: #1E2840;
 
-  --color-term-fg: #e5e2e3;
-  --color-term-selection: rgba(219, 252, 255, 0.18);
+  --color-surface-container-lowest: #0A0D14;
+  --color-surface-container-low: #0F131A;
+  --color-surface-container: #131A24;
+  --color-surface-container-high: #1A2230;
+  --color-surface-container-highest: #1E2840;
 
-  --color-surface-container-lowest: #0e0e0f;
-  --color-surface-container-low: #1c1b1c;
-  --color-surface-container: #201f20;
-  --color-surface-container-high: #2a2a2b;
-  --color-surface-container-highest: #353436;
+  /* ── Text ───────────────────────────────────────────────────────── */
+  --color-on-background: #E8EAF0;
+  --color-on-surface: #E8EAF0;
+  --color-on-surface-variant: rgba(232, 234, 240, 0.55);
 
-  --color-on-surface: #e5e2e3;
-  --color-on-surface-variant: #b9cacb;
+  /* ── Terminal Colors ─────────────────────────────────────────────── */
+  --color-term-fg: #E8EAF0;
+  --color-term-selection: rgba(79, 140, 255, 0.25);
 
-  --color-outline: #849495;
-  --color-outline-variant: #3b494b;
+  /* ── Borders ────────────────────────────────────────────────────── */
+  --color-outline: rgba(255, 255, 255, 0.08);
+  --color-outline-variant: rgba(255, 255, 255, 0.05);
 
-  --color-primary: #dbfcff;
-  /* Neon Cyan */
-  --color-primary-container: #00f0ff;
-  --color-on-primary: #00363a;
-  --color-primary-fixed-dim: #00dbe9;
+  /* ── Accent Colors ───────────────────────────────────────────────── */
+  --color-primary: #4F8CFF;
+  --color-primary-container: rgba(79, 140, 255, 0.15);
+  --color-on-primary: #0A0D14;
+  --color-primary-fixed-dim: #3A7AEE;
 
-  --color-secondary: #ebb2ff;
-  /* Electric Violet */
-  --color-secondary-container: #b600f8;
-  --color-on-secondary: #520072;
+  --color-secondary: #9A7CFF;
+  --color-secondary-container: rgba(154, 124, 255, 0.15);
+  --color-on-secondary: #0A0D14;
 
-  --color-tertiary: #dcffdb;
-  /* Matrix Green */
-  --color-tertiary-fixed-dim: #4ae176;
-  --color-on-tertiary-container: #006e2f;
+  --color-tertiary: #42C6FF;
+  --color-tertiary-fixed-dim: #2ABAFF;
+  --color-on-tertiary-container: #0A0D14;
 
-  --color-error: #ffb4ab;
-  --color-error-container: #93000a;
+  --color-error: #FF6B6B;
+  --color-error-container: rgba(255, 107, 107, 0.12);
 
-  --font-headline-md: "Hanken Grotesk", sans-serif;
-  --font-body-base: "Hanken Grotesk", sans-serif;
+  /* ── Typography ──────────────────────────────────────────────────── */
+  --font-headline-lg: "Inter", sans-serif;
+  --font-headline-md: "Inter", sans-serif;
+  --font-body-base: "Inter", sans-serif;
   --font-code-base: "JetBrains Mono", monospace;
   --font-code-sm: "JetBrains Mono", monospace;
   --font-label-caps: "JetBrains Mono", monospace;
-  --font-headline-lg: "Hanken Grotesk", sans-serif;
 
-  --radius-DEFAULT: 0.5rem;
-  --radius-lg: 0.75rem;
-  --radius-xl: 1rem;
+  /* ── Border Radius ───────────────────────────────────────────────── */
+  --radius-DEFAULT: 10px;
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+  --radius-xl: 22px;
   --radius-full: 9999px;
 
+  /* ── Spacing ─────────────────────────────────────────────────────── */
   --spacing-gutter: 12px;
   --spacing-toolbar-height: 48px;
   --spacing-container-padding: 16px;
   --spacing-unit: 4px;
   --spacing-sidebar-width: 240px;
-  --color-ui-border: #3b494b;
-  --color-ui-text: #b9cacb;
-  --color-ui-surface: rgba(30, 30, 30, 0.85);
+
+  /* ── Legacy UI tokens (used by scrollbar/border rules below) ───────── */
+  --color-ui-border: rgba(255, 255, 255, 0.08);
+  --color-ui-text: rgba(232, 234, 240, 0.55);
+  --color-ui-surface: rgba(15, 19, 26, 0.95);
 }
 
-/* Custom Scrollbars */
-.terminal-scroll::-webkit-scrollbar {
-  width: 5px;
-}
-.terminal-scroll::-webkit-scrollbar-thumb {
-  background: rgba(64, 64, 65, 0.95);
-  border-radius: 4px;
+/* ─────────────────────── Base ─────────────────────────────────────── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
 }
 
-/* Themed sidepanel scrollbar — hidden by default, visible on sidebar hover/focus */
-.sidepanel-scroll {
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  font-family: "Inter", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: #0A0D14;
+  color: #E8EAF0;
+}
+
+/* ─────────────────── Glassy Overlay Scrollbar ────────────────────── */
+* {
   scrollbar-width: thin;
-  scrollbar-color: transparent transparent;
+  scrollbar-color: rgba(255, 255, 255, 0.08) transparent;
 }
-.sidepanel-scroll::-webkit-scrollbar {
-  width: 7px;
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
 }
-.sidepanel-scroll::-webkit-scrollbar-track {
-  background: transparent;
-  border-radius: 4px;
-  margin-top: 4px;
-  margin-bottom: 4px;
-  transition: background 0.15s ease;
+
+*::-webkit-scrollbar-track {
+  background: transparent !important;
 }
-.sidepanel-scroll::-webkit-scrollbar-thumb {
-  background: transparent;
+
+*::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08) !important;
   border-radius: 4px;
   min-height: 32px;
-  transition: background 0.15s ease;
+  border: 0.5px solid rgba(255, 255, 255, 0.03);
+  transition: background 0.15s ease-in-out, border-color 0.15s ease-in-out;
 }
 
-/* Visible when #main-sidebar is hovered or gets focus (e.g. search input) */
-#main-sidebar:hover .sidepanel-scroll::-webkit-scrollbar-thumb,
-#main-sidebar:focus-within .sidepanel-scroll::-webkit-scrollbar-thumb {
-  background: var(--color-outline-variant);
-  border: 1px solid transparent;
-  background-clip: content-box;
-}
-#main-sidebar:hover .sidepanel-scroll::-webkit-scrollbar-thumb:hover {
-  background: var(--color-outline);
-}
-#main-sidebar:hover .sidepanel-scroll::-webkit-scrollbar-thumb:active,
-#main-sidebar:focus-within .sidepanel-scroll::-webkit-scrollbar-thumb:active {
-  background: var(--color-primary-fixed-dim);
-}
-#main-sidebar:hover .sidepanel-scroll::-webkit-scrollbar-track,
-#main-sidebar:focus-within .sidepanel-scroll::-webkit-scrollbar-track {
-  background: var(--color-surface-container-high);
-}
-#main-sidebar:hover .sidepanel-scroll,
-#main-sidebar:focus-within .sidepanel-scroll {
-  scrollbar-color: var(--color-outline-variant) var(--color-surface-container-high);
+/* On hover of any container, or hover of thumb, make it more prominent and glassy */
+*:hover::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16) !important;
+  border-color: rgba(255, 255, 255, 0.06);
 }
 
-/* Xterm overlay scrollbar — consistent with sidepanel style */
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.28) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+*::-webkit-scrollbar-thumb:active {
+  background: rgba(79, 140, 255, 0.35) !important;
+  border: none !important;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent !important;
+}
+
+/* Ensure absolute-like overlay layout for scrollable containers so content doesn't shift */
+.overflow-y-auto,
+.overflow-y-scroll,
+.overflow-x-auto,
+.overflow-x-scroll,
+.overflow-auto,
+.sidepanel-scroll,
+.scrollable-overlay,
+.xterm-viewport,
+.has-tabs-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.08) transparent;
+}
+
+.overflow-y-auto,
+.overflow-y-scroll,
+.sidepanel-scroll,
+.scrollable-overlay,
 .xterm-viewport {
-  overflow-y: auto !important;
-  scrollbar-width: thin !important;
-  scrollbar-color: var(--color-outline-variant) var(--color-surface-container-high) !important;
+  overflow-y: overlay !important;
+}
+
+.overflow-x-auto,
+.overflow-x-scroll,
+.has-tabs-scrollbar {
+  overflow-x: overlay !important;
+}
+
+.xterm-viewport {
   background-color: transparent !important;
   margin: 0 !important;
   padding: 0 !important;
-  scrollbar-gutter: stable;
-}
-.xterm-viewport::-webkit-scrollbar {
-  width: 7px !important;
-  background: transparent !important;
-}
-.xterm-viewport::-webkit-scrollbar-track {
-  background: var(--color-surface-container-high) !important;
-  border-radius: 4px;
-  margin-top: 6px !important;
-  margin-bottom: 6px !important;
-  border: 1px solid transparent;
-  background-clip: content-box;
-}
-.xterm-viewport::-webkit-scrollbar-thumb {
-  background: var(--color-outline-variant) !important;
-  border: 1px solid transparent !important;
-  background-clip: content-box !important;
-  border-radius: 4px;
-  min-height: 32px;
-}
-.xterm-viewport::-webkit-scrollbar-thumb:hover {
-  background: var(--color-outline) !important;
-}
-.xterm-viewport::-webkit-scrollbar-thumb:active {
-  background: var(--color-primary-fixed-dim) !important;
 }
 
 /* Make xterm canvas fully transparent */
@@ -158,51 +177,67 @@
   background-color: transparent !important;
 }
 
-/* Glass Panels */
+/* ─────────────────── Glass Panel ─────────────────────────────────── */
 .glass-panel {
-  background: rgba(28, 28, 30, 0.95);
+  background: rgba(255, 255, 255, 0.03);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-/* Safari-style Tabs */
+.glass-elevated {
+  background: rgba(19, 26, 36, 0.95);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.03),
+    0 10px 30px rgba(0, 0, 0, 0.35);
+}
+
+/* ─────────────────── Safari-style Tabs ─────────────────────────────── */
 .safari-tab {
   flex: 1;
   min-width: 0;
   width: 100%;
-  height: 36px;
+  height: 34px;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
   padding: 0 12px;
   font-size: 13px;
-  background: rgba(255, 255, 255, 0.03);
+  font-family: "Inter", sans-serif;
+  background: transparent;
   border: 1px solid transparent;
-  border-radius: 0.7rem;
-  color: #b9cacb;
+  border-radius: 10px;
+  color: rgba(232, 234, 240, 0.45);
   cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
 }
 
 .safari-tab:hover {
-  background: rgba(255, 255, 255, 0.06);
-  color: #e5e2e3;
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(232, 234, 240, 0.75);
 }
 
 .safari-tab.drag-over {
-  background: rgba(0, 240, 255, 0.12);
-  border: 1px solid rgba(0, 240, 255, 0.3);
-  box-shadow: 0 0 12px rgba(0, 240, 255, 0.1);
+  background: rgba(79, 140, 255, 0.10);
+  border: 1px solid rgba(79, 140, 255, 0.30);
+  box-shadow: 0 0 12px rgba(79, 140, 255, 0.08);
 }
 
 .safari-tab.active {
-  background: rgba(219, 252, 255, 0.08);
-  color: #dbfcff;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.151);
+  background: #0F131A;
+  color: #E8EAF0;
+  border: 1px solid #2c2c2c;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
+/* ─────────────────── Scrollbar Utilities ─────────────────────────── */
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
@@ -212,7 +247,12 @@
   scrollbar-width: none;
 }
 
-/* Force Xterm fill container, hide gaps, remove margins */
+.scrollable-overlay {
+  overflow-y: overlay !important;
+  overflow-x: hidden !important;
+}
+
+/* ─────────────────── xterm Core Overrides ───────────────────────── */
 .xterm {
   width: 100% !important;
   height: 100% !important;
@@ -221,17 +261,17 @@
   box-shadow: none !important;
   text-align: left !important;
 }
-/* DOM renderer rows container */
+
 .xterm-screen {
   background-color: transparent !important;
   text-align: left !important;
 }
+
 .xterm-rows {
   background-color: transparent !important;
   text-align: left !important;
 }
 
-/* Xterm focus/outline and artifact removal */
 .xterm,
 .xterm:focus,
 .xterm.focus,
@@ -240,46 +280,43 @@
   outline: none !important;
   box-shadow: none !important;
 }
+
 .xterm-screen {
   outline: none !important;
 }
 
-
-/* Ghost text suggestion fade-in */
+/* ─────────────────── Ghost Input ─────────────────────────────────── */
 @keyframes ghost-fade-in {
   from {
     opacity: 0;
     transform: translateY(-50%) translateX(2px);
   }
+
   to {
     opacity: 1;
     transform: translateY(-50%) translateX(0);
   }
 }
 
-/* Ensure ghost-input form doesn't have extra margins */
 .ghost-input-form {
   display: flex;
   align-items: center;
   width: 100%;
 }
 
-/* ── Custom Output Renderer ──────────────────────────────────────────────── */
+/* ─────────────────── Output Renderer ─────────────────────────────── */
 .output-renderer {
-  /* Ensure text selection cursor */
   cursor: text;
 }
 
-/* Each rendered PTY line */
 .output-line {
   display: block;
-  min-height: 1lh; /* uses line-height set inline */
+  min-height: 1lh;
   white-space: pre-wrap;
   word-break: break-all;
   overflow-wrap: anywhere;
 }
 
-/* ── Live prompt row — shown at the bottom of the output area ────────────── */
 .output-prompt-row {
   display: flex;
   align-items: baseline;
@@ -288,68 +325,90 @@
   padding: 0 8px;
   white-space: pre-wrap;
   word-break: break-all;
-  /* Extra bottom padding so the cursor isn't flush against the input bar */
   padding-bottom: 6px;
 }
 
-/* Blinking block cursor */
-.output-cursor {
-  display: inline-block;
-  width: 7px;
-  height: 0.85em;
-  background: var(--color-primary, #dbfcff);
-  margin-left: 1px;
-  vertical-align: text-bottom;
-  border-radius: 1px;
-  opacity: 0.7;
-  animation: output-caret-blink 1s step-end infinite;
-}
-
-/* Cursor goes solid while the user is actively typing */
-.output-cursor.typing {
-  animation: none;
-  opacity: 0.9;
-}
-
 @keyframes output-caret-blink {
-  0%, 100% { opacity: 0.7; }
-  50%       { opacity: 0;   }
+
+  0%,
+  100% {
+    opacity: 0.75;
+  }
+
+  50% {
+    opacity: 0;
+  }
 }
 
-/* Custom Scrollbar for Pinned/Excessive Tabs */
+/* ─────────────────── Input Bar Glow ───────────────────────────────── */
+.warp-input-glow {
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.warp-input-glow:focus-within {
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  box-shadow: 0 0 0 1px rgba(90, 140, 255, 0.12), 0 4px 20px rgba(79, 140, 255, 0.08);
+}
+
+/* ─────────────────── Tabs Horizontal Scrollbar ───────────────────── */
 .has-tabs-scrollbar {
   scroll-snap-type: x mandatory;
   scroll-behavior: smooth;
   overflow-x: overlay !important;
   overflow-y: hidden !important;
 }
+
 .has-tabs-scrollbar .safari-tab {
   scroll-snap-align: start;
 }
+
 .has-tabs-scrollbar::-webkit-scrollbar {
-  height: 4px;
+  height: 6px;
   background: transparent !important;
 }
+
 .has-tabs-scrollbar::-webkit-scrollbar-thumb {
-  background: transparent; /* transparent/hidden by default */
+  background: rgba(255, 255, 255, 0.08) !important;
   border-radius: 99px;
-  border: 1px solid transparent;
+  min-height: unset;
+  border: 0.5px solid rgba(255, 255, 255, 0.03);
+  transition: background 0.15s ease-in-out, border-color 0.15s ease-in-out;
 }
-.tabs-scroll-hovered::-webkit-scrollbar-thumb {
-  background: rgba(64, 64, 65, 0.5); /* visible on container hover - terminal color, slightly transparent */
+
+.has-tabs-scrollbar:hover::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16) !important;
+  border-color: rgba(255, 255, 255, 0.06);
 }
-.tabs-scroll-hovered::-webkit-scrollbar-thumb:hover {
-  background: rgba(64, 64, 65, 0.8) !important;
+
+.has-tabs-scrollbar:hover::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.28) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
 }
+
 .has-tabs-scrollbar::-webkit-scrollbar-track {
   background: transparent !important;
 }
+
 .has-tabs-scrollbar::-webkit-scrollbar-button {
   display: none !important;
   width: 0 !important;
   height: 0 !important;
 }
+
 .has-tabs-scrollbar::-webkit-scrollbar-corner {
   background: transparent !important;
   display: none !important;
+}
+
+/* ─────────────────── Section Label ────────────────────────────────── */
+.section-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.25);
+  padding: 8px 12px 4px;
+  user-select: none;
 }

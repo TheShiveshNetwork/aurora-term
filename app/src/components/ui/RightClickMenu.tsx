@@ -152,20 +152,20 @@ export function RightClickMenuItem({
       onClick={disabled ? undefined : onClick}
       disabled={disabled}
       className={`w-full flex items-center gap-3 px-3 py-2 text-[13px] border-[.1px] rounded-md transition-colors text-left group ${disabled
-        ? "border-transparent bg-none text-outline/30"
+        ? "border-transparent bg-none text-on-surface-variant/30"
         : danger
           ? "hover:bg-red-500/10 hover:border-red-500/20 text-red-400 border-transparent"
           : "hover:bg-surface-variant/30 hover:bg-on-surface-variant/10 hover:border-on-surface/30 border-transparent text-on-surface"
-      } ${className}`}
+        } ${className}`}
     >
       {icon ? (
         <span
           className={`shrink-0 transition-colors ${disabled
-            ? "text-outline/30"
+            ? "text-on-surface-variant/30"
             : danger
               ? "text-red-400/70 group-hover:text-red-400"
-              : "text-outline/60 group-hover:text-primary"
-          } ${iconClassName}`}
+              : "text-on-surface-variant/60 group-hover:text-primary"
+            } ${iconClassName}`}
         >
           {icon}
         </span>

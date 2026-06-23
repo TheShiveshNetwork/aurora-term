@@ -53,7 +53,11 @@ export function AppShellView() {
     interactedSessions,
     isCwdLoading,
     setShowSettings,
+    showAiBar,
     setShowAiBar,
+    chatInputOpen,
+    setChatInputOpen,
+    toggleChatInputOpen,
     setShowMenuDropdown,
     toggleSidebarCollapsed,
     toggleShowMenuDropdown,
@@ -320,6 +324,10 @@ export function AppShellView() {
       <AppHeader
         sidebarCollapsed={sidebarCollapsed}
         onToggleSidebar={toggleSidebarCollapsed}
+        agentOverlayOpen={showAiBar}
+        onToggleAgentOverlay={() => setShowAiBar(!showAiBar)}
+        chatInputOpen={chatInputOpen}
+        onToggleChatInput={toggleChatInputOpen}
         menuOpen={showMenuDropdown}
         onToggleMenu={toggleShowMenuDropdown}
         onOpenFolder={handleOpenFolder}
@@ -340,6 +348,7 @@ export function AppShellView() {
         theme={theme}
         tabBarVisible={tabBarVisible}
         viewMode={viewMode}
+        projectName={cwd.replace(/^~\//, "")}
       />
 
       <div className="flex flex-1 overflow-hidden">

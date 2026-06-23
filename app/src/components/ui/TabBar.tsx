@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback, useEffect } from "react";
+﻿import React, { useRef, useState, useCallback, useEffect } from "react";
 import { Terminal, FileText, Plus, X, Copy, Pin, Edit3, XCircle, Trash2, ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, ExternalLink } from "lucide-react";
 import { useSessionStore } from "../../stores/useSessionStore";
 import { Tab } from "@aurora/types";
@@ -54,7 +54,35 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
   };
 
   const expandedTabs = tabs.filter((t) => t.type === viewMode);
-  const isScrollable = expandedTabs.length > 6;
+
+  // ── Dynamic overflow detection ───────────────────────────────────
+  const [isOverflowing, setIsOverflowing] = useState(false);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const measure = () => {
+      // Wait for DOM to settle so initial render uses flex-grow
+      requestAnimationFrame(() => {
+        const overflow = el.scrollWidth > el.clientWidth + 1;
+        setIsOverflowing(overflow);
+      });
+    };
+
+    // Initial measurement after first paint
+    measure();
+
+    const ro = new ResizeObserver(() => {
+      measure();
+    });
+
+    ro.observe(el);
+
+    return () => {
+      ro.disconnect();
+    };
+  }, [expandedTabs.length]);
 
   // Pinned tabs always sorted first
   const sortedTabs = [...tabs].sort((a, b) => {
@@ -90,7 +118,7 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
     if (!el) return;
 
     const handleWheel = (e: WheelEvent) => {
-      if (isScrollable) {
+      if (isOverflowing) {
         if (e.deltaY !== 0) {
           e.preventDefault();
           el.scrollLeft += e.deltaY * 0.85;
@@ -100,7 +128,7 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
 
     el.addEventListener("wheel", handleWheel, { passive: false });
     return () => el.removeEventListener("wheel", handleWheel);
-  }, [isScrollable]);
+  }, [isOverflowing]);
 
   // Slide left / right buttons
   const slideLeft = () => {
@@ -233,14 +261,23 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
   }, [getTabIndexFromX, reorderTabs, sortedTabs, tabs]);
 
   return (
-    <div className="flex items-center w-full h-12 px-3 bg-background border-b border-outline-variant/5 gap-2">
-      {isScrollable && canScrollLeft && (
+    <div
+      className="flex items-center w-full h-12 px-3 gap-2"
+      style={{
+        background: "#0A0D14",
+        borderBottom: "1px solid rgba(255,255,255,0.05)",
+      }}
+    >
+      {isOverflowing && canScrollLeft && (
         <button
           onClick={slideLeft}
-          className="shrink-0 w-7 h-8 flex items-center justify-center rounded hover:bg-surface-variant/30 text-outline/50 hover:text-primary transition-all cursor-pointer animate-in fade-in duration-200"
+          className="shrink-0 w-7 h-8 flex items-center justify-center rounded-[8px] transition-all cursor-pointer animate-in fade-in duration-200"
+          style={{ color: "rgba(232,234,240,0.35)" }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; e.currentTarget.style.color = "#4F8CFF"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "rgba(232,234,240,0.35)"; }}
           title="Scroll Left"
         >
-          <ChevronLeft size={16} />
+          <ChevronLeft size={15} />
         </button>
       )}
 
@@ -249,7 +286,7 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
         id="aurora-tab-bar"
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
-        className={`flex items-start h-full pt-[5px] flex-1 gap-1 overflow-x-auto overflow-y-hidden min-w-0 relative ${isScrollable
+        className={`flex items-start h-full pt-[5px] flex-1 gap-1 overflow-x-auto overflow-y-hidden min-w-0 relative ${isOverflowing
           ? `has-tabs-scrollbar ${isHovered ? "tabs-scroll-hovered" : ""}`
           : "no-scrollbar"
           }`}
@@ -280,7 +317,8 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
               className={`safari-tab select-none ${isActive ? "active" : ""} ${isOver ? "drag-over" : ""} ${isDragging ? "opacity-40" : ""} ${isExpanded && !isPinned ? "" : "!justify-center !p-0 !gap-0"
                 }`}
               style={{
-                flex: isExpanded && !isPinned ? (isScrollable ? "0 0 140px" : "1 1 0%") : "0 0 40px",
+                flex: isExpanded && !isPinned ? (isOverflowing ? "0 0 auto" : "1 1 0%") : "0 0 40px",
+                minWidth: isExpanded && !isPinned && !isOverflowing ? "80px" : undefined,
                 height: "36px",
                 padding: isPinned ? "0" : "0 12px",
                 order: index,
@@ -290,9 +328,9 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
               title={isPinned ? `${tab.name} (Pinned)` : tab.name}
             >
               {tab.type === "file" ? (
-                <FileText size={14} className={`shrink-0 ${isActive ? "text-primary" : "text-outline/70"}`} />
+                <FileText size={14} className={`shrink-0`} />
               ) : (
-                <Terminal size={14} className={`shrink-0 ${isActive ? "text-outline" : "text-outline/70"}`} />
+                <Terminal size={14} className={`shrink-0`} />
               )}
 
               {isPinned ? null : (
@@ -312,7 +350,7 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
                     e.stopPropagation();
                     onKillTab(tab.id);
                   }}
-                  className={`absolute right-1.5 shrink-0 transition-all duration-200 hover:bg-surface-variant/40 rounded p-0.5 text-on-surface-variant/40 hover:text-error ${isExpanded ? "opacity-100" : "opacity-0 pointer-events-none"
+                  className={`absolute right-1.5 shrink-0 transition-all duration-200 hover:bg-surface-variant/40 rounded p-0.5 text-on-surface-variant/40 hover:text-on-surface-variant ${isExpanded ? "opacity-100" : "opacity-0 pointer-events-none"
                     }`}
                 >
                   <X size={14} />
@@ -323,13 +361,16 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
         })}
       </div>
 
-      {isScrollable && canScrollRight && (
+      {isOverflowing && canScrollRight && (
         <button
           onClick={slideRight}
-          className="shrink-0 w-7 h-8 flex items-center justify-center rounded hover:bg-surface-variant/30 text-outline/50 hover:text-primary transition-all cursor-pointer animate-in fade-in duration-200"
+          className="shrink-0 w-7 h-8 flex items-center justify-center rounded-[8px] transition-all cursor-pointer animate-in fade-in duration-200"
+          style={{ color: "rgba(232,234,240,0.35)" }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; e.currentTarget.style.color = "#4F8CFF"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "rgba(232,234,240,0.35)"; }}
           title="Scroll Right"
         >
-          <ChevronRight size={16} />
+          <ChevronRight size={15} />
         </button>
       )}
 
@@ -345,38 +386,44 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
               onAddTab("terminal");
             }
           }}
-          className="w-8 h-8 flex items-center justify-center rounded-lg text-on-surface-variant hover:bg-surface-variant/30 hover:scale-105 active:scale-95 text-on-surface hover:text-primary transition-all border border-outline-variant/10 cursor-pointer shadow-sm"
+          className="w-8 h-8 flex items-center justify-center rounded-[10px] transition-all cursor-pointer"
+          style={{
+            background: "rgba(255,255,255,0.04)",
+            border: "1px solid rgba(255,255,255,0.07)",
+            color: "rgba(232,234,240,0.5)",
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(79,140,255,0.10)"; e.currentTarget.style.color = "#4F8CFF"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.04)"; e.currentTarget.style.color = "rgba(232,234,240,0.5)"; }}
           title="New Tab Options"
         >
-          <Plus size={16} className={`transition-transform duration-200 ${showAddMenu ? "rotate-45" : ""}`} />
+          <Plus size={15} className={`transition-transform duration-200 ${showAddMenu ? "rotate-45" : ""}`} />
         </button>
 
         {showAddMenu && (
           <div
-            className="absolute right-0 top-[calc(100%+6px)] bg-surface-container-lowest border border-outline-variant/15 rounded-xl py-1.5 min-w-[125px] shadow-xl z-[100] animate-in fade-in slide-in-from-top-2 duration-150"
-            style={{ pointerEvents: "auto" }}
+            className="absolute right-0 top-[calc(100%+6px)] py-1.5 min-w-[132px] z-[100] animate-in fade-in slide-in-from-top-2 duration-150"
+            style={{
+              background: "#0F131A",
+              border: "1px solid rgba(255,255,255,0.08)",
+              borderRadius: "14px",
+              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.03), 0 16px 40px rgba(0,0,0,0.5)",
+              pointerEvents: "auto",
+            }}
           >
-            <button
-              onClick={() => {
-                onAddTab("terminal");
-                setShowAddMenu(false);
-              }}
-              className="w-full px-3 py-1.5 flex items-center gap-2 text-[10px] font-semibold text-on-surface-variant hover:bg-surface-variant/20 hover:text-primary transition-colors text-left cursor-pointer"
+            <AddMenuButton
+              icon={<Terminal size={12} />}
+              accentColor="#4F8CFF"
+              onClick={() => { onAddTab("terminal"); setShowAddMenu(false); }}
             >
-              <Terminal size={12} className="text-primary/70 shrink-0" />
-              <span>Terminal Tab</span>
-            </button>
-
-            <button
-              onClick={() => {
-                onAddTab("file");
-                setShowAddMenu(false);
-              }}
-              className="w-full px-3 py-1.5 flex items-center gap-2 text-[10px] font-semibold text-on-surface-variant hover:bg-surface-variant/20 hover:text-secondary transition-colors text-left cursor-pointer"
+              Terminal Tab
+            </AddMenuButton>
+            <AddMenuButton
+              icon={<FileText size={12} />}
+              accentColor="#9A7CFF"
+              onClick={() => { onAddTab("file"); setShowAddMenu(false); }}
             >
-              <FileText size={12} className="text-secondary/70 shrink-0" />
-              <span>Workspace Tab</span>
-            </button>
+              Workspace Tab
+            </AddMenuButton>
           </div>
         )}
       </div>
@@ -384,9 +431,12 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
       {contextTab && (
         <RightClickMenuPanel anchorX={contextTab.x} anchorY={contextTab.y} open={true}>
           {/* Header */}
-          <div className="px-3 pt-1 pb-2 flex items-center gap-2 border-b border-outline-variant/10 mb-1 select-none">
-            {contextTab.tab.type === "file" ? <FileText size={11} className="text-primary/70 shrink-0" /> : <Terminal size={11} className="text-outline/70 shrink-0" />}
-            <span className="text-[11px] text-on-surface-variant/60 overflow-hidden text-ellipsis whitespace-nowrap">
+          <div className="px-3 pt-1 pb-2 flex items-center gap-2 mb-1 select-none" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+            {contextTab.tab.type === "file"
+              ? <FileText size={11} style={{ color: "rgba(79,140,255,0.7)" }} className="shrink-0" />
+              : <Terminal size={11} style={{ color: "rgba(154,124,255,0.7)" }} className="shrink-0" />
+            }
+            <span className="text-[11px] overflow-hidden text-ellipsis whitespace-nowrap" style={{ color: "rgba(232,234,240,0.5)" }}>
               {contextTab.tab.name}
             </span>
           </div>
@@ -533,45 +583,74 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
 
       {renameTabId && (
         <div
-          className="fixed inset-0 z-[500] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+          className="fixed inset-0 z-[500] flex items-center justify-center backdrop-blur-sm animate-in fade-in duration-200"
+          style={{ background: "rgba(0,0,0,0.6)" }}
           onClick={() => setRenameTabId(null)}
         >
           <div
-            className="bg-surface border border-outline-variant/30 rounded-2xl p-6 w-[360px] shadow-2xl flex flex-col gap-4 animate-in zoom-in-95 duration-200"
+            className="p-6 w-[360px] flex flex-col gap-4 animate-in zoom-in-95 duration-200"
+            style={{
+              background: "#0F131A",
+              border: "1px solid rgba(255,255,255,0.08)",
+              borderRadius: "18px",
+              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.03), 0 24px 64px rgba(0,0,0,0.6)",
+            }}
             onClick={(e) => e.stopPropagation()}
           >
             <div>
-              <h3 className="text-sm font-bold text-on-surface font-headline-md">Rename Terminal Tab</h3>
-              <p className="text-xs text-on-surface-variant/60 mt-1 leading-relaxed">
+              <h3 className="text-[14px] font-semibold" style={{ color: "#E8EAF0" }}>Rename Terminal Tab</h3>
+              <p className="text-[12px] mt-1 leading-relaxed" style={{ color: "rgba(232,234,240,0.45)" }}>
                 Provide a descriptive name for this terminal session.
               </p>
             </div>
-            
+
             <input
               ref={inputRef}
               type="text"
               value={renameValue}
               onChange={(e) => setRenameValue(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  handleRenameSubmit();
-                } else if (e.key === "Escape") {
-                  setRenameTabId(null);
-                }
+                if (e.key === "Enter") handleRenameSubmit();
+                else if (e.key === "Escape") setRenameTabId(null);
               }}
-              className="w-full bg-surface-container-lowest border border-outline-variant/30 rounded-xl px-3.5 py-2 text-sm text-on-surface outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all font-body-base"
+              className="w-full px-3.5 py-2.5 text-[13px] outline-none transition-all"
+              style={{
+                background: "rgba(255,255,255,0.03)",
+                border: "1px solid rgba(255,255,255,0.08)",
+                borderRadius: "14px",
+                color: "#E8EAF0",
+                fontFamily: "Inter, sans-serif",
+              }}
+              onFocus={(e) => {
+                e.currentTarget.style.border = "1px solid rgba(79,140,255,0.35)";
+                e.currentTarget.style.boxShadow = "0 0 0 1px rgba(79,140,255,0.12)";
+              }}
+              onBlur={(e) => {
+                e.currentTarget.style.border = "1px solid rgba(255,255,255,0.08)";
+                e.currentTarget.style.boxShadow = "none";
+              }}
               placeholder="e.g. Server Logs, Build Terminal"
             />
 
-            <div className="flex justify-end gap-2 mt-2">
+            <div className="flex justify-end gap-2">
               <button
-                className="px-4 py-2 rounded-xl text-xs font-semibold text-on-surface-variant hover:bg-surface-variant/20 hover:text-on-surface transition-colors cursor-pointer"
+                className="px-4 py-2 rounded-[10px] text-[12px] font-medium transition-all cursor-pointer"
+                style={{ color: "rgba(232,234,240,0.55)" }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; e.currentTarget.style.color = "#E8EAF0"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "rgba(232,234,240,0.55)"; }}
                 onClick={() => setRenameTabId(null)}
               >
                 Cancel
               </button>
               <button
-                className="px-4 py-2 rounded-xl bg-primary text-on-primary text-xs font-semibold hover:opacity-90 active:scale-95 transition-all shadow-md shadow-primary/10 cursor-pointer"
+                className="px-4 py-2 rounded-[10px] text-[12px] font-semibold transition-all cursor-pointer"
+                style={{
+                  background: "rgba(79,140,255,0.15)",
+                  border: "1px solid rgba(79,140,255,0.25)",
+                  color: "#4F8CFF",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(79,140,255,0.22)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(79,140,255,0.15)"; }}
                 onClick={handleRenameSubmit}
               >
                 Rename
@@ -583,3 +662,38 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
     </div>
   );
 }
+
+/* â”€â”€ AddMenuButton helper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+function AddMenuButton({
+  children,
+  icon,
+  accentColor,
+  onClick,
+}: {
+  children: React.ReactNode;
+  icon?: React.ReactNode;
+  accentColor?: string;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="w-full px-3 py-1.5 flex items-center gap-2 text-[11px] font-semibold text-left cursor-pointer transition-colors"
+      style={{ color: "rgba(232,234,240,0.6)" }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = "rgba(255,255,255,0.04)";
+        if (accentColor) e.currentTarget.style.color = accentColor;
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = "transparent";
+        e.currentTarget.style.color = "rgba(232,234,240,0.6)";
+      }}
+    >
+      {icon && (
+        <span style={{ color: accentColor ?? "rgba(232,234,240,0.5)" }}>{icon}</span>
+      )}
+      <span>{children}</span>
+    </button>
+  );
+}
+

@@ -68,7 +68,7 @@ fn get_ram_usage() -> (u64, u64) {
     sys.refresh_memory();
     let total = sys.total_memory() / (1024 * 1024);
     let used = (sys.total_memory() - sys.available_memory()) / (1024 * 1024);
-    (used as u64, total as u64)
+    (used, total)
 }
 
 fn get_git_branch_helper(cwd: Option<&str>) -> Option<String> {

@@ -12,6 +12,12 @@ pub struct SidecarManager {
     config_path: Option<PathBuf>,
 }
 
+impl Default for SidecarManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SidecarManager {
     pub fn new() -> Self {
         Self {
@@ -42,11 +48,11 @@ impl SidecarManager {
 
         let mut cmd = if cfg!(target_os = "windows") {
             let mut c = tokio::process::Command::new("cmd");
-            c.args(&["/c", "pnpm", "--dir", "packages/aurora-agent", "dev", "--port", &port.to_string()]);
+            c.args(["/c", "pnpm", "--dir", "packages/aurora-agent", "dev", "--port", &port.to_string()]);
             c
         } else {
             let mut c = tokio::process::Command::new("pnpm");
-            c.args(&["--dir", "packages/aurora-agent", "dev", "--port", &port.to_string()]);
+            c.args(["--dir", "packages/aurora-agent", "dev", "--port", &port.to_string()]);
             c
         };
 
