@@ -1,4 +1,4 @@
-import { type FormEvent } from "react";
+import { type FormEvent, useEffect, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { v4 as uuidv4 } from "uuid";
@@ -22,12 +22,19 @@ import { SaveChangesModal } from "../components/layout/SaveChangesModal";
 import { CommandInputBar } from "../components/layout/CommandInputBar";
 import { TerminalWorkspaceView } from "./TerminalWorkspaceView";
 import { FileWorkspaceView } from "./FileWorkspaceView";
-import { getDefaultShellLaunch } from "../lib/shell";
+import { getDefaultShellLaunch, isWindowsPlatform } from "../lib/shell";
+import { classifyInput, setAvailableCommands, type ShellType } from "../lib/nlClassifier";
+import { system } from "../lib/ipc";
 
 export function AppShellView() {
   const { tabs, activeTabId, spawnSession, killSession, openFile, setActiveTabId } = useAppBootstrap();
   const { theme, setTheme } = useSettingsStore();
   usePersistUIState();
+
+  useEffect(() => {
+    system.getAvailableCommands().then(setAvailableCommands).catch(() => { });
+  }, []);
+
   const { blocks } = useBlockStore();
 
   const {
@@ -72,23 +79,27 @@ export function AppShellView() {
 
   const { startTask } = useAgentExecution(targetSessionId);
 
+  const shellType: ShellType = useMemo(() => isWindowsPlatform() ? "powershell" : "bash", []);
+  const inputMode = useMemo(() => classifyInput(activeCommandInput, shellType), [activeCommandInput, shellType]);
+
   const handleInterceptedSubmit = (event: FormEvent, defaultSubmit: (e: FormEvent) => void, isFilePrompt = false) => {
     event.preventDefault();
     const input = activeCommandInput.trim();
     if (!input) return;
 
-    // Detect NL query: starts with "? " prefix, "/ai " prefix, or any input in file prompt mode
-    const isNlQuery = input.startsWith("? ") || input.startsWith("/ai ") || isFilePrompt;
+    // Explicit prefix overrides take priority over the classifier
+    const hasExplicitNL = input.startsWith("? ") || input.startsWith("/ai ");
+    const isNlQuery = hasExplicitNL || inputMode === "natural-language" || isFilePrompt;
+
     if (isNlQuery) {
-      const cleanGoal = input.startsWith("? ")
-        ? input.slice(2).trim()
-        : input.startsWith("/ai ")
-          ? input.slice(4).trim()
-          : input;
+      const cleanGoal = hasExplicitNL
+        ? input.startsWith("? ")
+          ? input.slice(2).trim()
+          : input.slice(4).trim()
+        : input;
 
-      if (!cleanGoal) return; // Prevent empty goals
+      if (!cleanGoal) return;
 
-      // Use setCommandInput from useCommandExecution scope (correctly scoped to activeTabId)
       setCommandInput("");
       startTask(cleanGoal);
     } else {
@@ -271,7 +282,7 @@ export function AppShellView() {
     }
   };
 
-  const handleShowAgentView = () => {};
+  const handleShowAgentView = () => { };
 
   const handleDuplicateTab = (tab: Tab) => {
     if (tab.type === "terminal") {
@@ -438,6 +449,7 @@ export function AppShellView() {
               onSubmit={(e) => handleInterceptedSubmit(e, handleExecuteCommand, false)}
               onStop={handleStopCurrentCommand}
               onOpenAiBar={() => setShowAiBar(true)}
+              inputMode={inputMode}
             />
           )}
 
@@ -454,6 +466,7 @@ export function AppShellView() {
               onChange={setCommandInput}
               onSubmit={(e) => handleInterceptedSubmit(e, handleFileCommandSubmit, true)}
               onOpenAiBar={() => setShowAiBar(true)}
+              inputMode={inputMode}
             />
           )}
         </main>

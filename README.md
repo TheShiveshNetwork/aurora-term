@@ -55,7 +55,8 @@ aurora-term/
 │   ├── vite.config.ts
 │   └── src/
 ├── packages/
-│   └── types/
+│   ├── types/
+│   └── aurora-agent/
 ├── crates/
 │   ├── aurora-core/
 │   ├── aurora-pty/
@@ -98,6 +99,73 @@ pnpm tauri dev
 |---|---|---|
 | `app` (`@aurora/app`) | Main React frontend for the Tauri window | `react`, `react-dom`, `vite`, `typescript`, `@tauri-apps/api`, `@xterm/*`, `zustand`, `tailwindcss` |
 | `packages/types` (`@aurora/types`) | Shared TypeScript types used by the frontend | TypeScript-only shared models; no runtime build output |
+| `packages/aurora-agent` (`aurora-agent`) | AI agent sidecar server (Fastify + Mastra) that plans and executes multi-step terminal tasks via LLM | `fastify`, `@mastra/core`, `@mastra/libsql`, `@mastra/memory`, `dotenv`, `zod` |
+
+## Natural Language Command Classification
+
+Aurora automatically detects whether your input is a **shell command** or a **natural language request** using a local heuristic classifier (`app/src/lib/nlClassifier.ts`). This happens entirely on the client — no data leaves your machine until you press Enter in agent mode.
+
+### How it works
+
+1. **Explicit overrides**: Inputs starting with `? ` or `/ai ` always route to the agent.
+2. **Heuristic scoring**: The classifier scores the input using three signals:
+   - **Known command match** (e.g., `git`, `curl`, `npm`, `dir`, `Get-ChildItem`) — weighted high (score `0.7`)
+   - **Shell-specific command sets** — PowerShell cmdlets (`Verb-Noun` pattern) vs bash commands; detected via `isWindowsPlatform()`
+   - **NL verbs** (e.g., `install`, `run`, `build`, `deploy`, `create`) — weighted low (score `0.1`), only scored when the verb is NOT a valid subcommand of a known tool (e.g., `npm install` won't be classified as NL)
+3. **Social greeting blocker**: Greetings like `hi`, `hello`, `hey`, `thanks` are classified as NL, not commands
+4. **Conservative default**: Unknown inputs default to NL (safe — AI can handle anything; terminal only gets valid commands)
+
+### Agent Execution Flow
+
+```
+User input → nlClassifier()
+  ├─ "command" → terminal PTY session (direct execution)
+  └─ "nl"     → agent mode
+                  │
+                  ▼
+          useAgentStore.startTask(goal)
+                  │
+                  ▼
+          Tauri command: agent_plan_step
+            POST http://127.0.0.1:{port}/api/step
+            body: { task_id, goal, last_output?, exit_code? }
+                  │
+                  ▼
+          aurora-agent (Fastify + Mastra)
+            loads Aura agent → LLM provider (Groq/OpenAI/Kimi)
+            returns JSON: { status, command?, explanation?, message? }
+                  │
+                  ▼
+          status = "executing"
+            → command is sent to PTY for execution
+            → stdout/stderr captured
+            → next plan_step call with last_output + exit_code
+            → repeat until status = "completed" or "error"
+                  │
+                  ▼
+          status = "completed" → done
+          status = "error"     → failTask with message + retry/close UI
+```
+
+### Starting the Agent Server
+
+The aurora-agent sidecar is **automatically spawned** by the Rust `SidecarManager` when the app starts. It:
+
+1. Finds a free TCP port (binds `127.0.0.1:0`)
+2. Runs `pnpm --dir packages/aurora-agent dev --port <PORT>` (on Windows: via `cmd /c`)
+3. Injects API keys from the OS keychain: `GROQ_API_KEY`, `OPENAI_API_KEY`, `KIMI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`
+4. Polls `/global/health` until ready (up to 3 seconds)
+5. Exposes `POST /api/step` for plan/execute requests
+
+To run it **manually** for development:
+
+```bash
+cd packages/aurora-agent
+pnpm dev                        # defaults to port 4096
+pnpm dev --port 5000            # custom port
+```
+
+Requires at least one LLM API key set via environment or keychain.
 
 ## 🛠️ Tech Stack & Versions
 

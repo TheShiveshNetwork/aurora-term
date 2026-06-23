@@ -116,6 +116,61 @@ pub fn get_current_pwd() -> Result<String, String> {
 //
 // Up to 2 000 distinct entries are returned.
 #[command]
+pub fn get_available_commands() -> Vec<String> {
+    let path_var = match std::env::var("PATH") {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+
+    #[cfg(target_os = "windows")]
+    let pathext: Vec<String> = std::env::var("PATHEXT")
+        .unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC;.PS1".to_string())
+        .split(';')
+        .map(|s| s.trim().to_lowercase())
+        .collect();
+
+    let mut commands: Vec<String> = Vec::with_capacity(4096);
+
+    for dir in path_var.split(if cfg!(target_os = "windows") { ";" } else { ":" }) {
+        if dir.is_empty() {
+            continue;
+        }
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+
+                #[cfg(target_os = "windows")]
+                {
+                    if let Some(ext) = path.extension() {
+                        if pathext.contains(&format!(".{}", ext.to_string_lossy().to_lowercase())) {
+                            if let Some(stem) = path.file_stem() {
+                                commands.push(stem.to_string_lossy().to_lowercase());
+                            }
+                        }
+                    }
+                }
+
+                #[cfg(not(target_os = "windows"))]
+                {
+                    if let Ok(metadata) = path.metadata() {
+                        use std::os::unix::fs::PermissionsExt;
+                        if metadata.is_file() && metadata.permissions().mode() & 0o111 != 0 {
+                            if let Some(name) = path.file_name() {
+                                commands.push(name.to_string_lossy().to_lowercase());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    commands.sort();
+    commands.dedup();
+    commands
+}
+
+#[command]
 pub fn read_shell_history() -> Vec<String> {
     let paths = candidate_history_paths();
 

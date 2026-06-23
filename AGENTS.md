@@ -35,7 +35,6 @@ aurora-term/
 ├── static/                           ← static assets (screenshots, images)
 │
 ├── scripts/
-│   ├── fetch-opencode-binary.sh
 │   ├── dev.ps1
 │   ├── build.ps1
 │   └── size-audit.ps1
@@ -100,7 +99,7 @@ Below is a short crate summary to help route logic quickly.
 | `aurora-pty` | PTY lifecycle, sessions, readers, and platform quirks. |
 | `aurora-db` | SQLite history storage and fuzzy search helpers. |
 | `aurora-config` | Config schema loader and OS keychain helpers. |
-| `aurora-sidecar` | Manages opencode/sidecar process lifecycle and config. |
+| `aurora-sidecar` | Manages the local aurora-agent sidecar process lifecycle. |
 | `aurora-ai` | AI provider adapters, SSE parsing, and router logic. |
 | `aurora-commands` | Thin orchestration layer that maps tauri commands to crate APIs. |
 
@@ -136,9 +135,8 @@ Depends on `aurora-core`. No Tauri.
 
 ### `crates/aurora-sidecar`
 Depends on `aurora-core`. No Tauri.
-- `manager.rs` — `SidecarManager`: spawn the opencode binary, track its `Child`, expose `port()` after health check. Kill on drop.
-- `config_writer.rs` — write opencode's `config.toml` to a temp path before spawning. Takes provider name + API key from caller; never reads keychain directly.
-- `monitor.rs` — poll child exit status on a background task. Send on a `oneshot` or `watch` channel so the Tauri layer can emit an `opencode_crashed` event.
+- `manager.rs` — `SidecarManager`: spawn the aurora-agent sidecar process, track its `Child`, expose `port()` after health check. Kill on drop.
+- `monitor.rs` — poll child exit status on a background task. Send on a `oneshot` or `watch` channel so the Tauri layer can emit an `agent_crashed` event.
 
 ### `crates/aurora-app`
 Depends on all other crates + `tauri`. This is the only crate that touches Tauri APIs.
@@ -235,9 +233,7 @@ history_add(entry)              → void
 config_get()                    → AppConfig
 config_set(partial)             → void
 
-// Sidecar
-get_opencode_port()             → number
-restart_opencode()              → void
+// Sidecar (controlled internally on startup)
 ```
 
 ---
@@ -462,4 +458,51 @@ pnpm add next-auth --filter @aurora/web
 
 ---
 
-*Last updated: 2026-05-28*
+## 14. Testing the Built App with tauri-mcp
+
+To perform automated visual and DOM tests on the built Tauri application using `tauri-mcp`:
+
+1. **Enable WebView2 Remote Debugging**:
+   Before launching the built executable, set the following environment variable to expose WebView2's CDP interface:
+   ```powershell
+   # PowerShell
+   $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=9222"
+   ```
+   ```bash
+   # Bash
+   export WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--remote-debugging-port=9222"
+   ```
+
+2. **Launch the Built App**:
+   Run the compiled executable (e.g. `src-tauri/target/release/aurora-term.exe` or `pnpm tauri dev`).
+
+3. **Configure & Invoke tauri-mcp**:
+   Use the `tauri-mcp` tools to inspect the app state and perform visual assertions:
+   - `get_dom` — fetch the active HTML DOM structure of the WebView2 window.
+   - `take_screenshot` — capture an image screenshot of the current viewport to verify rendering.
+   - `click_selector` — trigger click events on elements.
+   - `eval_js` — evaluate arbitrary JavaScript in the application's context.
+
+---
+
+## 15. New Coding & UI Patterns
+
+### Tab-Based Agent Sandboxing
+- All agent execution states, queues, logs, and chain nodes MUST be sandboxed per terminal session.
+- The `useAgentStore` uses a `sessions` map keyed by `sessionId` (the tab ID).
+- **Zustand Selector Performance Rule**: Any selector hook (such as `useAgentExecution`) query must fall back to a stable reference `CONST_DEFAULT_SESSION_STATE` rather than calling `defaultSessionState()`. Returning a new object reference on every selector run causes infinite React re-render loops on startup.
+
+### Agent Overlay Chat UI & Layout
+- The `AgentOverlay` is a right-side chatbot panel next to the terminal.
+- Outer styling: matches the left side panel (`bg-background` and `border-l border-outline-variant/10`), resizable from the left edge (mouse drag listener, width bounded between `240px` and `600px`).
+- Inner styling: the chatbot interface is wrapped inside an inner rounded card (`rounded-2xl` with `bg-surface-container-high/30` background).
+- Symmetrical layout: the outer panel uses `px-0` (no horizontal padding), while all inner children (header, body, footer) use symmetrical `px-4` padding.
+- Text selection: the outer panel wrapper uses `select-text` to allow selecting and copying AI messages, commands, or logs. Only the drag-resize handle uses `select-none` to prevent text selection during resizing.
+
+### AI Slang Removal & Deterministic UI Slang
+- Never include instructions or examples in the AI agent prompt (`aura.ts`) asking the AI to speak in Gen Z slang, as this leads to non-deterministic behaviors. Keep model prompts professional and deterministic.
+- UI progress strings (like `"Farming..."`) and loaders are hardcoded directly in the frontend UI files for consistent, deterministic behavior.
+
+---
+
+*Last updated: 2026-06-23*

@@ -23,7 +23,7 @@ pub fn start_monitor(
             let child = lock.as_mut().unwrap();
             match child.try_wait() {
                 Ok(Some(status)) => {
-                    tracing::warn!("OpenCode sidecar process exited unexpectedly with status: {:?}", status);
+                    tracing::warn!("aurora-agent sidecar process exited unexpectedly with status: {:?}", status);
                     // Clear the child process from state
                     *lock = None;
                     let _ = crashed_sender.send(());

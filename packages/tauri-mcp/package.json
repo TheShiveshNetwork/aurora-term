@@ -1,0 +1,13 @@
+{
+  "name": "tauri-mcp",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.js",
+  "bin": {
+    "tauri-mcp": "./index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "ws": "^8.18.0"
+  }
+}
