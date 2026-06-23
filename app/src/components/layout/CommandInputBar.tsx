@@ -1,7 +1,8 @@
 import { type FormEvent } from "react";
-import { Command, Mic, Plus, RefreshCw, FolderOpen, Square } from "lucide-react";
+import { Command, Mic, Plus, RefreshCw, FolderOpen, Square, Terminal, Sparkles } from "lucide-react";
 
 import { GhostInput } from "../terminal/GhostInput";
+import type { InputMode } from "../../lib/nlClassifier";
 
 type Variant = "command" | "prompt";
 
@@ -17,6 +18,7 @@ interface CommandInputBarProps {
   onStop?: () => void;
   onOpenAiBar?: () => void;
   variant?: Variant;
+  inputMode?: InputMode;
 }
 
 export function CommandInputBar({
@@ -31,6 +33,7 @@ export function CommandInputBar({
   onStop,
   onOpenAiBar,
   variant = "command",
+  inputMode = "unknown",
 }: CommandInputBarProps) {
   const isPrompt = variant === "prompt";
 
@@ -54,17 +57,19 @@ export function CommandInputBar({
         }
       >
         {!isPrompt && (
-          <div className="flex items-center px-4 py-1.5 bg-surface-container-high/30 border-b border-outline-variant/10 select-none h-[29px]">
-            {isLoading ? (
-              <span className="text-[10px] text-primary tracking-widest flex items-center gap-1.5 select-none animate-spin pr-1">
-                <RefreshCw size={10} />
-              </span>
-            ) : (
-              <span className="text-[10px] text-outline/50 tracking-widest flex items-center gap-1.5">
-                <FolderOpen size={10} />
-                {cwd}
-              </span>
-            )}
+          <div className="flex items-center justify-between px-4 py-1.5 bg-surface-container-high/30 border-b border-outline-variant/10 select-none h-[29px]">
+            <div className="flex items-center gap-3 flex-1 min-w-0">
+              {isLoading ? (
+                <span className="text-[10px] text-primary tracking-widest flex items-center gap-1.5 select-none animate-spin shrink-0">
+                  <RefreshCw size={10} />
+                </span>
+              ) : (
+                <span className="text-[10px] text-outline/50 tracking-widest flex items-center gap-1.5 truncate">
+                  <FolderOpen size={10} />
+                  {cwd}
+                </span>
+              )}
+            </div>
           </div>
         )}
 
@@ -84,7 +89,7 @@ export function CommandInputBar({
           </div>
         ) : (
           <div className="flex items-start">
-            <GhostInput sessionId={sessionId} value={value} onChange={onChange} onSubmit={onSubmit} history={history} placeholder="Type a command or describe goal..." className="flex-1" />
+            <GhostInput sessionId={sessionId} value={value} onChange={onChange} onSubmit={onSubmit} history={history} placeholder="Type a command or describe goal..." className="flex-1" inputMode={inputMode} />
             <div className="flex items-center gap-1 pr-3 py-3 self-end">
               <button type="button" className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-variant/30 text-outline/50 hover:text-primary transition-all cursor-pointer" title="Add File">
                 <Plus size={14} />

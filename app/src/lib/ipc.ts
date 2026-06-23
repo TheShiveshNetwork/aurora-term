@@ -120,4 +120,6 @@ export const system = {
     invoke<void>("reveal_in_explorer", { path }),
   getGitBranch: (cwd: string) =>
     invoke<string | null>("get_git_branch", { cwd }),
+  getAvailableCommands: () =>
+    invoke<string[]>("get_available_commands"),
 };

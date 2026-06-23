@@ -1,7 +1,7 @@
 # ══════════════════════════════════════════════════════════
 # crates/aurora-sidecar/Cargo.toml
-# OpenCode process lifecycle: spawn, health check, config
-# write, and crash monitoring.
+# aurora-agent process lifecycle: spawn, health check,
+# crash monitoring.
 # No Tauri types — takes paths and ports as plain values.
 # ══════════════════════════════════════════════════════════
 [package]

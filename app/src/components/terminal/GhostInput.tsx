@@ -9,6 +9,7 @@ import React, {
 } from "react";
 import { useBlockStore } from "../../stores/useBlockStore";
 import { pty } from "../../lib/ipc";
+import type { InputMode } from "../../lib/nlClassifier";
 
 const textareaScrollbarId = "aurora-ta-scrollbar-style";
 if (typeof document !== "undefined" && !document.getElementById(textareaScrollbarId)) {
@@ -47,6 +48,7 @@ interface GhostInputProps {
   placeholder?: string;
   className?: string;
   inputClassName?: string;
+  inputMode?: InputMode;
 }
 
 export function GhostInput({
@@ -58,6 +60,7 @@ export function GhostInput({
   placeholder = "Type a command or describe goal...",
   className = "",
   inputClassName = "",
+  inputMode = "unknown",
 }: GhostInputProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const mirrorRef = useRef<HTMLSpanElement>(null);

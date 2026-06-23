@@ -56,6 +56,16 @@ pub fn run() {
             
             let state = AppState::new(pty_manager, history_db, config, pty_sender);
             app.manage(state);
+            
+            // Spawn aurora-agent sidecar asynchronously on startup
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let state_ref = app_handle.state::<AppState>();
+                if let Err(e) = aurora_commands::spawn_sidecar_internal(app_handle.clone(), state_ref).await {
+                    tracing::error!("Failed to spawn aurora-agent sidecar on startup: {:?}", e);
+                }
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -92,6 +102,8 @@ pub fn run() {
             aurora_commands::select_file,
             aurora_commands::watch_directory,
             aurora_commands::get_git_branch,
+            aurora_commands::agent_plan_step,
+            aurora_commands::get_available_commands,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
