@@ -4,7 +4,6 @@ use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use aurora_core::AppError;
 use crate::session::{PtySession, PtyEvent, start_reader_loop};
 
-#[derive(Default)]
 pub struct PtyManager {
     sessions: HashMap<String, PtySession>,
 }

@@ -14,7 +14,6 @@ aurora-ai      = { workspace = true }
 
 # Tauri & external crates
 tauri      = { workspace = true }
-reqwest    = { workspace = true }
 tokio      = { workspace = true }
 serde      = { workspace = true }
 serde_json = { workspace = true }

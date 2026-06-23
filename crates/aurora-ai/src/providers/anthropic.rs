@@ -111,8 +111,8 @@ impl AiProvider for AnthropicProvider {
             let lines = reader.feed(&bytes);
 
             for line in lines {
-                if let Some(stripped) = line.strip_prefix("data:") {
-                    let data_json = stripped.trim();
+                if line.starts_with("data:") {
+                    let data_json = line["data:".len()..].trim();
                     if data_json == "[DONE]" {
                         break;
                     }
