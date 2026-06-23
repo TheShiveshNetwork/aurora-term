@@ -1,5 +1,14 @@
 import { create } from "zustand";
 
+export interface ChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  timestamp: number;
+  isError?: boolean;
+  durationMs?: number;
+}
+
 export interface AgentCommand {
   command: string;
   explanation: string;
@@ -40,6 +49,7 @@ export interface SessionAgentState {
   chainNodes: ChainNode[];
   lastMessage: string | null;
   activeSubagent: string | null;
+  chatHistory: ChatMessage[];
 }
 
 export const CONST_DEFAULT_SESSION_STATE: SessionAgentState = {
@@ -55,6 +65,7 @@ export const CONST_DEFAULT_SESSION_STATE: SessionAgentState = {
   chainNodes: [],
   lastMessage: null,
   activeSubagent: null,
+  chatHistory: [],
 };
 
 export const defaultSessionState = (): SessionAgentState => ({
@@ -85,6 +96,8 @@ interface AgentStore {
 
   addChainNode: (sessionId: string, node: Omit<ChainNode, "id">) => string;
   updateChainNode: (sessionId: string, id: string, updates: Partial<ChainNode>) => void;
+
+  addChatMessage: (sessionId: string, msg: Omit<ChatMessage, "id" | "timestamp">) => void;
 
   setActiveSubagent: (sessionId: string, subagent: string | null) => void;
   incrementStep: (sessionId: string) => void;
@@ -279,6 +292,14 @@ export const useAgentStore = create<AgentStore>((set) => ({
       chainNodes: prev.chainNodes.map((n) =>
         n.id === id ? { ...n, ...updates } : n
       ),
+    })),
+
+  addChatMessage: (sessionId, msg) =>
+    updateSession(set, sessionId, (prev) => ({
+      chatHistory: [
+        ...prev.chatHistory,
+        { ...msg, id: genId(), timestamp: Date.now() },
+      ],
     })),
 
   setActiveSubagent: (sessionId, subagent) =>

@@ -128,13 +128,19 @@ export function useAgentExecution(sessionId: string | null) {
 
       // ── Completed ──────────────────────────────────────────────────────
       if (step.status === "completed") {
-        state.completeTask(targetSessionId, step.message || "Task completed successfully");
+        const msg = step.message || "Task completed successfully";
+        state.completeTask(targetSessionId, msg);
+        const totalMs = useAgentStore.getState().sessions[targetSessionId]?.queue
+          .reduce((acc, cmd) => acc + (cmd.durationMs || 0), 0) || 0;
+        state.addChatMessage(targetSessionId, { role: "assistant", content: msg, durationMs: totalMs });
         return;
       }
 
       // ── Error ──────────────────────────────────────────────────────────
       if (step.status === "error") {
-        state.failTask(targetSessionId, step.message || "An error occurred during agent planning");
+        const errMsg = step.message || "An error occurred during agent planning";
+        state.failTask(targetSessionId, errMsg);
+        state.addChatMessage(targetSessionId, { role: "assistant", content: errMsg, isError: true });
         return;
       }
 
@@ -197,6 +203,7 @@ export function useAgentExecution(sessionId: string | null) {
             ? "AI returned an unexpected response format. Try again."
             : errMsg;
       state.failTask(targetSessionId, friendlyMsg);
+      state.addChatMessage(targetSessionId, { role: "assistant", content: friendlyMsg, isError: true });
     }
   }, []);
 
@@ -294,6 +301,8 @@ export function useAgentExecution(sessionId: string | null) {
 
     const taskId = uuidv4();
     const state = useAgentStore.getState();
+    // Add user message to chat history BEFORE starting
+    state.addChatMessage(targetSessionId, { role: "user", content: goal });
     state.startTask(targetSessionId, taskId, goal);
     state.resumeTask(targetSessionId);
     executeNextStep(taskId);
@@ -347,5 +356,6 @@ export function useAgentExecution(sessionId: string | null) {
     chainNodes: sessionState.chainNodes,
     agentLogs: sessionState.agentLogs,
     activeSubagent: sessionState.activeSubagent,
+    chatHistory: sessionState.chatHistory,
   };
 }
