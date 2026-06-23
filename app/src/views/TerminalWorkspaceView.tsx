@@ -2,6 +2,7 @@ import { Terminal } from "lucide-react";
 import { Tab } from "@aurora/types";
 
 import { TerminalPane } from "../components/terminal/TerminalPane";
+import { AgentOverlay } from "../components/terminal/AgentOverlay";
 
 interface TerminalWorkspaceViewProps {
   tab: Tab;
@@ -16,8 +17,12 @@ export function TerminalWorkspaceView({ tab, isVisible, isCommandRunning, isAlte
   const showEmptyState = !hasInteracted && activeBlocksCount <= 1;
 
   return (
-    <div className="relative h-full flex flex-col bg-surface-container-low">
-      <TerminalPane isVisible={isVisible} sessionId={tab.id} isRunning={isCommandRunning} />
+    <div className="relative h-full flex flex-row bg-surface-container-low overflow-hidden">
+      <div className="flex-1 h-full min-w-0">
+        <TerminalPane isVisible={isVisible} sessionId={tab.id} isRunning={isCommandRunning} />
+      </div>
+
+      <AgentOverlay sessionId={tab.id} />
 
       {showEmptyState && !isAlternateActive && (
         <div className="absolute inset-0 flex flex-col items-center justify-center opacity-30 pointer-events-none select-none z-10 pb-12">

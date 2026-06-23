@@ -392,6 +392,7 @@ dependencies = [
  "chrono",
  "ignore",
  "notify",
+ "reqwest 0.12.28",
  "rfd",
  "serde",
  "serde_json",
