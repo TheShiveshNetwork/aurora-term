@@ -17,20 +17,8 @@ impl AiHttpClient {
     }
 }
 
-impl Default for AiHttpClient {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 pub struct SseLineReader {
     pub buffer: Vec<u8>,
-}
-
-impl Default for SseLineReader {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl SseLineReader {

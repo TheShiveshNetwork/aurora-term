@@ -27,7 +27,7 @@ pub fn fuzzy_search_history(
         .collect();
 
     // Sort by score descending
-    scored_entries.sort_by_key(|b| std::cmp::Reverse(b.0));
+    scored_entries.sort_by(|a, b| b.0.cmp(&a.0));
 
     let results = scored_entries
         .into_iter()

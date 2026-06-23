@@ -6,7 +6,6 @@ import { Tab } from "@aurora/types";
 
 import { useAppBootstrap } from "../hooks/useAppBootstrap";
 import { useCommandExecution } from "../hooks/useCommandExecution";
-import { useAgentExecution } from "../hooks/useAgentExecution";
 import { usePersistUIState } from "../hooks/usePersistUIState";
 import { useAppShellStore } from "../stores/useAppShellStore";
 import { useBlockStore } from "../stores/useBlockStore";
@@ -69,32 +68,6 @@ export function AppShellView() {
     activeTabBlocks,
     targetSessionId,
   } = useCommandExecution(tabs, activeTabId);
-
-  const { startTask } = useAgentExecution(targetSessionId);
-
-  const handleInterceptedSubmit = (event: FormEvent, defaultSubmit: (e: FormEvent) => void, isFilePrompt = false) => {
-    event.preventDefault();
-    const input = activeCommandInput.trim();
-    if (!input) return;
-
-    // Detect NL query: starts with "? " prefix, "/ai " prefix, or any input in file prompt mode
-    const isNlQuery = input.startsWith("? ") || input.startsWith("/ai ") || isFilePrompt;
-    if (isNlQuery) {
-      const cleanGoal = input.startsWith("? ")
-        ? input.slice(2).trim()
-        : input.startsWith("/ai ")
-          ? input.slice(4).trim()
-          : input;
-
-      if (!cleanGoal) return; // Prevent empty goals
-
-      // Use setCommandInput from useCommandExecution scope (correctly scoped to activeTabId)
-      setCommandInput("");
-      startTask(cleanGoal);
-    } else {
-      defaultSubmit(event);
-    }
-  };
 
   const handleFileCommandSubmit = (event: FormEvent) => {
     event.preventDefault();
@@ -435,7 +408,7 @@ export function AppShellView() {
                 ...shellHistory.slice().reverse(),
               ]}
               onChange={setCommandInput}
-              onSubmit={(e) => handleInterceptedSubmit(e, handleExecuteCommand, false)}
+              onSubmit={handleExecuteCommand}
               onStop={handleStopCurrentCommand}
               onOpenAiBar={() => setShowAiBar(true)}
             />
@@ -452,7 +425,7 @@ export function AppShellView() {
               value={activeCommandInput}
               history={[]}
               onChange={setCommandInput}
-              onSubmit={(e) => handleInterceptedSubmit(e, handleFileCommandSubmit, true)}
+              onSubmit={handleFileCommandSubmit}
               onOpenAiBar={() => setShowAiBar(true)}
             />
           )}
