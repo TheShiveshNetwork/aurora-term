@@ -7,6 +7,7 @@ import { useAICompletion } from "./useAICompletion";
 import { usePTY } from "./usePTY";
 import { pty, config } from "../lib/ipc";
 import { getDefaultShellLaunch } from "../lib/shell";
+import { closeAllPopups } from "../lib/popups";
 import { useAppShellStore } from "../stores/useAppShellStore";
 import { useBlockStore } from "../stores/useBlockStore";
 import { useSessionStore } from "../stores/useSessionStore";
@@ -44,7 +45,7 @@ export function useAppBootstrap() {
       useAppShellStore.getState().setLastActiveFileId(activeTab.id);
     }
 
-    useAppShellStore.getState().setViewMode(activeTab.type);
+    useAppShellStore.getState().setViewMode(activeTab.type === "terminal" ? "terminal" : "file");
   }, [activeTabId, tabs]);
 
   useEffect(() => {
@@ -205,6 +206,7 @@ export function useAppBootstrap() {
   useEffect(() => {
     const handleContextMenu = (event: Event) => {
       const { x, y, selectedText, source } = (event as CustomEvent<{ x: number; y: number; selectedText?: string; source?: "terminal" | "input" | "file" }>).detail;
+      closeAllPopups();
       useAppShellStore.getState().setContextMenu({ x, y, selectedText, source });
     };
 

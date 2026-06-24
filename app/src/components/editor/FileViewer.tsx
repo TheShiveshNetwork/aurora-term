@@ -8,11 +8,22 @@ import { rust } from "@codemirror/lang-rust";
 import { html } from "@codemirror/lang-html";
 import { css } from "@codemirror/lang-css";
 import { xml } from "@codemirror/lang-xml";
-import { oneDark } from "@codemirror/theme-one-dark";
+import { markdown } from "@codemirror/lang-markdown";
+import { sql } from "@codemirror/lang-sql";
+import { yaml } from "@codemirror/lang-yaml";
+import { StreamLanguage } from "@codemirror/language";
+import { shell } from "@codemirror/legacy-modes/mode/shell";
+import { go } from "@codemirror/legacy-modes/mode/go";
+import { java } from "@codemirror/legacy-modes/mode/clike";
+import { cpp } from "@codemirror/legacy-modes/mode/clike";
 import { lineNumbers } from "@codemirror/view";
 import { invoke } from "@tauri-apps/api/core";
 import { AlertCircle, Loader, Minus, Plus, RotateCcw } from "lucide-react";
 import { useSessionStore } from "../../stores/useSessionStore";
+import { useSettingsStore } from "../../stores/useSettingsStore";
+import { closeAllPopups } from "../../lib/popups";
+import { EDITOR_THEMES } from "./editorThemes";
+import { minimapExtension } from "./minimapExtension";
 
 interface FileViewerProps {
   tabId: string;
@@ -47,88 +58,43 @@ function getLanguageExtension(filePath: string) {
       return html();
     case "css":
       return css();
+    case "scss":
+    case "sass":
+      return css();
     case "xml":
     case "svg":
       return xml();
+    case "md":
+    case "mdx":
+      return markdown();
+    case "sql":
+      return sql();
+    case "yaml":
+    case "yml":
+      return yaml();
+    case "sh":
+    case "bash":
+    case "zsh":
+      return StreamLanguage.define(shell);
+    case "go":
+      return StreamLanguage.define(go);
+    case "java":
+      return StreamLanguage.define(java);
+    case "c":
+    case "cpp":
+    case "cc":
+    case "cxx":
+    case "h":
+    case "hpp":
+      return StreamLanguage.define(cpp);
     default:
       return [];
   }
 }
 
-const customTheme = EditorView.theme({
-  "&": {
-    fontSize: "13px",
-    height: "100%",
-    backgroundColor: "#1c1b1c !important", // Sets the main background
-  },
-  ".cm-scroller": {
-    fontFamily: "'JetBrains Mono', monospace",
-    overflow: "auto",
-  },
-  ".cm-content": {
-    padding: "8px 0",
-  },
-  ".cm-lineNumbers": {
-    fontFamily: "'JetBrains Mono', monospace",
-    fontSize: "12px",
-    padding: "0 8px 0 4px",
-    color: "rgba(132, 148, 149, 0.5)",
-    minWidth: "40px",
-    userSelect: "none",
-    borderRight: "1px solid rgba(59, 73, 75, 0.2)",
-  },
-  ".cm-activeLineGutter": {
-    color: "rgba(219, 252, 255, 0.8)",
-    backgroundColor: "rgba(0, 240, 255, 0.04)",
-  },
-  ".cm-gutters": {
-    backgroundColor: "#1c1b1c !important", // Matches the main background
-    border: "none",
-  },
-  ".cm-activeLine": {
-    backgroundColor: "rgba(255, 255, 255, 0.03)",
-  },
-  ".cm-selectionBackground": {
-    backgroundColor: "rgba(219, 252, 255, 0.15) !important",
-  },
-  "&.cm-focused .cm-cursor": {
-    borderLeftColor: "rgba(219, 252, 255, 0.8)",
-  },
-  ".cm-cursor": {
-    borderLeftColor: "rgba(219, 252, 255, 0.5)",
-  },
-  ".cm-foldPlaceholder": {
-    backgroundColor: "#1c1b1c",
-    color: "rgba(132, 148, 149, 0.4)",
-    border: "1px solid rgba(59, 73, 75, 0.3)",
-  },
-}, { dark: true });
-
 const ZOOM_MIN = 0.1;
 const ZOOM_MAX = 10;
 const ZOOM_STEP = 0.25;
-
-// Inject scrollbar styles for CodeMirror + image viewer once
-const scrollbarStyleId = "aurora-cm-scrollbar-style";
-if (typeof document !== "undefined" && !document.getElementById(scrollbarStyleId)) {
-  const style = document.createElement("style");
-  style.id = scrollbarStyleId;
-  style.textContent = [
-    `.cm-scroller::-webkit-scrollbar { width: 6px; height: 6px; }`,
-    `.cm-scroller::-webkit-scrollbar-track { background: transparent !important; }`,
-    `.cm-scroller::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.08) !important; border-radius: 4px; border: 0.5px solid rgba(255, 255, 255, 0.03); }`,
-    `.cm-scroller:hover::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.16) !important; border-color: rgba(255, 255, 255, 0.06); }`,
-    `.cm-scroller::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.28) !important; border-color: rgba(255, 255, 255, 0.1) !important; }`,
-    `.cm-scroller { scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.08) transparent; overflow: overlay !important; }`,
-    `.image-scroll::-webkit-scrollbar { width: 6px; height: 6px; }`,
-    `.image-scroll::-webkit-scrollbar-track { background: transparent !important; }`,
-    `.image-scroll::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.08) !important; border-radius: 4px; border: 0.5px solid rgba(255, 255, 255, 0.03); }`,
-    `.image-scroll:hover::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.16) !important; border-color: rgba(255, 255, 255, 0.06); }`,
-    `.image-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.28) !important; border-color: rgba(255, 255, 255, 0.1) !important; }`,
-    `.image-scroll { scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.08) transparent; overflow: overlay !important; }`,
-  ].join("\n");
-  document.head.appendChild(style);
-}
 
 export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
   const editorRef = useRef<HTMLDivElement>(null);
@@ -137,6 +103,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
   const [error, setError] = useState<string | null>(null);
   const initialContentRef = useRef<string>("");
   const updateTab = useSessionStore((s) => s.updateTab);
+  const editorTheme = useSettingsStore((s) => s.editorTheme);
 
   const isImage = isImageFile(filePath);
 
@@ -266,9 +233,9 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
 
         const extensions: any[] = [
           basicSetup,
-          oneDark,
-          customTheme,
+          EDITOR_THEMES[editorTheme],
           lineNumbers(),
+          minimapExtension,
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
               const currentContent = update.state.doc.toString();
@@ -310,7 +277,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
       }
       updateTab(tabId, { dirty: false });
     };
-  }, [filePath, tabId, updateTab, isImage, imageMimeType]);
+  }, [filePath, tabId, updateTab, isImage, imageMimeType, editorTheme]);
 
   useEffect(() => {
     const handler = () => {
@@ -337,7 +304,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
       }
     }
 
-    window.dispatchEvent(new CustomEvent("aurora-right-click-menu-close"));
+    closeAllPopups();
     window.dispatchEvent(
       new CustomEvent("show-context-menu", {
         detail: { x: e.clientX, y: e.clientY, selectedText, source: "file" },
@@ -423,7 +390,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
         ) : (
           <div
             ref={editorRef}
-            className="h-full w-full overflow-hidden [&_.cm-editor]:h-full [&_.cm-editor]:!bg-[#1c1b1c] [&_.cm-gutters]:!bg-[#1c1b1c]"
+            className="h-full w-full overflow-hidden [&_.cm-editor]:h-full"
           />
         )}
       </div>

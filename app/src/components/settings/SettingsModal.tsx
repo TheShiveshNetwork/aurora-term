@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from "react";
-import { X, Shield, Key, Sliders, Cpu, Save } from "lucide-react";
+import { X, Shield, Key, Sliders, Palette, Save } from "lucide-react";
 import { ai } from "../../lib/ipc";
 import { useAIStore } from "../../stores/useAIStore";
+import { useSettingsStore, EditorThemeName } from "../../stores/useSettingsStore";
 import { ProviderName } from "@aurora/types";
 
 interface SettingsModalProps {
@@ -180,6 +181,15 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
               );
             })}
           </div>
+
+          {/* ── Editor Theme ── */}
+          <div className="space-y-4 pt-4">
+            <div className="flex items-center gap-2 border-b border-outline-variant/10 pb-1.5 text-on-surface font-semibold text-[13px]">
+              <Palette size={14} className="text-secondary" />
+              <span>EDITOR THEME</span>
+            </div>
+            <EditorThemeSelect />
+          </div>
         </div>
 
         {/* Footer */}
@@ -192,6 +202,45 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+const THEME_OPTIONS: { value: EditorThemeName; label: string }[] = [
+  { value: "dracula", label: "Dracula" },
+  { value: "one-dark", label: "One Dark" },
+  { value: "atomone", label: "Atom One" },
+  { value: "bespin", label: "Bespin" },
+  { value: "github", label: "GitHub Dark" },
+  { value: "material", label: "Material" },
+  { value: "monokai", label: "Monokai" },
+  { value: "nord", label: "Nord" },
+  { value: "okaidia", label: "Okaidia" },
+  { value: "solarized", label: "Solarized Dark" },
+  { value: "tokyo-night", label: "Tokyo Night" },
+  { value: "vscode", label: "VS Code Dark" },
+  { value: "xcode", label: "Xcode Dark" },
+];
+
+function EditorThemeSelect() {
+  const editorTheme = useSettingsStore((s) => s.editorTheme);
+  const setEditorTheme = useSettingsStore((s) => s.setEditorTheme);
+
+  return (
+    <div className="flex items-center justify-between">
+      <span className="text-[12px] text-on-surface-variant">File View Theme</span>
+      <select
+        value={editorTheme}
+        onChange={(e) => setEditorTheme(e.target.value as EditorThemeName)}
+        className="px-3 py-1.5 text-[12px] rounded-lg bg-surface-container-lowest border border-outline-variant/10 text-on-surface outline-none cursor-pointer"
+        style={{ minWidth: "160px" }}
+      >
+        {THEME_OPTIONS.map((opt) => (
+          <option key={opt.value} value={opt.value}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }

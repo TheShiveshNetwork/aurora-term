@@ -503,13 +503,14 @@ function ConversationTurn({
 // ── Main AgentOverlay Component ────────────────────────────────────────────
 interface AgentOverlayProps {
   sessionId: string;
+  onClose?: () => void;
 }
 
 const MIN_WIDTH = 240;
 const MAX_WIDTH = 600;
 const DEFAULT_WIDTH = 320;
 
-export function AgentOverlay({ sessionId }: AgentOverlayProps) {
+export function AgentOverlay({ sessionId, onClose }: AgentOverlayProps) {
   const {
     status,
     queue,
@@ -705,12 +706,12 @@ export function AgentOverlay({ sessionId }: AgentOverlayProps) {
         </div>
 
         <button
-          onClick={clearTask}
+          onClick={() => onClose?.()}
           className="p-1.5 rounded-[8px] transition-all cursor-pointer"
           style={{ color: "rgba(232,234,240,0.3)" }}
           onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; e.currentTarget.style.color = "#E8EAF0"; }}
           onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "rgba(232,234,240,0.3)"; }}
-          title="Clear chat"
+          title="Close agent panel"
         >
           <X size={13} />
         </button>
@@ -735,8 +736,8 @@ export function AgentOverlay({ sessionId }: AgentOverlayProps) {
               <Brain size={18} style={{ color: "rgba(79,140,255,0.6)" }} />
             </div>
             <div>
-              <p className="text-[12px] font-semibold" style={{ color: "rgba(232,234,240,0.5)" }}>Aura is ready</p>
-              <p className="text-[10px] mt-0.5" style={{ color: "rgba(232,234,240,0.25)" }}>Describe a task to get started</p>
+              <p className="text-[12px] font-semibold" style={{ color: "rgba(232,234,240,0.5)" }}>Nothing to show yet</p>
+              <p className="text-[10px] mt-0.5" style={{ color: "rgba(232,234,240,0.25)" }}>Run a command or describe a goal</p>
             </div>
           </div>
         )}

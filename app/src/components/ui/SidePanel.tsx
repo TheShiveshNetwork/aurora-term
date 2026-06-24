@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   Folder, FileText, FileCode, FileImage, FileJson, FileSpreadsheet, FileAudio, FileVideo, FileArchive,
-  ChevronDown, ChevronRight, RefreshCw,
+  ChevronDown, ChevronRight, RefreshCw, MoreHorizontal,
   Copy, FolderOpen, Terminal, ExternalLink, ClipboardCopy, Pencil, Trash2, AlertTriangle,
   ClipboardList, Scissors,
   CopyMinus,
@@ -10,11 +10,14 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { DragDropEvent } from "@tauri-apps/api/webview";
-import {
-  RightClickMenuItem,
-  RightClickMenuPanel,
-  RightClickMenuSeparator,
-} from "./RightClickMenu";
+import { useSessionStore } from "../../stores/useSessionStore";
+import { useAppShellStore } from "../../stores/useAppShellStore";
+import { MenuView, MenuViewItem, MenuViewSeparator } from "./MenuView";
+import { closeAllPopups, onClosePopups } from "../../lib/popups";
+import type { SideSection } from "../../stores/useAppShellStore";
+import { FileOutline } from "./FileOutline";
+import { FileTimeline } from "./FileTimeline";
+import { GitTree } from "./GitTree";
 
 // ─── Normalize path for comparison (case-insensitive on Windows, normalize separators) ──
 function pathsEqual(a: string, b: string): boolean {
@@ -226,7 +229,9 @@ function TreeNode({
   const handleToggle = async () => {
     if (node.is_dir) {
       onActivate(node.path);
-      if (!isOpen && !loadedRef.current) {
+      const nextOpen = !isOpen;
+      setIsOpen(nextOpen);
+      if (nextOpen && !loadedRef.current) {
         loadedRef.current = true;
         setLoading(true);
         try {
@@ -234,11 +239,11 @@ function TreeNode({
           setChildren(res);
         } catch (err) {
           console.error(err);
+          loadedRef.current = false;
         } finally {
           setLoading(false);
         }
       }
-      setIsOpen((prev) => !prev);
     }
   };
 
@@ -421,6 +426,65 @@ function TreeNode({
   );
 }
 
+/* ── SectionToggle ────────────────────────────────────────────────── */
+const SECTION_LABELS: Record<SideSection, string> = {
+  folders: "Folders",
+  outline: "Outline",
+  timeline: "Timeline",
+  git: "Git",
+};
+
+function SectionToggle() {
+  const [open, setOpen] = useState(false);
+  const sectionVisibility = useAppShellStore((s) => s.sectionVisibility);
+  const toggleSection = useAppShellStore((s) => s.toggleSection);
+  const activeTab = useSessionStore((s) => s.tabs.find((t) => t.id === s.activeTabId));
+  const isTerminalView = activeTab?.type === "terminal";
+
+  const sections: SideSection[] = ["folders", "outline", "timeline", "git"];
+  const disabledInTerminal: SideSection[] = ["outline", "timeline"];
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((p) => !p)}
+        className="w-5 h-5 flex items-center justify-center rounded transition-colors cursor-pointer"
+        style={{ color: "rgba(232,234,240,0.35)" }}
+        onMouseEnter={(e) => { e.currentTarget.style.color = "#E8EAF0"; e.currentTarget.style.background = "rgba(255,255,255,0.07)"; }}
+        onMouseLeave={(e) => { e.currentTarget.style.color = "rgba(232,234,240,0.35)"; e.currentTarget.style.background = "transparent"; }}
+      >
+        <MoreHorizontal size={13} />
+      </button>
+      <MenuView
+        variant="secondary"
+        open={open}
+        onClose={() => setOpen(false)}
+        className="absolute right-0 top-full mt-1 w-40 z-[100]"
+      >
+        {sections.map((section) => {
+          const disabled = isTerminalView && disabledInTerminal.includes(section);
+          const checked = sectionVisibility[section];
+          return (
+            <MenuViewItem
+              key={section}
+              variant="secondary"
+              checked={checked}
+              disabled={disabled}
+              onClick={() => {
+                if (disabled) return;
+                toggleSection(section);
+                setOpen(false);
+              }}
+            >
+              {SECTION_LABELS[section]}
+            </MenuViewItem>
+          );
+        })}
+      </MenuView>
+    </div>
+  );
+}
+
 // ─────────────────────── SidePanel ────────────────────────
 const MIN_WIDTH = 160;
 const MAX_WIDTH = 520;
@@ -439,15 +503,22 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
       setActivePath("");
     }
   }, [activeFilePath]);
+  const activeFileTab = useSessionStore((s) => s.tabs.find((t) => (t.type === "file" || t.type === "diff") && t.filePath === activeFilePath));
+  const activeFileContent = activeFileTab?.type === "file" ? activeFileTab.fileContent : undefined;
+  const activeTab = useSessionStore((s) => s.tabs.find((t) => t.id === s.activeTabId));
+  const isTerminalView = activeTab?.type === "terminal";
+  const sectionVisibility = useAppShellStore((s) => s.sectionVisibility);
   const [rootNodes, setRootNodes] = useState<FileNode[]>([]);
   const [workspaceName, setWorkspaceName] = useState("Workspace");
   const [resolvedCwd, setResolvedCwd] = useState<string>("");
   const [filterQuery, setFilterQuery] = useState("");
-  const [workspaceExpanded, setWorkspaceExpanded] = useState(true);
   const [creatingIn, setCreatingIn] = useState<{ parentPath: string; type: 'file' | 'folder' } | null>(null);
   const [creatingName, setCreatingName] = useState("");
   const [collapseAllKey, setCollapseAllKey] = useState(0);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [outlineRefreshKey, setOutlineRefreshKey] = useState(0);
+  const [timelineRefreshKey, setTimelineRefreshKey] = useState(0);
+  const [gitRefreshKey, setGitRefreshKey] = useState(0);
   const creatingInputRef = useRef<HTMLInputElement>(null);
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const [isLoading, setIsLoading] = useState(false);
@@ -493,9 +564,19 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
   }, [fileMenu]);
 
   useEffect(() => {
-    const handler = () => setFileMenu(null);
+    const handler = () => {
+      setFileMenu(null);
+      setDeleteConfirm(null);
+      setDeleteError(null);
+    };
     window.addEventListener("aurora-right-click-menu-close", handler);
-    return () => window.removeEventListener("aurora-right-click-menu-close", handler);
+    const unsub = onClosePopups(() => {
+      handler();
+    });
+    return () => {
+      window.removeEventListener("aurora-right-click-menu-close", handler);
+      unsub();
+    };
   }, []);
 
   // ── Load file tree for a given absolute path ──────────────
@@ -620,7 +701,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
 
   // ── File context menu actions ─────────────────────────────
   const handleFileContextMenu = useCallback((e: React.MouseEvent, node: FileNode) => {
-    window.dispatchEvent(new CustomEvent("aurora-right-click-menu-close"));
+    closeAllPopups();
     setFileMenu({ x: e.clientX, y: e.clientY, node });
   }, []);
 
@@ -754,6 +835,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
 
   // ── Delete actions ────────────────────────────────────────
   const startDelete = (node: FileNode) => {
+    closeAllPopups();
     setFileMenu(null);
     setDeleteError(null);
     setDeleteConfirm({ node });
@@ -1008,7 +1090,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
       <div className="flex flex-col flex-1 min-h-0 group">
         {/* ── EXPLORER header bar ── */}
         <div
-          className="flex items-center justify-between px-3 select-none"
+          className="flex items-center justify-between px-3 select-none relative"
           style={{
             height: "34px",
             borderBottom: "1px solid rgba(255,255,255,0.05)",
@@ -1020,132 +1102,152 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
           >
             Explorer
           </span>
-          {/* toolbar moved to dir heading below */}
+          <SectionToggle />
         </div>
 
-        {/* ── Workspace section heading ── */}
-        <div
-          className="flex items-center justify-between px-3 cursor-pointer select-none group"
-          style={{ height: "30px", minHeight: "30px" }}
-          onClick={() => setWorkspaceExpanded((p) => !p)}
-        >
-          <div className="flex items-center gap-1.5">
-            <ChevronDown
-              size={11}
-              style={{ color: "rgba(232,234,240,0.4)" }}
-              className={`shrink-0 transition-transform ${workspaceExpanded ? "" : "-rotate-90"}`}
-            />
-            <span
-              className="text-[11px] font-bold tracking-[0.08em] truncate"
-              style={{ color: "rgba(232,234,240,0.6)" }}
-              title={workspaceName}
-            >
-              {workspaceName}
-            </span>
-          </div>
-          <div className={`flex items-center gap-0.5 ${resolvedCwd ? "invisible group-hover:visible" : "hidden"}`} onClick={(e) => e.stopPropagation()}>
-            {/* New file */}
-            <SidebarIconBtn title="New File" onClick={handleCreateFile}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                <polyline points="14,2 14,8 20,8" />
-                <line x1="12" y1="13" x2="12" y2="17" />
-                <line x1="10" y1="15" x2="14" y2="15" />
-              </svg>
-            </SidebarIconBtn>
-            {/* New folder */}
-            <SidebarIconBtn title="New Folder" onClick={handleCreateFolder}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-                <line x1="12" y1="11" x2="12" y2="17" />
-                <line x1="9" y1="14" x2="15" y2="14" />
-              </svg>
-            </SidebarIconBtn>
-            {/* Refresh */}
-            <SidebarIconBtn title="Refresh" onClick={() => { setRefreshKey((k) => k + 1); loadTree(resolvedCwd); }}>
-              <RefreshCw size={12} />
-            </SidebarIconBtn>
-            {/* Collapse all */}
-            <SidebarIconBtn title="Collapse All" onClick={handleCollapseAll}>
-              <CopyMinus size={12} />
-            </SidebarIconBtn>
-          </div>
-          {isLoading && <RefreshCw size={10} className="animate-spin shrink-0" style={{ color: "#4F8CFF" }} />}
-        </div>
-
-        {/* ── File tree — scrollable ── */}
-        {workspaceExpanded && (
-          <div className="flex-1 overflow-y-auto overflow-x-hidden sidepanel-scroll">
-            {error ? (
-              <div className="text-[11px] px-3 py-3 whitespace-pre-wrap break-words leading-relaxed select-text" style={{ color: "#FF6B6B" }}>
-                {error}
-              </div>
-            ) : (
+        {/* ── Workspace section ── */}
+        {sectionVisibility.folders && (
+          <CollapsibleSection
+            label={workspaceName}
+            initialOpen={true}
+            loading={isLoading}
+            controls={
               <>
-                {filteredNodes.length === 0 && !isLoading && <div className="text-[11px] italic px-3 py-3" style={{ color: "rgba(232,234,240,0.2)" }}>No files</div>}
-                {filteredNodes.map((node) => (
-                  <TreeNode
-                    key={node.path}
-                    node={node}
-                    depth={0}
-                    selectedFile={selectedFile}
-                    activePath={activePath}
-                    onSelect={setSelectedFile}
-                    onActivate={handleActivateNode}
-                    onContextMenu={handleFileContextMenu}
-                    renamingPath={renameState?.path ?? ""}
-                    renameValue={renameState?.value ?? ""}
-                    onRenameChange={(val) => setRenameState(prev => prev ? { ...prev, value: val } : null)}
-                    onRenameCommit={commitRename}
-                    onRenameCancel={cancelRename}
-                    dragOverPath={dragOverPath}
-                    draggedNodePath={draggedNodePath}
-                    onPointerDown={handlePointerDown}
-                    expandPath={expandPath}
-                    collapsePath={collapsePath}
-                    creatingParent={creatingIn?.parentPath ?? null}
-                    creatingType={creatingIn?.type ?? null}
-                    creatingName={creatingName}
-                    onCreatingNameChange={setCreatingName}
-                    onCreatingCommit={commitCreate}
-                    onCreatingCancel={cancelCreate}
-                    collapseKey={collapseAllKey}
-                    refreshKey={refreshKey}
-                  />
-                ))}
-                {/* ── Root-level inline create input ── */}
-                {creatingIn && creatingIn.parentPath === resolvedCwd && (
-                  <div
-                    className="flex items-center gap-1.5"
-                    style={{ paddingLeft: "10px", paddingTop: "4px", paddingBottom: "4px", minHeight: "24px" }}
-                  >
-                    <input
-                      ref={creatingInputRef}
-                      autoFocus
-                      value={creatingName}
-                      onChange={(e) => setCreatingName(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") { e.preventDefault(); commitCreate(); }
-                        if (e.key === "Escape") { e.preventDefault(); cancelCreate(); }
-                      }}
-                      onBlur={cancelCreate}
-                      onClick={(e) => e.stopPropagation()}
-                      placeholder={creatingIn.type === "folder" ? "folder name" : "file name"}
-                      className="flex-1 min-w-0 text-sm bg-surface-container-high border border-primary/40 rounded px-1 outline-none text-on-surface placeholder:text-outline/30 focus:border-primary/70 transition-colors"
-                      style={{ lineHeight: "1.4", marginLeft: "2px" }}
-                    />
-                  </div>
-                )}
+                <SidebarIconBtn title="New File" onClick={handleCreateFile}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <polyline points="14,2 14,8 20,8" />
+                    <line x1="12" y1="13" x2="12" y2="17" />
+                    <line x1="10" y1="15" x2="14" y2="15" />
+                  </svg>
+                </SidebarIconBtn>
+                <SidebarIconBtn title="New Folder" onClick={handleCreateFolder}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                    <line x1="12" y1="11" x2="12" y2="17" />
+                    <line x1="9" y1="14" x2="15" y2="14" />
+                  </svg>
+                </SidebarIconBtn>
+                <SidebarIconBtn title="Refresh" onClick={() => { setRefreshKey((k) => k + 1); loadTree(resolvedCwd); }}>
+                  <RefreshCw size={12} />
+                </SidebarIconBtn>
+                <SidebarIconBtn title="Collapse All" onClick={handleCollapseAll}>
+                  <CopyMinus size={12} />
+                </SidebarIconBtn>
               </>
-            )}
-          </div>
+            }
+          >
+            {/* ── File tree — scrollable ── */}
+            <div className="flex-1 overflow-x-hidden sidepanel-scroll section-scroll" style={{ overflowY: "auto" }}>
+              {error ? (
+                <div className="text-[11px] px-3 py-3 whitespace-pre-wrap break-words leading-relaxed select-text" style={{ color: "#FF6B6B" }}>
+                  {error}
+                </div>
+              ) : (
+                <>
+                  {filteredNodes.length === 0 && !isLoading && <div className="text-[11px] italic px-3 py-3" style={{ color: "rgba(232,234,240,0.2)" }}>No files</div>}
+                  {filteredNodes.map((node) => (
+                    <TreeNode
+                      key={node.path}
+                      node={node}
+                      depth={0}
+                      selectedFile={selectedFile}
+                      activePath={activePath}
+                      onSelect={setSelectedFile}
+                      onActivate={handleActivateNode}
+                      onContextMenu={handleFileContextMenu}
+                      renamingPath={renameState?.path ?? ""}
+                      renameValue={renameState?.value ?? ""}
+                      onRenameChange={(val) => setRenameState(prev => prev ? { ...prev, value: val } : null)}
+                      onRenameCommit={commitRename}
+                      onRenameCancel={cancelRename}
+                      dragOverPath={dragOverPath}
+                      draggedNodePath={draggedNodePath}
+                      onPointerDown={handlePointerDown}
+                      expandPath={expandPath}
+                      collapsePath={collapsePath}
+                      creatingParent={creatingIn?.parentPath ?? null}
+                      creatingType={creatingIn?.type ?? null}
+                      creatingName={creatingName}
+                      onCreatingNameChange={setCreatingName}
+                      onCreatingCommit={commitCreate}
+                      onCreatingCancel={cancelCreate}
+                      collapseKey={collapseAllKey}
+                      refreshKey={refreshKey}
+                    />
+                  ))}
+                  {/* ── Root-level inline create input ── */}
+                  {creatingIn && creatingIn.parentPath === resolvedCwd && (
+                    <div
+                      className="flex items-center gap-1.5"
+                      style={{ paddingLeft: "10px", paddingTop: "4px", paddingBottom: "4px", minHeight: "24px" }}
+                    >
+                      <input
+                        ref={creatingInputRef}
+                        autoFocus
+                        value={creatingName}
+                        onChange={(e) => setCreatingName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") { e.preventDefault(); commitCreate(); }
+                          if (e.key === "Escape") { e.preventDefault(); cancelCreate(); }
+                        }}
+                        onBlur={cancelCreate}
+                        onClick={(e) => e.stopPropagation()}
+                        placeholder={creatingIn.type === "folder" ? "folder name" : "file name"}
+                        className="flex-1 min-w-0 text-sm bg-surface-container-high border border-primary/40 rounded px-1 outline-none text-on-surface placeholder:text-outline/30 focus:border-primary/70 transition-colors"
+                        style={{ lineHeight: "1.4", marginLeft: "2px" }}
+                      />
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </CollapsibleSection>)}
+
+        {/* ── OUTLINE section (hidden in terminal view) ── */}
+        {!isTerminalView && sectionVisibility.outline && (
+          <CollapsibleSection
+            label="Outline"
+            initialOpen={false}
+            controls={
+              <SidebarIconBtn title="Refresh" onClick={() => setOutlineRefreshKey((k) => k + 1)}>
+                <RefreshCw size={12} />
+              </SidebarIconBtn>
+            }
+          >
+            <FileOutline key={outlineRefreshKey} filePath={activeFilePath} fileContent={activeFileContent} />
+          </CollapsibleSection>
         )}
 
-        {/* ── OUTLINE collapsed section ── */}
-        <CollapsedSection label="Outline" />
+        {/* ── TIMELINE section (hidden in terminal view) ── */}
+        {!isTerminalView && sectionVisibility.timeline && (
+          <CollapsibleSection
+            label="Timeline"
+            initialOpen={false}
+            controls={
+              <SidebarIconBtn title="Refresh" onClick={() => setTimelineRefreshKey((k) => k + 1)}>
+                <RefreshCw size={12} />
+              </SidebarIconBtn>
+            }
+          >
+            <FileTimeline key={timelineRefreshKey} filePath={activeFilePath} />
+          </CollapsibleSection>
+        )}
 
-        {/* ── TIMELINE collapsed section ── */}
-        <CollapsedSection label="Timeline" />
+        {/* ── GIT section ── */}
+        {sectionVisibility.git && (
+          <CollapsibleSection
+            label="Git Graph"
+            initialOpen={false}
+            controls={
+              <SidebarIconBtn title="Refresh" onClick={() => setGitRefreshKey((k) => k + 1)}>
+                <RefreshCw size={12} />
+              </SidebarIconBtn>
+            }
+          >
+            <GitTree key={gitRefreshKey} />
+          </CollapsibleSection>
+        )}
       </div>{/* end explorer section group */}
 
       <div
@@ -1160,105 +1262,101 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
       </div>
 
       {/* ── File Context Menu — rendered as fixed so it escapes overflow:hidden ── */}
-      {fileMenu && (
-        <RightClickMenuPanel anchorX={fileMenu.x} anchorY={fileMenu.y} open={true}>
-          {/* File header — shows what item was right-clicked */}
-          <div className="px-3 pt-1 pb-2 flex items-center gap-2 border-b border-outline-variant/10 mb-1">
-            {fileMenu.node.is_dir && <Folder size={12} className="text-primary/70 shrink-0" />}
-            <span className="text-sm text-on-surface-variant/60 overflow-hidden text-ellipsis whitespace-nowrap">{fileMenu.node.name}</span>
-          </div>
+      <MenuView
+        variant="rightclick"
+        open={!!fileMenu}
+        onClose={() => setFileMenu(null)}
+        anchorX={fileMenu?.x ?? 0}
+        anchorY={fileMenu?.y ?? 0}
+      >
+        {/* File header — shows what item was right-clicked */}
+        <div className="px-3 pt-1 pb-2 flex items-center gap-2 border-b border-outline-variant/10 mb-1">
+          {fileMenu?.node.is_dir && <Folder size={12} className="text-primary/70 shrink-0" />}
+          <span className="text-sm text-on-surface-variant/60 overflow-hidden text-ellipsis whitespace-nowrap">{fileMenu?.node.name}</span>
+        </div>
 
-          {/* Copy Name */}
-          <RightClickMenuItem icon={<ClipboardCopy size={13} />} onClick={() => { copyToClipboard(fileMenu.node.name); setFileMenu(null); }}>
-            Copy Name
-          </RightClickMenuItem>
+        {/* Copy Name */}
+        <MenuViewItem variant="rightclick" icon={<ClipboardCopy size={13} />} onClick={() => { if (!fileMenu) return; copyToClipboard(fileMenu.node.name); setFileMenu(null); }}>
+          Copy Name
+        </MenuViewItem>
 
-          {/* Copy Path */}
-          <RightClickMenuItem icon={<Copy size={13} />} onClick={() => { copyToClipboard(fileMenu.node.path); setFileMenu(null); }}>
-            Copy Path
-          </RightClickMenuItem>
+        {/* Copy Path */}
+        <MenuViewItem variant="rightclick" icon={<Copy size={13} />} onClick={() => { if (!fileMenu) return; copyToClipboard(fileMenu.node.path); setFileMenu(null); }}>
+          Copy Path
+        </MenuViewItem>
 
-          {/* Copy (to clipboard buffer) */}
-          <RightClickMenuItem icon={<ClipboardList size={13} />} onClick={() => handleCopy(fileMenu.node)}>
-            Copy
-          </RightClickMenuItem>
+        {/* Copy (to clipboard buffer) */}
+        <MenuViewItem variant="rightclick" icon={<ClipboardList size={13} />} onClick={() => { if (fileMenu) handleCopy(fileMenu.node); }}>
+          Copy
+        </MenuViewItem>
 
-          {/* Cut (to clipboard buffer) */}
-          <RightClickMenuItem icon={<Scissors size={13} />} onClick={() => handleCut(fileMenu.node)}>
-            Cut
-          </RightClickMenuItem>
+        {/* Cut (to clipboard buffer) */}
+        <MenuViewItem variant="rightclick" icon={<Scissors size={13} />} onClick={() => { if (fileMenu) handleCut(fileMenu.node); }}>
+          Cut
+        </MenuViewItem>
 
-          {/* Paste (only when clipboard has content) */}
-          {clipboardHasContent && (
-            <RightClickMenuItem icon={<ClipboardList size={13} />} onClick={handlePaste}>
-              Paste
-            </RightClickMenuItem>
-          )}
+        {/* Paste (only when clipboard has content) */}
+        {clipboardHasContent && (
+          <MenuViewItem variant="rightclick" icon={<ClipboardList size={13} />} onClick={handlePaste}>
+            Paste
+          </MenuViewItem>
+        )}
 
-          <RightClickMenuSeparator />
+        <MenuViewSeparator />
 
-          {/* Reveal in Explorer */}
-          <RightClickMenuItem icon={<FolderOpen size={13} />} onClick={() => { revealInExplorer(fileMenu.node.path); setFileMenu(null); }}>
-            Reveal in Explorer
-          </RightClickMenuItem>
+        {/* Reveal in Explorer */}
+        <MenuViewItem variant="rightclick" icon={<FolderOpen size={13} />} onClick={() => { if (!fileMenu) return; revealInExplorer(fileMenu.node.path); setFileMenu(null); }}>
+          Reveal in Explorer
+        </MenuViewItem>
 
-          <RightClickMenuSeparator />
+        <MenuViewSeparator />
 
-          {/* For directories: Terminal options */}
-          {fileMenu.node.is_dir && (
-            <>
-              {/* Open current tab */}
-              <RightClickMenuItem icon={<Terminal size={13} />} onClick={handleOpenFolderInAurora}>
-                Open Here
-              </RightClickMenuItem>
+        {/* For directories: Terminal options */}
+        {fileMenu?.node.is_dir && (
+          <>
+            <MenuViewItem variant="rightclick" icon={<Terminal size={13} />} onClick={handleOpenFolderInAurora}>
+              Open Here
+            </MenuViewItem>
+            <MenuViewItem variant="rightclick" icon={<Terminal size={13} />} onClick={handleOpenFolderInNewTab}>
+              Open in New Tab
+            </MenuViewItem>
+          </>
+        )}
 
-              {/* Open target in a new tab */}
-              <RightClickMenuItem icon={<Terminal size={13} />} onClick={handleOpenFolderInNewTab}>
-                Open in New Tab
-              </RightClickMenuItem>
-            </>
-          )}
-
-          {/* For files: Open in editor */}
-          {!fileMenu.node.is_dir && (
-            <>
-              <RightClickMenuItem icon={<FileText size={13} />} onClick={() => {
-                window.dispatchEvent(
-                  new CustomEvent("sidebar-open-file", { detail: { path: fileMenu.node.path } })
-                );
-                setFileMenu(null);
-              }}>
-                Open
-              </RightClickMenuItem>
-            </>
-          )}
-          <RightClickMenuItem icon={<ExternalLink size={13} />} onClick={() => {
-            const rel = fileMenu.node.path
-              .replace(resolvedCwd, "")
-              .replace(/^[/\\]/, "");
-            copyToClipboard(rel);
+        {/* For files: Open in editor */}
+        {fileMenu && !fileMenu.node.is_dir && (
+          <MenuViewItem variant="rightclick" icon={<FileText size={13} />} onClick={() => {
+            window.dispatchEvent(
+              new CustomEvent("sidebar-open-file", { detail: { path: fileMenu.node.path } })
+            );
             setFileMenu(null);
           }}>
-            Copy Relative Path
-          </RightClickMenuItem>
+            Open
+          </MenuViewItem>
+        )}
+        <MenuViewItem variant="rightclick" icon={<ExternalLink size={13} />} onClick={() => {
+          if (!fileMenu) return;
+          const rel = fileMenu.node.path
+            .replace(resolvedCwd, "")
+            .replace(/^[/\\]/, "");
+          copyToClipboard(rel);
+          setFileMenu(null);
+        }}>
+          Copy Relative Path
+        </MenuViewItem>
 
-          <RightClickMenuSeparator />
+        <MenuViewSeparator />
 
-          {/* Rename */}
-          <RightClickMenuItem icon={<Pencil size={13} />} onClick={() => startRename(fileMenu.node)}>
-            Rename
-          </RightClickMenuItem>
+        {/* Rename */}
+        <MenuViewItem variant="rightclick" icon={<Pencil size={13} />} onClick={() => { if (fileMenu) startRename(fileMenu.node); }}>
+          Rename
+        </MenuViewItem>
 
-          {/* Delete */}
-          <RightClickMenuItem
-            icon={<Trash2 size={13} />}
-            onClick={() => startDelete(fileMenu.node)}
-            danger
-          >
-            Delete
-          </RightClickMenuItem>
-        </RightClickMenuPanel>
-      )}
+        {/* Delete */}
+        <MenuViewItem variant="rightclick" icon={<Trash2 size={13} />} onClick={() => { if (fileMenu) startDelete(fileMenu.node); }} danger>
+          Delete
+        </MenuViewItem>
+      </MenuView>
 
       {/* ── Delete confirmation modal ── */}
       {deleteConfirm && (
@@ -1403,28 +1501,103 @@ function SidebarIconBtn({
   );
 }
 
-/* ── CollapsedSection ───────────────────────────────────────────────── */
-function CollapsedSection({ label }: { label: string }) {
-  const [open, setOpen] = React.useState(false);
+/* ── CollapsibleSection ────────────────────────────────────────────── */
+function CollapsibleSection({ label, initialOpen, children, controls, loading }: {
+  label: string;
+  initialOpen?: boolean;
+  children?: React.ReactNode;
+  controls?: React.ReactNode;
+  loading?: boolean;
+}) {
+  const [isOpen, setIsOpen] = React.useState(initialOpen ?? false);
+  const [sectionHeight, setSectionHeight] = React.useState<number | null>(null);
+  const dragRef = React.useRef<{ startY: number; startH: number; maxH: number } | null>(null);
+
+  useEffect(() => {
+    if (initialOpen !== undefined) {
+      setIsOpen(initialOpen);
+    }
+  }, [initialOpen]);
+
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent) => {
+      if (!dragRef.current) return;
+      const delta = e.clientY - dragRef.current.startY;
+      const newH = Math.max(60, Math.min(dragRef.current.maxH, dragRef.current.startH + delta));
+      setSectionHeight(newH);
+    };
+    const onMouseUp = () => {
+      if (!dragRef.current) return;
+      dragRef.current = null;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, []);
+
+  const onResizeHandleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const parent = (e.currentTarget.closest(".flex-col") || e.currentTarget.parentElement) as HTMLElement | null;
+    const contentEl = e.currentTarget.parentElement?.querySelector(".section-scroll") as HTMLElement | null;
+    dragRef.current = {
+      startY: e.clientY,
+      startH: contentEl?.offsetHeight ?? 200,
+      maxH: parent ? parent.offsetHeight - 30 : 9999,
+    };
+    document.body.style.cursor = "row-resize";
+    document.body.style.userSelect = "none";
+  };
+
   return (
-    <div style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}>
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center gap-1.5 px-3 cursor-pointer select-none transition-colors"
+    <div className="flex flex-col min-h-0" style={{
+      borderTop: "1px solid rgba(255,255,255,0.05)",
+      flex: isOpen ? (sectionHeight !== null ? "0 0 auto" : "1 1 0%") : "0 0 auto",
+      height: isOpen && sectionHeight !== null ? sectionHeight : undefined,
+      minHeight: isOpen ? "60px" : undefined,
+    }}>
+      <div
+        className="w-full flex items-center gap-1.5 px-3 cursor-pointer select-none transition-colors group"
         style={{ height: "30px", color: "rgba(232,234,240,0.35)" }}
+        onClick={() => setIsOpen((v) => !v)}
         onMouseEnter={(e) => (e.currentTarget.style.color = "rgba(232,234,240,0.65)")}
         onMouseLeave={(e) => (e.currentTarget.style.color = "rgba(232,234,240,0.35)")}
       >
-        {open
-          ? <ChevronDown size={11} className="shrink-0" />
-          : <ChevronRight size={11} className="shrink-0" />
-        }
-        <span className="text-[11px] font-bold uppercase tracking-[0.08em]">{label}</span>
-      </button>
-      {open && (
-        <div className="px-3 py-2 text-[11px]" style={{ color: "rgba(232,234,240,0.25)" }}>
-          No items
+        <div className="flex items-center gap-1.5 flex-1 min-w-0 pointer-events-none">
+          {isOpen
+            ? <ChevronDown size={11} className="shrink-0" />
+            : <ChevronRight size={11} className="shrink-0" />
+          }
+          <span className="text-[11px] font-bold uppercase tracking-[0.08em] truncate">{label}</span>
         </div>
+        {isOpen && controls && (
+          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+            {controls}
+          </div>
+        )}
+        {loading && <RefreshCw size={10} className="animate-spin shrink-0" style={{ color: "#4F8CFF" }} />}
+      </div>
+      {isOpen && (
+        <div className="px-0 py-0 text-sm overflow-x-hidden section-scroll" style={{
+          flex: "1 1 0%",
+          minHeight: 0,
+          overflowY: "auto",
+        }}>
+          {children || (
+            <div className="px-3 py-2 text-sm" style={{ color: "rgba(232,234,240,0.25)" }}>No items</div>
+          )}
+        </div>
+      )}
+      {isOpen && (
+        <div
+          className="shrink-0 cursor-row-resize hover:bg-primary/20 transition-colors"
+          style={{ height: "3px" }}
+          onMouseDown={onResizeHandleMouseDown}
+        />
       )}
     </div>
   );

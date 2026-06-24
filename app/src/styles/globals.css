@@ -68,7 +68,7 @@
   --spacing-unit: 4px;
   --spacing-sidebar-width: 240px;
 
-  /* ── Legacy UI tokens (used by scrollbar/border rules below) ───────── */
+  /* ── Legacy UI tokens ────────────────────────────────────────────── */
   --color-ui-border: rgba(255, 255, 255, 0.08);
   --color-ui-text: rgba(232, 234, 240, 0.55);
   --color-ui-surface: rgba(15, 19, 26, 0.95);
@@ -95,15 +95,35 @@ body {
   color: #E8EAF0;
 }
 
-/* ─────────────────── Glassy Overlay Scrollbar ────────────────────── */
+/* ── 1. Global Reset For All Hidden Scrollbar Structural Anchors ───── */
+*::-webkit-scrollbar-corner,
+*::-webkit-scrollbar-button,
+*::-webkit-scrollbar-track-piece,
+.section-scroll::-webkit-scrollbar-button,
+.section-scroll::-webkit-scrollbar-corner,
+.section-scroll::-webkit-scrollbar-track-piece,
+.sidepanel-scroll::-webkit-scrollbar-button,
+.sidepanel-scroll::-webkit-scrollbar-corner,
+.sidepanel-scroll::-webkit-scrollbar-track-piece,
+.has-tabs-scrollbar::-webkit-scrollbar-button,
+.has-tabs-scrollbar::-webkit-scrollbar-corner,
+.has-tabs-scrollbar::-webkit-scrollbar-track-piece {
+  display: none !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+/* ── 2. Global Custom Scrollbar Base Styling ──────────────────────── */
 * {
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.08) transparent;
 }
 
 *::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 5px;
 }
 
 *::-webkit-scrollbar-track {
@@ -112,72 +132,115 @@ body {
 
 *::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.08) !important;
-  border-radius: 4px;
-  min-height: 32px;
-  border: 0.5px solid rgba(255, 255, 255, 0.03);
-  transition: background 0.15s ease-in-out, border-color 0.15s ease-in-out;
+  border-radius: 99px;
+  min-height: 28px;
+  transition: background 0.2s ease;
 }
 
-/* On hover of any container, or hover of thumb, make it more prominent and glassy */
 *:hover::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.16) !important;
-  border-color: rgba(255, 255, 255, 0.06);
 }
 
 *::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.28) !important;
-  border-color: rgba(255, 255, 255, 0.1) !important;
 }
 
 *::-webkit-scrollbar-thumb:active {
   background: rgba(79, 140, 255, 0.35) !important;
-  border: none !important;
 }
 
-*::-webkit-scrollbar-corner {
+/* ── 3. Scroll Layout Layout Helpers ───────────────────────────────── */
+.overflow-y-auto,
+.overflow-y-scroll,
+.overflow-auto,
+.cm-scroller,
+.image-scroll,
+.xterm-viewport,
+.scrollable-overlay {
+  overflow-y: auto;
+}
+
+.overflow-x-auto,
+.overflow-x-scroll,
+.cm-scroller {
+  overflow-x: auto;
+}
+
+/* ── 4. Custom Dedicated Scrollbar Component Utility ──────────────── */
+.scrollbar {
+  overflow-y: auto;
+  overflow-x: hidden;
+  width: 200px;
+  height: 200px;
+  padding: 10px;
+}
+
+/* ── 5. Smart Fade Panels (Forced Overrides for Explicit Layout Classes) ── */
+.section-scroll,
+.sidepanel-scroll,
+.has-tabs-scrollbar {
+  scrollbar-color: transparent transparent !important;
+  transition: scrollbar-color 0.2s ease;
+}
+
+.has-tabs-scrollbar {
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+}
+
+.has-tabs-scrollbar .safari-tab {
+  scroll-snap-align: start;
+}
+
+/* Hard reset default scroll bounds for targeted layout structures */
+.section-scroll::-webkit-scrollbar-thumb,
+.sidepanel-scroll::-webkit-scrollbar-thumb,
+.has-tabs-scrollbar::-webkit-scrollbar-thumb {
   background: transparent !important;
 }
 
-/* Ensure absolute-like overlay layout for scrollable containers so content doesn't shift */
-.overflow-y-auto,
-.overflow-y-scroll,
-.overflow-x-auto,
-.overflow-x-scroll,
-.overflow-auto,
-.sidepanel-scroll,
-.scrollable-overlay,
-.xterm-viewport,
-.has-tabs-scrollbar {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.08) transparent;
+.section-scroll:hover,
+.sidepanel-scroll:hover,
+.has-tabs-scrollbar:hover {
+  scrollbar-color: rgba(255, 255, 255, 0.12) transparent !important;
 }
 
-.overflow-y-auto,
-.overflow-y-scroll,
-.sidepanel-scroll,
-.scrollable-overlay,
-.xterm-viewport {
-  overflow-y: overlay !important;
+.section-scroll:hover::-webkit-scrollbar-thumb,
+.sidepanel-scroll:hover::-webkit-scrollbar-thumb,
+.has-tabs-scrollbar:hover::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12) !important;
 }
 
-.overflow-x-auto,
-.overflow-x-scroll,
-.has-tabs-scrollbar {
-  overflow-x: overlay !important;
+.section-scroll:hover::-webkit-scrollbar-thumb:hover,
+.sidepanel-scroll:hover::-webkit-scrollbar-thumb:hover,
+.has-tabs-scrollbar:hover::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25) !important;
 }
 
+/* ── 6. Utility Modifiers ─────────────────────────────────────────── */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none !important;
+}
+
+/* ── 7. xterm Terminal Viewports ──────────────────────────────────── */
 .xterm-viewport {
   background-color: transparent !important;
   margin: 0 !important;
   padding: 0 !important;
 }
 
-/* Make xterm canvas fully transparent */
 .xterm canvas {
   background-color: transparent !important;
 }
 
-/* ─────────────────── Glass Panel ─────────────────────────────────── */
+/* ── 8. Glass Panels ─────────────────────────────────────────────── */
 .glass-panel {
   background: rgba(255, 255, 255, 0.03);
   backdrop-filter: blur(24px);
@@ -191,11 +254,11 @@ body {
   -webkit-backdrop-filter: blur(24px);
   border: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.03),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
     0 10px 30px rgba(0, 0, 0, 0.35);
 }
 
-/* ─────────────────── Safari-style Tabs ─────────────────────────────── */
+/* ── 9. Safari-style Tabs ─────────────────────────────────────────── */
 .safari-tab {
   flex: 1;
   min-width: 0;
@@ -237,22 +300,7 @@ body {
     inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
-/* ─────────────────── Scrollbar Utilities ─────────────────────────── */
-.no-scrollbar::-webkit-scrollbar {
-  display: none;
-}
-
-.no-scrollbar {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
-
-.scrollable-overlay {
-  overflow-y: overlay !important;
-  overflow-x: hidden !important;
-}
-
-/* ─────────────────── xterm Core Overrides ───────────────────────── */
+/* ── 10. xterm Core Overrides ────────────────────────────────────── */
 .xterm {
   width: 100% !important;
   height: 100% !important;
@@ -262,11 +310,7 @@ body {
   text-align: left !important;
 }
 
-.xterm-screen {
-  background-color: transparent !important;
-  text-align: left !important;
-}
-
+.xterm-screen,
 .xterm-rows {
   background-color: transparent !important;
   text-align: left !important;
@@ -276,16 +320,13 @@ body {
 .xterm:focus,
 .xterm.focus,
 .xterm-viewport,
-.xterm-viewport:focus {
+.xterm-viewport:focus,
+.xterm-screen {
   outline: none !important;
   box-shadow: none !important;
 }
 
-.xterm-screen {
-  outline: none !important;
-}
-
-/* ─────────────────── Ghost Input ─────────────────────────────────── */
+/* ── 11. Ghost Input Animations ──────────────────────────────────── */
 @keyframes ghost-fade-in {
   from {
     opacity: 0;
@@ -304,7 +345,7 @@ body {
   width: 100%;
 }
 
-/* ─────────────────── Output Renderer ─────────────────────────────── */
+/* ── 12. Output Renderer ─────────────────────────────────────────── */
 .output-renderer {
   cursor: text;
 }
@@ -340,69 +381,16 @@ body {
   }
 }
 
-/* ─────────────────── Input Bar Glow ───────────────────────────────── */
+/* ── 13. Input Bar Glow ──────────────────────────────────────────── */
 .warp-input-glow {
-  transition:
-    border-color 0.2s ease,
-    box-shadow 0.2s ease;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .warp-input-glow:focus-within {
-  border-color: rgba(255, 255, 255, 0.1) !important;
   box-shadow: 0 0 0 1px rgba(90, 140, 255, 0.12), 0 4px 20px rgba(79, 140, 255, 0.08);
 }
 
-/* ─────────────────── Tabs Horizontal Scrollbar ───────────────────── */
-.has-tabs-scrollbar {
-  scroll-snap-type: x mandatory;
-  scroll-behavior: smooth;
-  overflow-x: overlay !important;
-  overflow-y: hidden !important;
-}
-
-.has-tabs-scrollbar .safari-tab {
-  scroll-snap-align: start;
-}
-
-.has-tabs-scrollbar::-webkit-scrollbar {
-  height: 6px;
-  background: transparent !important;
-}
-
-.has-tabs-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.08) !important;
-  border-radius: 99px;
-  min-height: unset;
-  border: 0.5px solid rgba(255, 255, 255, 0.03);
-  transition: background 0.15s ease-in-out, border-color 0.15s ease-in-out;
-}
-
-.has-tabs-scrollbar:hover::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.16) !important;
-  border-color: rgba(255, 255, 255, 0.06);
-}
-
-.has-tabs-scrollbar:hover::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.28) !important;
-  border-color: rgba(255, 255, 255, 0.1) !important;
-}
-
-.has-tabs-scrollbar::-webkit-scrollbar-track {
-  background: transparent !important;
-}
-
-.has-tabs-scrollbar::-webkit-scrollbar-button {
-  display: none !important;
-  width: 0 !important;
-  height: 0 !important;
-}
-
-.has-tabs-scrollbar::-webkit-scrollbar-corner {
-  background: transparent !important;
-  display: none !important;
-}
-
-/* ─────────────────── Section Label ────────────────────────────────── */
+/* ── 14. Section Label ───────────────────────────────────────────── */
 .section-label {
   font-size: 10px;
   font-weight: 700;
@@ -411,4 +399,16 @@ body {
   color: rgba(255, 255, 255, 0.25);
   padding: 8px 12px 4px;
   user-select: none;
+}
+
+/* ── 15. CodeMirror Minimap ──────────────────────────────────────── */
+.cm-minimap {
+  border-left: 1px solid rgba(232, 234, 240, 0.06);
+  background: transparent;
+  cursor: pointer;
+}
+
+.cm-minimap-overlay {
+  background: rgba(232, 234, 240, 0.06);
+  border: 1px solid rgba(232, 234, 240, 0.08);
 }

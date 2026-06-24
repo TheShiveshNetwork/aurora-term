@@ -1,4 +1,4 @@
-export type TabType = "terminal" | "file";
+export type TabType = "terminal" | "file" | "diff";
 
 export interface Tab {
   id: string;
@@ -9,6 +9,10 @@ export interface Tab {
   filePath?: string;
   dirty?: boolean;
   fileContent?: string;
+  diffOldContent?: string;
+  diffNewContent?: string;
+  diffContent?: string;
+  diffCommitHash?: string;
   created_at: number;
   pinned?: boolean;
 }

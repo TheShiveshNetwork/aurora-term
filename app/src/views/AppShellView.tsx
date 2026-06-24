@@ -18,13 +18,17 @@ import { StatusBar } from "../components/ui/StatusBar";
 import { SettingsModal } from "../components/settings/SettingsModal";
 import { AppHeader } from "../components/layout/AppHeader";
 import { AppContextMenu } from "../components/layout/AppContextMenu";
+import { AgentOverlay } from "../components/terminal/AgentOverlay";
 import { SaveChangesModal } from "../components/layout/SaveChangesModal";
 import { CommandInputBar } from "../components/layout/CommandInputBar";
 import { TerminalWorkspaceView } from "./TerminalWorkspaceView";
 import { FileWorkspaceView } from "./FileWorkspaceView";
+import { DiffWorkspaceView } from "../components/editor/DiffWorkspaceView";
+import { CommitDiffView } from "../components/editor/CommitDiffView";
 import { getDefaultShellLaunch, isWindowsPlatform } from "../lib/shell";
 import { classifyInput, setAvailableCommands, type ShellType } from "../lib/nlClassifier";
 import { system } from "../lib/ipc";
+import { closeAllPopups, onClosePopups } from "../lib/popups";
 
 export function AppShellView() {
   const { tabs, activeTabId, spawnSession, killSession, openFile, setActiveTabId } = useAppBootstrap();
@@ -69,6 +73,17 @@ export function AppShellView() {
     appendCommandInput,
     clearSessionInteracted,
   } = useAppShellStore();
+
+  useEffect(() => {
+    if (viewMode === "file") {
+      useAppShellStore.getState().setSectionVisibility({
+        folders: true,
+        outline: true,
+        timeline: true,
+        git: true,
+      });
+    }
+  }, [viewMode]);
 
   const {
     activeCommandInput,
@@ -116,7 +131,7 @@ export function AppShellView() {
   };
 
   const activeTab = tabs.find((tab) => tab.id === activeTabId) || null;
-  const activeFilePath = activeTab?.type === "file" ? activeTab.filePath : undefined;
+  const activeFilePath = (activeTab?.type === "file" || activeTab?.type === "diff") ? activeTab.filePath : undefined;
   const pendingTab = pendingCloseTabId ? tabs.find((tab) => tab.id === pendingCloseTabId) || null : null;
   const currentTerminalBlocks = targetSessionId ? blocks[targetSessionId] || [] : [];
   const hasInteracted = activeTabId ? Boolean(interactedSessions[activeTabId]) : false;
@@ -181,6 +196,13 @@ export function AppShellView() {
     }
   };
 
+  useEffect(() => {
+    return onClosePopups(() => {
+      clearContextMenu();
+      setShowMenuDropdown(false);
+    });
+  }, [clearContextMenu]);
+
   const handleNewTab = async () => {
     setShowMenuDropdown(false);
     const { shell, args } = getDefaultShellLaunch();
@@ -205,6 +227,7 @@ export function AppShellView() {
 
     const tab = tabs.find((candidate) => candidate.id === activeTabId);
     if (tab?.type === "file" && tab.dirty) {
+      closeAllPopups();
       setPendingCloseTabId(activeTabId);
       return;
     }
@@ -325,11 +348,14 @@ export function AppShellView() {
         sidebarCollapsed={sidebarCollapsed}
         onToggleSidebar={toggleSidebarCollapsed}
         agentOverlayOpen={showAiBar}
-        onToggleAgentOverlay={() => setShowAiBar(!showAiBar)}
+        onToggleAgentOverlay={() => {
+          const current = useAppShellStore.getState().showAiBar;
+          useAppShellStore.getState().setShowAiBar(!current);
+        }}
         chatInputOpen={chatInputOpen}
         onToggleChatInput={toggleChatInputOpen}
         menuOpen={showMenuDropdown}
-        onToggleMenu={toggleShowMenuDropdown}
+        onToggleMenu={() => { closeAllPopups(); toggleShowMenuDropdown(); }}
         onOpenFolder={handleOpenFolder}
         onOpenFile={handleOpenFile}
         onOpenRecentFile={handleOpenRecentFile}
@@ -338,7 +364,7 @@ export function AppShellView() {
         onCloseSession={handleCloseSession}
         onCloseTab={handleCloseTab}
         onCloseOtherTabs={handleCloseOtherTabs}
-        onOpenSettings={() => setShowSettings(true)}
+        onOpenSettings={() => { closeAllPopups(); setShowSettings(true); }}
         onToggleTheme={handleToggleTheme}
         onToggleTabBar={toggleTabBarVisible}
         onShowTerminalView={handleShowTerminalView}
@@ -398,8 +424,7 @@ export function AppShellView() {
           </div>
 
           <div
-            className={`flex-1 overflow-hidden w-full flex flex-col relative ${(activeTab?.type === "file" || isAlternateActive) ? "" : "px-3 pt-3"}`}
-            onMouseDown={(event) => {
+            className={`flex-1 overflow-hidden w-full flex flex-col relative ${(activeTab?.type === "file" || activeTab?.type === "diff" || isAlternateActive) ? "" : "px-3 pt-3"}`} onMouseDown={(event) => {
               const target = event.target as HTMLElement;
               if (target.closest(".xterm")) {
                 return;
@@ -410,7 +435,7 @@ export function AppShellView() {
               }
             }}
           >
-            <div className="flex-1 min-h-0 w-full relative">
+            <div className="flex-1 min-h-0 w-full relative overflow-hidden">
               {tabs.map((tab) => {
                 const isTabActive = tab.id === activeTabId;
 
@@ -426,6 +451,18 @@ export function AppShellView() {
                   >
                     {tab.type === "file" ? (
                       <FileWorkspaceView tab={tab} onOpenFile={handleOpenFile} onOpenFolder={handleOpenFolder} />
+                    ) : tab.type === "diff" && tab.diffContent ? (
+                      <CommitDiffView
+                        diff={tab.diffContent}
+                        commitHash={tab.diffCommitHash || ""}
+                      />
+                    ) : tab.type === "diff" ? (
+                      <DiffWorkspaceView
+                        filePath={tab.filePath || ""}
+                        oldContent={tab.diffOldContent || ""}
+                        newContent={tab.diffNewContent || ""}
+                        commitHash={tab.diffCommitHash || ""}
+                      />
                     ) : (
                       <TerminalWorkspaceView
                         tab={tab}
@@ -443,7 +480,7 @@ export function AppShellView() {
           </div>
 
           {/* Terminal view: command variant (default) */}
-          {activeTab?.type === "terminal" && !isAlternateActive && (
+          {chatInputOpen && activeTab?.type === "terminal" && !isAlternateActive && (
             <CommandInputBar
               sessionId={targetSessionId}
               cwd={cwd}
@@ -463,7 +500,7 @@ export function AppShellView() {
           )}
 
           {/* File view: prompt variant (absolute, glassmorphism, independent state) */}
-          {activeTab?.type === "file" && (
+          {chatInputOpen && activeTab?.type === "file" && (
             <CommandInputBar
               variant="prompt"
               sessionId={null}
@@ -479,6 +516,11 @@ export function AppShellView() {
             />
           )}
         </main>
+
+        {/* Agent overlay — rendered at shell level so it works in any view */}
+        {showAiBar && activeTabId && (
+          <AgentOverlay sessionId={activeTabId} onClose={() => setShowAiBar(false)} />
+        )}
       </div>
 
       <SaveChangesModal

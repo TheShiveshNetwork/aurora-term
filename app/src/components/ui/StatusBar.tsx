@@ -19,9 +19,23 @@ function formatRam(mb: number): string {
 const glassy = "rgba(19, 26, 36, 0.88)";
 
 function Tooltip({ children, show, className = "" }: { children: React.ReactNode; show: boolean; className?: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [offsetX, setOffsetX] = useState(0);
+
+  useEffect(() => {
+    if (!show || !ref.current) { setOffsetX(0); return; }
+    const rect = ref.current.getBoundingClientRect();
+    const vw = window.innerWidth;
+    let ox = 0;
+    if (rect.right > vw - 8) ox = vw - 8 - rect.right;
+    if (rect.left < 8) ox = 8 - rect.left;
+    setOffsetX(ox);
+  }, [show, children]);
+
   return show ? (
     <div
-      className={`absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-3 py-2 z-[100] whitespace-nowrap flex items-center gap-2 transition-opacity duration-150 ${className}`}
+      ref={ref}
+      className={`absolute bottom-full left-1/2 mb-1.5 px-3 py-2 z-[100] whitespace-nowrap flex items-center gap-2 transition-opacity duration-150 ${className}`}
       style={{
         background: glassy,
         backdropFilter: "blur(10px)",
@@ -30,6 +44,7 @@ function Tooltip({ children, show, className = "" }: { children: React.ReactNode
         borderRadius: "10px",
         boxShadow: "0 8px 24px rgba(0,0,0,0.45)",
         pointerEvents: "auto",
+        transform: `translateX(calc(-50% + ${offsetX}px))`,
       }}
     >
       {children}

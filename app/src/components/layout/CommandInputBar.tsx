@@ -3,6 +3,7 @@ import { Command, Plus, RefreshCw, FolderOpen, Square, Mic } from "lucide-react"
 
 import { GhostInput } from "../terminal/GhostInput";
 import type { InputMode } from "../../lib/nlClassifier";
+import { closeAllPopups } from "../../lib/popups";
 
 type Variant = "command" | "prompt";
 
@@ -45,16 +46,16 @@ export function CommandInputBar({
       onContextMenu={(event) => {
         event.preventDefault();
         event.stopPropagation();
-        window.dispatchEvent(new CustomEvent("aurora-right-click-menu-close"));
+        closeAllPopups();
         window.dispatchEvent(new CustomEvent("show-context-menu", { detail: { x: event.clientX, y: event.clientY, source: "input" } }));
       }}
     >
       <div
-        className="warp-input-glow flex flex-col overflow-hidden rounded-md"
+        className={`warp-input-glow flex flex-col overflow-hidden rounded-md ${isPrompt ? "backdrop-blur-xl" : ""}`}
         style={{
-          background: "rgba(255,255,255,0.03)",
+          background: isPrompt ? "rgba(10,13,20,0.65)" : "rgba(255,255,255,0.03)",
           border: "1px solid rgba(255,255,255,0.07)",
-          boxShadow: "0 4px 24px rgba(0,0,0,0.25)",
+          boxShadow: isPrompt ? "0 8px 32px rgba(0,0,0,0.4)" : "0 4px 24px rgba(0,0,0,0.25)",
         }}
       >
         {/* CWD breadcrumb */}

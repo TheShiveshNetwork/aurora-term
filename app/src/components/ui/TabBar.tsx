@@ -1,9 +1,10 @@
 ﻿import React, { useRef, useState, useCallback, useEffect } from "react";
-import { Terminal, FileText, Plus, X, Copy, Pin, Edit3, XCircle, Trash2, ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, ExternalLink } from "lucide-react";
+import { Terminal, FileText, Plus, X, Copy, Pin, Edit3, XCircle, Trash2, ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, ExternalLink, GitBranchPlus } from "lucide-react";
 import { useSessionStore } from "../../stores/useSessionStore";
-import { Tab } from "@aurora/types";
-import { RightClickMenuPanel, RightClickMenuItem, RightClickMenuSeparator } from "./RightClickMenu";
+import { Tab, TabType } from "@aurora/types";
+import { MenuView, MenuViewItem, MenuViewSeparator } from "./MenuView";
 import { invoke } from "@tauri-apps/api/core";
+import { closeAllPopups, onClosePopups } from "../../lib/popups";
 
 interface TabBarProps {
   viewMode: "terminal" | "file";
@@ -12,6 +13,8 @@ interface TabBarProps {
   onKillTab: (id: string) => void;
   onDuplicateTab?: (tab: Tab) => void;
 }
+
+const FILE_LIKE_TYPES: TabType[] = ["file", "diff"];
 
 export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplicateTab }: TabBarProps) {
   const { tabs, activeTabId, setActiveTabId, reorderTabs, updateTab } = useSessionStore();
@@ -53,7 +56,9 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
     setRenameTabId(null);
   };
 
-  const expandedTabs = tabs.filter((t) => t.type === viewMode);
+  const expandedTabs = viewMode === "file"
+    ? tabs.filter((t) => FILE_LIKE_TYPES.includes(t.type))
+    : tabs.filter((t) => t.type === "terminal");
 
   // ── Dynamic overflow detection ───────────────────────────────────
   const [isOverflowing, setIsOverflowing] = useState(false);
@@ -151,7 +156,15 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
       setShowAddMenu(false);
     };
     window.addEventListener("click", close);
-    return () => window.removeEventListener("click", close);
+    const unsub = onClosePopups(() => {
+      setContextTab(null);
+      setShowAddMenu(false);
+      setRenameTabId(null);
+    });
+    return () => {
+      window.removeEventListener("click", close);
+      unsub();
+    };
   }, []);
 
   // Smooth scroll and center active tab
@@ -287,15 +300,15 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
         className={`flex items-start h-full pt-[5px] flex-1 gap-1 overflow-x-auto overflow-y-hidden min-w-0 relative ${isOverflowing
-          ? `has-tabs-scrollbar ${isHovered ? "tabs-scroll-hovered" : ""}`
-          : "no-scrollbar"
+          ? `has-tabs-scrollbar`
+          : ""
           }`}
       >
         {sortedTabs.map((tab, index) => {
           const isActive = tab.id === activeTabId;
           const isDragging = dragIdx === index;
           const isOver = overIdx === index && !isDragging;
-          const isExpanded = tab.type === viewMode;
+          const isExpanded = viewMode === "file" ? FILE_LIKE_TYPES.includes(tab.type) : tab.type === "terminal";
           const isPinned = tab.pinned;
 
           return (
@@ -305,22 +318,24 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
               onMouseDown={(e) => handleMouseDown(e, index)}
               onClick={() => {
                 setActiveTabId(tab.id);
-                if (tab.type !== viewMode) {
-                  onSetViewMode(tab.type);
+                const mode = FILE_LIKE_TYPES.includes(tab.type) ? "file" : "terminal";
+                if (mode !== viewMode) {
+                  onSetViewMode(mode);
                 }
               }}
               onContextMenu={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
+                closeAllPopups();
                 setContextTab({ x: e.clientX, y: e.clientY, tab });
               }}
-              className={`safari-tab select-none ${isActive ? "active" : ""} ${isOver ? "drag-over" : ""} ${isDragging ? "opacity-40" : ""} ${isExpanded && !isPinned ? "" : "!justify-center !p-0 !gap-0"
+              className={`safari-tab select-none ${isActive ? "active" : ""} ${isOver ? "drag-over" : ""} ${isDragging ? "opacity-40" : ""} ${isExpanded ? "" : "!justify-center !p-0 !gap-0"
                 }`}
               style={{
-                flex: isExpanded && !isPinned ? (isOverflowing ? "0 0 auto" : "1 1 0%") : "0 0 40px",
-                minWidth: isExpanded && !isPinned && !isOverflowing ? "80px" : undefined,
+                flex: isExpanded ? "1 1 150px" : "0 0 40px",
+                minWidth: isExpanded ? "150px" : undefined,
                 height: "36px",
-                padding: isPinned ? "0" : "0 12px",
+                padding: "0 12px",
                 order: index,
                 transform: isDragging ? "scale(0.95)" : "none",
                 position: "relative",
@@ -329,33 +344,28 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
             >
               {tab.type === "file" ? (
                 <FileText size={14} className={`shrink-0`} />
-              ) : (
+              ) : tab.type === "terminal" ? (
                 <Terminal size={14} className={`shrink-0`} />
+              ) : tab.type === "diff" && (
+                <GitBranchPlus size={14} className="shrink-0" />
               )}
+              <span
+                className={`truncate transition-all duration-200 ${isActive ? "text-on-surface" : ""} ${isExpanded ? "max-w-[160px] opacity-100" : "max-w-0 opacity-0 overflow-hidden"
+                  }`}
+              >
+                {tab.name}
+              </span>
 
-              {isPinned ? null : (
-                <span
-                  className={`truncate transition-all duration-200 ${isActive ? "text-on-surface" : ""} ${isExpanded ? "max-w-[160px] opacity-100" : "max-w-0 opacity-0 overflow-hidden"
-                    }`}
-                >
-                  {tab.name}
-                </span>
-              )}
-
-              {isPinned ? (
-                <Pin size={8} className="absolute top-1 right-1 text-primary/70 animate-pulse" />
-              ) : (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onKillTab(tab.id);
-                  }}
-                  className={`absolute right-1.5 shrink-0 transition-all duration-200 hover:bg-surface-variant/40 rounded p-0.5 text-on-surface-variant/40 hover:text-on-surface-variant ${isExpanded ? "opacity-100" : "opacity-0 pointer-events-none"
-                    }`}
-                >
-                  <X size={14} />
-                </button>
-              )}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onKillTab(tab.id);
+                }}
+                className={`absolute right-1.5 shrink-0 transition-all duration-200 hover:bg-surface-variant/40 rounded p-0.5 text-on-surface-variant/40 hover:text-on-surface-variant ${isExpanded ? "opacity-100" : "opacity-0 pointer-events-none"
+                  }`}
+              >
+                <X size={14} />
+              </button>
             </div>
           );
         })}
@@ -381,6 +391,7 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
             if (showAddMenu) {
               setShowAddMenu(false);
             } else if (e.shiftKey) {
+              closeAllPopups();
               setShowAddMenu(true);
             } else {
               onAddTab("terminal");
@@ -399,187 +410,160 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
           <Plus size={15} className={`transition-transform duration-200 ${showAddMenu ? "rotate-45" : ""}`} />
         </button>
 
-        {showAddMenu && (
-          <div
-            className="absolute right-0 top-[calc(100%+6px)] py-1.5 min-w-[132px] z-[100] animate-in fade-in slide-in-from-top-2 duration-150"
-            style={{
-              background: "#0F131A",
-              border: "1px solid rgba(255,255,255,0.08)",
-              borderRadius: "14px",
-              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.03), 0 16px 40px rgba(0,0,0,0.5)",
-              pointerEvents: "auto",
-            }}
-          >
-            <AddMenuButton
-              icon={<Terminal size={12} />}
-              accentColor="#4F8CFF"
-              onClick={() => { onAddTab("terminal"); setShowAddMenu(false); }}
-            >
-              Terminal Tab
-            </AddMenuButton>
-            <AddMenuButton
-              icon={<FileText size={12} />}
-              accentColor="#9A7CFF"
-              onClick={() => { onAddTab("file"); setShowAddMenu(false); }}
-            >
-              Workspace Tab
-            </AddMenuButton>
-          </div>
-        )}
+        <MenuView
+          variant="primary"
+          open={showAddMenu}
+          onClose={() => setShowAddMenu(false)}
+          className="absolute right-0 top-[calc(100%+6px)] min-w-[132px]"
+          style={{ pointerEvents: "auto" }}
+        >
+          <MenuViewItem icon={<Terminal size={12} />} onClick={() => { onAddTab("terminal"); setShowAddMenu(false); }}>
+            Terminal Tab
+          </MenuViewItem>
+          <MenuViewItem icon={<FileText size={12} />} onClick={() => { onAddTab("file"); setShowAddMenu(false); }}>
+            Workspace Tab
+          </MenuViewItem>
+        </MenuView>
       </div>
 
-      {contextTab && (
-        <RightClickMenuPanel anchorX={contextTab.x} anchorY={contextTab.y} open={true}>
-          {/* Header */}
-          <div className="px-3 pt-1 pb-2 flex items-center gap-2 mb-1 select-none" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-            {contextTab.tab.type === "file"
-              ? <FileText size={11} style={{ color: "rgba(79,140,255,0.7)" }} className="shrink-0" />
-              : <Terminal size={11} style={{ color: "rgba(154,124,255,0.7)" }} className="shrink-0" />
+      <MenuView
+        variant="rightclick"
+        open={!!contextTab}
+        onClose={() => setContextTab(null)}
+        anchorX={contextTab?.x ?? 0}
+        anchorY={contextTab?.y ?? 0}
+      >
+        {/* Header */}
+        <div className="px-3 pt-1 pb-2 flex items-center gap-2 mb-1 select-none" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+          {contextTab?.tab.type === "file"
+            ? <FileText size={11} style={{ color: "rgba(79,140,255,0.7)" }} className="shrink-0" />
+            : contextTab?.tab.type === "terminal" && <Terminal size={11} style={{ color: "rgba(154,124,255,0.7)" }} className="shrink-0" />
+          }
+          <span className="text-[11px] overflow-hidden text-ellipsis whitespace-nowrap" style={{ color: "rgba(232,234,240,0.5)" }}>
+            {contextTab?.tab.name}
+          </span>
+        </div>
+
+        {/* Toggle Pin */}
+        <MenuViewItem variant="rightclick" icon={<Pin size={13} />} onClick={() => {
+          if (!contextTab) return;
+          updateTab(contextTab.tab.id, { pinned: !contextTab.tab.pinned });
+          setContextTab(null);
+        }}>
+          {contextTab?.tab.pinned ? "Unpin Tab" : "Pin Tab"}
+        </MenuViewItem>
+
+        {/* Rename for terminals */}
+        {contextTab?.tab.type === "terminal" && (
+          <MenuViewItem variant="rightclick" icon={<Edit3 size={13} />} onClick={() => {
+            if (!contextTab) return;
+            closeAllPopups();
+            setRenameTabId(contextTab.tab.id);
+            setRenameValue(contextTab.tab.name);
+            setContextTab(null);
+          }}>
+            Rename Tab
+          </MenuViewItem>
+        )}
+
+        <MenuViewSeparator />
+
+        {/* Close current tab */}
+        <MenuViewItem variant="rightclick" icon={<X size={13} />} onClick={() => {
+          if (!contextTab) return;
+          onKillTab(contextTab.tab.id);
+          setContextTab(null);
+        }}>
+          Close Tab
+        </MenuViewItem>
+
+        {/* Close Others */}
+        <MenuViewItem variant="rightclick" icon={<XCircle size={13} />} onClick={() => {
+          if (!contextTab) return;
+          const targetType = contextTab.tab.type;
+          tabs.forEach((t) => {
+            if (t.type === targetType && t.id !== contextTab.tab.id && !t.pinned) {
+              onKillTab(t.id);
             }
-            <span className="text-[11px] overflow-hidden text-ellipsis whitespace-nowrap" style={{ color: "rgba(232,234,240,0.5)" }}>
-              {contextTab.tab.name}
-            </span>
-          </div>
+          });
+          setContextTab(null);
+        }}>
+          Close Other {contextTab?.tab.type === "file" ? "Files" : "Terminals"}
+        </MenuViewItem>
 
-          {/* Toggle Pin */}
-          <RightClickMenuItem
-            icon={<Pin size={13} className={contextTab.tab.pinned ? "text-primary" : ""} />}
-            onClick={() => {
-              updateTab(contextTab.tab.id, { pinned: !contextTab.tab.pinned });
+        {/* Close All */}
+        <MenuViewItem variant="rightclick" icon={<Trash2 size={13} />} onClick={() => {
+          if (!contextTab) return;
+          const targetType = contextTab.tab.type;
+          tabs.forEach((t) => {
+            if (t.type === targetType && !t.pinned) {
+              onKillTab(t.id);
+            }
+          });
+          setContextTab(null);
+        }}>
+          Close All {contextTab?.tab.type === "file" ? "Files" : "Terminals"}
+        </MenuViewItem>
+
+        <MenuViewSeparator />
+
+        {/* Close Left / Right */}
+        <MenuViewItem variant="rightclick" icon={<ArrowLeft size={13} />} onClick={() => {
+          if (!contextTab) return;
+          const targetType = contextTab.tab.type;
+          const rightIdx = tabs.findIndex((t) => t.id === contextTab.tab.id);
+          tabs.forEach((t, i) => {
+            if (t.type === targetType && i < rightIdx && !t.pinned) {
+              onKillTab(t.id);
+            }
+          });
+          setContextTab(null);
+        }}>
+          Close to Left
+        </MenuViewItem>
+
+        <MenuViewItem variant="rightclick" icon={<ArrowRight size={13} />} onClick={() => {
+          if (!contextTab) return;
+          const targetType = contextTab.tab.type;
+          const rightIdx = tabs.findIndex((t) => t.id === contextTab.tab.id);
+          tabs.forEach((t, i) => {
+            if (t.type === targetType && i > rightIdx && !t.pinned) {
+              onKillTab(t.id);
+            }
+          });
+          setContextTab(null);
+        }}>
+          Close to Right
+        </MenuViewItem>
+
+        {/* File specific options */}
+        {contextTab?.tab.type === "file" && contextTab?.tab.filePath && (
+          <>
+            <MenuViewSeparator />
+            <MenuViewItem variant="rightclick" icon={<Copy size={13} />} onClick={() => {
+              navigator.clipboard.writeText(contextTab?.tab.filePath || "").catch(console.error);
               setContextTab(null);
-            }}
-          >
-            {contextTab.tab.pinned ? "Unpin Tab" : "Pin Tab"}
-          </RightClickMenuItem>
-
-          {/* Rename for terminals */}
-          {contextTab.tab.type === "terminal" && (
-            <RightClickMenuItem
-              icon={<Edit3 size={13} />}
-              onClick={() => {
-                setRenameTabId(contextTab.tab.id);
-                setRenameValue(contextTab.tab.name);
-                setContextTab(null);
-              }}
-            >
-              Rename Tab
-            </RightClickMenuItem>
-          )}
-
-          <RightClickMenuSeparator />
-
-          {/* Close current tab */}
-          <RightClickMenuItem
-            icon={<X size={13} />}
-            onClick={() => {
-              onKillTab(contextTab.tab.id);
+            }}>
+              Copy Path
+            </MenuViewItem>
+            <MenuViewItem variant="rightclick" icon={<ExternalLink size={13} />} onClick={async () => {
+              if (!contextTab) return;
+              try {
+                const cwd = await invoke<string>("get_cwd");
+                const rel = contextTab.tab.filePath
+                  ? contextTab.tab.filePath.replace(cwd, "").replace(/^[/\\]/, "")
+                  : "";
+                navigator.clipboard.writeText(rel).catch(console.error);
+              } catch (e) {
+                console.error("Failed to copy relative path:", e);
+              }
               setContextTab(null);
-            }}
-          >
-            Close Tab
-          </RightClickMenuItem>
-
-          {/* Close Others */}
-          <RightClickMenuItem
-            icon={<XCircle size={13} />}
-            onClick={() => {
-              const targetType = contextTab.tab.type;
-              tabs.forEach((t) => {
-                if (t.type === targetType && t.id !== contextTab.tab.id && !t.pinned) {
-                  onKillTab(t.id);
-                }
-              });
-              setContextTab(null);
-            }}
-          >
-            Close Other {contextTab.tab.type === "file" ? "Files" : "Terminals"}
-          </RightClickMenuItem>
-
-          {/* Close All */}
-          <RightClickMenuItem
-            icon={<Trash2 size={13} />}
-            onClick={() => {
-              const targetType = contextTab.tab.type;
-              tabs.forEach((t) => {
-                if (t.type === targetType && !t.pinned) {
-                  onKillTab(t.id);
-                }
-              });
-              setContextTab(null);
-            }}
-          >
-            Close All {contextTab.tab.type === "file" ? "Files" : "Terminals"}
-          </RightClickMenuItem>
-
-          <RightClickMenuSeparator />
-
-          {/* Close Left / Right */}
-          <RightClickMenuItem
-            icon={<ArrowLeft size={13} />}
-            onClick={() => {
-              const targetType = contextTab.tab.type;
-              const rightIdx = tabs.findIndex((t) => t.id === contextTab.tab.id);
-              tabs.forEach((t, i) => {
-                if (t.type === targetType && i < rightIdx && !t.pinned) {
-                  onKillTab(t.id);
-                }
-              });
-              setContextTab(null);
-            }}
-          >
-            Close to Left
-          </RightClickMenuItem>
-
-          <RightClickMenuItem
-            icon={<ArrowRight size={13} />}
-            onClick={() => {
-              const targetType = contextTab.tab.type;
-              const rightIdx = tabs.findIndex((t) => t.id === contextTab.tab.id);
-              tabs.forEach((t, i) => {
-                if (t.type === targetType && i > rightIdx && !t.pinned) {
-                  onKillTab(t.id);
-                }
-              });
-              setContextTab(null);
-            }}
-          >
-            Close to Right
-          </RightClickMenuItem>
-
-          {/* File specific options */}
-          {contextTab.tab.type === "file" && contextTab.tab.filePath && (
-            <>
-              <RightClickMenuSeparator />
-              <RightClickMenuItem
-                icon={<Copy size={13} />}
-                onClick={() => {
-                  navigator.clipboard.writeText(contextTab.tab.filePath || "").catch(console.error);
-                  setContextTab(null);
-                }}
-              >
-                Copy Path
-              </RightClickMenuItem>
-              <RightClickMenuItem
-                icon={<ExternalLink size={13} />}
-                onClick={async () => {
-                  try {
-                    const cwd = await invoke<string>("get_cwd");
-                    const rel = contextTab.tab.filePath
-                      ? contextTab.tab.filePath.replace(cwd, "").replace(/^[/\\]/, "")
-                      : "";
-                    navigator.clipboard.writeText(rel).catch(console.error);
-                  } catch (e) {
-                    console.error("Failed to copy relative path:", e);
-                  }
-                  setContextTab(null);
-                }}
-              >
-                Copy Relative Path
-              </RightClickMenuItem>
-            </>
-          )}
-        </RightClickMenuPanel>
-      )}
+            }}>
+              Copy Relative Path
+            </MenuViewItem>
+          </>
+        )}
+      </MenuView>
 
       {renameTabId && (
         <div

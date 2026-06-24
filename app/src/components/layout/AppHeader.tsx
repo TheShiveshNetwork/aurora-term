@@ -1,7 +1,10 @@
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Command, ExternalLink, FileText, FolderOpen, History, Menu, PanelLeft, PanelLeftClose, PanelRight, PanelRightClose, PanelBottom, PanelBottomClose, PinIcon, PinOff, Plus, Search, Settings, SplitSquareHorizontal, SquareTerminal, Terminal, User, ChevronRight, GitBranch } from "lucide-react";
-
 import { WindowControls } from "../ui/WindowControls";
-import auroraIcon from "/static/aurora-icon.png";
+import { MenuView, MenuViewItem, MenuViewSeparator } from "../ui/MenuView";
+import auroraIcon from "/static/aurora-icon.svg";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { LogicalSize } from "@tauri-apps/api/dpi";
 
 interface AppHeaderProps {
   sidebarCollapsed: boolean;
@@ -62,18 +65,48 @@ export function AppHeader({
   viewMode,
   projectName,
 }: AppHeaderProps) {
+  const headerRef = useRef<HTMLDivElement>(null);
+  const [searchCollapsed, setSearchCollapsed] = useState(false);
+
+  const measureSearchSpace = useCallback(() => {
+    const header = headerRef.current;
+    if (!header) return;
+    const left = header.querySelector<HTMLElement>("#header-left");
+    const right = header.querySelector<HTMLElement>("#header-right");
+    if (!left || !right) return;
+    const available = header.offsetWidth - left.offsetWidth - right.offsetWidth - 32;
+    setSearchCollapsed(available < 180);
+  }, []);
+
+  useEffect(() => {
+    measureSearchSpace();
+    const ro = new ResizeObserver(measureSearchSpace);
+    const header = headerRef.current;
+    if (header) ro.observe(header);
+    return () => ro.disconnect();
+  }, [measureSearchSpace]);
+
+  useEffect(() => {
+    try {
+      getCurrentWindow().setMinSize(new LogicalSize(660, 400));
+    } catch {
+      // not running in Tauri
+    }
+  }, []);
+
   return (
     <header
       id="aurora-tab-bar"
+      ref={headerRef}
       data-tauri-drag-region
-      className="flex justify-between items-center w-full px-3 h-toolbar-height z-50 select-none"
+      className="flex items-center w-full px-3 h-toolbar-height z-50 select-none gap-3"
       style={{
         background: "#0A0D14",
         borderBottom: "1px solid rgba(255,255,255,0.05)",
       }}
     >
       {/* ── Left: branding pill + view mode ── */}
-      <div data-tauri-no-drag className="flex items-center gap-1.5 h-full">
+      <div id="header-left" data-tauri-no-drag className="flex items-center gap-1.5 shrink-0">
         <img src={auroraIcon} alt="" className="w-8 h-8 rounded-[6px] shrink-0 object-cover" />
         <div className="relative">
           <button
@@ -88,71 +121,35 @@ export function AppHeader({
             onMouseLeave={(e) => { if (!menuOpen) e.currentTarget.style.background = "rgba(255,255,255,0.04)"; }}
             title="Aurora Menu"
           >
-            {/* TODO: current open project setup — use proper workspace/project resolver */}
             <span className="text-[13px] font-semibold" style={{ color: "rgba(232,234,240,0.85)" }}>{projectName}</span>
             <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style={{ color: "rgba(232,234,240,0.35)" }}>
               <path d="M2.5 3.5L5 6.5L7.5 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </button>
 
-          {menuOpen && (
-            <div
-              className="absolute left-0 mt-1.5 w-60 py-1 z-[999] animate-in fade-in slide-in-from-top-1 duration-150"
-              style={{
-                background: "#0F131A",
-                border: "1px solid rgba(255,255,255,0.08)",
-                borderRadius: "14px",
-                boxShadow: "inset 0 1px 0 rgba(255,255,255,0.03), 0 16px 40px rgba(0,0,0,0.5)",
-              }}
-              onClick={(event) => event.stopPropagation()}
-            >
-
-              <MenuButton icon={<FolderOpen size={13} />} onClick={onOpenFolder} shortcut="Ctrl+O">Open Folder</MenuButton>
-              <MenuButton icon={<FileText size={13} />} onClick={onOpenFile} shortcut="Ctrl+P">Open File</MenuButton>
-              <div className="relative group/recent">
-                <button className="w-full flex items-center gap-3 px-3 py-2 text-[12px] text-on-surface-variant/80 transition-colors text-left cursor-pointer rounded-[8px] mx-1" style={{ width: "calc(100% - 8px)" }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}>
-                  <History size={13} className="text-on-surface-variant/60 shrink-0" />
-                  <span className="flex-1">Open Recent…</span>
-                  <ChevronRight size={14} className="text-on-surface-variant/60" />
-                </button>
-                <div className="absolute left-full top-0 ml-1 w-48 py-1 hidden group-hover/recent:block z-[1000]"
-                  style={{
-                    background: "#0F131A",
-                    border: "1px solid rgba(255,255,255,0.08)",
-                    borderRadius: "14px",
-                    boxShadow: "0 16px 40px rgba(0,0,0,0.5)",
-                  }}>
-                  <SubMenuButton onClick={() => onOpenRecentFile("package.json")}>package.json</SubMenuButton>
-                  <SubMenuButton onClick={() => onOpenRecentFile("src/App.tsx")}>src/App.tsx</SubMenuButton>
-                  <SubMenuButton onClick={() => onOpenRecentFile("src/styles/globals.css")}>globals.css</SubMenuButton>
-                </div>
-              </div>
-
-              <MenuDivider />
-              <MenuButton icon={<Plus size={13} />} onClick={onNewWindow} shortcut="Ctrl+Shift+N">New Window</MenuButton>
-              <MenuButton icon={<SquareTerminal size={13} />} onClick={onNewTab} shortcut="Ctrl+T">New Tab</MenuButton>
-              <MenuDivider />
-              <MenuButton icon={<Terminal size={13} />} onClick={onCloseSession}>Close Session</MenuButton>
-              <MenuButton icon={<SplitSquareHorizontal size={13} />} onClick={onCloseTab} shortcut="Ctrl+W">Close Tab</MenuButton>
-              <MenuButton icon={<SplitSquareHorizontal size={13} />} onClick={onCloseOtherTabs}>Close Other Tabs</MenuButton>
-              <MenuDivider />
-              <MenuButton icon={<Command size={13} />} onClick={onOpenSettings} shortcut="Ctrl+Shift+P">Command Palette</MenuButton>
-              <MenuButton icon={<Settings size={13} />} onClick={onToggleTheme}>Switch Mode ({theme})</MenuButton>
-              <div className="h-px mx-2 my-1" style={{ background: "rgba(255,255,255,0.05)" }} />
-              <button
-                onClick={onExit}
-                className="w-full flex items-center gap-3 px-3 py-2 text-[12px] cursor-pointer text-left rounded-[8px]"
-                style={{ color: "#FF6B6B", width: "calc(100% - 8px)", marginLeft: "4px" }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,107,107,0.08)")}
-                onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-              >
-                <ExternalLink size={13} className="text-[#FF6B6B]/70 shrink-0" />
-                <span className="flex-1 font-semibold">Exit</span>
-              </button>
-            </div>
-          )}
+          <MenuView
+            variant="primary"
+            open={menuOpen}
+            onClose={() => onToggleMenu()}
+            className="absolute left-0 mt-1.5 w-60 z-[999]"
+            style={{ pointerEvents: "auto" }}
+          >
+            <MenuViewItem icon={<FolderOpen size={13} />} onClick={onOpenFolder} shortcut="Ctrl+O">Open Folder</MenuViewItem>
+            <MenuViewItem icon={<FileText size={13} />} onClick={onOpenFile} shortcut="Ctrl+P">Open File</MenuViewItem>
+            <MenuViewItem icon={<History size={13} />} disabled>Open Recent…</MenuViewItem>
+            <MenuViewSeparator />
+            <MenuViewItem icon={<Plus size={13} />} onClick={onNewWindow} shortcut="Ctrl+Shift+N">New Window</MenuViewItem>
+            <MenuViewItem icon={<SquareTerminal size={13} />} onClick={onNewTab} shortcut="Ctrl+T">New Tab</MenuViewItem>
+            <MenuViewSeparator />
+            <MenuViewItem icon={<Terminal size={13} />} onClick={onCloseSession}>Close Session</MenuViewItem>
+            <MenuViewItem icon={<SplitSquareHorizontal size={13} />} onClick={onCloseTab}>Close Tab</MenuViewItem>
+            <MenuViewItem icon={<SplitSquareHorizontal size={13} />} onClick={onCloseOtherTabs}>Close Other Tabs</MenuViewItem>
+            <MenuViewSeparator />
+            <MenuViewItem icon={<Command size={13} />} onClick={onOpenSettings} shortcut="Ctrl+Shift+P">Command Palette</MenuViewItem>
+            <MenuViewItem icon={<Settings size={13} />} onClick={onToggleTheme}>Switch Mode ({theme})</MenuViewItem>
+            <MenuViewSeparator />
+            <MenuViewItem icon={<ExternalLink size={13} />} onClick={onExit} danger>Exit</MenuViewItem>
+          </MenuView>
         </div>
 
         {/* View mode toggle */}
@@ -177,36 +174,10 @@ export function AppHeader({
       </div>
 
       {/* ── Center: search bar ── */}
-      <div className="flex-1 max-w-lg mx-6 my-2" data-tauri-drag-region>
-        <div
-          className="relative flex items-center h-full py-1 px-2 gap-3 transition-all duration-200 warp-input-glow rounded-md"
-          style={{
-            background: "rgba(255,255,255,0.03)",
-            border: "1px solid rgba(255,255,255,0.07)",
-          }}
-        >
-          <Search size={14} className="shrink-0" style={{ color: "rgba(232,234,240,0.3)" }} />
-          <input
-            type="text"
-            placeholder="Search sessions, chats, agents, files…"
-            className="flex-1 bg-transparent text-[13px] outline-none placeholder:text-white/25"
-            style={{ color: "#E8EAF0" }}
-          />
-          <kbd
-            className="shrink-0 text-sm flex items-center gap-1 font-mono px-1.5 py-0.5 rounded-[6px] select-none"
-            style={{
-              background: "rgba(255,255,255,0.06)",
-              border: "1px solid rgba(255,255,255,0.08)",
-              color: "rgba(232,234,240,0.35)",
-            }}
-          >
-            {"CTRL"} {"P"}
-          </kbd>
-        </div>
-      </div>
+      <SearchBar collapsed={searchCollapsed} />
 
       {/* ── Right: panel toggles + pin + settings + avatar + window controls ── */}
-      <div data-tauri-no-drag className="flex items-center gap-0.5 h-full">
+      <div id="header-right" data-tauri-no-drag className="flex items-center gap-0.5 shrink-0">
         <IconBtn onClick={onToggleSidebar} title={sidebarCollapsed ? "Show Sidebar" : "Hide Sidebar"}>
           {sidebarCollapsed ? <PanelLeft size={14} /> : <PanelLeftClose size={14} />}
         </IconBtn>
@@ -256,63 +227,6 @@ export function AppHeader({
   );
 }
 
-/* ── Internal helper components ─────────────────────────────────────── */
-function MenuButton({
-  children,
-  icon,
-  onClick,
-  shortcut,
-}: {
-  children: React.ReactNode;
-  icon?: React.ReactNode;
-  onClick?: () => void;
-  shortcut?: string;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className="w-full flex items-center gap-3 px-3 py-[7px] text-[12px] cursor-pointer text-left transition-colors"
-      style={{ color: "rgba(232,234,240,0.75)", borderRadius: "8px", width: "calc(100% - 8px)", marginLeft: "4px" }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.background = "rgba(255,255,255,0.05)";
-        e.currentTarget.style.color = "#E8EAF0";
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.background = "transparent";
-        e.currentTarget.style.color = "rgba(232,234,240,0.75)";
-      }}
-    >
-      {icon && <span style={{ color: "rgba(232,234,240,0.35)" }}>{icon}</span>}
-      <span className="flex-1">{children}</span>
-      {shortcut && <span className="text-[10px]" style={{ color: "rgba(232,234,240,0.25)" }}>{shortcut}</span>}
-    </button>
-  );
-}
-
-function SubMenuButton({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className="w-full px-3 py-[6px] text-[11px] cursor-pointer text-left truncate"
-      style={{ color: "rgba(232,234,240,0.65)" }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.background = "rgba(255,255,255,0.05)";
-        e.currentTarget.style.color = "#E8EAF0";
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.background = "transparent";
-        e.currentTarget.style.color = "rgba(232,234,240,0.65)";
-      }}
-    >
-      {children}
-    </button>
-  );
-}
-
-function MenuDivider() {
-  return <div className="h-px mx-2 my-1" style={{ background: "rgba(255,255,255,0.05)" }} />;
-}
-
 function ViewButton({
   children,
   active,
@@ -350,6 +264,74 @@ function ViewButton({
     >
       {children}
     </button>
+  );
+}
+
+function SearchBar({ collapsed }: { collapsed?: boolean }) {
+  const [focused, setFocused] = useState(false);
+  const [value, setValue] = useState("");
+  const [iconOpen, setIconOpen] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const expanded = focused || value.length > 0;
+
+  useEffect(() => {
+    if (!collapsed) setIconOpen(false);
+  }, [collapsed]);
+
+  if (collapsed && !iconOpen) {
+    return (
+      <div className="flex-1 flex justify-center">
+        <button
+          onClick={() => setIconOpen(true)}
+          className="p-2 rounded-[10px] transition-colors cursor-pointer"
+          style={{ color: "rgba(232,234,240,0.45)" }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; e.currentTarget.style.color = "#E8EAF0"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "rgba(232,234,240,0.45)"; }}
+          title="Search"
+        >
+          <Search size={14} />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-1 flex justify-center" data-tauri-drag-region>
+      <div
+        className="relative flex items-center h-9 py-1 px-2 gap-3 transition-all duration-200 warp-input-glow rounded-md w-full"
+        style={{
+          maxWidth: collapsed ? "220px" : "400px",
+          background: "rgba(255,255,255,0.03)",
+          border: "1px solid rgba(255,255,255,0.07)",
+        }}
+      >
+        <Search size={14} className="shrink-0" style={{ color: "rgba(232,234,240,0.3)" }} />
+        <input
+          ref={inputRef}
+          type="text"
+          placeholder="Search…"
+          className="flex-1 bg-transparent text-[13px] outline-none placeholder:text-white/25 min-w-0"
+          style={{ color: "#E8EAF0" }}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          autoFocus={collapsed && iconOpen}
+        />
+        {!expanded && !collapsed && (
+          <kbd
+            className="shrink-0 text-sm flex items-center gap-1 font-mono px-1.5 py-0.5 rounded-[6px] select-none"
+            style={{
+              background: "rgba(255,255,255,0.06)",
+              border: "1px solid rgba(255,255,255,0.08)",
+              color: "rgba(232,234,240,0.35)",
+            }}
+          >
+            {"CTRL"} {"P"}
+          </kbd>
+        )}
+      </div>
+    </div>
   );
 }
 

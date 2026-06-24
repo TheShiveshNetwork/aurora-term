@@ -100,6 +100,268 @@ pub async fn get_git_branch(cwd: String) -> Result<Option<String>, AppError> {
     Ok(res)
 }
 
+#[derive(serde::Serialize)]
+pub struct GitCommit {
+    pub hash: String,
+    pub parents: Vec<String>,
+    pub author: String,
+    pub date: String,
+    pub message: String,
+}
+
+#[derive(serde::Serialize)]
+pub struct GitRef {
+    pub name: String,
+    pub commit_hash: String,
+}
+
+#[derive(serde::Serialize)]
+pub struct GitLogResult {
+    pub commits: Vec<GitCommit>,
+    pub branches: Vec<GitRef>,
+    pub tags: Vec<GitRef>,
+    pub current_branch: Option<String>,
+}
+
+fn run_git(args: &[&str], cwd: Option<&str>) -> Result<String, AppError> {
+    let mut cmd = Command::new("git");
+    cmd.args(args);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+    if let Some(dir) = cwd {
+        cmd.current_dir(dir);
+    }
+    let output = cmd.output().map_err(|e| AppError::Io(e.to_string()))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        // If not a git repo or git not found, return empty rather than error
+        if stderr.contains("not a git repository") || stderr.contains("fatal:") {
+            return Ok(String::new());
+        }
+        return Err(AppError::Io(format!("git failed: {}", stderr)));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+#[command]
+pub async fn get_git_log(cwd: String) -> Result<GitLogResult, AppError> {
+    let cwd_clone = cwd.clone();
+    let log_output = tokio::task::spawn_blocking(move || {
+        run_git(&[
+            "log", "--all",
+            "--format=%H|||%P|||%an|||%ai|||%s",
+            "--max-count=50"
+        ], Some(&cwd_clone))
+    }).await.map_err(|e| AppError::Io(e.to_string()))??;
+
+    let cwd_clone2 = cwd.clone();
+    let branch_output = tokio::task::spawn_blocking(move || {
+        run_git(&[
+            "branch", "--format=%(refname:short)|||%(objectname)"
+        ], Some(&cwd_clone2))
+    }).await.map_err(|e| AppError::Io(e.to_string()))??;
+
+    let cwd_clone3 = cwd.clone();
+    let tag_output = tokio::task::spawn_blocking(move || {
+        run_git(&[
+            "tag", "--format=%(refname:short)|||%(objectname)"
+        ], Some(&cwd_clone3))
+    }).await.map_err(|e| AppError::Io(e.to_string()))??;
+
+    let cwd_clone4 = cwd.clone();
+    let current_branch = tokio::task::spawn_blocking(move || {
+        let out = run_git(&["rev-parse", "--abbrev-ref", "HEAD"], Some(&cwd_clone4)).ok()?;
+        let trimmed = out.trim().to_string();
+        if trimmed.is_empty() || trimmed == "HEAD" { None } else { Some(trimmed) }
+    }).await.map_err(|e| AppError::Io(e.to_string()))?;
+
+    let mut commits = Vec::new();
+    for line in log_output.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() { continue; }
+        let parts: Vec<&str> = trimmed.split("|||").collect();
+        if parts.len() < 5 { continue; }
+        let parents = if parts[1].is_empty() {
+            Vec::new()
+        } else {
+            parts[1].split_whitespace().map(|s| s.to_string()).collect()
+        };
+        commits.push(GitCommit {
+            hash: parts[0].to_string(),
+            parents,
+            author: parts[2].to_string(),
+            date: parts[3].to_string(),
+            message: parts[4].to_string(),
+        });
+    }
+
+    let mut branches = Vec::new();
+    for line in branch_output.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() { continue; }
+        let parts: Vec<&str> = trimmed.split("|||").collect();
+        if parts.len() < 2 { continue; }
+        branches.push(GitRef {
+            name: parts[0].to_string(),
+            commit_hash: parts[1].to_string(),
+        });
+    }
+
+    let mut tags = Vec::new();
+    for line in tag_output.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() { continue; }
+        let parts: Vec<&str> = trimmed.split("|||").collect();
+        if parts.len() < 2 { continue; }
+        tags.push(GitRef {
+            name: parts[0].to_string(),
+            commit_hash: parts[1].to_string(),
+        });
+    }
+
+    Ok(GitLogResult {
+        commits,
+        branches,
+        tags,
+        current_branch,
+    })
+}
+
+#[command]
+pub async fn get_git_file_log(cwd: String, file_path: String) -> Result<GitLogResult, AppError> {
+    let cwd_clone = cwd.clone();
+    let fp_clone = file_path.clone();
+    let log_output = tokio::task::spawn_blocking(move || {
+        run_git(&[
+            "log", "--all",
+            "--format=%H|||%P|||%an|||%ai|||%s",
+            "--max-count=50", "--", &fp_clone
+        ], Some(&cwd_clone))
+    }).await.map_err(|e| AppError::Io(e.to_string()))??;
+
+    let cwd_clone2 = cwd.clone();
+    let branch_output = tokio::task::spawn_blocking(move || {
+        run_git(&["branch", "--format=%(refname:short)|||%(objectname)"], Some(&cwd_clone2))
+    }).await.map_err(|e| AppError::Io(e.to_string()))??;
+
+    let cwd_clone3 = cwd.clone();
+    let current_branch = tokio::task::spawn_blocking(move || {
+        let out = run_git(&["rev-parse", "--abbrev-ref", "HEAD"], Some(&cwd_clone3)).ok()?;
+        let trimmed = out.trim().to_string();
+        if trimmed.is_empty() || trimmed == "HEAD" { None } else { Some(trimmed) }
+    }).await.map_err(|e| AppError::Io(e.to_string()))?;
+
+    let mut commits = Vec::new();
+    for line in log_output.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() { continue; }
+        let parts: Vec<&str> = trimmed.split("|||").collect();
+        if parts.len() < 5 { continue; }
+        let parents = if parts[1].is_empty() {
+            Vec::new()
+        } else {
+            parts[1].split_whitespace().map(|s| s.to_string()).collect()
+        };
+        commits.push(GitCommit {
+            hash: parts[0].to_string(),
+            parents,
+            author: parts[2].to_string(),
+            date: parts[3].to_string(),
+            message: parts[4].to_string(),
+        });
+    }
+
+    let mut branches = Vec::new();
+    for line in branch_output.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() { continue; }
+        let parts: Vec<&str> = trimmed.split("|||").collect();
+        if parts.len() < 2 { continue; }
+        branches.push(GitRef {
+            name: parts[0].to_string(),
+            commit_hash: parts[1].to_string(),
+        });
+    }
+
+    Ok(GitLogResult {
+        commits,
+        branches,
+        tags: Vec::new(),
+        current_branch,
+    })
+}
+
+#[command]
+pub async fn get_git_graph(cwd: String) -> Result<String, AppError> {
+    tokio::task::spawn_blocking(move || {
+        run_git(&[
+            "log", "--graph", "--oneline", "--all", "--decorate",
+        ], Some(&cwd))
+    }).await.map_err(|e| AppError::Io(e.to_string()))?
+}
+
+#[command]
+pub async fn get_git_file_diff(cwd: String, file_path: String, commit_hash: String) -> Result<String, AppError> {
+    tokio::task::spawn_blocking(move || {
+        run_git(&[
+            "diff", &format!("{}~1", commit_hash), commit_hash.as_str(), "--", &file_path,
+        ], Some(&cwd))
+    }).await.map_err(|e| AppError::Io(e.to_string()))?
+}
+
+#[command]
+pub async fn get_git_commit_diff(cwd: String, commit_hash: String) -> Result<String, AppError> {
+    tokio::task::spawn_blocking(move || {
+        run_git(&[
+            "show", "--format=", commit_hash.as_str(), "--",
+        ], Some(&cwd))
+    }).await.map_err(|e| AppError::Io(e.to_string()))?
+}
+
+#[command]
+pub async fn get_git_file_content_at_commit(cwd: String, file_path: String, commit_hash: String) -> Result<String, AppError> {
+    let ch = commit_hash.clone();
+    tokio::task::spawn_blocking(move || {
+        run_git(&[
+            "show", &format!("{}:{}", ch.trim(), file_path.trim()),
+        ], Some(&cwd))
+    }).await.map_err(|e| {
+        AppError::Io(format!("Failed to get file content at {}: {}", commit_hash, e))
+    })?
+}
+
+#[derive(serde::Serialize)]
+pub struct ChangedFile {
+    pub status: String,
+    pub file_path: String,
+}
+
+#[command]
+pub async fn get_git_commit_files(cwd: String, commit_hash: String) -> Result<Vec<ChangedFile>, AppError> {
+    let ch = commit_hash.clone();
+    tokio::task::spawn_blocking(move || {
+        let output = run_git(&[
+            "diff-tree", "--no-commit-id", "-r", "--name-status", ch.trim(),
+        ], Some(&cwd))?;
+        let mut files = Vec::new();
+        for line in output.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() { continue; }
+            let parts: Vec<&str> = trimmed.splitn(2, '\t').collect();
+            if parts.len() == 2 {
+                files.push(ChangedFile {
+                    status: parts[0].to_string(),
+                    file_path: parts[1].to_string(),
+                });
+            }
+        }
+        Ok(files)
+    }).await.map_err(|e| AppError::Io(e.to_string()))?
+}
+
 #[command]
 pub fn get_current_pwd() -> Result<String, String> {
     std::env::current_dir()

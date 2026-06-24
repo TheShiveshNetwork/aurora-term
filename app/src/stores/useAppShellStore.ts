@@ -9,6 +9,8 @@ export type AppContextMenu = {
   source?: "terminal" | "input" | "file";
 } | null;
 
+export type SideSection = "folders" | "outline" | "timeline" | "git";
+
 interface AppShellStore {
   sidebarCollapsed: boolean;
   showSettings: boolean;
@@ -28,6 +30,7 @@ interface AppShellStore {
   commandInputs: Record<string, string>;
   interactedSessions: Record<string, true>;
   isCwdLoading: boolean;
+  sectionVisibility: Record<SideSection, boolean>;
 
   setSidebarCollapsed: (collapsed: boolean) => void;
   toggleSidebarCollapsed: () => void;
@@ -56,6 +59,8 @@ interface AppShellStore {
   markSessionInteracted: (sessionId: string) => void;
   clearSessionInteracted: (sessionId: string) => void;
   setIsCwdLoading: (loading: boolean) => void;
+  toggleSection: (section: SideSection) => void;
+  setSectionVisibility: (sections: Partial<Record<SideSection, boolean>>) => void;
 }
 
 function workspaceLabel(cwdAbsolute: string): string {
@@ -82,6 +87,12 @@ export const useAppShellStore = create<AppShellStore>((set) => ({
   commandInputs: {},
   interactedSessions: {},
   isCwdLoading: false,
+  sectionVisibility: {
+    folders: true,
+    outline: false,
+    timeline: false,
+    git: false,
+  },
 
   setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
   toggleSidebarCollapsed: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
@@ -145,4 +156,18 @@ export const useAppShellStore = create<AppShellStore>((set) => ({
       return { interactedSessions: copy };
     }),
   setIsCwdLoading: (isCwdLoading) => set({ isCwdLoading }),
+  toggleSection: (section) =>
+    set((state) => ({
+      sectionVisibility: {
+        ...state.sectionVisibility,
+        [section]: !state.sectionVisibility[section],
+      },
+    })),
+  setSectionVisibility: (sections) =>
+    set((state) => ({
+      sectionVisibility: {
+        ...state.sectionVisibility,
+        ...sections,
+      },
+    })),
 }));

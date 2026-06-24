@@ -9,6 +9,10 @@ export default defineConfig(async () => ({
   root: "..",
   plugins: [react(), tailwindcss()],
 
+  optimizeDeps: {
+    include: ["@babel/runtime/helpers/extends"],
+  },
+
   clearScreen: false,
   server: {
     port: 1420,

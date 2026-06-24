@@ -103,6 +103,13 @@ pub fn run() {
             aurora_commands::create_path,
             aurora_commands::watch_directory,
             aurora_commands::get_git_branch,
+            aurora_commands::get_git_log,
+            aurora_commands::get_git_file_log,
+            aurora_commands::get_git_graph,
+            aurora_commands::get_git_file_diff,
+            aurora_commands::get_git_commit_diff,
+            aurora_commands::get_git_file_content_at_commit,
+            aurora_commands::get_git_commit_files,
             aurora_commands::agent_plan_step,
             aurora_commands::get_available_commands,
         ])

@@ -2,6 +2,21 @@ import { create } from "zustand";
 
 export type EditorMode = "NORMAL" | "INSERT" | "VISUAL" | "COMMAND";
 
+export type EditorThemeName =
+  | "one-dark"
+  | "atomone"
+  | "bespin"
+  | "dracula"
+  | "github"
+  | "material"
+  | "monokai"
+  | "nord"
+  | "okaidia"
+  | "solarized"
+  | "tokyo-night"
+  | "vscode"
+  | "xcode";
+
 interface SettingsStore {
   theme: "dark" | "light";
   mode: EditorMode;
@@ -12,7 +27,8 @@ interface SettingsStore {
   compactUi: boolean;
   showStatusbar: boolean;
   blurSidebar: boolean;
-  
+  editorTheme: EditorThemeName;
+
   setTheme: (theme: "dark" | "light") => void;
   setMode: (mode: EditorMode) => void;
   setFontFamily: (font: string) => void;
@@ -22,11 +38,12 @@ interface SettingsStore {
   setCompactUi: (compact: boolean) => void;
   setShowStatusbar: (show: boolean) => void;
   setBlurSidebar: (blur: boolean) => void;
+  setEditorTheme: (theme: EditorThemeName) => void;
 }
 
 export const useSettingsStore = create<SettingsStore>((set) => ({
   theme: "dark",
-  mode: "INSERT", // Start in standard insert mode so PTY handles typing by default
+  mode: "INSERT",
   fontFamily: "JetBrains Mono",
   fontSize: 14,
   cursorStyle: "block",
@@ -34,6 +51,7 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
   compactUi: false,
   showStatusbar: true,
   blurSidebar: false,
+  editorTheme: "dracula",
 
   setTheme: (theme) => {
     set({ theme });
@@ -48,4 +66,5 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
   setCompactUi: (compactUi) => set({ compactUi }),
   setShowStatusbar: (showStatusbar) => set({ showStatusbar }),
   setBlurSidebar: (blurSidebar) => set({ blurSidebar }),
+  setEditorTheme: (editorTheme) => set({ editorTheme }),
 }));

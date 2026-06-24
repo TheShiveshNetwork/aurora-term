@@ -1,7 +1,7 @@
 import { Clipboard, Copy, Trash2 } from "lucide-react";
 
 import { AppContextMenu as AppContextMenuState } from "../../stores/useAppShellStore";
-import { RightClickMenuItem, RightClickMenuPanel, RightClickMenuSeparator } from "../ui/RightClickMenu";
+import { MenuView, MenuViewItem, MenuViewSeparator } from "../ui/MenuView";
 
 interface AppContextMenuProps {
   contextMenu: AppContextMenuState;
@@ -15,31 +15,31 @@ export function AppContextMenu({ contextMenu, onPaste, onCopySelection, onClearT
   if (!contextMenu) return null;
 
   return (
-    <RightClickMenuPanel anchorX={contextMenu.x} anchorY={contextMenu.y} open={true}>
-      <RightClickMenuItem icon={<Copy size={14} />} onClick={onCopySelection}>
+    <MenuView variant="rightclick" open anchorX={contextMenu.x} anchorY={contextMenu.y} onClose={() => {}}>
+      <MenuViewItem variant="rightclick" icon={<Copy size={14} />} onClick={onCopySelection}>
         Copy
-      </RightClickMenuItem>
-      <RightClickMenuItem icon={<Clipboard size={14} />} onClick={onPaste}>
+      </MenuViewItem>
+      <MenuViewItem variant="rightclick" icon={<Clipboard size={14} />} onClick={onPaste}>
         Paste
-      </RightClickMenuItem>
+      </MenuViewItem>
 
       {contextMenu.source === "terminal" && (
         <>
-          <RightClickMenuSeparator />
-          <RightClickMenuItem danger icon={<Trash2 size={14} />} onClick={onClearTerminal}>
+          <MenuViewSeparator />
+          <MenuViewItem variant="rightclick" danger icon={<Trash2 size={14} />} onClick={onClearTerminal}>
             Clear Terminal
-          </RightClickMenuItem>
+          </MenuViewItem>
         </>
       )}
 
       {contextMenu.source === "file" && (
         <>
-          <RightClickMenuSeparator />
-          <RightClickMenuItem icon={<Copy size={14} />} onClick={onSelectAll}>
+          <MenuViewSeparator />
+          <MenuViewItem variant="rightclick" icon={<Copy size={14} />} onClick={onSelectAll}>
             Select All
-          </RightClickMenuItem>
+          </MenuViewItem>
         </>
       )}
-    </RightClickMenuPanel>
+    </MenuView>
   );
 }
