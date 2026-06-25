@@ -93,6 +93,8 @@ body {
   -moz-osx-font-smoothing: grayscale;
   background: #0A0D14;
   color: #E8EAF0;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 /* ── 1. Global Reset For All Hidden Scrollbar Structural Anchors ───── */

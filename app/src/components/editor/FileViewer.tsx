@@ -307,7 +307,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
     closeAllPopups();
     window.dispatchEvent(
       new CustomEvent("show-context-menu", {
-        detail: { x: e.clientX, y: e.clientY, selectedText, source: "file" },
+        detail: { x: e.clientX, y: e.clientY, selectedText, source: "file", filePath },
       })
     );
   };

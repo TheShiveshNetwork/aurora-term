@@ -9,24 +9,30 @@ interface AppContextMenuProps {
   onCopySelection: () => void;
   onClearTerminal: () => void;
   onSelectAll: () => void;
+  onGoToDefinition: () => void;
+  onPeekDefinition: () => void;
+  onFindReferences: () => void;
+  onRenameSymbol: () => void;
+  onFormatDocument: () => void;
+  onRunFile: () => void;
 }
 
-export function AppContextMenu({ contextMenu, onPaste, onCopySelection, onClearTerminal, onSelectAll }: AppContextMenuProps) {
+export function AppContextMenu({ contextMenu, onPaste, onCopySelection, onClearTerminal, onSelectAll, onGoToDefinition, onPeekDefinition, onFindReferences, onRenameSymbol, onFormatDocument, onRunFile }: AppContextMenuProps) {
   if (!contextMenu) return null;
 
   return (
     <MenuView variant="rightclick" open anchorX={contextMenu.x} anchorY={contextMenu.y} onClose={() => {}}>
-      <MenuViewItem variant="rightclick" icon={<Copy size={14} />} onClick={onCopySelection}>
+      <MenuViewItem variant="rightclick" onClick={onCopySelection}>
         Copy
       </MenuViewItem>
-      <MenuViewItem variant="rightclick" icon={<Clipboard size={14} />} onClick={onPaste}>
+      <MenuViewItem variant="rightclick" onClick={onPaste}>
         Paste
       </MenuViewItem>
 
       {contextMenu.source === "terminal" && (
         <>
           <MenuViewSeparator />
-          <MenuViewItem variant="rightclick" danger icon={<Trash2 size={14} />} onClick={onClearTerminal}>
+          <MenuViewItem variant="rightclick" danger onClick={onClearTerminal}>
             Clear Terminal
           </MenuViewItem>
         </>
@@ -35,8 +41,28 @@ export function AppContextMenu({ contextMenu, onPaste, onCopySelection, onClearT
       {contextMenu.source === "file" && (
         <>
           <MenuViewSeparator />
-          <MenuViewItem variant="rightclick" icon={<Copy size={14} />} onClick={onSelectAll}>
+          <MenuViewItem variant="rightclick" onClick={onSelectAll}>
             Select All
+          </MenuViewItem>
+          <MenuViewSeparator />
+          <MenuViewItem variant="rightclick" onClick={onGoToDefinition}>
+            Go to Definition
+          </MenuViewItem>
+          <MenuViewItem variant="rightclick" onClick={onPeekDefinition}>
+            Peek Definition
+          </MenuViewItem>
+          <MenuViewItem variant="rightclick" onClick={onFindReferences}>
+            Find All References
+          </MenuViewItem>
+          <MenuViewItem variant="rightclick" onClick={onRenameSymbol}>
+            Rename Symbol
+          </MenuViewItem>
+          <MenuViewSeparator />
+          <MenuViewItem variant="rightclick" onClick={onFormatDocument}>
+            Format Document
+          </MenuViewItem>
+          <MenuViewItem variant="rightclick" onClick={onRunFile}>
+            Run / Debug
           </MenuViewItem>
         </>
       )}

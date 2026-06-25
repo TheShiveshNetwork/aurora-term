@@ -7,6 +7,7 @@ export type AppContextMenu = {
   y: number;
   selectedText?: string;
   source?: "terminal" | "input" | "file";
+  filePath?: string;
 } | null;
 
 export type SideSection = "folders" | "outline" | "timeline" | "git";

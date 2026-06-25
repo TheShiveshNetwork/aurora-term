@@ -54,9 +54,9 @@ function SproutFarmingIcon() {
   return (
     <div className="relative w-5 h-5 flex items-center justify-center shrink-0">
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
-        <span className="absolute w-[2px] h-[2px] bg-primary rounded-full left-[20%] bottom-[30%] animate-[floatUp_1.5s_ease-out_infinite]" />
-        <span className="absolute w-[3px] h-[3px] bg-primary rounded-full left-[70%] bottom-[20%] animate-[floatUp_2s_ease-out_infinite_0.4s]" />
-        <span className="absolute w-[2px] h-[2px] bg-primary rounded-full left-[45%] bottom-[40%] animate-[floatUp_1.8s_ease-out_infinite_0.8s]" />
+        <span className="absolute w-[2px] h-[2px] bg-amber-400 rounded-full left-[20%] bottom-[30%] animate-[floatUp_1.5s_ease-out_infinite]" />
+        <span className="absolute w-[3px] h-[3px] bg-amber-400 rounded-full left-[70%] bottom-[20%] animate-[floatUp_2s_ease-out_infinite_0.4s]" />
+        <span className="absolute w-[2px] h-[2px] bg-amber-400 rounded-full left-[45%] bottom-[40%] animate-[floatUp_1.8s_ease-out_infinite_0.8s]" />
       </div>
       <svg
         xmlns="http://www.w3.org/2000/svg"
@@ -66,7 +66,7 @@ function SproutFarmingIcon() {
         strokeWidth="2.5"
         strokeLinecap="round"
         strokeLinejoin="round"
-        className="w-4 h-4 text-primary origin-bottom animate-[sway_2.5s_ease-in-out_infinite]"
+        className="w-4 h-4 text-amber-400 origin-bottom animate-[sway_2.5s_ease-in-out_infinite]"
       >
         <path d="M4 20h16" className="opacity-45" />
         <path d="M12 20v-8a4 4 0 0 1 4-4" />
@@ -217,7 +217,7 @@ function ThinkingBubble() {
   return (
     <div className="flex items-center gap-2.5 py-3 px-4">
       <SproutFarmingIcon />
-      <span className="text-[11px] font-semibold text-primary/70 animate-pulse">Farming aura…</span>
+      <span className="text-[11px] font-semibold text-amber-400/80 animate-pulse">Farming aura…</span>
     </div>
   );
 }
@@ -308,7 +308,7 @@ function ConversationTurn({
                 {isThinking ? (
                   <div className="flex items-center gap-2 text-primary/70">
                     <SproutFarmingIcon />
-                    <span className="font-semibold animate-pulse">Farming…</span>
+                    <span className="font-semibold text-amber-400/80 animate-pulse">Farming…</span>
                     {stepCount > 0 && (
                       <span className="text-on-surface-variant/45 text-[9px] font-normal">(step {stepCount}/{maxSteps})</span>
                     )}
@@ -625,9 +625,6 @@ export function AgentOverlay({ sessionId, onClose }: AgentOverlayProps) {
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [status, queue]);
 
-  // Don't render at all when there's nothing to show
-  if (status === "idle" && chatHistory.length === 0) return null;
-
   const isExecuting = status === "executing";
   const isPaused = status === "paused";
   const isPlanning = status === "planning";
@@ -652,14 +649,13 @@ export function AgentOverlay({ sessionId, onClose }: AgentOverlayProps) {
 
   return (
     <div
-      className="relative flex flex-col z-25 mb-3 rounded-md select-text"
+      className="flex flex-col z-25 select-text"
       style={{
         width,
         minWidth: MIN_WIDTH,
         maxWidth: MAX_WIDTH,
-        flexShrink: 0,
         background: "#0F131A",
-        border: "1px solid rgba(255,255,255,0.06)",
+        borderLeft: "1px solid rgba(255,255,255,0.06)",
         boxShadow: "-4px 0 24px rgba(0,0,0,0.25)",
       }}
     >
@@ -726,18 +722,9 @@ export function AgentOverlay({ sessionId, onClose }: AgentOverlayProps) {
         {turns.length === 0 && (
           /* Empty state */
           <div className="flex flex-col items-center justify-center h-full py-12 gap-3 text-center">
-            <div
-              className="w-10 h-10 rounded-[12px] flex items-center justify-center"
-              style={{
-                background: "rgba(79,140,255,0.08)",
-                border: "1px solid rgba(79,140,255,0.15)",
-              }}
-            >
-              <Brain size={18} style={{ color: "rgba(79,140,255,0.6)" }} />
-            </div>
             <div>
-              <p className="text-[12px] font-semibold" style={{ color: "rgba(232,234,240,0.5)" }}>Nothing to show yet</p>
-              <p className="text-[10px] mt-0.5" style={{ color: "rgba(232,234,240,0.25)" }}>Run a command or describe a goal</p>
+              <p className="text-xs font-semibold" style={{ color: "rgba(232,234,240,0.5)" }}>Nothing to show yet</p>
+              <p className="text-xs mt-0.5" style={{ color: "rgba(232,234,240,0.25)" }}>Run a command or describe a goal</p>
             </div>
           </div>
         )}
@@ -753,8 +740,8 @@ export function AgentOverlay({ sessionId, onClose }: AgentOverlayProps) {
               isLastTurn={isLastTurn}
               detailsOpen={detailsOpen}
               logsOpen={logsOpen}
-              chainNodes={isLastTurn ? chainNodes : []}
-              agentLogs={isLastTurn ? agentLogs : []}
+              chainNodes={turn.assistant?.chainNodes || (isLastTurn ? chainNodes : [])}
+              agentLogs={turn.assistant?.agentLogs || (isLastTurn ? agentLogs : [])}
               durationSecs={durationSecs}
               onToggleDetails={() => setDetailsOpen((v) => !v)}
               onToggleLogs={() => setLogsOpen((v) => !v)}
@@ -772,6 +759,30 @@ export function AgentOverlay({ sessionId, onClose }: AgentOverlayProps) {
         {/* Bottom sentinel for auto-scroll */}
         <div ref={bottomRef} className="h-2" />
       </div>
+
+      {/* ── Footer with clear/retry actions ── */}
+      {turns.length > 0 && (
+        <div
+          className="shrink-0 flex items-center justify-between px-4 py-2.5"
+          style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}
+        >
+          <span className="text-[10px]" style={{ color: "rgba(232,234,240,0.25)" }}>
+            {turns.length} turn{turns.length !== 1 ? "s" : ""}
+          </span>
+          <button
+            onClick={clearTask}
+            className="flex items-center gap-1.5 text-[10px] font-semibold px-2.5 py-1 rounded-[8px] transition-all cursor-pointer"
+            style={{
+              color: "rgba(232,234,240,0.4)",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; e.currentTarget.style.color = "#E8EAF0"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "rgba(232,234,240,0.4)"; }}
+          >
+            <RotateCcw size={10} />
+            Clear session
+          </button>
+        </div>
+      )}
     </div>
   );
 }

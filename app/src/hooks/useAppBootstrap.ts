@@ -157,8 +157,7 @@ export function useAppBootstrap() {
       });
 
     const handleToggleCommandPalette = () => {
-      const current = useAppShellStore.getState().showSettings;
-      useAppShellStore.getState().setShowSettings(!current);
+      window.dispatchEvent(new CustomEvent("focus-search-bar"));
     };
 
     const handleToggleAiBar = () => {
@@ -205,9 +204,9 @@ export function useAppBootstrap() {
 
   useEffect(() => {
     const handleContextMenu = (event: Event) => {
-      const { x, y, selectedText, source } = (event as CustomEvent<{ x: number; y: number; selectedText?: string; source?: "terminal" | "input" | "file" }>).detail;
+      const { x, y, selectedText, source, filePath } = (event as CustomEvent<{ x: number; y: number; selectedText?: string; source?: "terminal" | "input" | "file"; filePath?: string }>).detail;
       closeAllPopups();
-      useAppShellStore.getState().setContextMenu({ x, y, selectedText, source });
+      useAppShellStore.getState().setContextMenu({ x, y, selectedText, source, filePath });
     };
 
     const clearContextMenu = () => useAppShellStore.getState().clearContextMenu();

@@ -8,6 +8,7 @@ import { useAppBootstrap } from "../hooks/useAppBootstrap";
 import { useCommandExecution } from "../hooks/useCommandExecution";
 import { useAgentExecution } from "../hooks/useAgentExecution";
 import { usePersistUIState } from "../hooks/usePersistUIState";
+import { useWindowClamp } from "../hooks/useWindowClamp";
 import { useAppShellStore } from "../stores/useAppShellStore";
 import { useBlockStore } from "../stores/useBlockStore";
 import { useSessionStore } from "../stores/useSessionStore";
@@ -15,7 +16,6 @@ import { useSettingsStore } from "../stores/useSettingsStore";
 import { TabBar } from "../components/ui/TabBar";
 import { SidePanel } from "../components/ui/SidePanel";
 import { StatusBar } from "../components/ui/StatusBar";
-import { SettingsModal } from "../components/settings/SettingsModal";
 import { AppHeader } from "../components/layout/AppHeader";
 import { AppContextMenu } from "../components/layout/AppContextMenu";
 import { AgentOverlay } from "../components/terminal/AgentOverlay";
@@ -34,6 +34,7 @@ export function AppShellView() {
   const { tabs, activeTabId, spawnSession, killSession, openFile, setActiveTabId } = useAppBootstrap();
   const { theme, setTheme } = useSettingsStore();
   usePersistUIState();
+  useWindowClamp();
 
   useEffect(() => {
     system.getAvailableCommands().then(setAvailableCommands).catch(() => { });
@@ -43,7 +44,6 @@ export function AppShellView() {
 
   const {
     sidebarCollapsed,
-    showSettings,
     showMenuDropdown,
     tabBarVisible,
     viewMode,
@@ -56,7 +56,6 @@ export function AppShellView() {
     shellHistory,
     interactedSessions,
     isCwdLoading,
-    setShowSettings,
     showAiBar,
     setShowAiBar,
     chatInputOpen,
@@ -120,6 +119,7 @@ export function AppShellView() {
       if (!cleanGoal) return;
 
       setCommandInput("");
+      setShowAiBar(true);
       startTask(cleanGoal);
     } else {
       defaultSubmit(event);
@@ -193,6 +193,16 @@ export function AppShellView() {
       });
     } catch (error) {
       console.error("Failed to spawn new window:", error);
+    }
+  };
+
+  const handleOpenSettings = async () => {
+    setShowMenuDropdown(false);
+    try {
+      const { openSettingsWindow } = await import("../lib/settings");
+      await openSettingsWindow();
+    } catch (error) {
+      console.error("Failed to open settings window:", error);
     }
   };
 
@@ -364,7 +374,7 @@ export function AppShellView() {
         onCloseSession={handleCloseSession}
         onCloseTab={handleCloseTab}
         onCloseOtherTabs={handleCloseOtherTabs}
-        onOpenSettings={() => { closeAllPopups(); setShowSettings(true); }}
+        onOpenSettings={() => { closeAllPopups(); handleOpenSettings(); }}
         onToggleTheme={handleToggleTheme}
         onToggleTabBar={toggleTabBarVisible}
         onShowTerminalView={handleShowTerminalView}
@@ -375,6 +385,8 @@ export function AppShellView() {
         tabBarVisible={tabBarVisible}
         viewMode={viewMode}
         projectName={cwd.replace(/^~\//, "")}
+        cwdAbsolute={cwdAbsolute}
+        onOpenFileAtPath={(path: string) => { openFile(path, cwdAbsolute); setViewMode("file"); }}
       />
 
       <div className="flex flex-1 overflow-hidden">
@@ -517,7 +529,7 @@ export function AppShellView() {
           )}
         </main>
 
-        {/* Agent overlay — rendered at shell level so it works in any view */}
+        {/* Agent overlay — inside main so it overlays the tab view area */}
         {showAiBar && activeTabId && (
           <AgentOverlay sessionId={activeTabId} onClose={() => setShowAiBar(false)} />
         )}
@@ -547,8 +559,6 @@ export function AppShellView() {
           setPendingCloseTabId(null);
         }}
       />
-
-      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
 
       <AppContextMenu
         contextMenu={contextMenu}
@@ -583,6 +593,30 @@ export function AppShellView() {
           if (activeTabId) {
             window.dispatchEvent(new CustomEvent("file-select-all", { detail: { tabId: activeTabId } }));
           }
+          clearContextMenu();
+        }}
+        onGoToDefinition={() => {
+          window.dispatchEvent(new CustomEvent("file-go-to-definition", { detail: { tabId: activeTabId, filePath: contextMenu?.filePath, selectedText: contextMenu?.selectedText } }));
+          clearContextMenu();
+        }}
+        onPeekDefinition={() => {
+          window.dispatchEvent(new CustomEvent("file-peek-definition", { detail: { tabId: activeTabId, filePath: contextMenu?.filePath, selectedText: contextMenu?.selectedText } }));
+          clearContextMenu();
+        }}
+        onFindReferences={() => {
+          window.dispatchEvent(new CustomEvent("file-find-references", { detail: { tabId: activeTabId, filePath: contextMenu?.filePath, selectedText: contextMenu?.selectedText } }));
+          clearContextMenu();
+        }}
+        onRenameSymbol={() => {
+          window.dispatchEvent(new CustomEvent("file-rename-symbol", { detail: { tabId: activeTabId, filePath: contextMenu?.filePath, selectedText: contextMenu?.selectedText } }));
+          clearContextMenu();
+        }}
+        onFormatDocument={() => {
+          window.dispatchEvent(new CustomEvent("file-format-document", { detail: { tabId: activeTabId, filePath: contextMenu?.filePath } }));
+          clearContextMenu();
+        }}
+        onRunFile={() => {
+          window.dispatchEvent(new CustomEvent("file-run", { detail: { tabId: activeTabId, filePath: contextMenu?.filePath } }));
           clearContextMenu();
         }}
       />

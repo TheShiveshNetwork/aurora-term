@@ -291,22 +291,12 @@ export function GitTree() {
   const [expandedHash, setExpandedHash] = useState<string | null>(null);
   const [commitFiles, setCommitFiles] = useState<Record<string, ChangedFile[]>>({});
   const [filesLoading, setFilesLoading] = useState<Record<string, boolean>>({});
-  const [containerH, setContainerH] = useState(0);
 
   const rootRef = useRef<HTMLDivElement>(null);
 
   const cwdAbsolute = useAppShellStore((s) => s.cwdAbsolute);
   const addTab = useSessionStore((s) => s.addTab);
   const setActiveTabId = useSessionStore((s) => s.setActiveTabId);
-
-  // ── measure parent height ──────────────────────────────────────────────────
-  useEffect(() => {
-    const el = rootRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(([entry]) => setContainerH(entry.contentRect.height));
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
 
   // ── fetch log ──────────────────────────────────────────────────────────────
   const fetchLog = useCallback(async () => {
@@ -389,25 +379,18 @@ export function GitTree() {
   const canvasW = nLanes * LANE_W + 4;
   const totalH = commits.length * ROW_H;
 
-  const HEADER_H = 28;
-  const scrollH = containerH > HEADER_H + 20 ? containerH - HEADER_H : "100%";
-
   // ── render ─────────────────────────────────────────────────────────────────
   return (
-    <div ref={rootRef} className="flex flex-col px-3" style={{ minHeight: 0 }}>
-      {/* ── scrollable graph ── */}
-      <div
-        className="select-text overflow-x-hidden"
-      >
-        <div className="relative" style={{ minWidth: 0 }}>
+    <div ref={rootRef} className="flex flex-col px-3 select-text overflow-x-hidden overflow-y-auto" style={{ minHeight: 0, flex: "1 1 0%" }}>
+      <div className="relative" style={{ minWidth: 0 }}>
 
-          {/* canvas — absolute, behind rows */}
-          <div style={{ position: "absolute", left: 0, top: 0, width: canvasW, height: totalH, pointerEvents: "none" }}>
-            <GraphCanvas data={data} graph={graph} width={canvasW} />
-          </div>
+        {/* canvas — absolute, behind rows */}
+        <div style={{ position: "absolute", left: 0, top: 0, width: canvasW, height: totalH, pointerEvents: "none" }}>
+          <GraphCanvas data={data} graph={graph} width={canvasW} />
+        </div>
 
-          {/* ── commit rows ── */}
-          {commits.map((commit) => {
+        {/* ── commit rows ── */}
+        {commits.map((commit) => {
             const color = commitColors[commit.hash] ?? "rgba(232,234,240,0.25)";
             const tags = branchByHash[commit.hash] ?? [];
             const isCurrent = tags.includes(currentBranch);
@@ -504,7 +487,6 @@ export function GitTree() {
             );
           })}
 
-        </div>
       </div>
     </div>
   );

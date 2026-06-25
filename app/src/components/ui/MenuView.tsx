@@ -262,7 +262,7 @@ function getVariantStyles(variant: MenuVariant) {
       };
     case "rightclick":
       return {
-        containerClass: `fixed glass-panel z-[500] min-w-[200px] py-1 px-1 slide-in-from-top-1 duration-150`,
+        containerClass: `fixed glass-panel z-[500] min-w-[200px] py-1 px-1`,
         background: "#0F131A",
         border: "1px solid rgba(255,255,255,0.08)",
         borderRadius: "12px",
