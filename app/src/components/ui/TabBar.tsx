@@ -1,5 +1,5 @@
 ﻿import React, { useRef, useState, useCallback, useEffect } from "react";
-import { Terminal, FileText, Plus, X, Copy, Pin, Edit3, XCircle, Trash2, ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, ExternalLink, GitBranchPlus } from "lucide-react";
+import { Terminal, FileText, Plus, X, Copy, Pin, Edit3, XCircle, Trash2, ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, ExternalLink, GitBranch, GitBranchPlus } from "lucide-react";
 import { useSessionStore } from "../../stores/useSessionStore";
 import { Tab, TabType } from "@aurora/types";
 import { MenuView, MenuViewItem, MenuViewSeparator } from "./MenuView";
@@ -14,7 +14,7 @@ interface TabBarProps {
   onDuplicateTab?: (tab: Tab) => void;
 }
 
-const FILE_LIKE_TYPES: TabType[] = ["file", "diff"];
+const FILE_LIKE_TYPES: TabType[] = ["file", "diff", "git"];
 
 export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplicateTab }: TabBarProps) {
   const { tabs, activeTabId, setActiveTabId, reorderTabs, updateTab } = useSessionStore();
@@ -346,8 +346,10 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
                 <FileText size={14} className={`shrink-0`} />
               ) : tab.type === "terminal" ? (
                 <Terminal size={14} className={`shrink-0`} />
-              ) : tab.type === "diff" && (
+              ) : tab.type === "diff" ? (
                 <GitBranchPlus size={14} className="shrink-0" />
+              ) : tab.type === "git" && (
+                <GitBranch size={14} className="shrink-0" />
               )}
               <span
                 className={`truncate transition-all duration-200 ${isActive ? "text-on-surface" : ""} ${isExpanded ? "max-w-[160px] opacity-100" : "max-w-0 opacity-0 overflow-hidden"

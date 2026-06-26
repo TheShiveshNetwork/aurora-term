@@ -11,6 +11,7 @@ const CATEGORY: Record<string, Record<string, string>> = {
   general: {
     window: "Window",
     editor: "Editor",
+    workspace: "Workspace",
     appearance: "Appearance",
     keybindings: "Keybindings",
   },
@@ -26,6 +27,8 @@ export const SETTINGS_MANIFEST: SettingsManifestEntry[] = [
   { id: "command-input", label: "Show Command Input", description: "Toggle command input visibility", elementId: "setting-command-input", section: "general", subPage: "window" },
   { id: "tab-bar", label: "Show Tab Bar", description: "Toggle tab bar visibility", elementId: "setting-tab-bar", section: "general", subPage: "window" },
   { id: "blur-sidebar", label: "Blur Sidebar", description: "Toggle sidebar blur effect", elementId: "setting-blur-sidebar", section: "general", subPage: "window" },
+  // ── Workspace ──
+  { id: "git-gui", label: "Open Git GUI In", description: "Open Git GUI in a new tab or window", elementId: "setting-git-gui", section: "general", subPage: "workspace" },
   // ── Editor ──
   { id: "fontFamily", label: "Font Family", description: "Terminal font family", elementId: "setting-font-family", section: "general", subPage: "editor" },
   { id: "fontSize", label: "Font Size", description: "Terminal font size", elementId: "setting-font-size", section: "general", subPage: "editor" },

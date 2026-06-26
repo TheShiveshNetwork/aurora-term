@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import WindowSettingsView from "./WindowSettingsView";
 import EditorSettingsView from "./EditorSettingsView";
+import WorkspaceSettingsView from "./WorkspaceSettingsView";
 import AppearanceSettingsView from "./AppearanceSettingsView";
 import AISettingsView from "./AISettingsView";
 import KeybindingsSettingsView from "./KeybindingsSettingsView";
@@ -11,6 +12,7 @@ import { useAppShellStore } from "../../stores/useAppShellStore";
 import { useAIStore } from "../../stores/useAIStore";
 import { config } from "../../lib/ipc";
 import type { AppConfig } from "../../lib/ipc";
+import { WindowControls } from "../ui/WindowControls";
 
 interface SettingsTarget {
   section: string;
@@ -117,6 +119,7 @@ const SECTIONS: Section[] = [
     items: [
       { id: "window", label: "Window Settings", view: <WindowSettingsView /> },
       { id: "editor", label: "Editor Settings", view: <EditorSettingsView /> },
+      { id: "workspace", label: "Workspace", view: <WorkspaceSettingsView /> },
       { id: "appearance", label: "Appearance", view: <AppearanceSettingsView /> },
       { id: "keybindings", label: "Keybindings", view: <KeybindingsSettingsView /> },
     ],
@@ -219,6 +222,14 @@ export default function SettingsPage() {
   return (
     <div className="h-screen flex flex-col overflow-hidden select-none" style={{ background: "#0A0D14", color: "#E8EAF0" }}>
       <style>{`.setting-flash { outline: 2px solid rgba(79,140,255,0.4); outline-offset: -2px; border-radius: 8px; transition: outline-color 0.15s; }`}</style>
+      <header
+        data-tauri-drag-region
+        className="flex items-center justify-between h-10 px-3 shrink-0"
+        style={{ background: "#0A0D14", borderBottom: "1px solid rgba(255,255,255,0.05)" }}
+      >
+        <span className="text-xs font-semibold tracking-wider uppercase select-none" style={{ color: "rgba(232,234,240,0.4)" }}>Settings</span>
+        <WindowControls />
+      </header>
       <div className="flex flex-1 min-h-0">
         {/* Sidebar */}
         <div

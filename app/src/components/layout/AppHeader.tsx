@@ -38,6 +38,7 @@ interface AppHeaderProps {
   onShowTerminalView: () => void;
   onShowFileView: () => void;
   onShowAgentView: () => void;
+  onOpenGitView: () => void;
   onExit: () => void;
   theme: "dark" | "light";
   tabBarVisible: boolean;
@@ -70,6 +71,7 @@ export function AppHeader({
   onShowTerminalView,
   onShowFileView,
   onShowAgentView,
+  onOpenGitView,
   onExit,
   theme,
   tabBarVisible,
@@ -173,7 +175,7 @@ export function AppHeader({
           </ViewButton>
         </div>
 
-        <IconBtn onClick={() => {/* implement a in-build git commands control view ui */ }} title={"Open Git View"}>
+        <IconBtn onClick={onOpenGitView} title={"Open Git View"}>
           <GitBranch size={14} />
         </IconBtn>
       </div>

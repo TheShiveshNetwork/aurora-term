@@ -55,7 +55,7 @@ export function CommandInputBar({
         style={{
           background: isPrompt ? "rgba(10,13,20,0.65)" : "rgba(255,255,255,0.03)",
           border: "1px solid rgba(255,255,255,0.07)",
-          boxShadow: isPrompt ? "0 8px 32px rgba(0,0,0,0.4)" : "0 4px 24px rgba(0,0,0,0.25)",
+          boxShadow: isPrompt ? "0 8px 12px rgba(0,0,0,0.25)" : "0 4px 24px rgba(0,0,0,0.15)",
         }}
       >
         {/* CWD breadcrumb */}

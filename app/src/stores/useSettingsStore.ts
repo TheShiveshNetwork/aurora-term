@@ -30,6 +30,7 @@ interface SettingsStore {
   editorTheme: EditorThemeName;
   showMinimap: boolean;
   keybindingOverrides: Record<string, string>;
+  gitGuiMode: "tab" | "window";
 
   setTheme: (theme: "dark" | "light") => void;
   setMode: (mode: EditorMode) => void;
@@ -44,6 +45,7 @@ interface SettingsStore {
   setShowMinimap: (show: boolean) => void;
   setKeybindingOverride: (id: string, keys: string) => void;
   resetKeybindingOverride: (id: string) => void;
+  setGitGuiMode: (mode: "tab" | "window") => void;
 }
 
 export const useSettingsStore = create<SettingsStore>((set) => ({
@@ -59,6 +61,7 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
   editorTheme: "dracula",
   showMinimap: true,
   keybindingOverrides: {},
+  gitGuiMode: "tab",
 
   setTheme: (theme) => {
     set({ theme });
@@ -74,6 +77,7 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
   setBlurSidebar: (blurSidebar) => set({ blurSidebar }),
   setEditorTheme: (editorTheme) => set({ editorTheme }),
   setShowMinimap: (showMinimap) => set({ showMinimap }),
+  setGitGuiMode: (gitGuiMode) => set({ gitGuiMode }),
   setKeybindingOverride: (id, keys) => set((state) => ({ keybindingOverrides: { ...state.keybindingOverrides, [id]: keys } })),
   resetKeybindingOverride: (id) => set((state) => {
     const { [id]: _, ...rest } = state.keybindingOverrides;

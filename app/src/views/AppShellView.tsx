@@ -25,6 +25,7 @@ import { TerminalWorkspaceView } from "./TerminalWorkspaceView";
 import { FileWorkspaceView } from "./FileWorkspaceView";
 import { DiffWorkspaceView } from "../components/editor/DiffWorkspaceView";
 import { CommitDiffView } from "../components/editor/CommitDiffView";
+import { GitView } from "../components/git/GitView";
 import { getDefaultShellLaunch, isWindowsPlatform } from "../lib/shell";
 import { classifyInput, setAvailableCommands, type ShellType } from "../lib/nlClassifier";
 import { system } from "../lib/ipc";
@@ -131,6 +132,7 @@ export function AppShellView() {
   };
 
   const activeTab = tabs.find((tab) => tab.id === activeTabId) || null;
+  const isStandaloneView = activeTab?.type === "file" || activeTab?.type === "diff" || activeTab?.type === "git";
   const activeFilePath = (activeTab?.type === "file" || activeTab?.type === "diff") ? activeTab.filePath : undefined;
   const pendingTab = pendingCloseTabId ? tabs.find((tab) => tab.id === pendingCloseTabId) || null : null;
   const currentTerminalBlocks = targetSessionId ? blocks[targetSessionId] || [] : [];
@@ -190,6 +192,7 @@ export function AppShellView() {
         title: "Aurora Terminal",
         width: 1024,
         height: 768,
+        decorations: false,
       });
     } catch (error) {
       console.error("Failed to spawn new window:", error);
@@ -321,6 +324,25 @@ export function AppShellView() {
 
   const handleShowAgentView = () => { };
 
+  const handleOpenGitView = () => {
+    const existing = tabs.find(t => t.type === "git");
+    if (existing) {
+      setActiveTabId(existing.id);
+      setViewMode("file");
+      return;
+    }
+    const id = uuidv4();
+    useSessionStore.getState().addTab({
+      id,
+      name: "Git",
+      type: "git" as const,
+      cwd: cwdAbsolute,
+      created_at: Date.now(),
+    });
+    useSessionStore.getState().setActiveTabId(id);
+    setViewMode("file");
+  };
+
   const handleDuplicateTab = (tab: Tab) => {
     if (tab.type === "terminal") {
       const { shell, args } = getDefaultShellLaunch();
@@ -387,6 +409,7 @@ export function AppShellView() {
         projectName={cwd.replace(/^~\//, "")}
         cwdAbsolute={cwdAbsolute}
         onOpenFileAtPath={(path: string) => { openFile(path, cwdAbsolute); setViewMode("file"); }}
+        onOpenGitView={handleOpenGitView}
       />
 
       <div className="flex flex-1 overflow-hidden">
@@ -436,7 +459,7 @@ export function AppShellView() {
           </div>
 
           <div
-            className={`flex-1 overflow-hidden w-full flex flex-col relative ${(activeTab?.type === "file" || activeTab?.type === "diff" || isAlternateActive) ? "" : "px-3 pt-3"}`} onMouseDown={(event) => {
+            className={`flex-1 overflow-hidden w-full flex flex-col relative ${(isStandaloneView || isAlternateActive) ? "" : "px-3 pt-3"}`} onMouseDown={(event) => {
               const target = event.target as HTMLElement;
               if (target.closest(".xterm")) {
                 return;
@@ -475,6 +498,8 @@ export function AppShellView() {
                         newContent={tab.diffNewContent || ""}
                         commitHash={tab.diffCommitHash || ""}
                       />
+                    ) : tab.type === "git" ? (
+                      <GitView cwd={cwdAbsolute} tabId={tab.id} />
                     ) : (
                       <TerminalWorkspaceView
                         tab={tab}

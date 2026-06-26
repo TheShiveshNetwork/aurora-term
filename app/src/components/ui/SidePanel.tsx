@@ -416,7 +416,7 @@ function useSidepanelLayout(
     return init;
   });
   const [heights, setHeights] = useState<Record<string, number>>({ ...DEFAULT_HEIGHTS });
-  const [containerH, setContainerH] = useState(600);
+  const [containerH, setContainerH] = useState(0);
   const heightsRef = useRef(heights);
   heightsRef.current = heights;
 
@@ -475,6 +475,15 @@ function useSidepanelLayout(
     }
     return next;
   }, [visibleSections, getAvail]);
+
+  // Redistribute heights once the ResizeObserver provides the real container height
+  const measuredRef = useRef(false);
+  useEffect(() => {
+    if (!measuredRef.current && containerH > 100) {
+      measuredRef.current = true;
+      setHeights(h => redistribute(open, h));
+    }
+  }, [containerH, open, redistribute]);
 
   // Sync visibility changes (view mode switch) — close new sections, redistribute
   const prevVisibleRef = useRef(visibleSections);
@@ -978,7 +987,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
         width, minWidth: MIN_WIDTH, maxWidth: MAX_WIDTH, flexShrink: 0,
         background: "#0F131A",
         borderRight: "1px solid rgba(255,255,255,0.06)",
-        boxShadow: "4px 0 24px rgba(0,0,0,0.25)",
+        // boxShadow: "4px 0 24px rgba(0,0,0,0.15)",
         overflow: "hidden",
         height: "100%",
       }}

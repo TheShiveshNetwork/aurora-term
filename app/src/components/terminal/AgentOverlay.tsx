@@ -284,7 +284,7 @@ function ConversationTurn({
         style={{ background: "#0F131A" }}
       >
         <div
-          className="rounded-[14px] px-4 py-3 text-[13px] font-medium leading-relaxed"
+          className="rounded-[14px] px-4 py-3 text-[13px] font-medium leading-relaxed select-text"
           style={{
             background: "rgba(255,255,255,0.04)",
             border: "1px solid rgba(255,255,255,0.08)",
@@ -413,7 +413,7 @@ function ConversationTurn({
                   Aura approval required
                 </span>
                 <code
-                  className="text-[11px] font-mono break-all block mt-1.5 p-2 rounded-[10px]"
+                  className="text-[11px] font-mono break-all block mt-1.5 p-2 rounded-[10px] select-text"
                   style={{
                     color: "rgba(232,234,240,0.95)",
                     background: "rgba(255,255,255,0.05)",
@@ -422,7 +422,7 @@ function ConversationTurn({
                 >
                   {pendingApprovalCmd.command}
                 </code>
-                <span className="text-[10px] block mt-1.5 leading-normal" style={{ color: "rgba(232,234,240,0.45)" }}>
+                <span className="text-[10px] block mt-1.5 leading-normal select-text" style={{ color: "rgba(232,234,240,0.45)" }}>
                   {pendingApprovalCmd.explanation}
                 </span>
               </div>
@@ -459,7 +459,7 @@ function ConversationTurn({
         {/* AI response */}
         {assistantMsg && (
           <div className="space-y-2 mt-1">
-            <div className={`text-[12.5px] leading-relaxed break-words ${assistantMsg.isError ? "text-red-400" : "text-on-surface/90"}`}>
+            <div className={`text-[12.5px] leading-relaxed break-words select-text ${assistantMsg.isError ? "text-red-400" : "text-on-surface/90"}`}>
               {renderMarkdown(assistantMsg.content)}
             </div>
 
@@ -649,14 +649,14 @@ export function AgentOverlay({ sessionId, onClose }: AgentOverlayProps) {
 
   return (
     <div
-      className="flex flex-col z-25 select-text"
+      className="relative flex flex-col z-25 select-none"
       style={{
         width,
         minWidth: MIN_WIDTH,
         maxWidth: MAX_WIDTH,
         background: "#0F131A",
         borderLeft: "1px solid rgba(255,255,255,0.06)",
-        boxShadow: "-4px 0 24px rgba(0,0,0,0.25)",
+        // boxShadow: "-4px 0 4px rgba(0,0,0,0.15)",
       }}
     >
       {/* ── Drag handle on left edge ── */}

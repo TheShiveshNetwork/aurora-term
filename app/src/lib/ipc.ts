@@ -139,6 +139,21 @@ export interface ChangedFile {
   file_path: string;
 }
 
+export interface GitStatusEntry {
+  path: string;
+  x: string;
+  y: string;
+}
+
+export interface GitBranchInfo {
+  name: string;
+  current: boolean;
+  remote: string | null;
+  ahead: number;
+  behind: number;
+  commit_hash: string;
+}
+
 export const system = {
   getCurrentPwd: () =>
     invoke<string>("get_current_pwd"),
@@ -162,4 +177,40 @@ export const system = {
     invoke<ChangedFile[]>("get_git_commit_files", { cwd, commitHash }),
   getAvailableCommands: () =>
     invoke<string[]>("get_available_commands"),
+  gitStatus: (cwd: string) =>
+    invoke<GitStatusEntry[]>("git_status", { cwd }),
+  gitAdd: (cwd: string, paths: string[]) =>
+    invoke<void>("git_add", { cwd, paths }),
+  gitReset: (cwd: string, paths: string[]) =>
+    invoke<void>("git_reset", { cwd, paths }),
+  gitRestore: (cwd: string, paths: string[]) =>
+    invoke<void>("git_restore", { cwd, paths }),
+  gitCommit: (cwd: string, message: string) =>
+    invoke<string>("git_commit", { cwd, message }),
+  gitPush: (cwd: string, remote: string, branch: string) =>
+    invoke<string>("git_push", { cwd, remote, branch }),
+  gitPull: (cwd: string, remote: string, branch: string) =>
+    invoke<string>("git_pull", { cwd, remote, branch }),
+  gitFetch: (cwd: string, remote: string) =>
+    invoke<string>("git_fetch", { cwd, remote }),
+  gitCheckout: (cwd: string, branch: string, createNew?: boolean) =>
+    invoke<void>("git_checkout", { cwd, branch, createNew }),
+  gitBranchCreate: (cwd: string, name: string, startPoint?: string) =>
+    invoke<void>("git_branch_create", { cwd, name, startPoint }),
+  gitBranchDelete: (cwd: string, branch: string, force?: boolean) =>
+    invoke<void>("git_branch_delete", { cwd, branch, force }),
+  gitBranchList: (cwd: string) =>
+    invoke<GitBranchInfo[]>("git_branch_list", { cwd }),
+  gitDiffUnstaged: (cwd: string, path?: string) =>
+    invoke<string>("git_diff_unstaged", { cwd, path }),
+  gitDiffStaged: (cwd: string, path?: string) =>
+    invoke<string>("git_diff_staged", { cwd, path }),
+  gitLogOneline: (cwd: string, count?: number) =>
+    invoke<string>("git_log_oneline", { cwd, count }),
+  gitClone: (url: string, targetDir: string) =>
+    invoke<void>("git_clone", { url, targetDir }),
+  gitRemoteList: (cwd: string) =>
+    invoke<string[]>("git_remote_list", { cwd }),
+  gitExec: (cwd: string, args: string[]) =>
+    invoke<string>("git_exec", { cwd, args }),
 };
