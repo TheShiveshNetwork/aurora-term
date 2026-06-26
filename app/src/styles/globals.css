@@ -328,7 +328,19 @@ body {
   box-shadow: none !important;
 }
 
-/* ── 11. Ghost Input Animations ──────────────────────────────────── */
+/* ── 11. Tab Drag Indicator ──────────────────────────────────────── */
+@keyframes tab-drop-pop-in {
+  from {
+    transform: scaleY(0.1);
+    opacity: 0;
+  }
+  to {
+    transform: scaleY(0.85);
+    opacity: 0.9;
+  }
+}
+
+/* ── 12. Ghost Input Animations ──────────────────────────────────── */
 @keyframes ghost-fade-in {
   from {
     opacity: 0;
@@ -347,7 +359,7 @@ body {
   width: 100%;
 }
 
-/* ── 12. Output Renderer ─────────────────────────────────────────── */
+/* ── 13. Output Renderer ─────────────────────────────────────────── */
 .output-renderer {
   cursor: text;
 }

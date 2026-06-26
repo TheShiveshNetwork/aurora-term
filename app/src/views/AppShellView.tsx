@@ -23,6 +23,7 @@ import { SaveChangesModal } from "../components/layout/SaveChangesModal";
 import { CommandInputBar } from "../components/layout/CommandInputBar";
 import { TerminalWorkspaceView } from "./TerminalWorkspaceView";
 import { FileWorkspaceView } from "./FileWorkspaceView";
+import { AgentView } from "./AgentView";
 import { DiffWorkspaceView } from "../components/editor/DiffWorkspaceView";
 import { CommitDiffView } from "../components/editor/CommitDiffView";
 import { GitView } from "../components/git/GitView";
@@ -192,6 +193,8 @@ export function AppShellView() {
         title: "Aurora Terminal",
         width: 1024,
         height: 768,
+        minWidth: 800,
+        minHeight: 500,
         decorations: false,
       });
     } catch (error) {
@@ -271,6 +274,8 @@ export function AppShellView() {
 
   const handleShowTerminalView = async () => {
     setViewMode("terminal");
+    useAppShellStore.getState().setSidebarCollapsed(false);
+    useAppShellStore.getState().setChatInputOpen(true);
     const hasTerminal = tabs.some((tab) => tab.type === "terminal");
 
     if (!hasTerminal) {
@@ -295,6 +300,8 @@ export function AppShellView() {
 
   const handleShowFileView = async () => {
     setViewMode("file");
+    useAppShellStore.getState().setSidebarCollapsed(false);
+    useAppShellStore.getState().setChatInputOpen(true);
     const fileTabs = tabs.filter((tab) => tab.type === "file");
 
     if (fileTabs.length === 0) {
@@ -322,7 +329,12 @@ export function AppShellView() {
     }
   };
 
-  const handleShowAgentView = () => { };
+  const handleShowAgentView = () => {
+    setViewMode("agent");
+    useAppShellStore.getState().setSidebarCollapsed(true);
+    useAppShellStore.getState().setShowAiBar(false);
+    useAppShellStore.getState().setChatInputOpen(false);
+  };
 
   const handleOpenGitView = () => {
     const existing = tabs.find(t => t.type === "git");
@@ -366,6 +378,8 @@ export function AppShellView() {
     }
   };
 
+  const isStandalone = useMemo(() => document.title.includes("Terminal"), []);
+
   return (
     <div
       data-tauri-drag-region
@@ -377,6 +391,7 @@ export function AppShellView() {
       }}
     >
       <AppHeader
+        isStandalone={isStandalone}
         sidebarCollapsed={sidebarCollapsed}
         onToggleSidebar={toggleSidebarCollapsed}
         agentOverlayOpen={showAiBar}
@@ -416,146 +431,156 @@ export function AppShellView() {
         <SidePanel collapsed={sidebarCollapsed} cwd={cwdAbsolute} activeFilePath={activeFilePath} />
 
         <main className="flex-1 flex flex-col min-w-0 bg-surface-container-low overflow-hidden relative">
-          <div className={tabBarVisible ? "" : "hidden"}>
-            <TabBar
-              viewMode={viewMode}
-              onSetViewMode={setViewMode}
-              onAddTab={async (type: "terminal" | "file") => {
-                if (type === "terminal") {
-                  const { shell, args } = getDefaultShellLaunch();
-                  try {
-                    const sessionId = await spawnSession(shell, args, {}, cwdAbsolute);
-                    setSessionCwd(sessionId, cwdAbsolute);
-                  } catch (error) {
-                    console.error("Failed to spawn session:", error);
-                  }
-                  return;
-                }
-
-                const welcomeTabId = uuidv4();
-                const newTab: Tab = {
-                  id: welcomeTabId,
-                  name: "Workspace",
-                  type: "file",
-                  filePath: undefined,
-                  cwd: cwdAbsolute,
-                  created_at: Date.now(),
-                };
-                useSessionStore.getState().addTab(newTab);
-                setActiveTabId(welcomeTabId);
-                setViewMode("file");
-              }}
-              onKillTab={(id) => {
-                const tab = tabs.find((candidate) => candidate.id === id);
-                if (tab?.type === "file" && tab.dirty) {
-                  setPendingCloseTabId(id);
-                  return;
-                }
-
-                killSession(id);
-              }}
-              onDuplicateTab={handleDuplicateTab}
-            />
-          </div>
-
-          <div
-            className={`flex-1 overflow-hidden w-full flex flex-col relative ${(isStandaloneView || isAlternateActive) ? "" : "px-3 pt-3"}`} onMouseDown={(event) => {
-              const target = event.target as HTMLElement;
-              if (target.closest(".xterm")) {
-                return;
-              }
-
-              if (activeTab?.type === "terminal" && !isCommandRunning && !isAlternateActive) {
-                window.dispatchEvent(new CustomEvent("aurora-focus-terminal-input", { detail: { sessionId: activeTabId } }));
-              }
-            }}
-          >
-            <div className="flex-1 min-h-0 w-full relative overflow-hidden">
-              {tabs.map((tab) => {
-                const isTabActive = tab.id === activeTabId;
-
-                return (
-                  <div
-                    key={tab.id}
-                    className="absolute inset-0"
-                    style={{
-                      visibility: isTabActive ? "visible" : "hidden",
-                      pointerEvents: isTabActive ? "auto" : "none",
-                      zIndex: isTabActive ? 10 : 0,
-                    }}
-                  >
-                    {tab.type === "file" ? (
-                      <FileWorkspaceView tab={tab} onOpenFile={handleOpenFile} onOpenFolder={handleOpenFolder} />
-                    ) : tab.type === "diff" && tab.diffContent ? (
-                      <CommitDiffView
-                        diff={tab.diffContent}
-                        commitHash={tab.diffCommitHash || ""}
-                      />
-                    ) : tab.type === "diff" ? (
-                      <DiffWorkspaceView
-                        filePath={tab.filePath || ""}
-                        oldContent={tab.diffOldContent || ""}
-                        newContent={tab.diffNewContent || ""}
-                        commitHash={tab.diffCommitHash || ""}
-                      />
-                    ) : tab.type === "git" ? (
-                      <GitView cwd={cwdAbsolute} tabId={tab.id} />
-                    ) : (
-                      <TerminalWorkspaceView
-                        tab={tab}
-                        isVisible={isTabActive}
-                        isCommandRunning={isTabActive ? isCommandRunning : undefined}
-                        isAlternateActive={isAlternateActive}
-                        hasInteracted={hasInteracted}
-                        activeBlocksCount={tab.id === targetSessionId ? currentTerminalBlocks.length : 0}
-                      />
-                    )}
-                  </div>
-                );
-              })}
+          {viewMode === "agent" ? (
+            <div className="flex-1 min-h-0 overflow-hidden">
+              <AgentView />
             </div>
-          </div>
+          ) : (
+            <>
+              {!isStandalone && (
+                <div className={tabBarVisible ? "" : "hidden"}>
+                  <TabBar
+                    viewMode={viewMode}
+                    onSetViewMode={setViewMode}
+                    onAddTab={async (type: "terminal" | "file") => {
+                      if (type === "terminal") {
+                        const { shell, args } = getDefaultShellLaunch();
+                        try {
+                          const sessionId = await spawnSession(shell, args, {}, cwdAbsolute);
+                          setSessionCwd(sessionId, cwdAbsolute);
+                        } catch (error) {
+                          console.error("Failed to spawn session:", error);
+                        }
+                        return;
+                      }
 
-          {/* Terminal view: command variant (default) */}
-          {chatInputOpen && activeTab?.type === "terminal" && !isAlternateActive && (
-            <CommandInputBar
-              sessionId={targetSessionId}
-              cwd={cwd}
-              isLoading={isCwdLoading}
-              isRunning={isCommandRunning}
-              value={activeCommandInput}
-              history={[
-                ...activeTabBlocks.filter((block) => block.command && block.command !== "init-aurora").map((block) => block.command as string),
-                ...shellHistory.slice().reverse(),
-              ]}
-              onChange={setCommandInput}
-              onSubmit={(e) => handleInterceptedSubmit(e, handleExecuteCommand, false)}
-              onStop={handleStopCurrentCommand}
-              onOpenAiBar={() => setShowAiBar(true)}
-              inputMode={inputMode}
-            />
-          )}
+                      const welcomeTabId = uuidv4();
+                      const newTab: Tab = {
+                        id: welcomeTabId,
+                        name: "Workspace",
+                        type: "file",
+                        filePath: undefined,
+                        cwd: cwdAbsolute,
+                        created_at: Date.now(),
+                      };
+                      useSessionStore.getState().addTab(newTab);
+                      setActiveTabId(welcomeTabId);
+                      setViewMode("file");
+                    }}
+                    onKillTab={(id) => {
+                      const tab = tabs.find((candidate) => candidate.id === id);
+                      if (tab?.type === "file" && tab.dirty) {
+                        setPendingCloseTabId(id);
+                        return;
+                      }
 
-          {/* File view: prompt variant (absolute, glassmorphism, independent state) */}
-          {chatInputOpen && activeTab?.type === "file" && (
-            <CommandInputBar
-              variant="prompt"
-              sessionId={null}
-              cwd={cwd}
-              isLoading={false}
-              isRunning={false}
-              value={activeCommandInput}
-              history={[]}
-              onChange={setCommandInput}
-              onSubmit={(e) => handleInterceptedSubmit(e, handleFileCommandSubmit, true)}
-              onOpenAiBar={() => setShowAiBar(true)}
-              inputMode={inputMode}
-            />
+                      killSession(id);
+                    }}
+                    onDuplicateTab={handleDuplicateTab}
+                  />
+                </div>
+              )}
+
+              <div
+                className={`flex-1 overflow-hidden w-full flex flex-col relative ${(isStandaloneView || isAlternateActive) ? "" : "px-3 pt-3"}`} onMouseDown={(event) => {
+                  const target = event.target as HTMLElement;
+                  if (target.closest(".xterm")) {
+                    return;
+                  }
+
+                  if (activeTab?.type === "terminal" && !isCommandRunning && !isAlternateActive) {
+                    window.dispatchEvent(new CustomEvent("aurora-focus-terminal-input", { detail: { sessionId: activeTabId } }));
+                  }
+                }}
+              >
+                <div className="flex-1 min-h-0 w-full relative overflow-hidden">
+                  {tabs.map((tab) => {
+                    const isTabActive = tab.id === activeTabId;
+
+                    return (
+                      <div
+                        key={tab.id}
+                        className="absolute inset-0"
+                        style={{
+                          visibility: isTabActive ? "visible" : "hidden",
+                          pointerEvents: isTabActive ? "auto" : "none",
+                          zIndex: isTabActive ? 10 : 0,
+                        }}
+                      >
+                        {tab.type === "file" ? (
+                          <FileWorkspaceView tab={tab} onOpenFile={handleOpenFile} onOpenFolder={handleOpenFolder} />
+                        ) : tab.type === "diff" && tab.diffContent ? (
+                          <CommitDiffView
+                            diff={tab.diffContent}
+                            commitHash={tab.diffCommitHash || ""}
+                          />
+                        ) : tab.type === "diff" ? (
+                          <DiffWorkspaceView
+                            filePath={tab.filePath || ""}
+                            oldContent={tab.diffOldContent || ""}
+                            newContent={tab.diffNewContent || ""}
+                            commitHash={tab.diffCommitHash || ""}
+                          />
+                        ) : tab.type === "git" ? (
+                          <GitView cwd={cwdAbsolute} tabId={tab.id} />
+                        ) : (
+                          <TerminalWorkspaceView
+                            tab={tab}
+                            isVisible={isTabActive}
+                            isCommandRunning={isTabActive ? isCommandRunning : undefined}
+                            isAlternateActive={isAlternateActive}
+                            hasInteracted={hasInteracted}
+                            activeBlocksCount={tab.id === targetSessionId ? currentTerminalBlocks.length : 0}
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Terminal view: command variant (default) */}
+              {chatInputOpen && activeTab?.type === "terminal" && !isAlternateActive && (
+                <CommandInputBar
+                  sessionId={targetSessionId}
+                  cwd={cwd}
+                  isLoading={isCwdLoading}
+                  isRunning={isCommandRunning}
+                  value={activeCommandInput}
+                  history={[
+                    ...activeTabBlocks.filter((block) => block.command && block.command !== "init-aurora").map((block) => block.command as string),
+                    ...shellHistory.slice().reverse(),
+                  ]}
+                  onChange={setCommandInput}
+                  onSubmit={(e) => handleInterceptedSubmit(e, handleExecuteCommand, false)}
+                  onStop={handleStopCurrentCommand}
+                  onOpenAiBar={() => setShowAiBar(true)}
+                  inputMode={inputMode}
+                />
+              )}
+
+              {/* File view: prompt variant (absolute, glassmorphism, independent state) */}
+              {chatInputOpen && activeTab?.type === "file" && (
+                <CommandInputBar
+                  variant="prompt"
+                  sessionId={null}
+                  cwd={cwd}
+                  isLoading={false}
+                  isRunning={false}
+                  value={activeCommandInput}
+                  history={[]}
+                  onChange={setCommandInput}
+                  onSubmit={(e) => handleInterceptedSubmit(e, handleFileCommandSubmit, true)}
+                  onOpenAiBar={() => setShowAiBar(true)}
+                  inputMode={inputMode}
+                />
+              )}
+            </>
           )}
         </main>
 
         {/* Agent overlay — inside main so it overlays the tab view area */}
-        {showAiBar && activeTabId && (
+        {showAiBar && activeTabId && !isStandalone && (
           <AgentOverlay sessionId={activeTabId} onClose={() => setShowAiBar(false)} />
         )}
       </div>

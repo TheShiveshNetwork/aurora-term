@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type AppViewMode = "terminal" | "file";
+export type AppViewMode = "terminal" | "file" | "agent";
 
 export type AppContextMenu = {
   x: number;

@@ -352,8 +352,7 @@ function CollapsibleSection({
     <div
       className="flex flex-col min-h-0 group/section relative"
       style={{
-        flex: "0 0 auto",
-        height: totalHeight,
+        flex: open ? "1 1 auto" : "0 0 auto",
         minHeight: open ? HEADER_H + MIN_SECTION_H : HEADER_H,
         borderTop: "1px solid rgba(255,255,255,0.05)",
         overflow: "hidden",
@@ -384,7 +383,7 @@ function CollapsibleSection({
 
       {/* Content */}
       {open && (
-        <div className="flex-1 min-h-0 overflow-x-hidden overflow-y-auto section-scroll">
+        <div className="flex-1 min-h-0 overflow-x-hidden overflow-y-auto section-scroll" style={{ height: bodyHeight }}>
           {children}
         </div>
       )}
@@ -476,11 +475,9 @@ function useSidepanelLayout(
     return next;
   }, [visibleSections, getAvail]);
 
-  // Redistribute heights once the ResizeObserver provides the real container height
-  const measuredRef = useRef(false);
+  // Redistribute heights whenever container height changes
   useEffect(() => {
-    if (!measuredRef.current && containerH > 100) {
-      measuredRef.current = true;
+    if (containerH > 100) {
       setHeights(h => redistribute(open, h));
     }
   }, [containerH, open, redistribute]);
@@ -675,9 +672,10 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
       setWorkspaceName(parts[parts.length - 1] || absolutePath);
       const res = await invoke<FileNode[]>("read_dir", { path: absolutePath });
       if (seq !== loadSeqRef.current) return;
-      serializedRootRef.current = JSON.stringify(res);
+      const sorted = sortNodes(res);
+      serializedRootRef.current = JSON.stringify(sorted);
       hasDataRef.current = true;
-      setRootNodes(res);
+      setRootNodes(sorted);
     } catch (err) {
       if (seq !== loadSeqRef.current) return;
       setError(String(err) || "Failed to load workspace files.");
@@ -714,14 +712,19 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
   useEffect(() => {
     if (collapsed || !resolvedCwd) return;
     let unlisten: (() => void) | null = null;
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     listen<void>("fs-tree-changed", async () => {
-      try {
-        const res = await invoke<FileNode[]>("read_dir", { path: resolvedCwd });
-        const serialized = JSON.stringify(res);
-        if (serialized !== serializedRootRef.current) { serializedRootRef.current = serialized; setRootNodes(res); }
-      } catch { /* silent */ }
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(async () => {
+        try {
+          const res = await invoke<FileNode[]>("read_dir", { path: resolvedCwd });
+          const sorted = sortNodes(res);
+          const serialized = JSON.stringify(sorted);
+          if (serialized !== serializedRootRef.current) { serializedRootRef.current = serialized; setRootNodes(sorted); }
+        } catch { /* silent */ }
+      }, 80);
     }).then((fn) => { unlisten = fn; });
-    return () => { if (unlisten) unlisten(); };
+    return () => { if (unlisten) unlisten(); if (debounceTimer) clearTimeout(debounceTimer); };
   }, [collapsed, resolvedCwd]);
 
   // Panel drag-to-resize

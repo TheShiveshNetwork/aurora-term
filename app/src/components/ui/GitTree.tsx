@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { RefreshCw } from "lucide-react";
 import { v4 as uuidv4 } from "uuid";
 import { system, type GitLogResult, type ChangedFile } from "../../lib/ipc";
@@ -19,10 +19,19 @@ const BRANCH_COLORS = [
   "#B388FF",
 ];
 
-const ROW_H = 20;   // px per commit row
-const LANE_W = 12;   // px per graph lane
-const DOT_R = 2.5;  // commit dot radius
-const LINE_W = 1.5;  // branch line width
+const ROW_H = 20;     // px per commit row
+const FILE_ROW_H = 18; // px per file row in expanded area
+const LANE_W = 12;     // px per graph lane
+const DOT_R = 2.5;    // commit dot radius
+const LINE_W = 1.5;    // branch line width
+
+interface CommitLayout {
+  rowIndex: number;
+  y: number;
+  height: number;
+  expanded: boolean;
+  expandedHeight: number;
+}
 
 const STATUS_ICON: Record<string, string> = { M: "◆", A: "+", D: "−", R: "→", C: "+" };
 const STATUS_COLOR: Record<string, string> = {
@@ -166,54 +175,48 @@ function drawGraph(
   graph: GraphData,
   dpr: number,
   w: number,
+  commitCenters: Record<string, number>,
+  totalHeight: number,
 ) {
   const { commitLane, commitColors, branchByHash, currentBranch } = graph;
-  const totalH = commits.length * ROW_H;
   const ctx = canvas.getContext("2d")!;
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.clearRect(0, 0, w * dpr, totalH * dpr);
+  ctx.clearRect(0, 0, w * dpr, totalHeight * dpr);
   ctx.scale(dpr, dpr);
 
-  const hashIdx: Record<string, number> = {};
-  commits.forEach((c, i) => (hashIdx[c.hash] = i));
-
   const lx = (lane: number) => (lane + 0.5) * LANE_W;
-  const ly = (idx: number) => (idx + 0.5) * ROW_H;
 
   // ── draw edges ────────────────────────────────────────────────────────────
   for (let i = 0; i < commits.length; i++) {
     const c = commits[i];
     const cLane = commitLane[c.hash] ?? 0;
     const color = commitColors[c.hash] ?? "rgba(232,234,240,0.3)";
+    const cy1 = commitCenters[c.hash] ?? (i + 0.5) * ROW_H;
 
     for (const p of c.parents) {
-      const pIdx = hashIdx[p];
-      if (pIdx == null) continue;
+      const pCy = commitCenters[p];
+      if (pCy == null) continue;
       const pLane = commitLane[p] ?? 0;
       const pColor = commitColors[p] ?? color;
 
-      const x1 = lx(cLane), y1 = ly(i);
-      const x2 = lx(pLane), y2 = ly(pIdx);
+      const x1 = lx(cLane), y1 = cy1;
+      const x2 = lx(pLane), y2 = pCy;
 
       ctx.beginPath();
       ctx.lineWidth = LINE_W;
       ctx.globalAlpha = 0.65;
 
       if (cLane === pLane) {
-        // straight vertical — use parent color (spine = amber, branch = its color)
         ctx.strokeStyle = pColor;
         ctx.moveTo(x1, y1);
         ctx.lineTo(x2, y2);
       } else if (cLane === 0) {
-        // merge back into main: start at branch dot, curve to main spine
-        // draw in the branch color
         ctx.strokeStyle = color;
         ctx.moveTo(x1, y1);
         const cpY = y2 - ROW_H * 0.4;
         ctx.bezierCurveTo(x1, cpY, x2, cpY, x2, y2);
       } else {
-        // branch diverging from main: start at main, curve out to branch
         ctx.strokeStyle = color;
         ctx.moveTo(x1, y1);
         const cpY = y1 + ROW_H * 0.4;
@@ -230,11 +233,10 @@ function drawGraph(
     const c = commits[i];
     const lane = commitLane[c.hash] ?? 0;
     const cx = lx(lane);
-    const cy = ly(i);
+    const cy = commitCenters[c.hash] ?? (i + 0.5) * ROW_H;
     const color = commitColors[c.hash] ?? "rgba(232,234,240,0.3)";
     const isHead = !!(branchByHash[c.hash]?.includes(currentBranch));
 
-    // glow ring for HEAD
     if (isHead) {
       ctx.beginPath();
       ctx.arc(cx, cy, DOT_R + 2.5, 0, Math.PI * 2);
@@ -259,26 +261,27 @@ interface GraphCanvasProps {
   data: GitLogResult;
   graph: GraphData;
   width: number;
+  commitCenters: Record<string, number>;
+  totalHeight: number;
 }
 
-function GraphCanvas({ data, graph, width }: GraphCanvasProps) {
+function GraphCanvas({ data, graph, width, commitCenters, totalHeight }: GraphCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const { commits } = data;
-  const totalH = commits.length * ROW_H;
   const dpr = window.devicePixelRatio || 1;
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || width === 0) return;
-    drawGraph(canvas, commits, graph, dpr, width);
-  }, [commits, graph, width, dpr]);
+    drawGraph(canvas, commits, graph, dpr, width, commitCenters, totalHeight);
+  }, [commits, graph, width, dpr, commitCenters, totalHeight]);
 
   return (
     <canvas
       ref={canvasRef}
       width={width * dpr}
-      height={totalH * dpr}
-      style={{ position: "absolute", left: 0, top: 0, width, height: totalH, pointerEvents: "none" }}
+      height={totalHeight * dpr}
+      style={{ position: "absolute", left: 0, top: 0, width, height: totalHeight, pointerEvents: "none" }}
     />
   );
 }
@@ -349,6 +352,34 @@ export function GitTree() {
     } catch { /* silent */ }
   }, [cwdAbsolute, addTab, setActiveTabId]);
 
+  // ── commit layouts (moved before early returns — hooks must be unconditional) ──
+  const commitCenters = useMemo(() => {
+    const cs = data?.commits ?? [];
+    if (cs.length === 0) return {};
+    const map: Record<string, number> = {};
+    let y = 0;
+    for (const c of cs) {
+      map[c.hash] = y + ROW_H / 2;
+      y += ROW_H;
+      if (expandedHash === c.hash) {
+        const files = commitFiles[c.hash];
+        if (files && files.length > 0) {
+          y += files.length * FILE_ROW_H;
+        } else if (files && files.length === 0) {
+          y += FILE_ROW_H;
+        }
+      }
+    }
+    return map;
+  }, [data, expandedHash, commitFiles]);
+
+  const totalHeight = useMemo(() => {
+    const keys = Object.keys(commitCenters);
+    if (keys.length === 0) return 0;
+    const maxY = Math.max(...Object.values(commitCenters));
+    return maxY + ROW_H / 2;
+  }, [commitCenters]);
+
   // ── early returns ──────────────────────────────────────────────────────────
   if (!cwdAbsolute)
     return <div className="px-3 py-2 text-xs" style={{ color: "rgba(232,234,240,0.25)" }}>No workspace open</div>;
@@ -377,7 +408,6 @@ export function GitTree() {
   const { branchColors, currentBranch, commitColors, branchByHash, commitLane, nLanes } = graph;
 
   const canvasW = nLanes * LANE_W + 4;
-  const totalH = commits.length * ROW_H;
 
   // ── render ─────────────────────────────────────────────────────────────────
   return (
@@ -385,8 +415,8 @@ export function GitTree() {
       <div className="relative" style={{ minWidth: 0 }}>
 
         {/* canvas — absolute, behind rows */}
-        <div style={{ position: "absolute", left: 0, top: 0, width: canvasW, height: totalH, pointerEvents: "none" }}>
-          <GraphCanvas data={data} graph={graph} width={canvasW} />
+        <div style={{ position: "absolute", left: 0, top: 0, width: canvasW, height: totalHeight, pointerEvents: "none" }}>
+          <GraphCanvas data={data} graph={graph} width={canvasW} commitCenters={commitCenters} totalHeight={totalHeight} />
         </div>
 
         {/* ── commit rows ── */}
@@ -419,6 +449,10 @@ export function GitTree() {
                       style={{ fontSize: 11, color }}
                     >
                       {commit.message.split("\n")[0]}
+                    </span>
+
+                    <span className="font-mono shrink-0 hidden sm:inline" style={{ fontSize: 9, color: "rgba(232,234,240,0.18)" }}>
+                      {commit.author}
                     </span>
 
                     {tags.length > 0 && (

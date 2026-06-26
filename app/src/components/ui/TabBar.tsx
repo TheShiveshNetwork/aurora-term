@@ -20,6 +20,7 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
   const { tabs, activeTabId, setActiveTabId, reorderTabs, updateTab } = useSessionStore();
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [overIdx, setOverIdx] = useState<number | null>(null);
+  const [dropIndicator, setDropIndicator] = useState<{ left: number } | null>(null);
   const dragIdxRef = useRef<number | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const tabRectsRef = useRef<DOMRect[]>([]);
@@ -226,12 +227,26 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
 
     const elements = container.querySelectorAll<HTMLElement>("[data-tab-id]");
     tabRectsRef.current = Array.from(elements).map(el => el.getBoundingClientRect());
+    const containerRect = container.getBoundingClientRect();
 
     const onMouseMove = (ev: MouseEvent) => {
       const idx = getTabIndexFromX(ev.clientX);
       setOverIdx(idx);
 
-      const containerRect = container.getBoundingClientRect();
+      if (idx !== null) {
+        const rects = tabRectsRef.current;
+        const tabRect = rects[idx];
+        const tabCenterX = tabRect.left + tabRect.width / 2;
+        const side = ev.clientX < tabCenterX ? "left" : "right";
+        const gapCenter = side === "left"
+          ? tabRect.left - 2
+          : tabRect.right + 2;
+        const indicatorLeft = gapCenter - containerRect.left + container.scrollLeft;
+        setDropIndicator({ left: indicatorLeft });
+      } else {
+        setDropIndicator(null);
+      }
+
       const edgeThreshold = 40;
       if (ev.clientX < containerRect.left + edgeThreshold) {
         container.scrollLeft -= 8;
@@ -263,6 +278,7 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
       dragIdxRef.current = null;
       setDragIdx(null);
       setOverIdx(null);
+      setDropIndicator(null);
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
     };
@@ -371,6 +387,20 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
             </div>
           );
         })}
+
+        {/* Drop indicator square */}
+        {dropIndicator && (
+          <div
+            className="absolute top-0 w-[3px] h-full rounded-[2px] pointer-events-none z-10"
+            style={{
+              left: dropIndicator.left - 1.5,
+              background: "#4F8CFF",
+              boxShadow: "0 0 8px rgba(79,140,255,0.5), 0 0 2px rgba(79,140,255,0.3)",
+              animation: "tab-drop-pop-in 150ms ease-out forwards",
+              transition: "left 80ms ease-out",
+            }}
+          />
+        )}
       </div>
 
       {isOverflowing && canScrollRight && (

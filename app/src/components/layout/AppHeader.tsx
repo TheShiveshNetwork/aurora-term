@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Command, ExternalLink, FileText, FolderOpen, History, Menu, PanelLeft, PanelLeftClose, PanelRight, PanelRightClose, PanelBottom, PanelBottomClose, PinIcon, PinOff, Plus, Search, Settings, SplitSquareHorizontal, SquareTerminal, Terminal, User, ChevronRight, GitBranch, File, Sliders } from "lucide-react";
+import type { AppViewMode } from "../../stores/useAppShellStore";
 import { invoke } from "@tauri-apps/api/core";
 import { WindowControls } from "../ui/WindowControls";
 import { MenuView, MenuViewItem, MenuViewSeparator } from "../ui/MenuView";
@@ -16,6 +17,7 @@ interface FileNode {
 }
 
 interface AppHeaderProps {
+  isStandalone?: boolean;
   sidebarCollapsed: boolean;
   onToggleSidebar: () => void;
   agentOverlayOpen: boolean;
@@ -42,13 +44,14 @@ interface AppHeaderProps {
   onExit: () => void;
   theme: "dark" | "light";
   tabBarVisible: boolean;
-  viewMode: "terminal" | "file";
+  viewMode: AppViewMode;
   projectName: string;
   cwdAbsolute: string;
   onOpenFileAtPath: (path: string) => void;
 }
 
 export function AppHeader({
+  isStandalone,
   sidebarCollapsed,
   onToggleSidebar,
   agentOverlayOpen,
@@ -170,7 +173,7 @@ export function AppHeader({
           <ViewButton active={viewMode === "file"} onClick={onShowFileView} title="Workspace View">
             <FolderOpen size={13} />
           </ViewButton>
-          <ViewButton active={false} onClick={onShowAgentView} title="Agent View">
+          <ViewButton active={viewMode === "agent"} onClick={onShowAgentView} title="Agent View">
             <Command size={13} />
           </ViewButton>
         </div>
@@ -185,29 +188,37 @@ export function AppHeader({
 
       {/* ── Right: panel toggles + pin + settings + avatar + window controls ── */}
       <div id="header-right" data-tauri-no-drag className="flex items-center gap-0.5 shrink-0">
-        <IconBtn onClick={onToggleSidebar} title={sidebarCollapsed ? "Show Sidebar" : "Hide Sidebar"}>
-          {sidebarCollapsed ? <PanelLeft size={14} /> : <PanelLeftClose size={14} />}
-        </IconBtn>
+        {!isStandalone && (
+          <>
+            <IconBtn onClick={onToggleSidebar} title={sidebarCollapsed ? "Show Sidebar" : "Hide Sidebar"}>
+              {sidebarCollapsed ? <PanelLeft size={14} /> : <PanelLeftClose size={14} />}
+            </IconBtn>
 
-        <IconBtn onClick={onToggleAgentOverlay} title={agentOverlayOpen ? "Hide Agent Panel" : "Show Agent Panel"}>
-          {agentOverlayOpen ? <PanelRightClose size={14} /> : <PanelRight size={14} />}
-        </IconBtn>
+            <IconBtn onClick={onToggleAgentOverlay} title={agentOverlayOpen ? "Hide Agent Panel" : "Show Agent Panel"}>
+              {agentOverlayOpen ? <PanelRightClose size={14} /> : <PanelRight size={14} />}
+            </IconBtn>
 
-        <IconBtn onClick={onToggleChatInput} title={chatInputOpen ? "Hide Chat Input" : "Show Chat Input"}>
-          {chatInputOpen ? <PanelBottomClose size={14} /> : <PanelBottom size={14} />}
-        </IconBtn>
+            <IconBtn onClick={onToggleChatInput} title={chatInputOpen ? "Hide Chat Input" : "Show Chat Input"}>
+              {chatInputOpen ? <PanelBottomClose size={14} /> : <PanelBottom size={14} />}
+            </IconBtn>
+          </>
+        )}
 
-        <div className="w-px h-5 mx-1" style={{ background: "rgba(255,255,255,0.06)" }} />
+        {viewMode !== "agent" && <div className="w-px h-5 mx-1" style={{ background: "rgba(255,255,255,0.06)" }} />}
 
-        <IconBtn
-          onClick={onToggleTabBar}
-          title={tabBarVisible ? "Hide Tab Bar" : "Show Tab Bar"}
-          active={!tabBarVisible}
-        >
-          {tabBarVisible ? <PinIcon size={13} /> : <PinOff size={13} />}
-        </IconBtn>
+        {viewMode !== "agent" && !isStandalone && (
+          <IconBtn
+            onClick={onToggleTabBar}
+            title={tabBarVisible ? "Hide Tab Bar" : "Show Tab Bar"}
+            active={!tabBarVisible}
+          >
+            {tabBarVisible ? <PinIcon size={13} /> : <PinOff size={13} />}
+          </IconBtn>
+        )}
 
-        <div className="w-px h-5 mx-1" style={{ background: "rgba(255,255,255,0.06)" }} />
+        {!isStandalone && (
+          <div className="w-px h-5 mx-1" style={{ background: "rgba(255,255,255,0.06)" }} />
+        )}
 
         <IconBtn onClick={onOpenSettings} title="Settings">
           <Settings size={14} />
