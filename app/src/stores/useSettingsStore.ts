@@ -28,6 +28,8 @@ interface SettingsStore {
   showStatusbar: boolean;
   blurSidebar: boolean;
   editorTheme: EditorThemeName;
+  showMinimap: boolean;
+  keybindingOverrides: Record<string, string>;
 
   setTheme: (theme: "dark" | "light") => void;
   setMode: (mode: EditorMode) => void;
@@ -39,6 +41,9 @@ interface SettingsStore {
   setShowStatusbar: (show: boolean) => void;
   setBlurSidebar: (blur: boolean) => void;
   setEditorTheme: (theme: EditorThemeName) => void;
+  setShowMinimap: (show: boolean) => void;
+  setKeybindingOverride: (id: string, keys: string) => void;
+  resetKeybindingOverride: (id: string) => void;
 }
 
 export const useSettingsStore = create<SettingsStore>((set) => ({
@@ -52,10 +57,11 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
   showStatusbar: true,
   blurSidebar: false,
   editorTheme: "dracula",
+  showMinimap: true,
+  keybindingOverrides: {},
 
   setTheme: (theme) => {
     set({ theme });
-    // Apply data-theme attribute for CSS theme switching as requested by AGENT.md section 10
     document.documentElement.setAttribute("data-theme", theme);
   },
   setMode: (mode) => set({ mode }),
@@ -67,4 +73,10 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
   setShowStatusbar: (showStatusbar) => set({ showStatusbar }),
   setBlurSidebar: (blurSidebar) => set({ blurSidebar }),
   setEditorTheme: (editorTheme) => set({ editorTheme }),
+  setShowMinimap: (showMinimap) => set({ showMinimap }),
+  setKeybindingOverride: (id, keys) => set((state) => ({ keybindingOverrides: { ...state.keybindingOverrides, [id]: keys } })),
+  resetKeybindingOverride: (id) => set((state) => {
+    const { [id]: _, ...rest } = state.keybindingOverrides;
+    return { keybindingOverrides: rest };
+  }),
 }));

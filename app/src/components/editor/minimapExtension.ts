@@ -1,13 +1,32 @@
 import { showMinimap } from "@replit/codemirror-minimap";
-import { EditorView } from "@codemirror/view";
+import { Compartment, EditorState } from "@codemirror/state";
 
-const minimapCreate = (view: EditorView) => {
-  const dom = document.createElement("div");
-  return { dom };
-};
+export const minimapCompartment = new Compartment();
 
-export const minimapExtension = showMinimap.compute(["doc"], () => ({
-  create: minimapCreate,
-  displayText: "characters",
-  showOverlay: "always",
-}));
+export function createMinimapExtension(enabled: boolean) {
+  if (!enabled) return minimapCompartment.of([]);
+  return makeMinimapExt();
+}
+
+function makeMinimapExt() {
+  return minimapCompartment.of(
+    showMinimap.compute(["doc"], () => ({
+      create: () => ({ dom: document.createElement("div") }),
+      displayText: "characters",
+      showOverlay: "always",
+    }))
+  );
+}
+
+export function toggleMinimap(state: EditorState, enabled: boolean) {
+  const effect = enabled
+    ? minimapCompartment.reconfigure(
+        showMinimap.compute(["doc"], () => ({
+          create: () => ({ dom: document.createElement("div") }),
+          displayText: "characters",
+          showOverlay: "always",
+        }))
+      )
+    : minimapCompartment.reconfigure([]);
+  return { effects: [effect] };
+}

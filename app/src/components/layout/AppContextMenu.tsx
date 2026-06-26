@@ -7,6 +7,7 @@ interface AppContextMenuProps {
   contextMenu: AppContextMenuState;
   onPaste: () => void;
   onCopySelection: () => void;
+  onCutSelection: () => void;
   onClearTerminal: () => void;
   onSelectAll: () => void;
   onGoToDefinition: () => void;
@@ -17,13 +18,16 @@ interface AppContextMenuProps {
   onRunFile: () => void;
 }
 
-export function AppContextMenu({ contextMenu, onPaste, onCopySelection, onClearTerminal, onSelectAll, onGoToDefinition, onPeekDefinition, onFindReferences, onRenameSymbol, onFormatDocument, onRunFile }: AppContextMenuProps) {
+export function AppContextMenu({ contextMenu, onPaste, onCopySelection, onCutSelection, onClearTerminal, onSelectAll, onGoToDefinition, onPeekDefinition, onFindReferences, onRenameSymbol, onFormatDocument, onRunFile }: AppContextMenuProps) {
   if (!contextMenu) return null;
 
   return (
     <MenuView variant="rightclick" open anchorX={contextMenu.x} anchorY={contextMenu.y} onClose={() => {}}>
       <MenuViewItem variant="rightclick" onClick={onCopySelection}>
         Copy
+      </MenuViewItem>
+      <MenuViewItem variant="rightclick" onClick={onCutSelection}>
+        Cut
       </MenuViewItem>
       <MenuViewItem variant="rightclick" onClick={onPaste}>
         Paste

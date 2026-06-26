@@ -4,6 +4,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { WindowControls } from "../ui/WindowControls";
 import { MenuView, MenuViewItem, MenuViewSeparator } from "../ui/MenuView";
 import auroraIcon from "/static/aurora-icon.svg";
+import { SETTINGS_MANIFEST, categoryFor } from "../settings/settingsManifest";
+import type { SettingsManifestEntry } from "../settings/settingsManifest";
 
 interface FileNode {
   name: string;
@@ -12,28 +14,6 @@ interface FileNode {
   is_hidden: boolean;
   is_gitignored: boolean;
 }
-
-interface SearchableSetting {
-  id: string;
-  label: string;
-  description: string;
-  category: string;
-}
-
-const SETTINGS_MANIFEST: SearchableSetting[] = [
-  { id: "fontFamily", label: "Font Family", description: "Terminal font family", category: "General" },
-  { id: "fontSize", label: "Font Size", description: "Terminal font size", category: "General" },
-  { id: "cursorStyle", label: "Cursor Style", description: "Terminal cursor appearance", category: "General" },
-  { id: "cursorBlink", label: "Cursor Blink", description: "Toggle cursor blinking", category: "General" },
-  { id: "compactUi", label: "Compact UI", description: "Reduce interface padding", category: "General" },
-  { id: "showStatusbar", label: "Show Status Bar", description: "Toggle status bar visibility", category: "General" },
-  { id: "theme", label: "Theme", description: "Dark/Light theme", category: "Appearance" },
-  { id: "editorTheme", label: "Editor Theme", description: "CodeMirror editor color theme", category: "Appearance" },
-  { id: "provider", label: "AI Provider", description: "Select AI provider configuration", category: "AI" },
-  { id: "apiKey", label: "API Key", description: "Manage AI provider API keys", category: "AI" },
-  { id: "mode", label: "Keybinding Mode", description: "Terminal INSERT/NORMAL keybinding mode", category: "Keybindings" },
-  { id: "about", label: "About Aurora", description: "Version, credits, and system info", category: "About" },
-];
 
 interface AppHeaderProps {
   sidebarCollapsed: boolean;
@@ -359,11 +339,12 @@ function SearchBar({ collapsed, cwdAbsolute, onOpenFileAtPath }: { collapsed?: b
 
   const matchedSettings = useMemo(() => {
     if (!query) return [];
-    return SETTINGS_MANIFEST.filter(s =>
-      s.label.toLowerCase().includes(query) ||
-      s.description.toLowerCase().includes(query) ||
-      s.category.toLowerCase().includes(query)
-    ).slice(0, 6);
+    return SETTINGS_MANIFEST.filter(s => {
+      const cat = categoryFor(s.section, s.subPage);
+      return s.label.toLowerCase().includes(query) ||
+        s.description.toLowerCase().includes(query) ||
+        cat.toLowerCase().includes(query);
+    }).slice(0, 6);
   }, [query]);
 
   const dirCount = matchedDirs.length;
@@ -395,7 +376,9 @@ function SearchBar({ collapsed, cwdAbsolute, onOpenFileAtPath }: { collapsed?: b
       if (s) {
         setFocused(false);
         setValue("");
-        import("../../lib/settings").then(({ openSettingsWindow }) => openSettingsWindow());
+        import("../../lib/settings").then(({ openSettingsWindow }) =>
+          openSettingsWindow({ section: s.section, sub: s.subPage, element: s.elementId })
+        );
       }
     }
   };
@@ -582,7 +565,7 @@ function SearchBar({ collapsed, cwdAbsolute, onOpenFileAtPath }: { collapsed?: b
                         <span className="truncate">{s.label}</span>
                         <span className="text-[11px] truncate" style={{ color: "rgba(232,234,240,0.35)" }}>{s.description}</span>
                       </div>
-                      <span className="ml-auto text-[10px] shrink-0 px-1.5 py-0.5 rounded" style={{ color: "rgba(232,234,240,0.25)", background: "rgba(255,255,255,0.04)" }}>{s.category}</span>
+                      <span className="ml-auto text-[10px] shrink-0 px-1.5 py-0.5 rounded" style={{ color: "rgba(232,234,240,0.25)", background: "rgba(255,255,255,0.04)" }}>{categoryFor(s.section, s.subPage)}</span>
                     </button>
                   );
                 })}

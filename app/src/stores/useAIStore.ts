@@ -22,8 +22,16 @@ interface AIStore {
 }
 
 export const useAIStore = create<AIStore>((set) => ({
-  activeProvider: "anthropic",
+  activeProvider: "groq",
   providers: {
+    groq: {
+      name: "groq",
+      enabled: true,
+      hasApiKey: false,
+      fastModel: "llama-3.2-3b-preview",
+      balancedModel: "llama-3.3-70b-versatile",
+      powerfulModel: "deepseek-r1-distill-llama-70b",
+    },
     anthropic: {
       name: "anthropic",
       enabled: true,

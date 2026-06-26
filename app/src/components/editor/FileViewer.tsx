@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { EditorView, basicSetup } from "codemirror";
-import { EditorState } from "@codemirror/state";
+import { EditorState, Prec } from "@codemirror/state";
 import { javascript } from "@codemirror/lang-javascript";
 import { python } from "@codemirror/lang-python";
 import { json } from "@codemirror/lang-json";
@@ -16,14 +16,16 @@ import { shell } from "@codemirror/legacy-modes/mode/shell";
 import { go } from "@codemirror/legacy-modes/mode/go";
 import { java } from "@codemirror/legacy-modes/mode/clike";
 import { cpp } from "@codemirror/legacy-modes/mode/clike";
-import { lineNumbers } from "@codemirror/view";
+import { keymap, lineNumbers } from "@codemirror/view";
+import { Compartment } from "@codemirror/state";
 import { invoke } from "@tauri-apps/api/core";
-import { AlertCircle, Loader, Minus, Plus, RotateCcw } from "lucide-react";
+import { AlertCircle, Loader, Maximize2, Minimize2, Minus, Plus, RotateCcw } from "lucide-react";
 import { useSessionStore } from "../../stores/useSessionStore";
 import { useSettingsStore } from "../../stores/useSettingsStore";
 import { closeAllPopups } from "../../lib/popups";
 import { EDITOR_THEMES } from "./editorThemes";
-import { minimapExtension } from "./minimapExtension";
+import { createMinimapExtension, toggleMinimap } from "./minimapExtension";
+import { SearchPanel } from "./SearchPanel";
 
 interface FileViewerProps {
   tabId: string;
@@ -106,6 +108,11 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
   const editorTheme = useSettingsStore((s) => s.editorTheme);
 
   const isImage = isImageFile(filePath);
+  const [showSearch, setShowSearch] = useState(false);
+  const toggleSearchRef = useRef(() => setShowSearch(s => !s));
+  const showMinimap = useSettingsStore((s) => s.showMinimap);
+  const setShowMinimap = useSettingsStore((s) => s.setShowMinimap);
+
 
   const [imageSrc, setImageSrc] = useState("");
   const [zoom, setZoom] = useState(1);
@@ -233,9 +240,28 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
 
         const extensions: any[] = [
           basicSetup,
+          Prec.high(keymap.of([
+            { key: "Mod-c", run: (view) => {
+              if (!view.state.selection.main.empty) return false;
+              const line = view.state.doc.lineAt(view.state.selection.main.head);
+              navigator.clipboard.writeText(line.text + "\n");
+              return true;
+            }},
+            { key: "Mod-x", run: (view) => {
+              if (!view.state.selection.main.empty) return false;
+              const line = view.state.doc.lineAt(view.state.selection.main.head);
+              navigator.clipboard.writeText(line.text + "\n");
+              view.dispatch({
+                changes: { from: line.from, to: line.to },
+                selection: { anchor: line.from },
+              });
+              return true;
+            }},
+            { key: "Mod-f", run: () => { toggleSearchRef.current?.(); return true; } },
+          ])),
           EDITOR_THEMES[editorTheme],
           lineNumbers(),
-          minimapExtension,
+          createMinimapExtension(showMinimap),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
               const currentContent = update.state.doc.toString();
@@ -285,9 +311,65 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
         viewRef.current.dispatch({ selection: { anchor: 0, head: viewRef.current.state.doc.length } });
       }
     };
+    const handlePaste = (e: Event) => {
+      const text = (e as CustomEvent).detail.text;
+      if (viewRef.current && text) {
+        const sel = viewRef.current.state.selection.main;
+        viewRef.current.dispatch({
+          changes: { from: sel.from, to: sel.to, insert: text },
+          selection: { anchor: sel.from + text.length },
+        });
+        viewRef.current.focus();
+      }
+    };
+    const handleCopyLine = () => {
+      if (viewRef.current) {
+        const sel = viewRef.current.state.selection.main;
+        const line = viewRef.current.state.doc.lineAt(sel.head);
+        navigator.clipboard.writeText(line.text + "\n");
+      }
+    };
+    const handleCutLine = () => {
+      if (viewRef.current) {
+        const sel = viewRef.current.state.selection.main;
+        const line = viewRef.current.state.doc.lineAt(sel.head);
+        navigator.clipboard.writeText(line.text + "\n");
+        viewRef.current.dispatch({
+          changes: { from: line.from, to: line.to },
+          selection: { anchor: line.from },
+        });
+        viewRef.current.focus();
+      }
+    };
+    const handleCutSelection = (e: Event) => {
+      const text = (e as CustomEvent).detail.text;
+      if (viewRef.current && text) {
+        const sel = viewRef.current.state.selection.main;
+        viewRef.current.dispatch({
+          changes: { from: sel.from, to: sel.to },
+        });
+      }
+    };
     window.addEventListener("file-select-all", handler);
-    return () => window.removeEventListener("file-select-all", handler);
+    window.addEventListener("file-paste", handlePaste);
+    window.addEventListener("file-copy-line", handleCopyLine);
+    window.addEventListener("file-cut-line", handleCutLine);
+    window.addEventListener("file-cut-selection", handleCutSelection);
+    return () => {
+      window.removeEventListener("file-select-all", handler);
+      window.removeEventListener("file-paste", handlePaste);
+      window.removeEventListener("file-cut-line", handleCutLine);
+      window.removeEventListener("file-copy-line", handleCopyLine);
+      window.removeEventListener("file-cut-selection", handleCutSelection);
+    };
   }, []);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    const tr = toggleMinimap(view.state, showMinimap);
+    view.dispatch(tr);
+  }, [showMinimap]);
 
   // Store initial content ref so save functions can reset dirty after write
   // (fileContent is stored in the session store via updateListener above)
@@ -388,10 +470,25 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
             )}
           </div>
         ) : (
-          <div
-            ref={editorRef}
-            className="h-full w-full overflow-hidden [&_.cm-editor]:h-full"
-          />
+          <>
+            <div
+              ref={editorRef}
+              className="h-full w-full overflow-hidden [&_.cm-editor]:h-full"
+            />
+            {showSearch && viewRef.current && (
+              <SearchPanel
+                view={viewRef.current}
+                onClose={() => setShowSearch(false)}
+              />
+            )}
+            <button
+              onClick={() => setShowMinimap(!showMinimap)}
+              className="absolute bottom-2 right-2 p-1 rounded transition-opacity hover:opacity-100 opacity-40 text-on-surface/50"
+              title={showMinimap ? "Hide minimap" : "Show minimap"}
+            >
+              {showMinimap ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+            </button>
+          </>
         )}
       </div>
     </div>

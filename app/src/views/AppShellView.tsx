@@ -565,8 +565,12 @@ export function AppShellView() {
         onPaste={async () => {
           try {
             const text = await navigator.clipboard.readText();
-            if (text && activeTabId) {
-              appendCommandInput(activeTabId, text);
+            if (text) {
+              if (contextMenu?.source === "file") {
+                window.dispatchEvent(new CustomEvent("file-paste", { detail: { text } }));
+              } else if (activeTabId) {
+                appendCommandInput(activeTabId, text);
+              }
             }
           } catch (error) {
             console.error("Failed to read from clipboard:", error);
@@ -578,6 +582,19 @@ export function AppShellView() {
             navigator.clipboard.writeText(contextMenu.selectedText).catch(console.error);
           } else if (contextMenu?.source === "terminal") {
             window.dispatchEvent(new CustomEvent("terminal-copy", { detail: { sessionId: activeTabId } }));
+          } else if (contextMenu?.source === "file") {
+            window.dispatchEvent(new CustomEvent("file-copy-line"));
+          }
+          clearContextMenu();
+        }}
+        onCutSelection={() => {
+          if (contextMenu?.selectedText && contextMenu?.source === "file") {
+            navigator.clipboard.writeText(contextMenu.selectedText).catch(console.error);
+            window.dispatchEvent(new CustomEvent("file-cut-selection", { detail: { text: contextMenu.selectedText } }));
+          } else if (contextMenu?.source === "file") {
+            window.dispatchEvent(new CustomEvent("file-cut-line"));
+          } else if (contextMenu?.source === "terminal" && activeTabId) {
+            window.dispatchEvent(new CustomEvent("terminal-cut", { detail: { sessionId: activeTabId } }));
           }
           clearContextMenu();
         }}

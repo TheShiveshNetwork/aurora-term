@@ -246,7 +246,7 @@ function getVariantStyles(variant: MenuVariant) {
   switch (variant) {
     case "primary":
       return {
-        containerClass: `${base} p-1`,
+        containerClass: `${base} p-1 z-[500]`,
         background: "#0F131A",
         border: "1px solid rgba(255,255,255,0.08)",
         borderRadius: "14px",
@@ -254,7 +254,7 @@ function getVariantStyles(variant: MenuVariant) {
       };
     case "secondary":
       return {
-        containerClass: `${base} p-1`,
+        containerClass: `${base} p-1 z-[500]`,
         background: "#0F131A",
         border: "1px solid rgba(255,255,255,0.08)",
         borderRadius: "8px",
@@ -314,7 +314,7 @@ function getItemStyles(variant: MenuVariant) {
         baseClass: "px-3 py-2 text-[13px] border-[.1px] rounded-sm",
         hoverClass: "hover:bg-white/5 hover:border-white/10 border-transparent",
         disabledClass: "border-transparent bg-none opacity-30 pointer-events-none",
-        dangerClass: "hover:bg-red-500/10 hover:border-red-500/20 text-red-400",
+        dangerClass: "border-transparent hover:bg-red-500/10 hover:border-red-500/20 text-red-400",
         color: "var(--color-on-surface, rgba(232,234,240,0.85))",
         disabledColor: "rgba(232,234,240,0.25)",
         dangerColor: "#FF6B6B",

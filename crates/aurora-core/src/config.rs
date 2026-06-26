@@ -23,7 +23,7 @@ pub struct TerminalConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AiConfig {
-    pub active_provider: String, // "anthropic" | "openai" | "gemini" | "nvidia" | "ollama"
+    pub active_provider: String, // "anthropic" | "openai" | "gemini" | "nvidia" | "ollama" | "groq"
     pub auto_explain: bool,
     pub context_lines: u32,
     pub anthropic: ProviderConfig,
@@ -31,6 +31,7 @@ pub struct AiConfig {
     pub gemini: ProviderConfig,
     pub nvidia: ProviderConfig,
     pub ollama: ProviderConfig,
+    pub groq: ProviderConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -96,9 +97,15 @@ impl Default for AppConfig {
                 cursor_blink: true,
             },
             ai: AiConfig {
-                active_provider: "anthropic".to_string(),
+                active_provider: "groq".to_string(),
                 auto_explain: true,
                 context_lines: 50,
+                groq: ProviderConfig {
+                    fast_model: "llama-3.2-3b-preview".to_string(),
+                    balanced_model: "llama-3.3-70b-versatile".to_string(),
+                    powerful_model: "deepseek-r1-distill-llama-70b".to_string(),
+                    base_url: Some("https://api.groq.com/openai/v1".to_string()),
+                },
                 anthropic: ProviderConfig {
                     fast_model: "claude-haiku-4-5-20251015".to_string(),
                     balanced_model: "claude-sonnet-4-6-20260217".to_string(),

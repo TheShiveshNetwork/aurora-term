@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   Folder, FileText, FileCode, FileImage, FileJson, FileSpreadsheet, FileAudio, FileVideo, FileArchive,
   ChevronDown, ChevronRight, RefreshCw, MoreHorizontal,
@@ -323,36 +323,38 @@ function SidebarIconBtn({ children, title, onClick }: { children: React.ReactNod
   );
 }
 
-// ── Section header height constant ────────────────────────────────────────────
+// ── Section constants ──────────────────────────────────────────────────────────
 const HEADER_H = 30;
+const RH = 4;
 const MIN_SECTION_H = 60;
+const SECTIONS: SideSection[] = ['folders', 'outline', 'timeline', 'git'];
+const DEFAULT_HEIGHTS: Record<SideSection, number> = {
+  folders: 400, outline: 200, timeline: 200, git: 200,
+};
 
 // ── CollapsibleSection ────────────────────────────────────────────────────────
-// height: null = "take remaining flex space" (used for primary/Folders section)
-// height: number = fixed pixel height (secondary sections)
-// collapsed: section is closed, shows only header
+// All sections use explicit pixel heights. No flex-grow special cases.
 function CollapsibleSection({
-  label, open, onToggle, height, onResizeStart, controls, loading, children,
+  label, open, onToggle, bodyHeight, onResizeStart, showResizeHandle, controls, loading, children,
 }: {
   label: string;
   open: boolean;
   onToggle: () => void;
-  height: number | null; // null = flex-grow
+  bodyHeight: number;
   onResizeStart: (e: React.MouseEvent) => void;
+  showResizeHandle?: boolean;
   controls?: React.ReactNode;
   loading?: boolean;
   children?: React.ReactNode;
 }) {
+  const totalHeight = open ? HEADER_H + bodyHeight : HEADER_H;
   return (
     <div
       className="flex flex-col min-h-0 group/section relative"
       style={{
-        // When open & height=null: grow to fill remaining space
-        // When open & height=number: fixed pixel height
-        // When closed: just the header
-        flex: open && height === null ? "1 1 0%" : "0 0 auto",
-        height: open && height !== null ? height + HEADER_H : open ? undefined : HEADER_H,
-        minHeight: open ? (height !== null ? height + HEADER_H : MIN_SECTION_H + HEADER_H) : HEADER_H,
+        flex: "0 0 auto",
+        height: totalHeight,
+        minHeight: open ? HEADER_H + MIN_SECTION_H : HEADER_H,
         borderTop: "1px solid rgba(255,255,255,0.05)",
         overflow: "hidden",
       }}
@@ -387,15 +389,12 @@ function CollapsibleSection({
         </div>
       )}
 
-      {/* Resize handle — only shown when open */}
-      {open && (
+      {/* Resize handle — shown only when open and there's a section below */}
+      {open && showResizeHandle && (
         <div
           onMouseDown={onResizeStart}
           className="shrink-0 cursor-row-resize z-10 transition-colors"
-          style={{
-            height: "4px",
-            background: "transparent",
-          }}
+          style={{ height: `${RH}px`, background: "transparent" }}
           onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(79,140,255,0.25)")}
           onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
         />
@@ -404,44 +403,168 @@ function CollapsibleSection({
   );
 }
 
-// ── Section resize hook ───────────────────────────────────────────────────────
-// Manages pixel heights for secondary sections. Primary (folders) fills remaining space.
-function useSectionResize(panelRef: React.RefObject<HTMLElement | null>) {
-  // null = "flex grow" for primary. Secondary sections start with a default pixel height.
-  const [sectionHeights, setSectionHeights] = useState<Record<string, number>>({
-    outline: 200, timeline: 200, git: 200,
+// ── Sidepanel layout hook (mirrors ide_side_panel_v2.html redistribution logic) ─
+// All sections get explicit pixel body heights. Container height tracked via
+// ResizeObserver. On toggle: redistribute equally. On drag: adjust adjacent pair.
+function useSidepanelLayout(
+  containerRef: React.RefObject<HTMLDivElement | null>,
+  visibleSections: SideSection[]
+) {
+  const [open, setOpen] = useState<Record<SideSection, boolean>>(() => {
+    const init = {} as Record<SideSection, boolean>;
+    SECTIONS.forEach(s => { init[s] = s === 'folders'; });
+    return init;
   });
+  const [heights, setHeights] = useState<Record<string, number>>({ ...DEFAULT_HEIGHTS });
+  const [containerH, setContainerH] = useState(600);
+  const heightsRef = useRef(heights);
+  heightsRef.current = heights;
 
-  const dragRef = useRef<{ section: string; startY: number; startH: number } | null>(null);
+  // Track container height
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(entries => {
+      setContainerH(entries[0].contentRect.height);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [containerRef]);
 
-  const startResize = useCallback((section: string, e: React.MouseEvent) => {
+  const getAvail = useCallback((openState: Record<SideSection, boolean>) => {
+    const openList = visibleSections.filter(s => openState[s]);
+    if (openList.length === 0) return 0;
+    // All visible sections have a HEADER_H header (open or closed). Only count
+    // resize handles between pairs of adjacent open sections.
+    const headerChrome = visibleSections.length * HEADER_H;
+    let handleChrome = 0;
+    for (let i = 0; i < visibleSections.length - 1; i++) {
+      if (openState[visibleSections[i]] && openState[visibleSections[i + 1]]) {
+        handleChrome += RH;
+      }
+    }
+    return containerH - headerChrome - handleChrome;
+  }, [containerH, visibleSections]);
+
+  // Redistribute heights among open sections (proportional scaling, clamp to MIN)
+  const redistribute = useCallback((
+    openState: Record<SideSection, boolean>,
+    curHeights: Record<string, number>
+  ): Record<string, number> => {
+    const list = visibleSections.filter(s => openState[s]);
+    if (list.length === 0) return curHeights;
+    const avail = getAvail(openState);
+    if (avail <= 0) return curHeights;
+
+    const next = { ...curHeights };
+    list.forEach(s => { if (next[s] < MIN_SECTION_H) next[s] = MIN_SECTION_H; });
+
+    let total = list.reduce((sum, s) => sum + next[s], 0);
+    if (total !== avail && total > 0) {
+      const scale = avail / total;
+      let newTotal = 0;
+      list.forEach((s, i) => {
+        if (i === list.length - 1) {
+          next[s] = Math.max(MIN_SECTION_H, avail - newTotal);
+        } else {
+          const v = Math.max(MIN_SECTION_H, Math.round(next[s] * scale));
+          next[s] = v;
+          newTotal += v;
+        }
+      });
+    }
+    return next;
+  }, [visibleSections, getAvail]);
+
+  // Sync visibility changes (view mode switch) — close new sections, redistribute
+  const prevVisibleRef = useRef(visibleSections);
+  useEffect(() => {
+    const prev = prevVisibleRef.current;
+    const added = visibleSections.filter(s => !prev.includes(s));
+    const removed = prev.filter(s => !visibleSections.includes(s));
+    prevVisibleRef.current = visibleSections;
+    if (added.length > 0 || removed.length > 0) {
+      setOpen(prevOpen => {
+        const next = { ...prevOpen };
+        added.forEach(s => { next[s] = false; });
+        setHeights(h => redistribute(next, h));
+        return next;
+      });
+    }
+  }, [visibleSections, redistribute]);
+
+  // Redistribute on open/close
+  const toggle = useCallback((section: SideSection) => {
+    setOpen(prev => {
+      const next = { ...prev, [section]: !prev[section] };
+      setHeights(h => redistribute(next, h));
+      return next;
+    });
+  }, [redistribute]);
+
+  // Drag resize between adjacent visible sections (one or both may be open)
+  const dragRef = useRef<{
+    section: SideSection;
+    pair: SideSection;
+    startY: number;
+    startH: number;
+    startPairH: number;
+    bothOpen: boolean;
+  } | null>(null);
+
+  const startResize = useCallback((section: SideSection, e: React.MouseEvent) => {
     e.preventDefault();
-    dragRef.current = { section, startY: e.clientY, startH: sectionHeights[section] ?? 200 };
-    document.body.style.cursor = "row-resize";
-    document.body.style.userSelect = "none";
-  }, [sectionHeights]);
+    const idx = visibleSections.indexOf(section);
+    if (idx < 0 || idx >= visibleSections.length - 1) return;
+    if (!open[section]) return;
+    const next = visibleSections[idx + 1];
+    dragRef.current = {
+      section,
+      pair: next,
+      startY: e.clientY,
+      startH: heightsRef.current[section] ?? 200,
+      startPairH: heightsRef.current[next] ?? 200,
+      bothOpen: open[section] && open[next],
+    };
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+  }, [visibleSections, open]);
 
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
-      if (!dragRef.current || !panelRef.current) return;
-      const { section, startY, startH } = dragRef.current;
-      const delta = e.clientY - startY;
-      // Dragging down = increase height, up = decrease
-      const newH = Math.max(MIN_SECTION_H, startH + delta);
-      setSectionHeights((prev) => ({ ...prev, [section]: newH }));
+      const d = dragRef.current;
+      if (!d) return;
+      const dy = e.clientY - d.startY;
+      if (d.bothOpen) {
+        let newTop = d.startH + dy;
+        let newBot = d.startPairH - dy;
+        if (newTop < MIN_SECTION_H) { newBot += newTop - MIN_SECTION_H; newTop = MIN_SECTION_H; }
+        if (newBot < MIN_SECTION_H) { newTop += newBot - MIN_SECTION_H; newBot = MIN_SECTION_H; }
+        setHeights(prev => ({
+          ...prev,
+          [d.section]: Math.round(Math.max(MIN_SECTION_H, newTop)),
+          [d.pair]: Math.round(Math.max(MIN_SECTION_H, newBot)),
+        }));
+      } else {
+        // Only the top section is open — adjust it, constrained to available
+        const newH = Math.max(MIN_SECTION_H, d.startH + dy);
+        setHeights(prev => ({ ...prev, [d.section]: Math.round(newH) }));
+      }
     };
     const onUp = () => {
       if (!dragRef.current) return;
       dragRef.current = null;
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
     };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-    return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
-  }, [panelRef]);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+  }, []);
 
-  return { sectionHeights, startResize };
+  const getOpenList = useCallback(() => visibleSections.filter(s => open[s]), [visibleSections, open]);
+
+  return { open, toggle, heights, startResize, getOpenList };
 }
 
 // ── Panel resize ──────────────────────────────────────────────────────────────
@@ -459,9 +582,6 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [width, setWidth] = useState(DEFAULT_WIDTH);
-
-  // Section open states
-  const [sectionsOpen, setSectionsOpen] = useState({ folders: true, outline: false, timeline: false, git: false });
 
   // Inline create
   const [creatingIn, setCreatingIn] = useState<{ parentPath: string; type: "file" | "folder" } | null>(null);
@@ -492,7 +612,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
   const [collapsePath, setCollapsePath] = useState<string | null>(null);
   const dragSourcePathRef = useRef<string | null>(null);
 
-  const panelRef = useRef<HTMLElement | null>(null);
+  const sectionsRef = useRef<HTMLDivElement | null>(null);
   const loadSeqRef = useRef(0);
   const hasDataRef = useRef(false);
   const serializedRootRef = useRef("");
@@ -504,8 +624,14 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
   const isTerminalView = activeTab?.type === "terminal";
   const sectionVisibility = useAppShellStore((s) => s.sectionVisibility);
 
-  // Section resize
-  const { sectionHeights, startResize } = useSectionResize(panelRef);
+  // Section layout (collapsible + resize)
+  const visibleSections = SECTIONS.filter(s => {
+    if (!sectionVisibility[s]) return false;
+    if (isTerminalView && (s === 'outline' || s === 'timeline')) return false;
+    return true;
+  });
+  const { open: sectionsOpen, toggle: toggleSection, heights: sectionHeights, startResize, getOpenList } =
+    useSidepanelLayout(sectionsRef, visibleSections);
 
   // Sync active file path
   useEffect(() => {
@@ -817,8 +943,16 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
     rootNodes.filter((n) => !isExcluded(n.name))
   );
 
-  const toggleSection = (key: keyof typeof sectionsOpen) =>
-    setSectionsOpen((prev) => ({ ...prev, [key]: !prev[key] }));
+  const openSections = getOpenList();
+  const sectionSeamOpen = useMemo(() => {
+    const result: Record<string, boolean> = {};
+    for (let i = 0; i < visibleSections.length - 1; i++) {
+      const top = visibleSections[i];
+      const bot = visibleSections[i + 1];
+      result[top] = sectionsOpen[top] && sectionsOpen[bot];
+    }
+    return result;
+  }, [visibleSections, sectionsOpen]);
 
   const treeNodeProps = {
     selectedFile, activePath,
@@ -838,7 +972,6 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
 
   return (
     <aside
-      ref={panelRef as React.RefObject<HTMLElement>}
       id="main-sidebar"
       className="relative flex flex-col z-20"
       style={{
@@ -861,17 +994,18 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
         <SectionToggle />
       </div>
 
-      {/* Sections container — fills remaining height */}
-      <div className="flex flex-col flex-1 min-h-0">
+      {/* Sections container — fills remaining height (tracked by ResizeObserver inside useSidepanelLayout) */}
+      <div ref={sectionsRef} className="flex flex-col flex-1 min-h-0">
 
-        {/* FOLDERS — primary, grows to fill space */}
+        {/* FOLDERS */}
         {sectionVisibility.folders && (
           <CollapsibleSection
             label={workspaceName}
             open={sectionsOpen.folders}
             onToggle={() => toggleSection("folders")}
-            height={null}
-            onResizeStart={(e) => e.preventDefault()} // folders section doesn't resize, it fills
+            bodyHeight={sectionHeights.folders}
+            showResizeHandle={!!sectionSeamOpen.folders}
+            onResizeStart={(e) => startResize("folders", e)}
             loading={isLoading}
             controls={
               <>
@@ -927,13 +1061,14 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
           </CollapsibleSection>
         )}
 
-        {/* OUTLINE — secondary, fixed pixel height */}
+        {/* OUTLINE */}
         {!isTerminalView && sectionVisibility.outline && (
           <CollapsibleSection
             label="Outline"
             open={sectionsOpen.outline}
             onToggle={() => toggleSection("outline")}
-            height={sectionsOpen.outline ? sectionHeights.outline : null}
+            bodyHeight={sectionHeights.outline}
+            showResizeHandle={!!sectionSeamOpen.outline}
             onResizeStart={(e) => startResize("outline", e)}
             controls={
               <SidebarIconBtn title="Refresh" onClick={() => setOutlineRefreshKey((k) => k + 1)}>
@@ -951,7 +1086,8 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
             label="Timeline"
             open={sectionsOpen.timeline}
             onToggle={() => toggleSection("timeline")}
-            height={sectionsOpen.timeline ? sectionHeights.timeline : null}
+            bodyHeight={sectionHeights.timeline}
+            showResizeHandle={!!sectionSeamOpen.timeline}
             onResizeStart={(e) => startResize("timeline", e)}
             controls={
               <SidebarIconBtn title="Refresh" onClick={() => setTimelineRefreshKey((k) => k + 1)}>
@@ -969,8 +1105,9 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
             label="Git Graph"
             open={sectionsOpen.git}
             onToggle={() => toggleSection("git")}
-            height={sectionsOpen.git ? sectionHeights.git : null}
-            onResizeStart={(e) => startResize("git", e)}
+            bodyHeight={sectionHeights.git}
+            showResizeHandle={false}
+            onResizeStart={(e) => e.preventDefault()}
             controls={
               <SidebarIconBtn title="Refresh" onClick={() => setGitRefreshKey((k) => k + 1)}>
                 <RefreshCw size={12} />
@@ -1000,39 +1137,39 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
           {fileMenu?.node.is_dir && <Folder size={12} className="text-primary/70 shrink-0" />}
           <span className="text-sm text-on-surface-variant/60 overflow-hidden text-ellipsis whitespace-nowrap">{fileMenu?.node.name}</span>
         </div>
-        <MenuViewItem variant="rightclick" onClick={() => { if (!fileMenu) return; copyToClipboard(fileMenu.node.name); setFileMenu(null); }}>Copy Name</MenuViewItem>
-        <MenuViewItem variant="rightclick" onClick={() => { if (!fileMenu) return; copyToClipboard(fileMenu.node.path); setFileMenu(null); }}>Copy Path</MenuViewItem>
-        <MenuViewItem variant="rightclick" onClick={() => { if (fileMenu) handleCopy(fileMenu.node); }}>Copy</MenuViewItem>
-        <MenuViewItem variant="rightclick" onClick={() => { if (fileMenu) handleCut(fileMenu.node); }}>Cut</MenuViewItem>
-        {clipboardHasContent && <MenuViewItem variant="rightclick" onClick={handlePaste}>Paste</MenuViewItem>}
+        <MenuViewItem variant="rightclick" icon={<ClipboardCopy size={13} />} onClick={() => { if (!fileMenu) return; copyToClipboard(fileMenu.node.name); setFileMenu(null); }}>Copy Name</MenuViewItem>
+        <MenuViewItem variant="rightclick" icon={<Copy size={13} />} onClick={() => { if (!fileMenu) return; copyToClipboard(fileMenu.node.path); setFileMenu(null); }}>Copy Path</MenuViewItem>
+        <MenuViewItem variant="rightclick" icon={<Copy size={13} />} onClick={() => { if (fileMenu) handleCopy(fileMenu.node); }}>Copy</MenuViewItem>
+        <MenuViewItem variant="rightclick" icon={<Scissors size={13} />} onClick={() => { if (fileMenu) handleCut(fileMenu.node); }}>Cut</MenuViewItem>
+        {clipboardHasContent && <MenuViewItem variant="rightclick" icon={<ClipboardList size={13} />} onClick={handlePaste}>Paste</MenuViewItem>}
         <MenuViewSeparator />
         {fileMenu?.node.is_dir && (
           <>
-            <MenuViewItem variant="rightclick" onClick={handleCreateFileInDir}>New File</MenuViewItem>
-            <MenuViewItem variant="rightclick" onClick={handleCreateFolderInDir}>New Folder</MenuViewItem>
+            <MenuViewItem variant="rightclick" icon={<Plus size={13} />} onClick={handleCreateFileInDir}>New File</MenuViewItem>
+            <MenuViewItem variant="rightclick" icon={<FolderOpen size={13} />} onClick={handleCreateFolderInDir}>New Folder</MenuViewItem>
             <MenuViewSeparator />
           </>
         )}
-        <MenuViewItem variant="rightclick" onClick={() => { if (!fileMenu) return; revealInExplorer(fileMenu.node.path); setFileMenu(null); }}>Reveal in Explorer</MenuViewItem>
-        <MenuViewItem variant="rightclick" onClick={() => { if (!fileMenu) return; copyToClipboard(fileMenu.node.path.replace(resolvedCwd, "").replace(/^[/\\]/, "")); setFileMenu(null); }}>Copy Relative Path</MenuViewItem>
+        <MenuViewItem variant="rightclick" icon={<ExternalLink size={13} />} onClick={() => { if (!fileMenu) return; revealInExplorer(fileMenu.node.path); setFileMenu(null); }}>Reveal in Explorer</MenuViewItem>
+        <MenuViewItem variant="rightclick" icon={<CopyMinus size={13} />} onClick={() => { if (!fileMenu) return; copyToClipboard(fileMenu.node.path.replace(resolvedCwd, "").replace(/^[/\\]/, "")); setFileMenu(null); }}>Copy Relative Path</MenuViewItem>
         <MenuViewSeparator />
         {fileMenu?.node.is_dir && (
           <>
-            <MenuViewItem variant="rightclick" onClick={handleOpenFolderInAurora}>Open in Integrated Terminal</MenuViewItem>
-            <MenuViewItem variant="rightclick" onClick={handleOpenFolderInNewTab}>Open in New Tab</MenuViewItem>
+            <MenuViewItem variant="rightclick" icon={<Terminal size={13} />} onClick={handleOpenFolderInAurora}>Open in Integrated Terminal</MenuViewItem>
+            <MenuViewItem variant="rightclick" icon={<ExternalLink size={13} />} onClick={handleOpenFolderInNewTab}>Open in New Tab</MenuViewItem>
           </>
         )}
         {fileMenu && !fileMenu.node.is_dir && (
           <>
-            <MenuViewItem variant="rightclick" onClick={() => { window.dispatchEvent(new CustomEvent("sidebar-open-file", { detail: { path: fileMenu.node.path } })); setFileMenu(null); }}>Open</MenuViewItem>
-            <MenuViewItem variant="rightclick" onClick={() => { setFileMenu(null); window.dispatchEvent(new CustomEvent("file-compare-with", { detail: { path: fileMenu.node.path } })); }}>Compare With...</MenuViewItem>
+            <MenuViewItem variant="rightclick" icon={<FolderOpen size={13} />} onClick={() => { window.dispatchEvent(new CustomEvent("sidebar-open-file", { detail: { path: fileMenu.node.path } })); setFileMenu(null); }}>Open</MenuViewItem>
+            <MenuViewItem variant="rightclick" icon={<CopyMinus size={13} />} onClick={() => { setFileMenu(null); window.dispatchEvent(new CustomEvent("file-compare-with", { detail: { path: fileMenu.node.path } })); }}>Compare With...</MenuViewItem>
           </>
         )}
         <MenuViewSeparator />
-        <MenuViewItem variant="rightclick" onClick={() => { if (!fileMenu) return; setFileMenu(null); window.dispatchEvent(new CustomEvent("git-file-history", { detail: { path: fileMenu.node.path } })); }}>Git / Version Control</MenuViewItem>
+        <MenuViewItem variant="rightclick" icon={<GitBranch size={13} />} onClick={() => { if (!fileMenu) return; setFileMenu(null); window.dispatchEvent(new CustomEvent("git-file-history", { detail: { path: fileMenu.node.path } })); }}>Git / Version Control</MenuViewItem>
         <MenuViewSeparator />
-        <MenuViewItem variant="rightclick" onClick={() => { if (fileMenu) startRename(fileMenu.node); }}>Rename</MenuViewItem>
-        <MenuViewItem variant="rightclick" onClick={() => { if (fileMenu) startDelete(fileMenu.node); }} danger>Delete</MenuViewItem>
+        <MenuViewItem variant="rightclick" icon={<Pencil size={13} />} onClick={() => { if (fileMenu) startRename(fileMenu.node); }}>Rename</MenuViewItem>
+        <MenuViewItem variant="rightclick" icon={<Trash2 size={13} />} onClick={() => { if (fileMenu) startDelete(fileMenu.node); }} danger>Delete</MenuViewItem>
       </MenuView>
 
       {/* Delete confirmation modal */}

@@ -21,6 +21,7 @@ export interface AiConfig {
   gemini: ProviderConfig;
   nvidia: ProviderConfig;
   ollama: ProviderConfig;
+  groq: ProviderConfig;
 }
 
 export interface ProviderConfig {

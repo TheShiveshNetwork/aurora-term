@@ -17,6 +17,7 @@ pub enum ProviderName {
     Gemini,
     Nvidia,
     Ollama,
+    Groq,
 }
 
 /// A single message in an AI conversation.
