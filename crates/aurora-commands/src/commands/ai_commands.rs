@@ -63,6 +63,16 @@ fn build_provider(
                 config.ai.ollama.powerful_model.clone(),
             )))
         }
+        "groq" => {
+            let key = KeychainManager::get_api_key("groq")?;
+            Ok(Box::new(OpenAiCompatProvider::new(
+                key,
+                config.ai.groq.base_url.clone(),
+                config.ai.groq.fast_model.clone(),
+                config.ai.groq.balanced_model.clone(),
+                config.ai.groq.powerful_model.clone(),
+            )))
+        }
         _ => Err(AppError::Ai(format!("Unknown provider: {}", provider_name))),
     }
 }
@@ -85,7 +95,7 @@ pub async fn ai_delete_api_key(
 #[command]
 pub async fn ai_provider_status() -> Result<HashMap<String, bool>, AppError> {
     let mut status = HashMap::new();
-    let providers = vec!["anthropic", "openai", "gemini", "nvidia"];
+    let providers = vec!["anthropic", "openai", "gemini", "nvidia", "groq"];
     for p in providers {
         status.insert(p.to_string(), KeychainManager::has_api_key(p));
     }

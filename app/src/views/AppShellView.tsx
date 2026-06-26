@@ -8,6 +8,7 @@ import { useAppBootstrap } from "../hooks/useAppBootstrap";
 import { useCommandExecution } from "../hooks/useCommandExecution";
 import { useAgentExecution } from "../hooks/useAgentExecution";
 import { usePersistUIState } from "../hooks/usePersistUIState";
+import { useWindowClamp } from "../hooks/useWindowClamp";
 import { useAppShellStore } from "../stores/useAppShellStore";
 import { useBlockStore } from "../stores/useBlockStore";
 import { useSessionStore } from "../stores/useSessionStore";
@@ -15,21 +16,27 @@ import { useSettingsStore } from "../stores/useSettingsStore";
 import { TabBar } from "../components/ui/TabBar";
 import { SidePanel } from "../components/ui/SidePanel";
 import { StatusBar } from "../components/ui/StatusBar";
-import { SettingsModal } from "../components/settings/SettingsModal";
 import { AppHeader } from "../components/layout/AppHeader";
 import { AppContextMenu } from "../components/layout/AppContextMenu";
+import { AgentOverlay } from "../components/terminal/AgentOverlay";
 import { SaveChangesModal } from "../components/layout/SaveChangesModal";
 import { CommandInputBar } from "../components/layout/CommandInputBar";
 import { TerminalWorkspaceView } from "./TerminalWorkspaceView";
 import { FileWorkspaceView } from "./FileWorkspaceView";
+import { AgentView } from "./AgentView";
+import { DiffWorkspaceView } from "../components/editor/DiffWorkspaceView";
+import { CommitDiffView } from "../components/editor/CommitDiffView";
+import { GitView } from "../components/git/GitView";
 import { getDefaultShellLaunch, isWindowsPlatform } from "../lib/shell";
 import { classifyInput, setAvailableCommands, type ShellType } from "../lib/nlClassifier";
 import { system } from "../lib/ipc";
+import { closeAllPopups, onClosePopups } from "../lib/popups";
 
 export function AppShellView() {
   const { tabs, activeTabId, spawnSession, killSession, openFile, setActiveTabId } = useAppBootstrap();
   const { theme, setTheme } = useSettingsStore();
   usePersistUIState();
+  useWindowClamp();
 
   useEffect(() => {
     system.getAvailableCommands().then(setAvailableCommands).catch(() => { });
@@ -39,7 +46,6 @@ export function AppShellView() {
 
   const {
     sidebarCollapsed,
-    showSettings,
     showMenuDropdown,
     tabBarVisible,
     viewMode,
@@ -52,8 +58,11 @@ export function AppShellView() {
     shellHistory,
     interactedSessions,
     isCwdLoading,
-    setShowSettings,
+    showAiBar,
     setShowAiBar,
+    chatInputOpen,
+    setChatInputOpen,
+    toggleChatInputOpen,
     setShowMenuDropdown,
     toggleSidebarCollapsed,
     toggleShowMenuDropdown,
@@ -65,6 +74,17 @@ export function AppShellView() {
     appendCommandInput,
     clearSessionInteracted,
   } = useAppShellStore();
+
+  useEffect(() => {
+    if (viewMode === "file") {
+      useAppShellStore.getState().setSectionVisibility({
+        folders: true,
+        outline: true,
+        timeline: true,
+        git: true,
+      });
+    }
+  }, [viewMode]);
 
   const {
     activeCommandInput,
@@ -101,6 +121,7 @@ export function AppShellView() {
       if (!cleanGoal) return;
 
       setCommandInput("");
+      setShowAiBar(true);
       startTask(cleanGoal);
     } else {
       defaultSubmit(event);
@@ -112,7 +133,8 @@ export function AppShellView() {
   };
 
   const activeTab = tabs.find((tab) => tab.id === activeTabId) || null;
-  const activeFilePath = activeTab?.type === "file" ? activeTab.filePath : undefined;
+  const isStandaloneView = activeTab?.type === "file" || activeTab?.type === "diff" || activeTab?.type === "git";
+  const activeFilePath = (activeTab?.type === "file" || activeTab?.type === "diff") ? activeTab.filePath : undefined;
   const pendingTab = pendingCloseTabId ? tabs.find((tab) => tab.id === pendingCloseTabId) || null : null;
   const currentTerminalBlocks = targetSessionId ? blocks[targetSessionId] || [] : [];
   const hasInteracted = activeTabId ? Boolean(interactedSessions[activeTabId]) : false;
@@ -171,11 +193,31 @@ export function AppShellView() {
         title: "Aurora Terminal",
         width: 1024,
         height: 768,
+        minWidth: 800,
+        minHeight: 500,
+        decorations: false,
       });
     } catch (error) {
       console.error("Failed to spawn new window:", error);
     }
   };
+
+  const handleOpenSettings = async () => {
+    setShowMenuDropdown(false);
+    try {
+      const { openSettingsWindow } = await import("../lib/settings");
+      await openSettingsWindow();
+    } catch (error) {
+      console.error("Failed to open settings window:", error);
+    }
+  };
+
+  useEffect(() => {
+    return onClosePopups(() => {
+      clearContextMenu();
+      setShowMenuDropdown(false);
+    });
+  }, [clearContextMenu]);
 
   const handleNewTab = async () => {
     setShowMenuDropdown(false);
@@ -201,6 +243,7 @@ export function AppShellView() {
 
     const tab = tabs.find((candidate) => candidate.id === activeTabId);
     if (tab?.type === "file" && tab.dirty) {
+      closeAllPopups();
       setPendingCloseTabId(activeTabId);
       return;
     }
@@ -231,6 +274,8 @@ export function AppShellView() {
 
   const handleShowTerminalView = async () => {
     setViewMode("terminal");
+    useAppShellStore.getState().setSidebarCollapsed(false);
+    useAppShellStore.getState().setChatInputOpen(true);
     const hasTerminal = tabs.some((tab) => tab.type === "terminal");
 
     if (!hasTerminal) {
@@ -255,6 +300,8 @@ export function AppShellView() {
 
   const handleShowFileView = async () => {
     setViewMode("file");
+    useAppShellStore.getState().setSidebarCollapsed(false);
+    useAppShellStore.getState().setChatInputOpen(true);
     const fileTabs = tabs.filter((tab) => tab.type === "file");
 
     if (fileTabs.length === 0) {
@@ -282,7 +329,31 @@ export function AppShellView() {
     }
   };
 
-  const handleShowAgentView = () => { };
+  const handleShowAgentView = () => {
+    setViewMode("agent");
+    useAppShellStore.getState().setSidebarCollapsed(true);
+    useAppShellStore.getState().setShowAiBar(false);
+    useAppShellStore.getState().setChatInputOpen(false);
+  };
+
+  const handleOpenGitView = () => {
+    const existing = tabs.find(t => t.type === "git");
+    if (existing) {
+      setActiveTabId(existing.id);
+      setViewMode("file");
+      return;
+    }
+    const id = uuidv4();
+    useSessionStore.getState().addTab({
+      id,
+      name: "Git",
+      type: "git" as const,
+      cwd: cwdAbsolute,
+      created_at: Date.now(),
+    });
+    useSessionStore.getState().setActiveTabId(id);
+    setViewMode("file");
+  };
 
   const handleDuplicateTab = (tab: Tab) => {
     if (tab.type === "terminal") {
@@ -307,6 +378,8 @@ export function AppShellView() {
     }
   };
 
+  const isStandalone = useMemo(() => document.title.includes("Terminal"), []);
+
   return (
     <div
       data-tauri-drag-region
@@ -318,10 +391,18 @@ export function AppShellView() {
       }}
     >
       <AppHeader
+        isStandalone={isStandalone}
         sidebarCollapsed={sidebarCollapsed}
         onToggleSidebar={toggleSidebarCollapsed}
+        agentOverlayOpen={showAiBar}
+        onToggleAgentOverlay={() => {
+          const current = useAppShellStore.getState().showAiBar;
+          useAppShellStore.getState().setShowAiBar(!current);
+        }}
+        chatInputOpen={chatInputOpen}
+        onToggleChatInput={toggleChatInputOpen}
         menuOpen={showMenuDropdown}
-        onToggleMenu={toggleShowMenuDropdown}
+        onToggleMenu={() => { closeAllPopups(); toggleShowMenuDropdown(); }}
         onOpenFolder={handleOpenFolder}
         onOpenFile={handleOpenFile}
         onOpenRecentFile={handleOpenRecentFile}
@@ -330,7 +411,7 @@ export function AppShellView() {
         onCloseSession={handleCloseSession}
         onCloseTab={handleCloseTab}
         onCloseOtherTabs={handleCloseOtherTabs}
-        onOpenSettings={() => setShowSettings(true)}
+        onOpenSettings={() => { closeAllPopups(); handleOpenSettings(); }}
         onToggleTheme={handleToggleTheme}
         onToggleTabBar={toggleTabBarVisible}
         onShowTerminalView={handleShowTerminalView}
@@ -340,136 +421,168 @@ export function AppShellView() {
         theme={theme}
         tabBarVisible={tabBarVisible}
         viewMode={viewMode}
+        projectName={cwd.replace(/^~\//, "")}
+        cwdAbsolute={cwdAbsolute}
+        onOpenFileAtPath={(path: string) => { openFile(path, cwdAbsolute); setViewMode("file"); }}
+        onOpenGitView={handleOpenGitView}
       />
 
       <div className="flex flex-1 overflow-hidden">
         <SidePanel collapsed={sidebarCollapsed} cwd={cwdAbsolute} activeFilePath={activeFilePath} />
 
         <main className="flex-1 flex flex-col min-w-0 bg-surface-container-low overflow-hidden relative">
-          <div className={tabBarVisible ? "" : "hidden"}>
-            <TabBar
-              viewMode={viewMode}
-              onSetViewMode={setViewMode}
-              onAddTab={async (type: "terminal" | "file") => {
-                if (type === "terminal") {
-                  const { shell, args } = getDefaultShellLaunch();
-                  try {
-                    const sessionId = await spawnSession(shell, args, {}, cwdAbsolute);
-                    setSessionCwd(sessionId, cwdAbsolute);
-                  } catch (error) {
-                    console.error("Failed to spawn session:", error);
-                  }
-                  return;
-                }
-
-                const welcomeTabId = uuidv4();
-                const newTab: Tab = {
-                  id: welcomeTabId,
-                  name: "Workspace",
-                  type: "file",
-                  filePath: undefined,
-                  cwd: cwdAbsolute,
-                  created_at: Date.now(),
-                };
-                useSessionStore.getState().addTab(newTab);
-                setActiveTabId(welcomeTabId);
-                setViewMode("file");
-              }}
-              onKillTab={(id) => {
-                const tab = tabs.find((candidate) => candidate.id === id);
-                if (tab?.type === "file" && tab.dirty) {
-                  setPendingCloseTabId(id);
-                  return;
-                }
-
-                killSession(id);
-              }}
-              onDuplicateTab={handleDuplicateTab}
-            />
-          </div>
-
-          <div
-            className={`flex-1 overflow-hidden w-full flex flex-col relative ${(activeTab?.type === "file" || isAlternateActive) ? "" : "px-3 pt-3"}`}
-            onMouseDown={(event) => {
-              const target = event.target as HTMLElement;
-              if (target.closest(".xterm")) {
-                return;
-              }
-
-              if (activeTab?.type === "terminal" && !isCommandRunning && !isAlternateActive) {
-                window.dispatchEvent(new CustomEvent("aurora-focus-terminal-input", { detail: { sessionId: activeTabId } }));
-              }
-            }}
-          >
-            <div className="flex-1 min-h-0 w-full relative">
-              {tabs.map((tab) => {
-                const isTabActive = tab.id === activeTabId;
-
-                return (
-                  <div
-                    key={tab.id}
-                    className="absolute inset-0"
-                    style={{
-                      visibility: isTabActive ? "visible" : "hidden",
-                      pointerEvents: isTabActive ? "auto" : "none",
-                      zIndex: isTabActive ? 10 : 0,
-                    }}
-                  >
-                    {tab.type === "file" ? (
-                      <FileWorkspaceView tab={tab} onOpenFile={handleOpenFile} onOpenFolder={handleOpenFolder} />
-                    ) : (
-                      <TerminalWorkspaceView
-                        tab={tab}
-                        isVisible={isTabActive}
-                        isCommandRunning={isTabActive ? isCommandRunning : undefined}
-                        isAlternateActive={isAlternateActive}
-                        hasInteracted={hasInteracted}
-                        activeBlocksCount={tab.id === targetSessionId ? currentTerminalBlocks.length : 0}
-                      />
-                    )}
-                  </div>
-                );
-              })}
+          {viewMode === "agent" ? (
+            <div className="flex-1 min-h-0 overflow-hidden">
+              <AgentView />
             </div>
-          </div>
+          ) : (
+            <>
+              {!isStandalone && (
+                <div className={tabBarVisible ? "" : "hidden"}>
+                  <TabBar
+                    viewMode={viewMode}
+                    onSetViewMode={setViewMode}
+                    onAddTab={async (type: "terminal" | "file") => {
+                      if (type === "terminal") {
+                        const { shell, args } = getDefaultShellLaunch();
+                        try {
+                          const sessionId = await spawnSession(shell, args, {}, cwdAbsolute);
+                          setSessionCwd(sessionId, cwdAbsolute);
+                        } catch (error) {
+                          console.error("Failed to spawn session:", error);
+                        }
+                        return;
+                      }
 
-          {/* Terminal view: command variant (default) */}
-          {activeTab?.type === "terminal" && !isAlternateActive && (
-            <CommandInputBar
-              sessionId={targetSessionId}
-              cwd={cwd}
-              isLoading={isCwdLoading}
-              isRunning={isCommandRunning}
-              value={activeCommandInput}
-              history={[
-                ...activeTabBlocks.filter((block) => block.command && block.command !== "init-aurora").map((block) => block.command as string),
-                ...shellHistory.slice().reverse(),
-              ]}
-              onChange={setCommandInput}
-              onSubmit={(e) => handleInterceptedSubmit(e, handleExecuteCommand, false)}
-              onStop={handleStopCurrentCommand}
-              onOpenAiBar={() => setShowAiBar(true)}
-              inputMode={inputMode}
-            />
-          )}
+                      const welcomeTabId = uuidv4();
+                      const newTab: Tab = {
+                        id: welcomeTabId,
+                        name: "Workspace",
+                        type: "file",
+                        filePath: undefined,
+                        cwd: cwdAbsolute,
+                        created_at: Date.now(),
+                      };
+                      useSessionStore.getState().addTab(newTab);
+                      setActiveTabId(welcomeTabId);
+                      setViewMode("file");
+                    }}
+                    onKillTab={(id) => {
+                      const tab = tabs.find((candidate) => candidate.id === id);
+                      if (tab?.type === "file" && tab.dirty) {
+                        setPendingCloseTabId(id);
+                        return;
+                      }
 
-          {/* File view: prompt variant (absolute, glassmorphism, independent state) */}
-          {activeTab?.type === "file" && (
-            <CommandInputBar
-              variant="prompt"
-              sessionId={null}
-              cwd={cwd}
-              isLoading={false}
-              isRunning={false}
-              value={activeCommandInput}
-              history={[]}
-              onChange={setCommandInput}
-              onSubmit={(e) => handleInterceptedSubmit(e, handleFileCommandSubmit, true)}
-              onOpenAiBar={() => setShowAiBar(true)}
-              inputMode={inputMode}
-            />
+                      killSession(id);
+                    }}
+                    onDuplicateTab={handleDuplicateTab}
+                  />
+                </div>
+              )}
+
+              <div
+                className={`flex-1 overflow-hidden w-full flex flex-col relative ${(isStandaloneView || isAlternateActive) ? "" : "px-3 pt-3"}`} onMouseDown={(event) => {
+                  const target = event.target as HTMLElement;
+                  if (target.closest(".xterm")) {
+                    return;
+                  }
+
+                  if (activeTab?.type === "terminal" && !isCommandRunning && !isAlternateActive) {
+                    window.dispatchEvent(new CustomEvent("aurora-focus-terminal-input", { detail: { sessionId: activeTabId } }));
+                  }
+                }}
+              >
+                <div className="flex-1 min-h-0 w-full relative overflow-hidden">
+                  {tabs.map((tab) => {
+                    const isTabActive = tab.id === activeTabId;
+
+                    return (
+                      <div
+                        key={tab.id}
+                        className="absolute inset-0"
+                        style={{
+                          visibility: isTabActive ? "visible" : "hidden",
+                          pointerEvents: isTabActive ? "auto" : "none",
+                          zIndex: isTabActive ? 10 : 0,
+                        }}
+                      >
+                        {tab.type === "file" ? (
+                          <FileWorkspaceView tab={tab} onOpenFile={handleOpenFile} onOpenFolder={handleOpenFolder} />
+                        ) : tab.type === "diff" && tab.diffContent ? (
+                          <CommitDiffView
+                            diff={tab.diffContent}
+                            commitHash={tab.diffCommitHash || ""}
+                          />
+                        ) : tab.type === "diff" ? (
+                          <DiffWorkspaceView
+                            filePath={tab.filePath || ""}
+                            oldContent={tab.diffOldContent || ""}
+                            newContent={tab.diffNewContent || ""}
+                            commitHash={tab.diffCommitHash || ""}
+                          />
+                        ) : tab.type === "git" ? (
+                          <GitView cwd={cwdAbsolute} tabId={tab.id} />
+                        ) : (
+                          <TerminalWorkspaceView
+                            tab={tab}
+                            isVisible={isTabActive}
+                            isCommandRunning={isTabActive ? isCommandRunning : undefined}
+                            isAlternateActive={isAlternateActive}
+                            hasInteracted={hasInteracted}
+                            activeBlocksCount={tab.id === targetSessionId ? currentTerminalBlocks.length : 0}
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Terminal view: command variant (default) */}
+              {chatInputOpen && activeTab?.type === "terminal" && !isAlternateActive && (
+                <CommandInputBar
+                  sessionId={targetSessionId}
+                  cwd={cwd}
+                  isLoading={isCwdLoading}
+                  isRunning={isCommandRunning}
+                  value={activeCommandInput}
+                  history={[
+                    ...activeTabBlocks.filter((block) => block.command && block.command !== "init-aurora").map((block) => block.command as string),
+                    ...shellHistory.slice().reverse(),
+                  ]}
+                  onChange={setCommandInput}
+                  onSubmit={(e) => handleInterceptedSubmit(e, handleExecuteCommand, false)}
+                  onStop={handleStopCurrentCommand}
+                  onOpenAiBar={() => setShowAiBar(true)}
+                  inputMode={inputMode}
+                />
+              )}
+
+              {/* File view: prompt variant (absolute, glassmorphism, independent state) */}
+              {chatInputOpen && activeTab?.type === "file" && (
+                <CommandInputBar
+                  variant="prompt"
+                  sessionId={null}
+                  cwd={cwd}
+                  isLoading={false}
+                  isRunning={false}
+                  value={activeCommandInput}
+                  history={[]}
+                  onChange={setCommandInput}
+                  onSubmit={(e) => handleInterceptedSubmit(e, handleFileCommandSubmit, true)}
+                  onOpenAiBar={() => setShowAiBar(true)}
+                  inputMode={inputMode}
+                />
+              )}
+            </>
           )}
         </main>
+
+        {/* Agent overlay — inside main so it overlays the tab view area */}
+        {showAiBar && activeTabId && !isStandalone && (
+          <AgentOverlay sessionId={activeTabId} onClose={() => setShowAiBar(false)} />
+        )}
       </div>
 
       <SaveChangesModal
@@ -497,15 +610,17 @@ export function AppShellView() {
         }}
       />
 
-      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
-
       <AppContextMenu
         contextMenu={contextMenu}
         onPaste={async () => {
           try {
             const text = await navigator.clipboard.readText();
-            if (text && activeTabId) {
-              appendCommandInput(activeTabId, text);
+            if (text) {
+              if (contextMenu?.source === "file") {
+                window.dispatchEvent(new CustomEvent("file-paste", { detail: { text } }));
+              } else if (activeTabId) {
+                appendCommandInput(activeTabId, text);
+              }
             }
           } catch (error) {
             console.error("Failed to read from clipboard:", error);
@@ -517,6 +632,19 @@ export function AppShellView() {
             navigator.clipboard.writeText(contextMenu.selectedText).catch(console.error);
           } else if (contextMenu?.source === "terminal") {
             window.dispatchEvent(new CustomEvent("terminal-copy", { detail: { sessionId: activeTabId } }));
+          } else if (contextMenu?.source === "file") {
+            window.dispatchEvent(new CustomEvent("file-copy-line"));
+          }
+          clearContextMenu();
+        }}
+        onCutSelection={() => {
+          if (contextMenu?.selectedText && contextMenu?.source === "file") {
+            navigator.clipboard.writeText(contextMenu.selectedText).catch(console.error);
+            window.dispatchEvent(new CustomEvent("file-cut-selection", { detail: { text: contextMenu.selectedText } }));
+          } else if (contextMenu?.source === "file") {
+            window.dispatchEvent(new CustomEvent("file-cut-line"));
+          } else if (contextMenu?.source === "terminal" && activeTabId) {
+            window.dispatchEvent(new CustomEvent("terminal-cut", { detail: { sessionId: activeTabId } }));
           }
           clearContextMenu();
         }}
@@ -532,6 +660,30 @@ export function AppShellView() {
           if (activeTabId) {
             window.dispatchEvent(new CustomEvent("file-select-all", { detail: { tabId: activeTabId } }));
           }
+          clearContextMenu();
+        }}
+        onGoToDefinition={() => {
+          window.dispatchEvent(new CustomEvent("file-go-to-definition", { detail: { tabId: activeTabId, filePath: contextMenu?.filePath, selectedText: contextMenu?.selectedText } }));
+          clearContextMenu();
+        }}
+        onPeekDefinition={() => {
+          window.dispatchEvent(new CustomEvent("file-peek-definition", { detail: { tabId: activeTabId, filePath: contextMenu?.filePath, selectedText: contextMenu?.selectedText } }));
+          clearContextMenu();
+        }}
+        onFindReferences={() => {
+          window.dispatchEvent(new CustomEvent("file-find-references", { detail: { tabId: activeTabId, filePath: contextMenu?.filePath, selectedText: contextMenu?.selectedText } }));
+          clearContextMenu();
+        }}
+        onRenameSymbol={() => {
+          window.dispatchEvent(new CustomEvent("file-rename-symbol", { detail: { tabId: activeTabId, filePath: contextMenu?.filePath, selectedText: contextMenu?.selectedText } }));
+          clearContextMenu();
+        }}
+        onFormatDocument={() => {
+          window.dispatchEvent(new CustomEvent("file-format-document", { detail: { tabId: activeTabId, filePath: contextMenu?.filePath } }));
+          clearContextMenu();
+        }}
+        onRunFile={() => {
+          window.dispatchEvent(new CustomEvent("file-run", { detail: { tabId: activeTabId, filePath: contextMenu?.filePath } }));
           clearContextMenu();
         }}
       />

@@ -15,7 +15,10 @@
         "title": "Aurora",
         "width": 1024,
         "height": 768,
-        "decorations": false
+        "minWidth": 670,
+        "minHeight": 400,
+        "decorations": false,
+        "visible": false
       }
     ],
     "security": {

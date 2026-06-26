@@ -132,7 +132,11 @@ export function useAgentExecution(sessionId: string | null) {
         state.completeTask(targetSessionId, msg);
         const totalMs = useAgentStore.getState().sessions[targetSessionId]?.queue
           .reduce((acc, cmd) => acc + (cmd.durationMs || 0), 0) || 0;
-        state.addChatMessage(targetSessionId, { role: "assistant", content: msg, durationMs: totalMs });
+        const snap = useAgentStore.getState().sessions[targetSessionId] || defaultSessionState();
+        state.addChatMessage(targetSessionId, {
+          role: "assistant", content: msg, durationMs: totalMs,
+          chainNodes: snap.chainNodes, agentLogs: snap.agentLogs, subagent: snap.activeSubagent,
+        });
         return;
       }
 
@@ -140,7 +144,11 @@ export function useAgentExecution(sessionId: string | null) {
       if (step.status === "error") {
         const errMsg = step.message || "An error occurred during agent planning";
         state.failTask(targetSessionId, errMsg);
-        state.addChatMessage(targetSessionId, { role: "assistant", content: errMsg, isError: true });
+        const snap = useAgentStore.getState().sessions[targetSessionId] || defaultSessionState();
+        state.addChatMessage(targetSessionId, {
+          role: "assistant", content: errMsg, isError: true,
+          chainNodes: snap.chainNodes, agentLogs: snap.agentLogs, subagent: snap.activeSubagent,
+        });
         return;
       }
 
@@ -203,7 +211,11 @@ export function useAgentExecution(sessionId: string | null) {
             ? "AI returned an unexpected response format. Try again."
             : errMsg;
       state.failTask(targetSessionId, friendlyMsg);
-      state.addChatMessage(targetSessionId, { role: "assistant", content: friendlyMsg, isError: true });
+      const snap = useAgentStore.getState().sessions[targetSessionId] || defaultSessionState();
+      state.addChatMessage(targetSessionId, {
+        role: "assistant", content: friendlyMsg, isError: true,
+        chainNodes: snap.chainNodes, agentLogs: snap.agentLogs, subagent: snap.activeSubagent,
+      });
     }
   }, []);
 

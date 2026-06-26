@@ -1,10 +1,29 @@
-import { Command, ExternalLink, FileText, FolderOpen, History, Menu, PanelLeft, PanelLeftClose, PinIcon, PinOff, Plus, Search, Settings, SplitSquareHorizontal, SquareTerminal, Terminal, User, ChevronRight } from "lucide-react";
-
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Command, ExternalLink, FileText, FolderOpen, History, Menu, PanelLeft, PanelLeftClose, PanelRight, PanelRightClose, PanelBottom, PanelBottomClose, PinIcon, PinOff, Plus, Search, Settings, SplitSquareHorizontal, SquareTerminal, Terminal, User, ChevronRight, GitBranch, File, Sliders } from "lucide-react";
+import type { AppViewMode } from "../../stores/useAppShellStore";
+import { invoke } from "@tauri-apps/api/core";
 import { WindowControls } from "../ui/WindowControls";
+import { MenuView, MenuViewItem, MenuViewSeparator } from "../ui/MenuView";
+import auroraIcon from "/static/aurora-icon.svg";
+import { SETTINGS_MANIFEST, categoryFor } from "../settings/settingsManifest";
+import type { SettingsManifestEntry } from "../settings/settingsManifest";
+
+interface FileNode {
+  name: string;
+  path: string;
+  is_dir: boolean;
+  is_hidden: boolean;
+  is_gitignored: boolean;
+}
 
 interface AppHeaderProps {
+  isStandalone?: boolean;
   sidebarCollapsed: boolean;
   onToggleSidebar: () => void;
+  agentOverlayOpen: boolean;
+  onToggleAgentOverlay: () => void;
+  chatInputOpen: boolean;
+  onToggleChatInput: () => void;
   menuOpen: boolean;
   onToggleMenu: () => void;
   onOpenFolder: () => void;
@@ -21,15 +40,24 @@ interface AppHeaderProps {
   onShowTerminalView: () => void;
   onShowFileView: () => void;
   onShowAgentView: () => void;
+  onOpenGitView: () => void;
   onExit: () => void;
   theme: "dark" | "light";
   tabBarVisible: boolean;
-  viewMode: "terminal" | "file";
+  viewMode: AppViewMode;
+  projectName: string;
+  cwdAbsolute: string;
+  onOpenFileAtPath: (path: string) => void;
 }
 
 export function AppHeader({
+  isStandalone,
   sidebarCollapsed,
   onToggleSidebar,
+  agentOverlayOpen,
+  onToggleAgentOverlay,
+  chatInputOpen,
+  onToggleChatInput,
   menuOpen,
   onToggleMenu,
   onOpenFolder,
@@ -46,154 +74,558 @@ export function AppHeader({
   onShowTerminalView,
   onShowFileView,
   onShowAgentView,
+  onOpenGitView,
   onExit,
   theme,
   tabBarVisible,
   viewMode,
+  projectName,
+  cwdAbsolute,
+  onOpenFileAtPath,
 }: AppHeaderProps) {
+  const headerRef = useRef<HTMLDivElement>(null);
+  const [searchCollapsed, setSearchCollapsed] = useState(false);
+
+  const measureSearchSpace = useCallback(() => {
+    const header = headerRef.current;
+    if (!header) return;
+    const left = header.querySelector<HTMLElement>("#header-left");
+    const right = header.querySelector<HTMLElement>("#header-right");
+    if (!left || !right) return;
+    const available = header.offsetWidth - left.offsetWidth - right.offsetWidth - 32;
+    setSearchCollapsed(available < 180);
+  }, []);
+
+  useEffect(() => {
+    measureSearchSpace();
+    const ro = new ResizeObserver(measureSearchSpace);
+    const header = headerRef.current;
+    if (header) ro.observe(header);
+    return () => ro.disconnect();
+  }, [measureSearchSpace]);
+
   return (
     <header
       id="aurora-tab-bar"
+      ref={headerRef}
       data-tauri-drag-region
-      className="flex justify-between items-center w-full px-4 h-toolbar-height bg-surface-container-lowest border-b border-outline-variant/5 z-50 shadow-sm select-none"
+      className="flex items-center w-full px-3 h-toolbar-height z-50 select-none gap-3"
+      style={{
+        background: "#0A0D14",
+        borderBottom: "1px solid rgba(255,255,255,0.05)",
+      }}
     >
-      <div data-tauri-no-drag className="flex items-center gap-2 h-full">
-        <div className="flex items-center gap-1">
+      {/* ── Left: branding pill + view mode ── */}
+      <div id="header-left" data-tauri-no-drag className="flex items-center gap-1.5 shrink-0">
+        <img src={auroraIcon} alt="" className="w-8 h-8 rounded-[6px] shrink-0 object-cover" />
+        <div className="relative">
           <button
             data-tauri-no-drag
-            onClick={onToggleSidebar}
-            className="p-2 hover:bg-surface rounded-lg transition-colors text-on-surface-variant cursor-pointer"
-            title="Toggle Sidebar"
+            onClick={(event) => { event.stopPropagation(); onToggleMenu(); }}
+            className="flex items-center gap-1.5 h-8 px-2.5 rounded-[10px] cursor-pointer select-none transition-colors"
+            style={{
+              background: menuOpen ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.04)",
+              border: menuOpen ? "1px solid rgba(79,140,255,0.20)" : "1px solid rgba(255,255,255,0.07)",
+            }}
+            onMouseEnter={(e) => { if (!menuOpen) e.currentTarget.style.background = "rgba(255,255,255,0.07)"; }}
+            onMouseLeave={(e) => { if (!menuOpen) e.currentTarget.style.background = "rgba(255,255,255,0.04)"; }}
+            title="Aurora Menu"
           >
-            {sidebarCollapsed ? <PanelLeft size={16} /> : <PanelLeftClose size={16} />}
+            <span className="text-[13px] font-semibold" style={{ color: "rgba(232,234,240,0.85)" }}>{projectName}</span>
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style={{ color: "rgba(232,234,240,0.35)" }}>
+              <path d="M2.5 3.5L5 6.5L7.5 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
           </button>
-          <div className="relative">
-            <button
-              data-tauri-no-drag
-              onClick={(event) => {
-                event.stopPropagation();
-                onToggleMenu();
-              }}
-              className={`p-2 hover:bg-surface rounded-lg transition-colors text-on-surface-variant cursor-pointer ${menuOpen ? "bg-surface text-primary" : ""}`}
-              title="Toggle Menu"
-            >
-              <Menu size={14} />
-            </button>
-            {menuOpen && (
-              <div
-                className="absolute left-0 mt-1.5 w-60 bg-surface-container-lowest border border-outline-variant/20 rounded-md shadow-2xl py-1 z-[999] text-on-surface font-body-base animate-in fade-in slide-in-from-top-1 duration-150"
-                onClick={(event) => event.stopPropagation()}
-              >
-                <button onClick={onOpenFolder} className="w-full flex items-center gap-3 px-3 py-2 text-[12px] hover:bg-surface-variant/30 hover:text-primary transition-colors text-left cursor-pointer">
-                  <FolderOpen size={13} className="text-outline/65" />
-                  <span className="flex-1">Open Folder</span>
-                  <span className="text-[10px] text-outline/40">Ctrl+O</span>
-                </button>
-                <button onClick={onOpenFile} className="w-full flex items-center gap-3 px-3 py-2 text-[12px] hover:bg-surface-variant/30 hover:text-primary transition-colors text-left cursor-pointer">
-                  <FileText size={13} className="text-outline/65" />
-                  <span className="flex-1">Open File</span>
-                  <span className="text-[10px] text-outline/40">Ctrl+P</span>
-                </button>
-                <div className="relative group/recent">
-                  <button className="w-full flex items-center gap-3 px-3 py-2 text-[12px] hover:bg-surface-variant/30 hover:text-primary transition-colors text-left cursor-pointer">
-                    <History size={13} className="text-outline/65" />
-                    <span className="flex-1">Open Recent...</span>
-                    <ChevronRight size={10} className="text-outline/40" />
-                  </button>
-                  <div className="absolute left-full top-0 ml-0.5 w-48 bg-surface-container-lowest border border-outline-variant/20 rounded-md shadow-2xl py-1 hidden group-hover/recent:block">
-                    <button onClick={() => onOpenRecentFile("package.json")} className="w-full px-3 py-1.5 text-[11px] hover:bg-surface-variant/30 hover:text-primary transition-colors text-left truncate cursor-pointer">package.json</button>
-                    <button onClick={() => onOpenRecentFile("src/App.tsx")} className="w-full px-3 py-1.5 text-[11px] hover:bg-surface-variant/30 hover:text-primary transition-colors text-left truncate cursor-pointer">src/App.tsx</button>
-                    <button onClick={() => onOpenRecentFile("src/styles/globals.css")} className="w-full px-3 py-1.5 text-[11px] hover:bg-surface-variant/30 hover:text-primary transition-colors text-left truncate cursor-pointer">globals.css</button>
-                  </div>
-                </div>
-                <div className="h-px bg-outline-variant/20 my-1 mx-2" />
-                <button onClick={onNewWindow} className="w-full flex items-center gap-3 px-3 py-2 text-[12px] hover:bg-surface-variant/30 hover:text-primary transition-colors text-left cursor-pointer">
-                  <Plus size={13} className="text-outline/65" />
-                  <span className="flex-1">New Window</span>
-                  <span className="text-[10px] text-outline/40">Ctrl+Shift+N</span>
-                </button>
-                <button onClick={onNewTab} className="w-full flex items-center gap-3 px-3 py-2 text-[12px] hover:bg-surface-variant/30 hover:text-primary transition-colors text-left cursor-pointer">
-                  <SquareTerminal size={13} className="text-outline/65" />
-                  <span className="flex-1">New Tab</span>
-                  <span className="text-[10px] text-outline/40">Ctrl+T</span>
-                </button>
-                <div className="h-px bg-outline-variant/20 my-1 mx-2" />
-                <button onClick={onCloseSession} className="w-full flex items-center gap-3 px-3 py-2 text-[12px] hover:bg-surface-variant/30 hover:text-primary transition-colors text-left cursor-pointer">
-                  <Terminal size={13} className="text-outline/65" />
-                  <span className="flex-1">Close Session</span>
-                </button>
-                <button onClick={onCloseTab} className="w-full flex items-center gap-3 px-3 py-2 text-[12px] hover:bg-surface-variant/30 hover:text-primary transition-colors text-left cursor-pointer">
-                  <SplitSquareHorizontal size={13} className="text-outline/65" />
-                  <span className="flex-1">Close Tab</span>
-                  <span className="text-[10px] text-outline/40">Ctrl+W</span>
-                </button>
-                <button onClick={onCloseOtherTabs} className="w-full flex items-center gap-3 px-3 py-2 text-[12px] hover:bg-surface-variant/30 hover:text-primary transition-colors text-left cursor-pointer">
-                  <SplitSquareHorizontal size={13} className="text-outline/65" />
-                  <span className="flex-1">Close Other Tabs</span>
-                </button>
-                <div className="h-px bg-outline-variant/20 my-1 mx-2" />
-                <button onClick={onOpenSettings} className="w-full flex items-center gap-3 px-3 py-2 text-[12px] hover:bg-surface-variant/30 hover:text-primary transition-colors text-left cursor-pointer">
-                  <Command size={13} className="text-outline/65" />
-                  <span className="flex-1">Command Palette</span>
-                  <span className="text-[10px] text-outline/40">Ctrl+Shift+P</span>
-                </button>
-                <button onClick={onToggleTheme} className="w-full flex items-center gap-3 px-3 py-2 text-[12px] hover:bg-surface-variant/30 hover:text-primary transition-colors text-left cursor-pointer">
-                  <Settings size={13} className="text-outline/65" />
-                  <span className="flex-1">Switch Mode ({theme})</span>
-                </button>
-                <button onClick={onExit} className="w-full flex items-center gap-3 px-3 py-2 text-[12px] hover:bg-red-500/10 hover:text-red-400 transition-colors text-left cursor-pointer">
-                  <ExternalLink size={13} className="text-red-400/70" />
-                  <span className="flex-1 font-semibold">Exit</span>
-                </button>
-              </div>
-            )}
-            <button
-              onClick={onToggleTabBar}
-              className={`p-2 hover:bg-surface rounded-lg transition-colors text-on-surface-variant cursor-pointer ${!tabBarVisible ? "bg-surface text-primary" : ""}`}
-              title={tabBarVisible ? "Hide Tab Bar" : "Show Tab Bar"}
-            >
-              {tabBarVisible ? <PinIcon size={14} /> : <PinOff size={14} />}
-            </button>
-          </div>
+
+          <MenuView
+            variant="primary"
+            open={menuOpen}
+            onClose={() => onToggleMenu()}
+            className="absolute left-0 mt-1.5 w-60 z-[999]"
+            style={{ pointerEvents: "auto" }}
+          >
+            <MenuViewItem icon={<FolderOpen size={13} />} onClick={onOpenFolder} shortcut="Ctrl+O">Open Folder</MenuViewItem>
+            <MenuViewItem icon={<FileText size={13} />} onClick={onOpenFile} shortcut="Ctrl+P">Open File</MenuViewItem>
+            <MenuViewItem icon={<History size={13} />} disabled>Open Recent…</MenuViewItem>
+            <MenuViewSeparator />
+            <MenuViewItem icon={<Plus size={13} />} onClick={onNewWindow} shortcut="Ctrl+Shift+N">New Window</MenuViewItem>
+            <MenuViewItem icon={<SquareTerminal size={13} />} onClick={onNewTab} shortcut="Ctrl+T">New Tab</MenuViewItem>
+            <MenuViewSeparator />
+            <MenuViewItem icon={<Terminal size={13} />} onClick={onCloseSession}>Close Session</MenuViewItem>
+            <MenuViewItem icon={<SplitSquareHorizontal size={13} />} onClick={onCloseTab}>Close Tab</MenuViewItem>
+            <MenuViewItem icon={<SplitSquareHorizontal size={13} />} onClick={onCloseOtherTabs}>Close Other Tabs</MenuViewItem>
+            <MenuViewSeparator />
+            <MenuViewItem icon={<Command size={13} />} onClick={onOpenSettings} shortcut="Ctrl+Shift+P">Command Palette</MenuViewItem>
+            <MenuViewItem icon={<Settings size={13} />} onClick={onToggleTheme}>Switch Mode ({theme})</MenuViewItem>
+            <MenuViewSeparator />
+            <MenuViewItem icon={<ExternalLink size={13} />} onClick={onExit} danger>Exit</MenuViewItem>
+          </MenuView>
         </div>
 
-        <div className="flex items-center gap-1 ml-1">
-          <button data-tauri-no-drag onClick={onShowTerminalView} className={`p-2 rounded-md transition-colors cursor-pointer ${viewMode === "terminal" ? "bg-primary/10 text-primary" : "bg-surface hover:bg-surface-bright/60 text-on-surface-variant/70 hover:text-on-surface-variant"}`} title="Terminal View">
-            <SquareTerminal size={14} />
-          </button>
-          <button data-tauri-no-drag onClick={onShowFileView} className={`p-2 rounded-md transition-colors cursor-pointer ${viewMode === "file" ? "bg-primary/10 text-primary" : "bg-surface hover:bg-surface-bright/60 text-on-surface-variant/70 hover:text-on-surface-variant"}`} title="Workspace View">
-            <FolderOpen size={14} />
-          </button>
-          <button data-tauri-no-drag onClick={onShowAgentView} className="p-2 hover:text-on-surface-variant bg-surface hover:bg-surface-bright/60 rounded-md transition-colors text-on-surface-variant/70 cursor-pointer" title="Agent View">
-            <Command size={14} />
-          </button>
+        {/* View mode toggle */}
+        <div
+          className="flex items-center gap-0.5 ml-1 p-0.5 rounded-[12px]"
+          style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.05)" }}
+        >
+          <ViewButton active={viewMode === "terminal"} onClick={onShowTerminalView} title="Terminal View">
+            <SquareTerminal size={13} />
+          </ViewButton>
+          <ViewButton active={viewMode === "file"} onClick={onShowFileView} title="Workspace View">
+            <FolderOpen size={13} />
+          </ViewButton>
+          <ViewButton active={viewMode === "agent"} onClick={onShowAgentView} title="Agent View">
+            <Command size={13} />
+          </ViewButton>
         </div>
+
+        <IconBtn onClick={onOpenGitView} title={"Open Git View"}>
+          <GitBranch size={14} />
+        </IconBtn>
       </div>
 
-      <div className="flex-1 max-w-xl mx-8" data-tauri-drag-region>
-        <div className="relative group">
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[14px] text-outline/50 group-focus-within:text-primary transition-colors font-bold select-none">
-            <Search size={16} />
-          </span>
-          <input
-            type="text"
-            placeholder="Search sessions, chats, agents, files..."
-            className="w-full bg-surface-container-high/40 border border-outline-variant/10 rounded-xl h-8 pl-9 pr-4 text-sm placeholder:text-outline/40 outline-none focus:border-primary/20 transition-all shadow-inner"
-          />
-        </div>
-      </div>
+      {/* ── Center: search bar ── */}
+      <SearchBar collapsed={searchCollapsed} cwdAbsolute={cwdAbsolute} onOpenFileAtPath={onOpenFileAtPath} />
 
-      <div data-tauri-no-drag className="flex items-center gap-2 h-full">
-        <button data-tauri-no-drag onClick={onOpenSettings} className="p-2 hover:bg-surface-variant/30 rounded-lg transition-colors text-on-surface-variant cursor-pointer" title="Settings">
+      {/* ── Right: panel toggles + pin + settings + avatar + window controls ── */}
+      <div id="header-right" data-tauri-no-drag className="flex items-center gap-0.5 shrink-0">
+        {!isStandalone && (
+          <>
+            <IconBtn onClick={onToggleSidebar} title={sidebarCollapsed ? "Show Sidebar" : "Hide Sidebar"}>
+              {sidebarCollapsed ? <PanelLeft size={14} /> : <PanelLeftClose size={14} />}
+            </IconBtn>
+
+            <IconBtn onClick={onToggleAgentOverlay} title={agentOverlayOpen ? "Hide Agent Panel" : "Show Agent Panel"}>
+              {agentOverlayOpen ? <PanelRightClose size={14} /> : <PanelRight size={14} />}
+            </IconBtn>
+
+            <IconBtn onClick={onToggleChatInput} title={chatInputOpen ? "Hide Chat Input" : "Show Chat Input"}>
+              {chatInputOpen ? <PanelBottomClose size={14} /> : <PanelBottom size={14} />}
+            </IconBtn>
+          </>
+        )}
+
+        {viewMode !== "agent" && <div className="w-px h-5 mx-1" style={{ background: "rgba(255,255,255,0.06)" }} />}
+
+        {viewMode !== "agent" && !isStandalone && (
+          <IconBtn
+            onClick={onToggleTabBar}
+            title={tabBarVisible ? "Hide Tab Bar" : "Show Tab Bar"}
+            active={!tabBarVisible}
+          >
+            {tabBarVisible ? <PinIcon size={13} /> : <PinOff size={13} />}
+          </IconBtn>
+        )}
+
+        {!isStandalone && (
+          <div className="w-px h-5 mx-1" style={{ background: "rgba(255,255,255,0.06)" }} />
+        )}
+
+        <IconBtn onClick={onOpenSettings} title="Settings">
           <Settings size={14} />
-        </button>
-        <button data-tauri-no-drag className="p-1 hover:ring-2 ring-primary/20 rounded-full transition-all cursor-pointer mr-2">
-          <div className="w-7 h-7 rounded-full bg-secondary-container/30 flex items-center justify-center text-secondary border border-secondary/20">
-            <User size={14} />
+        </IconBtn>
+
+        <button
+          data-tauri-no-drag
+          className="p-0.5 rounded-full transition-all cursor-pointer mr-1 ml-0.5"
+          style={{ outline: "1px solid rgba(154,124,255,0.2)" }}
+          onMouseEnter={(e) => (e.currentTarget.style.outline = "2px solid rgba(154,124,255,0.35)")}
+          onMouseLeave={(e) => (e.currentTarget.style.outline = "1px solid rgba(154,124,255,0.2)")}
+        >
+          <div
+            className="w-7 h-7 rounded-full flex items-center justify-center"
+            style={{ background: "rgba(154,124,255,0.12)", color: "#9A7CFF" }}
+          >
+            <User size={13} />
           </div>
         </button>
+
         <WindowControls />
       </div>
     </header>
+  );
+}
+
+function ViewButton({
+  children,
+  active,
+  onClick,
+  title,
+}: {
+  children: React.ReactNode;
+  active: boolean;
+  onClick: () => void;
+  title: string;
+}) {
+  return (
+    <button
+      data-tauri-no-drag
+      onClick={onClick}
+      title={title}
+      className="p-2 rounded-[9px] transition-all cursor-pointer"
+      style={{
+        background: active ? "rgba(79,140,255,0.12)" : "transparent",
+        color: active ? "#4F8CFF" : "rgba(232,234,240,0.4)",
+        border: active ? "1px solid rgba(79,140,255,0.20)" : "1px solid transparent",
+      }}
+      onMouseEnter={(e) => {
+        if (!active) {
+          e.currentTarget.style.background = "rgba(255,255,255,0.05)";
+          e.currentTarget.style.color = "rgba(232,234,240,0.7)";
+        }
+      }}
+      onMouseLeave={(e) => {
+        if (!active) {
+          e.currentTarget.style.background = "transparent";
+          e.currentTarget.style.color = "rgba(232,234,240,0.4)";
+        }
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function SearchBar({ collapsed, cwdAbsolute, onOpenFileAtPath }: { collapsed?: boolean; cwdAbsolute: string; onOpenFileAtPath: (path: string) => void }) {
+  const [focused, setFocused] = useState(false);
+  const [value, setValue] = useState("");
+  const [iconOpen, setIconOpen] = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState(-1);
+  const [files, setFiles] = useState<{ name: string; path: string; is_dir: boolean }[]>([]);
+  const [filesLoaded, setFilesLoaded] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const selectedRef = useRef<HTMLButtonElement>(null);
+  const expanded = focused || value.length > 0;
+
+  useEffect(() => {
+    if (!collapsed) setIconOpen(false);
+  }, [collapsed]);
+
+  useEffect(() => {
+    const handler = () => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    };
+    window.addEventListener("focus-search-bar", handler);
+    return () => window.removeEventListener("focus-search-bar", handler);
+  }, []);
+
+  useEffect(() => {
+    setFilesLoaded(false);
+    setFiles([]);
+  }, [cwdAbsolute]);
+
+  useEffect(() => {
+    if (focused && !filesLoaded && cwdAbsolute) {
+      invoke<FileNode[]>("read_dir", { path: cwdAbsolute })
+        .then(nodes => {
+          setFiles(nodes.map(n => ({ name: n.name, path: n.path, is_dir: n.is_dir })));
+          setFilesLoaded(true);
+        })
+        .catch(() => { });
+    }
+  }, [focused, filesLoaded, cwdAbsolute]);
+
+  useEffect(() => {
+    if (!focused) {
+      setValue("");
+    }
+  }, [focused]);
+
+  const query = value.toLowerCase().trim();
+
+  const matchedDirs = useMemo(() => {
+    if (!query || !files.length) return [];
+    const seen = new Set<string>();
+    return files
+      .filter(f => f.is_dir && f.name.toLowerCase().includes(query) && !seen.has(f.name) && seen.add(f.name))
+      .slice(0, 6);
+  }, [query, files]);
+
+  const matchedRegularFiles = useMemo(() => {
+    if (!query || !files.length) return [];
+    const seen = new Set<string>();
+    return files
+      .filter(f => !f.is_dir && f.name.toLowerCase().includes(query) && !seen.has(f.name) && seen.add(f.name))
+      .slice(0, 8);
+  }, [query, files]);
+
+  const matchedSettings = useMemo(() => {
+    if (!query) return [];
+    return SETTINGS_MANIFEST.filter(s => {
+      const cat = categoryFor(s.section, s.subPage);
+      return s.label.toLowerCase().includes(query) ||
+        s.description.toLowerCase().includes(query) ||
+        cat.toLowerCase().includes(query);
+    }).slice(0, 6);
+  }, [query]);
+
+  const dirCount = matchedDirs.length;
+  const fileCount = matchedRegularFiles.length;
+  const settingCount = matchedSettings.length;
+  const totalItems = dirCount + fileCount + settingCount;
+  const showDropdown = focused && query.length > 0 && totalItems > 0;
+
+  useEffect(() => {
+    setSelectedIndex(-1);
+  }, [matchedDirs, matchedRegularFiles, matchedSettings]);
+
+  useEffect(() => {
+    if (selectedIndex >= 0) {
+      selectedRef.current?.scrollIntoView({ block: "nearest" });
+    }
+  }, [selectedIndex]);
+
+  const executeSelected = () => {
+    if (selectedIndex < 0 || selectedIndex >= totalItems) return;
+    if (selectedIndex < dirCount) {
+      const d = matchedDirs[selectedIndex];
+      if (d) { setFocused(false); setValue(""); window.dispatchEvent(new CustomEvent("sidebar-open-in-new-tab", { detail: { path: d.path } })); }
+    } else if (selectedIndex < dirCount + fileCount) {
+      const f = matchedRegularFiles[selectedIndex - dirCount];
+      if (f) { setFocused(false); setValue(""); onOpenFileAtPath(f.path); }
+    } else {
+      const s = matchedSettings[selectedIndex - dirCount - fileCount];
+      if (s) {
+        setFocused(false);
+        setValue("");
+        import("../../lib/settings").then(({ openSettingsWindow }) =>
+          openSettingsWindow({ section: s.section, sub: s.subPage, element: s.elementId })
+        );
+      }
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    switch (e.key) {
+      case "ArrowDown":
+        e.preventDefault();
+        setSelectedIndex(prev => (prev + 1) % totalItems);
+        break;
+      case "ArrowUp":
+        e.preventDefault();
+        setSelectedIndex(prev => (prev <= 0 ? totalItems - 1 : prev - 1));
+        break;
+      case "Enter":
+        e.preventDefault();
+        executeSelected();
+        break;
+      case "Escape":
+        e.preventDefault();
+        inputRef.current?.blur();
+        setFocused(false);
+        break;
+    }
+  };
+
+  if (collapsed && !iconOpen) {
+    return (
+      <div className="flex-1 flex justify-center">
+        <button
+          onClick={() => setIconOpen(true)}
+          className="p-2 rounded-[10px] transition-colors cursor-pointer"
+          style={{ color: "rgba(232,234,240,0.45)" }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; e.currentTarget.style.color = "#E8EAF0"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "rgba(232,234,240,0.45)"; }}
+          title="Search"
+        >
+          <Search size={14} />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-1 flex justify-center" data-tauri-drag-region>
+      <div className="relative w-full" style={{ maxWidth: collapsed ? "220px" : "400px" }}>
+        <div
+          className="flex items-center h-9 py-1 px-2 gap-3 transition-all duration-200 warp-input-glow rounded-md w-full"
+          style={{
+            background: "rgba(255,255,255,0.03)",
+            border: focused ? "1px solid rgba(79,140,255,0.3)" : "1px solid rgba(255,255,255,0.07)",
+          }}
+        >
+          <Search size={14} className="shrink-0" style={{ color: focused ? "rgba(79,140,255,0.7)" : "rgba(232,234,240,0.3)" }} />
+          <input
+            ref={inputRef}
+            type="text"
+            placeholder="Search files and settings…"
+            className="flex-1 bg-transparent text-[13px] outline-none placeholder:text-white/25 min-w-0"
+            style={{ color: "#E8EAF0" }}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onFocus={() => setFocused(true)}
+            onBlur={() => {
+              setTimeout(() => setFocused(false), 150);
+            }}
+            onKeyDown={handleKeyDown}
+            autoFocus={collapsed && iconOpen}
+          />
+          {!expanded && !collapsed && (
+            <kbd
+              className="shrink-0 text-sm flex items-center gap-1 font-mono px-1.5 py-0.5 rounded-[6px] select-none"
+              style={{
+                background: "rgba(255,255,255,0.06)",
+                border: "1px solid rgba(255,255,255,0.08)",
+                color: "rgba(232,234,240,0.35)",
+              }}
+            >
+              {"CTRL"} {"P"}
+            </kbd>
+          )}
+        </div>
+
+        {showDropdown && (
+          <div
+            ref={dropdownRef}
+            className="absolute top-full left-0 right-0 mt-1 rounded-lg overflow-hidden z-[999] select-text"
+            style={{
+              background: "#141822",
+              border: "1px solid rgba(255,255,255,0.08)",
+              boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+              maxHeight: "320px",
+            }}
+          >
+            {matchedDirs.length > 0 && (
+              <div>
+                <div className="flex items-center gap-2 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider"
+                  style={{ color: "rgba(232,234,240,0.35)", background: "rgba(255,255,255,0.03)" }}>
+                  <Terminal size={11} />
+                  Open terminal in
+                </div>
+                {matchedDirs.map((d, di) => {
+                  const idx = di;
+                  const isSelected = idx === selectedIndex;
+                  return (
+                    <button
+                      key={d.path}
+                      ref={isSelected ? selectedRef : undefined}
+                      onClick={() => { setFocused(false); setValue(""); window.dispatchEvent(new CustomEvent("sidebar-open-in-new-tab", { detail: { path: d.path } })); }}
+                      className="flex items-center gap-2.5 w-full text-left px-3 py-2 text-[12px] transition-colors cursor-pointer"
+                      style={{
+                        color: "#E8EAF0",
+                        background: isSelected ? "rgba(79,140,255,0.15)" : "transparent",
+                      }}
+                      onMouseEnter={() => setSelectedIndex(idx)}
+                    >
+                      <FolderOpen size={13} style={{ color: "rgba(79,140,255,0.6)" }} />
+                      <span className="truncate">{d.name}/</span>
+                      <span className="ml-auto text-[10px] shrink-0" style={{ color: "rgba(232,234,240,0.3)" }}>New Terminal</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {(matchedDirs.length > 0 && (matchedRegularFiles.length > 0 || matchedSettings.length > 0)) && (
+              <div className="h-px mx-3" style={{ background: "rgba(255,255,255,0.06)" }} />
+            )}
+            {matchedRegularFiles.length > 0 && (
+              <div>
+                <div className="flex items-center gap-2 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider"
+                  style={{ color: "rgba(232,234,240,0.35)", background: "rgba(255,255,255,0.03)" }}>
+                  <File size={11} />
+                  Files
+                </div>
+                {matchedRegularFiles.map((f, fi) => {
+                  const idx = dirCount + fi;
+                  const isSelected = idx === selectedIndex;
+                  return (
+                    <button
+                      key={f.path}
+                      ref={isSelected ? selectedRef : undefined}
+                      onClick={() => { setFocused(false); setValue(""); onOpenFileAtPath(f.path); }}
+                      className="flex items-center gap-2.5 w-full text-left px-3 py-2 text-[12px] transition-colors cursor-pointer"
+                      style={{
+                        color: "#E8EAF0",
+                        background: isSelected ? "rgba(79,140,255,0.15)" : "transparent",
+                      }}
+                      onMouseEnter={() => setSelectedIndex(idx)}
+                    >
+                      <FileText size={13} style={{ color: "rgba(232,234,240,0.4)" }} />
+                      <span className="truncate">{f.name}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {(matchedRegularFiles.length > 0 && matchedSettings.length > 0) && (
+              <div className="h-px mx-3" style={{ background: "rgba(255,255,255,0.06)" }} />
+            )}
+            {matchedSettings.length > 0 && (
+              <div>
+                <div className="flex items-center gap-2 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider"
+                  style={{ color: "rgba(232,234,240,0.35)", background: "rgba(255,255,255,0.03)" }}>
+                  <Sliders size={11} />
+                  Settings
+                </div>
+                {matchedSettings.map((s, si) => {
+                  const idx = dirCount + fileCount + si;
+                  const isSelected = idx === selectedIndex;
+                  return (
+                    <button
+                      key={s.id}
+                      ref={isSelected ? selectedRef : undefined}
+                      onClick={() => executeSelected()}
+                      className="flex items-center gap-2.5 w-full text-left px-3 py-2 text-[12px] transition-colors cursor-pointer"
+                      style={{
+                        color: "#E8EAF0",
+                        background: isSelected ? "rgba(79,140,255,0.15)" : "transparent",
+                      }}
+                      onMouseEnter={() => setSelectedIndex(idx)}
+                    >
+                      <Settings size={13} style={{ color: "rgba(154,124,255,0.6)" }} />
+                      <div className="flex flex-col min-w-0">
+                        <span className="truncate">{s.label}</span>
+                        <span className="text-[11px] truncate" style={{ color: "rgba(232,234,240,0.35)" }}>{s.description}</span>
+                      </div>
+                      <span className="ml-auto text-[10px] shrink-0 px-1.5 py-0.5 rounded" style={{ color: "rgba(232,234,240,0.25)", background: "rgba(255,255,255,0.04)" }}>{categoryFor(s.section, s.subPage)}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function IconBtn({
+  children,
+  onClick,
+  title,
+  active,
+}: {
+  children: React.ReactNode;
+  onClick?: () => void;
+  title?: string;
+  active?: boolean;
+}) {
+  return (
+    <button
+      data-tauri-no-drag
+      onClick={onClick}
+      title={title}
+      className="p-2 rounded-[10px] transition-colors cursor-pointer"
+      style={{
+        background: active ? "rgba(79,140,255,0.10)" : "transparent",
+        color: active ? "#4F8CFF" : "rgba(232,234,240,0.45)",
+      }}
+      onMouseEnter={(e) => {
+        if (!active) {
+          e.currentTarget.style.background = "rgba(255,255,255,0.05)";
+          e.currentTarget.style.color = "#E8EAF0";
+        }
+      }}
+      onMouseLeave={(e) => {
+        if (!active) {
+          e.currentTarget.style.background = "transparent";
+          e.currentTarget.style.color = "rgba(232,234,240,0.45)";
+        }
+      }}
+    >
+      {children}
+    </button>
   );
 }

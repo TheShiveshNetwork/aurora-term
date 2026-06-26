@@ -39,7 +39,9 @@ pub fn run() {
                 .with_flags(Flags::keyboard())
                 .build()
         )
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(tauri_plugin_window_state::Builder::default()
+            .with_denylist(&["settings"])
+            .build())
         .setup(|app| {
             let config_loader = ConfigLoader::new(app)?;
             let config = config_loader.load().unwrap_or_else(|_| AppConfig::default());
@@ -100,8 +102,34 @@ pub fn run() {
             aurora_commands::move_path,
             aurora_commands::select_folder,
             aurora_commands::select_file,
+            aurora_commands::create_path,
             aurora_commands::watch_directory,
             aurora_commands::get_git_branch,
+            aurora_commands::get_git_log,
+            aurora_commands::get_git_file_log,
+            aurora_commands::get_git_graph,
+            aurora_commands::get_git_file_diff,
+            aurora_commands::get_git_commit_diff,
+            aurora_commands::get_git_file_content_at_commit,
+            aurora_commands::get_git_commit_files,
+            aurora_commands::git_status,
+            aurora_commands::git_add,
+            aurora_commands::git_reset,
+            aurora_commands::git_restore,
+            aurora_commands::git_commit,
+            aurora_commands::git_push,
+            aurora_commands::git_pull,
+            aurora_commands::git_fetch,
+            aurora_commands::git_checkout,
+            aurora_commands::git_branch_create,
+            aurora_commands::git_branch_delete,
+            aurora_commands::git_branch_list,
+            aurora_commands::git_diff_unstaged,
+            aurora_commands::git_diff_staged,
+            aurora_commands::git_log_oneline,
+            aurora_commands::git_clone,
+            aurora_commands::git_remote_list,
+            aurora_commands::git_exec,
             aurora_commands::agent_plan_step,
             aurora_commands::get_available_commands,
         ])

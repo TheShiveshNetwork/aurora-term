@@ -33,9 +33,9 @@ function StatusRing({ status, type }: { status: ChainNode["status"]; type: Chain
   if (status === "active") {
     const color =
       type === "planning" ? "bg-violet-500/20 border-2 border-violet-500" :
-      type === "subagent" ? "bg-blue-500/20 border-2 border-blue-400" :
-      type === "command" ? "bg-primary/20 border-2 border-primary" :
-      "bg-primary/20 border-2 border-primary";
+        type === "subagent" ? "bg-blue-500/20 border-2 border-blue-400" :
+          type === "command" ? "bg-primary/20 border-2 border-primary" :
+            "bg-primary/20 border-2 border-primary";
     return (
       <div className={`${baseRing} ${color}`}>
         <span className="absolute inset-0 rounded-full animate-ping opacity-40"
@@ -48,7 +48,7 @@ function StatusRing({ status, type }: { status: ChainNode["status"]; type: Chain
   if (status === "done") {
     const color =
       type === "complete" ? "bg-emerald-500/20 border-2 border-emerald-500" :
-      "bg-emerald-500/10 border border-emerald-500/30";
+        "bg-emerald-500/10 border border-emerald-500/30";
     return (
       <div className={`${baseRing} ${color}`}>
         <CheckCircle2 size={11} className="text-emerald-400" />
@@ -67,15 +67,15 @@ function StatusRing({ status, type }: { status: ChainNode["status"]; type: Chain
   // pending
   const color =
     type === "planning" ? "bg-violet-500/10 border border-violet-500/30" :
-    type === "command" ? "bg-surface-container-high/30 border border-outline-variant/20" :
-    "bg-surface-container-high/30 border border-outline-variant/20";
+      type === "command" ? "bg-surface-container-high/30 border border-outline-variant/20" :
+        "bg-surface-container-high/30 border border-outline-variant/20";
   return (
     <div className={`${baseRing} ${color}`}>
       {type === "planning" && <Brain size={11} className="text-violet-400" />}
-      {type === "command" && <Terminal size={11} className="text-outline/40" />}
-      {type === "complete" && <CheckCircle2 size={11} className="text-outline/40" />}
-      {type === "error" && <AlertCircle size={11} className="text-outline/40" />}
-      {type === "subagent" && <Code2 size={11} className="text-outline/40" />}
+      {type === "command" && <Terminal size={11} className="text-on-surface-variant/40" />}
+      {type === "complete" && <CheckCircle2 size={11} className="text-on-surface-variant/40" />}
+      {type === "error" && <AlertCircle size={11} className="text-on-surface-variant/40" />}
+      {type === "subagent" && <Code2 size={11} className="text-on-surface-variant/40" />}
     </div>
   );
 }
@@ -85,9 +85,8 @@ export function NodeConnector({ active }: { active: boolean }) {
   return (
     <div className="flex flex-col items-center w-7 shrink-0">
       <div
-        className={`w-[2px] h-5 rounded-full transition-all duration-500 ${
-          active ? "bg-primary/50" : "bg-outline-variant/15"
-        }`}
+        className={`w-[2px] h-5 rounded-full transition-all duration-500 ${active ? "bg-primary/50" : "bg-outline-variant/15"
+          }`}
       />
     </div>
   );
@@ -138,30 +137,28 @@ export function AgentChainNode({
 
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5 flex-wrap">
-              <span className={`text-[11px] font-semibold leading-tight ${
-                isActive ? "text-on-surface" :
+              <span className={`text-[11px] font-semibold leading-tight ${isActive ? "text-on-surface" :
                 isDone ? "text-emerald-300" :
-                isFailed ? "text-red-300" :
-                "text-on-surface/50"
-              }`}>
+                  isFailed ? "text-red-300" :
+                    "text-on-surface/50"
+                }`}>
                 {node.label}
               </span>
 
               {node.subagent && (
-                <span className={`flex items-center gap-1 text-[9px] font-medium px-1.5 py-0.5 rounded-full border ${
-                  node.subagent === "coder"
-                    ? "bg-blue-500/10 border-blue-500/20 text-blue-300"
-                    : node.subagent === "researcher"
-                      ? "bg-purple-500/10 border-purple-500/20 text-purple-300"
-                      : "bg-emerald-500/10 border-emerald-500/20 text-emerald-300"
-                }`}>
+                <span className={`flex items-center gap-1 text-[9px] font-medium px-1.5 py-0.5 rounded-full border ${node.subagent === "coder"
+                  ? "bg-blue-500/10 border-blue-500/20 text-blue-300"
+                  : node.subagent === "researcher"
+                    ? "bg-purple-500/10 border-purple-500/20 text-purple-300"
+                    : "bg-emerald-500/10 border-emerald-500/20 text-emerald-300"
+                  }`}>
                   <SubagentIcon subagent={node.subagent} size={8} />
                   {node.subagent}
                 </span>
               )}
 
               {node.durationMs !== undefined && (
-                <span className="flex items-center gap-0.5 text-[9px] text-outline/40 ml-auto">
+                <span className="flex items-center gap-0.5 text-[9px] text-on-surface-variant/40 ml-auto">
                   <Clock size={8} />
                   {node.durationMs < 1000 ? `${node.durationMs}ms` : `${(node.durationMs / 1000).toFixed(1)}s`}
                 </span>
@@ -169,24 +166,22 @@ export function AgentChainNode({
             </div>
 
             {node.subLabel && (
-              <p className={`text-[10px] mt-0.5 leading-relaxed ${
-                isActive ? "text-on-surface/60" :
+              <p className={`text-[10px] mt-0.5 leading-relaxed ${isActive ? "text-on-surface/60" :
                 isDone ? "text-on-surface/40" :
-                isFailed ? "text-red-300/60" :
-                "text-outline/40"
-              }`}>
+                  isFailed ? "text-red-300/60" :
+                    "text-on-surface-variant/40"
+                }`}>
                 {node.subLabel}
               </p>
             )}
 
             {/* Command display for command nodes */}
             {node.type === "command" && node.command && node.command !== node.label && (
-              <code className={`block text-[10px] font-mono mt-1 px-2 py-1 rounded-md break-all ${
-                isActive ? "bg-primary/10 text-primary/80" :
+              <code className={`block text-[10px] font-mono mt-1 px-2 py-1 rounded-md break-all ${isActive ? "bg-primary/10 text-primary/80" :
                 isDone ? "bg-emerald-500/10 text-emerald-300/80" :
-                isFailed ? "bg-red-500/10 text-red-300/80" :
-                "bg-surface-container-high/30 text-on-surface/50"
-              }`}>
+                  isFailed ? "bg-red-500/10 text-red-300/80" :
+                    "bg-surface-container-high/30 text-on-surface/50"
+                }`}>
                 {node.command}
               </code>
             )}

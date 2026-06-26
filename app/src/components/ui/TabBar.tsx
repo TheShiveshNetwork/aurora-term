@@ -1,9 +1,10 @@
-import React, { useRef, useState, useCallback, useEffect } from "react";
-import { Terminal, FileText, Plus, X, Copy, Pin, Edit3, XCircle, Trash2, ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, ExternalLink } from "lucide-react";
+﻿import React, { useRef, useState, useCallback, useEffect } from "react";
+import { Terminal, FileText, Plus, X, Copy, Pin, Edit3, XCircle, Trash2, ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, ExternalLink, GitBranch, GitBranchPlus } from "lucide-react";
 import { useSessionStore } from "../../stores/useSessionStore";
-import { Tab } from "@aurora/types";
-import { RightClickMenuPanel, RightClickMenuItem, RightClickMenuSeparator } from "./RightClickMenu";
+import { Tab, TabType } from "@aurora/types";
+import { MenuView, MenuViewItem, MenuViewSeparator } from "./MenuView";
 import { invoke } from "@tauri-apps/api/core";
+import { closeAllPopups, onClosePopups } from "../../lib/popups";
 
 interface TabBarProps {
   viewMode: "terminal" | "file";
@@ -13,10 +14,13 @@ interface TabBarProps {
   onDuplicateTab?: (tab: Tab) => void;
 }
 
+const FILE_LIKE_TYPES: TabType[] = ["file", "diff", "git"];
+
 export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplicateTab }: TabBarProps) {
   const { tabs, activeTabId, setActiveTabId, reorderTabs, updateTab } = useSessionStore();
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [overIdx, setOverIdx] = useState<number | null>(null);
+  const [dropIndicator, setDropIndicator] = useState<{ left: number } | null>(null);
   const dragIdxRef = useRef<number | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const tabRectsRef = useRef<DOMRect[]>([]);
@@ -53,8 +57,38 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
     setRenameTabId(null);
   };
 
-  const expandedTabs = tabs.filter((t) => t.type === viewMode);
-  const isScrollable = expandedTabs.length > 6;
+  const expandedTabs = viewMode === "file"
+    ? tabs.filter((t) => FILE_LIKE_TYPES.includes(t.type))
+    : tabs.filter((t) => t.type === "terminal");
+
+  // ── Dynamic overflow detection ───────────────────────────────────
+  const [isOverflowing, setIsOverflowing] = useState(false);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const measure = () => {
+      // Wait for DOM to settle so initial render uses flex-grow
+      requestAnimationFrame(() => {
+        const overflow = el.scrollWidth > el.clientWidth + 1;
+        setIsOverflowing(overflow);
+      });
+    };
+
+    // Initial measurement after first paint
+    measure();
+
+    const ro = new ResizeObserver(() => {
+      measure();
+    });
+
+    ro.observe(el);
+
+    return () => {
+      ro.disconnect();
+    };
+  }, [expandedTabs.length]);
 
   // Pinned tabs always sorted first
   const sortedTabs = [...tabs].sort((a, b) => {
@@ -90,7 +124,7 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
     if (!el) return;
 
     const handleWheel = (e: WheelEvent) => {
-      if (isScrollable) {
+      if (isOverflowing) {
         if (e.deltaY !== 0) {
           e.preventDefault();
           el.scrollLeft += e.deltaY * 0.85;
@@ -100,7 +134,7 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
 
     el.addEventListener("wheel", handleWheel, { passive: false });
     return () => el.removeEventListener("wheel", handleWheel);
-  }, [isScrollable]);
+  }, [isOverflowing]);
 
   // Slide left / right buttons
   const slideLeft = () => {
@@ -123,7 +157,15 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
       setShowAddMenu(false);
     };
     window.addEventListener("click", close);
-    return () => window.removeEventListener("click", close);
+    const unsub = onClosePopups(() => {
+      setContextTab(null);
+      setShowAddMenu(false);
+      setRenameTabId(null);
+    });
+    return () => {
+      window.removeEventListener("click", close);
+      unsub();
+    };
   }, []);
 
   // Smooth scroll and center active tab
@@ -185,12 +227,26 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
 
     const elements = container.querySelectorAll<HTMLElement>("[data-tab-id]");
     tabRectsRef.current = Array.from(elements).map(el => el.getBoundingClientRect());
+    const containerRect = container.getBoundingClientRect();
 
     const onMouseMove = (ev: MouseEvent) => {
       const idx = getTabIndexFromX(ev.clientX);
       setOverIdx(idx);
 
-      const containerRect = container.getBoundingClientRect();
+      if (idx !== null) {
+        const rects = tabRectsRef.current;
+        const tabRect = rects[idx];
+        const tabCenterX = tabRect.left + tabRect.width / 2;
+        const side = ev.clientX < tabCenterX ? "left" : "right";
+        const gapCenter = side === "left"
+          ? tabRect.left - 2
+          : tabRect.right + 2;
+        const indicatorLeft = gapCenter - containerRect.left + container.scrollLeft;
+        setDropIndicator({ left: indicatorLeft });
+      } else {
+        setDropIndicator(null);
+      }
+
       const edgeThreshold = 40;
       if (ev.clientX < containerRect.left + edgeThreshold) {
         container.scrollLeft -= 8;
@@ -222,6 +278,7 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
       dragIdxRef.current = null;
       setDragIdx(null);
       setOverIdx(null);
+      setDropIndicator(null);
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
     };
@@ -233,14 +290,23 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
   }, [getTabIndexFromX, reorderTabs, sortedTabs, tabs]);
 
   return (
-    <div className="flex items-center w-full h-12 px-3 bg-background border-b border-outline-variant/5 gap-2">
-      {isScrollable && canScrollLeft && (
+    <div
+      className="flex items-center w-full h-12 px-3 gap-2"
+      style={{
+        background: "#0A0D14",
+        borderBottom: "1px solid rgba(255,255,255,0.05)",
+      }}
+    >
+      {isOverflowing && canScrollLeft && (
         <button
           onClick={slideLeft}
-          className="shrink-0 w-7 h-8 flex items-center justify-center rounded hover:bg-surface-variant/30 text-outline/50 hover:text-primary transition-all cursor-pointer animate-in fade-in duration-200"
+          className="shrink-0 w-7 h-8 flex items-center justify-center rounded-[8px] transition-all cursor-pointer animate-in fade-in duration-200"
+          style={{ color: "rgba(232,234,240,0.35)" }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; e.currentTarget.style.color = "#4F8CFF"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "rgba(232,234,240,0.35)"; }}
           title="Scroll Left"
         >
-          <ChevronLeft size={16} />
+          <ChevronLeft size={15} />
         </button>
       )}
 
@@ -249,16 +315,16 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
         id="aurora-tab-bar"
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
-        className={`flex items-start h-full pt-[5px] flex-1 gap-1 overflow-x-auto overflow-y-hidden min-w-0 relative ${isScrollable
-          ? `has-tabs-scrollbar ${isHovered ? "tabs-scroll-hovered" : ""}`
-          : "no-scrollbar"
+        className={`flex items-start h-full pt-[5px] flex-1 gap-1 overflow-x-auto overflow-y-hidden min-w-0 relative ${isOverflowing
+          ? `has-tabs-scrollbar`
+          : ""
           }`}
       >
         {sortedTabs.map((tab, index) => {
           const isActive = tab.id === activeTabId;
           const isDragging = dragIdx === index;
           const isOver = overIdx === index && !isDragging;
-          const isExpanded = tab.type === viewMode;
+          const isExpanded = viewMode === "file" ? FILE_LIKE_TYPES.includes(tab.type) : tab.type === "terminal";
           const isPinned = tab.pinned;
 
           return (
@@ -268,21 +334,24 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
               onMouseDown={(e) => handleMouseDown(e, index)}
               onClick={() => {
                 setActiveTabId(tab.id);
-                if (tab.type !== viewMode) {
-                  onSetViewMode(tab.type);
+                const mode = FILE_LIKE_TYPES.includes(tab.type) ? "file" : "terminal";
+                if (mode !== viewMode) {
+                  onSetViewMode(mode);
                 }
               }}
               onContextMenu={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
+                closeAllPopups();
                 setContextTab({ x: e.clientX, y: e.clientY, tab });
               }}
-              className={`safari-tab select-none ${isActive ? "active" : ""} ${isOver ? "drag-over" : ""} ${isDragging ? "opacity-40" : ""} ${isExpanded && !isPinned ? "" : "!justify-center !p-0 !gap-0"
+              className={`safari-tab select-none ${isActive ? "active" : ""} ${isOver ? "drag-over" : ""} ${isDragging ? "opacity-40" : ""} ${isExpanded ? "" : "!justify-center !p-0 !gap-0"
                 }`}
               style={{
-                flex: isExpanded && !isPinned ? (isScrollable ? "0 0 140px" : "1 1 0%") : "0 0 40px",
+                flex: isExpanded ? "1 1 150px" : "0 0 40px",
+                minWidth: isExpanded ? "150px" : undefined,
                 height: "36px",
-                padding: isPinned ? "0" : "0 12px",
+                padding: "0 12px",
                 order: index,
                 transform: isDragging ? "scale(0.95)" : "none",
                 position: "relative",
@@ -290,46 +359,60 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
               title={isPinned ? `${tab.name} (Pinned)` : tab.name}
             >
               {tab.type === "file" ? (
-                <FileText size={14} className={`shrink-0 ${isActive ? "text-primary" : "text-outline/70"}`} />
-              ) : (
-                <Terminal size={14} className={`shrink-0 ${isActive ? "text-outline" : "text-outline/70"}`} />
+                <FileText size={14} className={`shrink-0`} />
+              ) : tab.type === "terminal" ? (
+                <Terminal size={14} className={`shrink-0`} />
+              ) : tab.type === "diff" ? (
+                <GitBranchPlus size={14} className="shrink-0" />
+              ) : tab.type === "git" && (
+                <GitBranch size={14} className="shrink-0" />
               )}
+              <span
+                className={`truncate transition-all duration-200 ${isActive ? "text-on-surface" : ""} ${isExpanded ? "max-w-[160px] opacity-100" : "max-w-0 opacity-0 overflow-hidden"
+                  }`}
+              >
+                {tab.name}
+              </span>
 
-              {isPinned ? null : (
-                <span
-                  className={`truncate transition-all duration-200 ${isActive ? "text-on-surface" : ""} ${isExpanded ? "max-w-[160px] opacity-100" : "max-w-0 opacity-0 overflow-hidden"
-                    }`}
-                >
-                  {tab.name}
-                </span>
-              )}
-
-              {isPinned ? (
-                <Pin size={8} className="absolute top-1 right-1 text-primary/70 animate-pulse" />
-              ) : (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onKillTab(tab.id);
-                  }}
-                  className={`absolute right-1.5 shrink-0 transition-all duration-200 hover:bg-surface-variant/40 rounded p-0.5 text-on-surface-variant/40 hover:text-error ${isExpanded ? "opacity-100" : "opacity-0 pointer-events-none"
-                    }`}
-                >
-                  <X size={14} />
-                </button>
-              )}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onKillTab(tab.id);
+                }}
+                className={`absolute right-1.5 shrink-0 transition-all duration-200 hover:bg-surface-variant/40 rounded p-0.5 text-on-surface-variant/40 hover:text-on-surface-variant ${isExpanded ? "opacity-100" : "opacity-0 pointer-events-none"
+                  }`}
+              >
+                <X size={14} />
+              </button>
             </div>
           );
         })}
+
+        {/* Drop indicator square */}
+        {dropIndicator && (
+          <div
+            className="absolute top-0 w-[3px] h-full rounded-[2px] pointer-events-none z-10"
+            style={{
+              left: dropIndicator.left - 1.5,
+              background: "#4F8CFF",
+              boxShadow: "0 0 8px rgba(79,140,255,0.5), 0 0 2px rgba(79,140,255,0.3)",
+              animation: "tab-drop-pop-in 150ms ease-out forwards",
+              transition: "left 80ms ease-out",
+            }}
+          />
+        )}
       </div>
 
-      {isScrollable && canScrollRight && (
+      {isOverflowing && canScrollRight && (
         <button
           onClick={slideRight}
-          className="shrink-0 w-7 h-8 flex items-center justify-center rounded hover:bg-surface-variant/30 text-outline/50 hover:text-primary transition-all cursor-pointer animate-in fade-in duration-200"
+          className="shrink-0 w-7 h-8 flex items-center justify-center rounded-[8px] transition-all cursor-pointer animate-in fade-in duration-200"
+          style={{ color: "rgba(232,234,240,0.35)" }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; e.currentTarget.style.color = "#4F8CFF"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "rgba(232,234,240,0.35)"; }}
           title="Scroll Right"
         >
-          <ChevronRight size={16} />
+          <ChevronRight size={15} />
         </button>
       )}
 
@@ -340,238 +423,250 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
             if (showAddMenu) {
               setShowAddMenu(false);
             } else if (e.shiftKey) {
+              closeAllPopups();
               setShowAddMenu(true);
             } else {
               onAddTab("terminal");
             }
           }}
-          className="w-8 h-8 flex items-center justify-center rounded-lg text-on-surface-variant hover:bg-surface-variant/30 hover:scale-105 active:scale-95 text-on-surface hover:text-primary transition-all border border-outline-variant/10 cursor-pointer shadow-sm"
+          className="w-8 h-8 flex items-center justify-center rounded-[10px] transition-all cursor-pointer"
+          style={{
+            background: "rgba(255,255,255,0.04)",
+            border: "1px solid rgba(255,255,255,0.07)",
+            color: "rgba(232,234,240,0.5)",
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(79,140,255,0.10)"; e.currentTarget.style.color = "#4F8CFF"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.04)"; e.currentTarget.style.color = "rgba(232,234,240,0.5)"; }}
           title="New Tab Options"
         >
-          <Plus size={16} className={`transition-transform duration-200 ${showAddMenu ? "rotate-45" : ""}`} />
+          <Plus size={15} className={`transition-transform duration-200 ${showAddMenu ? "rotate-45" : ""}`} />
         </button>
 
-        {showAddMenu && (
-          <div
-            className="absolute right-0 top-[calc(100%+6px)] bg-surface-container-lowest border border-outline-variant/15 rounded-xl py-1.5 min-w-[125px] shadow-xl z-[100] animate-in fade-in slide-in-from-top-2 duration-150"
-            style={{ pointerEvents: "auto" }}
-          >
-            <button
-              onClick={() => {
-                onAddTab("terminal");
-                setShowAddMenu(false);
-              }}
-              className="w-full px-3 py-1.5 flex items-center gap-2 text-[10px] font-semibold text-on-surface-variant hover:bg-surface-variant/20 hover:text-primary transition-colors text-left cursor-pointer"
-            >
-              <Terminal size={12} className="text-primary/70 shrink-0" />
-              <span>Terminal Tab</span>
-            </button>
-
-            <button
-              onClick={() => {
-                onAddTab("file");
-                setShowAddMenu(false);
-              }}
-              className="w-full px-3 py-1.5 flex items-center gap-2 text-[10px] font-semibold text-on-surface-variant hover:bg-surface-variant/20 hover:text-secondary transition-colors text-left cursor-pointer"
-            >
-              <FileText size={12} className="text-secondary/70 shrink-0" />
-              <span>Workspace Tab</span>
-            </button>
-          </div>
-        )}
+        <MenuView
+          variant="primary"
+          open={showAddMenu}
+          onClose={() => setShowAddMenu(false)}
+          className="absolute right-0 top-[calc(100%+6px)] min-w-[132px]"
+          style={{ pointerEvents: "auto" }}
+        >
+          <MenuViewItem icon={<Terminal size={12} />} onClick={() => { onAddTab("terminal"); setShowAddMenu(false); }}>
+            Terminal Tab
+          </MenuViewItem>
+          <MenuViewItem icon={<FileText size={12} />} onClick={() => { onAddTab("file"); setShowAddMenu(false); }}>
+            Workspace Tab
+          </MenuViewItem>
+        </MenuView>
       </div>
 
-      {contextTab && (
-        <RightClickMenuPanel anchorX={contextTab.x} anchorY={contextTab.y} open={true}>
-          {/* Header */}
-          <div className="px-3 pt-1 pb-2 flex items-center gap-2 border-b border-outline-variant/10 mb-1 select-none">
-            {contextTab.tab.type === "file" ? <FileText size={11} className="text-primary/70 shrink-0" /> : <Terminal size={11} className="text-outline/70 shrink-0" />}
-            <span className="text-[11px] text-on-surface-variant/60 overflow-hidden text-ellipsis whitespace-nowrap">
-              {contextTab.tab.name}
-            </span>
-          </div>
+      <MenuView
+        variant="rightclick"
+        open={!!contextTab}
+        onClose={() => setContextTab(null)}
+        anchorX={contextTab?.x ?? 0}
+        anchorY={contextTab?.y ?? 0}
+      >
+        {/* Header */}
+        <div className="px-3 pt-1 pb-2 flex items-center gap-2 mb-1 select-none" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+          {contextTab?.tab.type === "file"
+            ? <FileText size={11} style={{ color: "rgba(79,140,255,0.7)" }} className="shrink-0" />
+            : contextTab?.tab.type === "terminal" && <Terminal size={11} style={{ color: "rgba(154,124,255,0.7)" }} className="shrink-0" />
+          }
+          <span className="text-[11px] overflow-hidden text-ellipsis whitespace-nowrap" style={{ color: "rgba(232,234,240,0.5)" }}>
+            {contextTab?.tab.name}
+          </span>
+        </div>
 
-          {/* Toggle Pin */}
-          <RightClickMenuItem
-            icon={<Pin size={13} className={contextTab.tab.pinned ? "text-primary" : ""} />}
-            onClick={() => {
-              updateTab(contextTab.tab.id, { pinned: !contextTab.tab.pinned });
+        {/* Toggle Pin */}
+        <MenuViewItem variant="rightclick" icon={<Pin size={13} />} onClick={() => {
+          if (!contextTab) return;
+          updateTab(contextTab.tab.id, { pinned: !contextTab.tab.pinned });
+          setContextTab(null);
+        }}>
+          {contextTab?.tab.pinned ? "Unpin Tab" : "Pin Tab"}
+        </MenuViewItem>
+
+        {/* Rename for terminals */}
+        {contextTab?.tab.type === "terminal" && (
+          <MenuViewItem variant="rightclick" icon={<Edit3 size={13} />} onClick={() => {
+            if (!contextTab) return;
+            closeAllPopups();
+            setRenameTabId(contextTab.tab.id);
+            setRenameValue(contextTab.tab.name);
+            setContextTab(null);
+          }}>
+            Rename Tab
+          </MenuViewItem>
+        )}
+
+        <MenuViewSeparator />
+
+        {/* Close current tab */}
+        <MenuViewItem variant="rightclick" icon={<X size={13} />} onClick={() => {
+          if (!contextTab) return;
+          onKillTab(contextTab.tab.id);
+          setContextTab(null);
+        }}>
+          Close Tab
+        </MenuViewItem>
+
+        {/* Close Others */}
+        <MenuViewItem variant="rightclick" icon={<XCircle size={13} />} onClick={() => {
+          if (!contextTab) return;
+          const targetType = contextTab.tab.type;
+          tabs.forEach((t) => {
+            if (t.type === targetType && t.id !== contextTab.tab.id && !t.pinned) {
+              onKillTab(t.id);
+            }
+          });
+          setContextTab(null);
+        }}>
+          Close Other {contextTab?.tab.type === "file" ? "Files" : "Terminals"}
+        </MenuViewItem>
+
+        {/* Close All */}
+        <MenuViewItem variant="rightclick" icon={<Trash2 size={13} />} onClick={() => {
+          if (!contextTab) return;
+          const targetType = contextTab.tab.type;
+          tabs.forEach((t) => {
+            if (t.type === targetType && !t.pinned) {
+              onKillTab(t.id);
+            }
+          });
+          setContextTab(null);
+        }}>
+          Close All {contextTab?.tab.type === "file" ? "Files" : "Terminals"}
+        </MenuViewItem>
+
+        <MenuViewSeparator />
+
+        {/* Close Left / Right */}
+        <MenuViewItem variant="rightclick" icon={<ArrowLeft size={13} />} onClick={() => {
+          if (!contextTab) return;
+          const targetType = contextTab.tab.type;
+          const rightIdx = tabs.findIndex((t) => t.id === contextTab.tab.id);
+          tabs.forEach((t, i) => {
+            if (t.type === targetType && i < rightIdx && !t.pinned) {
+              onKillTab(t.id);
+            }
+          });
+          setContextTab(null);
+        }}>
+          Close to Left
+        </MenuViewItem>
+
+        <MenuViewItem variant="rightclick" icon={<ArrowRight size={13} />} onClick={() => {
+          if (!contextTab) return;
+          const targetType = contextTab.tab.type;
+          const rightIdx = tabs.findIndex((t) => t.id === contextTab.tab.id);
+          tabs.forEach((t, i) => {
+            if (t.type === targetType && i > rightIdx && !t.pinned) {
+              onKillTab(t.id);
+            }
+          });
+          setContextTab(null);
+        }}>
+          Close to Right
+        </MenuViewItem>
+
+        {/* File specific options */}
+        {contextTab?.tab.type === "file" && contextTab?.tab.filePath && (
+          <>
+            <MenuViewSeparator />
+            <MenuViewItem variant="rightclick" icon={<Copy size={13} />} onClick={() => {
+              navigator.clipboard.writeText(contextTab?.tab.filePath || "").catch(console.error);
               setContextTab(null);
-            }}
-          >
-            {contextTab.tab.pinned ? "Unpin Tab" : "Pin Tab"}
-          </RightClickMenuItem>
-
-          {/* Rename for terminals */}
-          {contextTab.tab.type === "terminal" && (
-            <RightClickMenuItem
-              icon={<Edit3 size={13} />}
-              onClick={() => {
-                setRenameTabId(contextTab.tab.id);
-                setRenameValue(contextTab.tab.name);
-                setContextTab(null);
-              }}
-            >
-              Rename Tab
-            </RightClickMenuItem>
-          )}
-
-          <RightClickMenuSeparator />
-
-          {/* Close current tab */}
-          <RightClickMenuItem
-            icon={<X size={13} />}
-            onClick={() => {
-              onKillTab(contextTab.tab.id);
+            }}>
+              Copy Path
+            </MenuViewItem>
+            <MenuViewItem variant="rightclick" icon={<ExternalLink size={13} />} onClick={async () => {
+              if (!contextTab) return;
+              try {
+                const cwd = await invoke<string>("get_cwd");
+                const rel = contextTab.tab.filePath
+                  ? contextTab.tab.filePath.replace(cwd, "").replace(/^[/\\]/, "")
+                  : "";
+                navigator.clipboard.writeText(rel).catch(console.error);
+              } catch (e) {
+                console.error("Failed to copy relative path:", e);
+              }
               setContextTab(null);
-            }}
-          >
-            Close Tab
-          </RightClickMenuItem>
-
-          {/* Close Others */}
-          <RightClickMenuItem
-            icon={<XCircle size={13} />}
-            onClick={() => {
-              const targetType = contextTab.tab.type;
-              tabs.forEach((t) => {
-                if (t.type === targetType && t.id !== contextTab.tab.id && !t.pinned) {
-                  onKillTab(t.id);
-                }
-              });
-              setContextTab(null);
-            }}
-          >
-            Close Other {contextTab.tab.type === "file" ? "Files" : "Terminals"}
-          </RightClickMenuItem>
-
-          {/* Close All */}
-          <RightClickMenuItem
-            icon={<Trash2 size={13} />}
-            onClick={() => {
-              const targetType = contextTab.tab.type;
-              tabs.forEach((t) => {
-                if (t.type === targetType && !t.pinned) {
-                  onKillTab(t.id);
-                }
-              });
-              setContextTab(null);
-            }}
-          >
-            Close All {contextTab.tab.type === "file" ? "Files" : "Terminals"}
-          </RightClickMenuItem>
-
-          <RightClickMenuSeparator />
-
-          {/* Close Left / Right */}
-          <RightClickMenuItem
-            icon={<ArrowLeft size={13} />}
-            onClick={() => {
-              const targetType = contextTab.tab.type;
-              const rightIdx = tabs.findIndex((t) => t.id === contextTab.tab.id);
-              tabs.forEach((t, i) => {
-                if (t.type === targetType && i < rightIdx && !t.pinned) {
-                  onKillTab(t.id);
-                }
-              });
-              setContextTab(null);
-            }}
-          >
-            Close to Left
-          </RightClickMenuItem>
-
-          <RightClickMenuItem
-            icon={<ArrowRight size={13} />}
-            onClick={() => {
-              const targetType = contextTab.tab.type;
-              const rightIdx = tabs.findIndex((t) => t.id === contextTab.tab.id);
-              tabs.forEach((t, i) => {
-                if (t.type === targetType && i > rightIdx && !t.pinned) {
-                  onKillTab(t.id);
-                }
-              });
-              setContextTab(null);
-            }}
-          >
-            Close to Right
-          </RightClickMenuItem>
-
-          {/* File specific options */}
-          {contextTab.tab.type === "file" && contextTab.tab.filePath && (
-            <>
-              <RightClickMenuSeparator />
-              <RightClickMenuItem
-                icon={<Copy size={13} />}
-                onClick={() => {
-                  navigator.clipboard.writeText(contextTab.tab.filePath || "").catch(console.error);
-                  setContextTab(null);
-                }}
-              >
-                Copy Path
-              </RightClickMenuItem>
-              <RightClickMenuItem
-                icon={<ExternalLink size={13} />}
-                onClick={async () => {
-                  try {
-                    const cwd = await invoke<string>("get_cwd");
-                    const rel = contextTab.tab.filePath
-                      ? contextTab.tab.filePath.replace(cwd, "").replace(/^[/\\]/, "")
-                      : "";
-                    navigator.clipboard.writeText(rel).catch(console.error);
-                  } catch (e) {
-                    console.error("Failed to copy relative path:", e);
-                  }
-                  setContextTab(null);
-                }}
-              >
-                Copy Relative Path
-              </RightClickMenuItem>
-            </>
-          )}
-        </RightClickMenuPanel>
-      )}
+            }}>
+              Copy Relative Path
+            </MenuViewItem>
+          </>
+        )}
+      </MenuView>
 
       {renameTabId && (
         <div
-          className="fixed inset-0 z-[500] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+          className="fixed inset-0 z-[500] flex items-center justify-center backdrop-blur-sm animate-in fade-in duration-200"
+          style={{ background: "rgba(0,0,0,0.6)" }}
           onClick={() => setRenameTabId(null)}
         >
           <div
-            className="bg-surface border border-outline-variant/30 rounded-2xl p-6 w-[360px] shadow-2xl flex flex-col gap-4 animate-in zoom-in-95 duration-200"
+            className="p-6 w-[360px] flex flex-col gap-4 animate-in zoom-in-95 duration-200"
+            style={{
+              background: "#0F131A",
+              border: "1px solid rgba(255,255,255,0.08)",
+              borderRadius: "18px",
+              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.03), 0 24px 64px rgba(0,0,0,0.6)",
+            }}
             onClick={(e) => e.stopPropagation()}
           >
             <div>
-              <h3 className="text-sm font-bold text-on-surface font-headline-md">Rename Terminal Tab</h3>
-              <p className="text-xs text-on-surface-variant/60 mt-1 leading-relaxed">
+              <h3 className="text-[14px] font-semibold" style={{ color: "#E8EAF0" }}>Rename Terminal Tab</h3>
+              <p className="text-[12px] mt-1 leading-relaxed" style={{ color: "rgba(232,234,240,0.45)" }}>
                 Provide a descriptive name for this terminal session.
               </p>
             </div>
-            
+
             <input
               ref={inputRef}
               type="text"
               value={renameValue}
               onChange={(e) => setRenameValue(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  handleRenameSubmit();
-                } else if (e.key === "Escape") {
-                  setRenameTabId(null);
-                }
+                if (e.key === "Enter") handleRenameSubmit();
+                else if (e.key === "Escape") setRenameTabId(null);
               }}
-              className="w-full bg-surface-container-lowest border border-outline-variant/30 rounded-xl px-3.5 py-2 text-sm text-on-surface outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all font-body-base"
+              className="w-full px-3.5 py-2.5 text-[13px] outline-none transition-all"
+              style={{
+                background: "rgba(255,255,255,0.03)",
+                border: "1px solid rgba(255,255,255,0.08)",
+                borderRadius: "14px",
+                color: "#E8EAF0",
+                fontFamily: "Inter, sans-serif",
+              }}
+              onFocus={(e) => {
+                e.currentTarget.style.border = "1px solid rgba(79,140,255,0.35)";
+                e.currentTarget.style.boxShadow = "0 0 0 1px rgba(79,140,255,0.12)";
+              }}
+              onBlur={(e) => {
+                e.currentTarget.style.border = "1px solid rgba(255,255,255,0.08)";
+                e.currentTarget.style.boxShadow = "none";
+              }}
               placeholder="e.g. Server Logs, Build Terminal"
             />
 
-            <div className="flex justify-end gap-2 mt-2">
+            <div className="flex justify-end gap-2">
               <button
-                className="px-4 py-2 rounded-xl text-xs font-semibold text-on-surface-variant hover:bg-surface-variant/20 hover:text-on-surface transition-colors cursor-pointer"
+                className="px-4 py-2 rounded-[10px] text-[12px] font-medium transition-all cursor-pointer"
+                style={{ color: "rgba(232,234,240,0.55)" }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; e.currentTarget.style.color = "#E8EAF0"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "rgba(232,234,240,0.55)"; }}
                 onClick={() => setRenameTabId(null)}
               >
                 Cancel
               </button>
               <button
-                className="px-4 py-2 rounded-xl bg-primary text-on-primary text-xs font-semibold hover:opacity-90 active:scale-95 transition-all shadow-md shadow-primary/10 cursor-pointer"
+                className="px-4 py-2 rounded-[10px] text-[12px] font-semibold transition-all cursor-pointer"
+                style={{
+                  background: "rgba(79,140,255,0.15)",
+                  border: "1px solid rgba(79,140,255,0.25)",
+                  color: "#4F8CFF",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(79,140,255,0.22)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(79,140,255,0.15)"; }}
                 onClick={handleRenameSubmit}
               >
                 Rename
@@ -583,3 +678,38 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
     </div>
   );
 }
+
+/* â”€â”€ AddMenuButton helper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+function AddMenuButton({
+  children,
+  icon,
+  accentColor,
+  onClick,
+}: {
+  children: React.ReactNode;
+  icon?: React.ReactNode;
+  accentColor?: string;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="w-full px-3 py-1.5 flex items-center gap-2 text-[11px] font-semibold text-left cursor-pointer transition-colors"
+      style={{ color: "rgba(232,234,240,0.6)" }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = "rgba(255,255,255,0.04)";
+        if (accentColor) e.currentTarget.style.color = accentColor;
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = "transparent";
+        e.currentTarget.style.color = "rgba(232,234,240,0.6)";
+      }}
+    >
+      {icon && (
+        <span style={{ color: accentColor ?? "rgba(232,234,240,0.5)" }}>{icon}</span>
+      )}
+      <span>{children}</span>
+    </button>
+  );
+}
+

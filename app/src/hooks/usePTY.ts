@@ -119,7 +119,7 @@ export function usePTY() {
 
   const killSession = async (sessionId: string) => {
     const tab = tabs.find(t => t.id === sessionId);
-    if (tab?.type === "file") {
+    if (tab?.type === "file" || tab?.type === "diff" || tab?.type === "git") {
       removeTab(sessionId);
       return;
     }

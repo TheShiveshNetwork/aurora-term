@@ -1,18 +1,22 @@
 import { create } from "zustand";
 
-export type AppViewMode = "terminal" | "file";
+export type AppViewMode = "terminal" | "file" | "agent";
 
 export type AppContextMenu = {
   x: number;
   y: number;
   selectedText?: string;
   source?: "terminal" | "input" | "file";
+  filePath?: string;
 } | null;
+
+export type SideSection = "folders" | "outline" | "timeline" | "git";
 
 interface AppShellStore {
   sidebarCollapsed: boolean;
   showSettings: boolean;
   showAiBar: boolean;
+  chatInputOpen: boolean;
   showMenuDropdown: boolean;
   tabBarVisible: boolean;
   viewMode: AppViewMode;
@@ -27,11 +31,14 @@ interface AppShellStore {
   commandInputs: Record<string, string>;
   interactedSessions: Record<string, true>;
   isCwdLoading: boolean;
+  sectionVisibility: Record<SideSection, boolean>;
 
   setSidebarCollapsed: (collapsed: boolean) => void;
   toggleSidebarCollapsed: () => void;
   setShowSettings: (show: boolean) => void;
   setShowAiBar: (show: boolean) => void;
+  setChatInputOpen: (open: boolean) => void;
+  toggleChatInputOpen: () => void;
   setShowMenuDropdown: (show: boolean) => void;
   toggleShowMenuDropdown: () => void;
   setTabBarVisible: (visible: boolean) => void;
@@ -53,6 +60,8 @@ interface AppShellStore {
   markSessionInteracted: (sessionId: string) => void;
   clearSessionInteracted: (sessionId: string) => void;
   setIsCwdLoading: (loading: boolean) => void;
+  toggleSection: (section: SideSection) => void;
+  setSectionVisibility: (sections: Partial<Record<SideSection, boolean>>) => void;
 }
 
 function workspaceLabel(cwdAbsolute: string): string {
@@ -64,6 +73,7 @@ export const useAppShellStore = create<AppShellStore>((set) => ({
   sidebarCollapsed: false,
   showSettings: false,
   showAiBar: false,
+  chatInputOpen: true,
   showMenuDropdown: false,
   tabBarVisible: true,
   viewMode: "terminal",
@@ -78,11 +88,19 @@ export const useAppShellStore = create<AppShellStore>((set) => ({
   commandInputs: {},
   interactedSessions: {},
   isCwdLoading: false,
+  sectionVisibility: {
+    folders: true,
+    outline: false,
+    timeline: false,
+    git: false,
+  },
 
   setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
   toggleSidebarCollapsed: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
   setShowSettings: (show) => set({ showSettings: show }),
   setShowAiBar: (show) => set({ showAiBar: show }),
+  setChatInputOpen: (chatInputOpen) => set({ chatInputOpen }),
+  toggleChatInputOpen: () => set((state) => ({ chatInputOpen: !state.chatInputOpen })),
   setShowMenuDropdown: (show) => set({ showMenuDropdown: show }),
   toggleShowMenuDropdown: () => set((state) => ({ showMenuDropdown: !state.showMenuDropdown })),
   setTabBarVisible: (visible) => set({ tabBarVisible: visible }),
@@ -139,4 +157,18 @@ export const useAppShellStore = create<AppShellStore>((set) => ({
       return { interactedSessions: copy };
     }),
   setIsCwdLoading: (isCwdLoading) => set({ isCwdLoading }),
+  toggleSection: (section) =>
+    set((state) => ({
+      sectionVisibility: {
+        ...state.sectionVisibility,
+        [section]: !state.sectionVisibility[section],
+      },
+    })),
+  setSectionVisibility: (sections) =>
+    set((state) => ({
+      sectionVisibility: {
+        ...state.sectionVisibility,
+        ...sections,
+      },
+    })),
 }));

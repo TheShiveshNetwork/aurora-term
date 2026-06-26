@@ -11,20 +11,6 @@ import { useBlockStore } from "../../stores/useBlockStore";
 import { pty } from "../../lib/ipc";
 import type { InputMode } from "../../lib/nlClassifier";
 
-const textareaScrollbarId = "aurora-ta-scrollbar-style";
-if (typeof document !== "undefined" && !document.getElementById(textareaScrollbarId)) {
-  const style = document.createElement("style");
-  style.id = textareaScrollbarId;
-  style.textContent = `
-    .aurora-ta::-webkit-scrollbar { width: 5px; }
-    .aurora-ta::-webkit-scrollbar-track { background: transparent; }
-    .aurora-ta::-webkit-scrollbar-thumb { background: rgba(132, 148, 149, 0.2); border-radius: 3px; }
-    .aurora-ta::-webkit-scrollbar-thumb:hover { background: rgba(132, 148, 149, 0.35); }
-    .aurora-ta { scrollbar-width: thin; scrollbar-color: rgba(132, 148, 149, 0.2) transparent; }
-  `;
-  document.head.appendChild(style);
-}
-
 function computeGhost(input: string, history: string[]): string {
   if (!input.trim()) return "";
   const lower = input.toLowerCase();
@@ -266,14 +252,14 @@ export function GhostInput({
           spellCheck={false}
           rows={1}
           wrap="soft"
-          className={`aurora-ta w-full bg-transparent border-none focus:ring-0 mt-4 pb-1 px-5 placeholder:text-outline/30 outline-none text-on-surface relative z-10 resize-none overflow-x-hidden whitespace-pre-wrap break-words ${textMetricsClass} ${inputClassName}`}
+          className={`aurora-ta w-full bg-transparent border-none focus:ring-0 mt-4 pb-1 px-5 placeholder:text-outline/80 outline-none text-on-surface relative z-10 resize-none overflow-x-hidden whitespace-pre-wrap break-words ${textMetricsClass} ${inputClassName}`}
           style={{ caretColor: "var(--color-primary)", maxHeight: `${TA_MAX_HEIGHT}px` }}
         />
 
         {ghost && (
           <span
             aria-hidden="true"
-            className={`pointer-events-none absolute left-[var(--ghost-left)] top-4 pb-1 z-0 select-none whitespace-pre ${textMetricsClass} text-primary/20`}
+            className={`pointer-events-none absolute left-[var(--ghost-left)] top-4 pb-1 z-0 select-none whitespace-pre ${textMetricsClass} text-on-surface-variant/40`}
             style={{ ["--ghost-left" as string]: `${20 + ghostLeft}px` }}
           >
             {ghost}

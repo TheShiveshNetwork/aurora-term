@@ -39,7 +39,7 @@ function ActiveSubagentBadge({ subagent }: { subagent: string | null }) {
 // ── Log panel ─────────────────────────────────────────────────────────────
 function LogPanel({ logs }: { logs: { timestamp: number; type: string; content: string; subagent?: string }[] }) {
   return (
-    <div className="flex flex-col gap-1 max-h-32 overflow-y-auto aurora-ta text-[10px] text-outline/60">
+    <div className="flex flex-col gap-1 max-h-32 scrollable-overlay aurora-ta text-[10px] text-on-surface-variant/60">
       {logs.map((log, i) => (
         <div key={i} className="leading-relaxed break-all">
           {log.content}
@@ -54,9 +54,9 @@ function SproutFarmingIcon() {
   return (
     <div className="relative w-5 h-5 flex items-center justify-center shrink-0">
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
-        <span className="absolute w-[2px] h-[2px] bg-primary rounded-full left-[20%] bottom-[30%] animate-[floatUp_1.5s_ease-out_infinite]" />
-        <span className="absolute w-[3px] h-[3px] bg-primary rounded-full left-[70%] bottom-[20%] animate-[floatUp_2s_ease-out_infinite_0.4s]" />
-        <span className="absolute w-[2px] h-[2px] bg-primary rounded-full left-[45%] bottom-[40%] animate-[floatUp_1.8s_ease-out_infinite_0.8s]" />
+        <span className="absolute w-[2px] h-[2px] bg-amber-400 rounded-full left-[20%] bottom-[30%] animate-[floatUp_1.5s_ease-out_infinite]" />
+        <span className="absolute w-[3px] h-[3px] bg-amber-400 rounded-full left-[70%] bottom-[20%] animate-[floatUp_2s_ease-out_infinite_0.4s]" />
+        <span className="absolute w-[2px] h-[2px] bg-amber-400 rounded-full left-[45%] bottom-[40%] animate-[floatUp_1.8s_ease-out_infinite_0.8s]" />
       </div>
       <svg
         xmlns="http://www.w3.org/2000/svg"
@@ -66,7 +66,7 @@ function SproutFarmingIcon() {
         strokeWidth="2.5"
         strokeLinecap="round"
         strokeLinejoin="round"
-        className="w-4 h-4 text-primary origin-bottom animate-[sway_2.5s_ease-in-out_infinite]"
+        className="w-4 h-4 text-amber-400 origin-bottom animate-[sway_2.5s_ease-in-out_infinite]"
       >
         <path d="M4 20h16" className="opacity-45" />
         <path d="M12 20v-8a4 4 0 0 1 4-4" />
@@ -217,7 +217,7 @@ function ThinkingBubble() {
   return (
     <div className="flex items-center gap-2.5 py-3 px-4">
       <SproutFarmingIcon />
-      <span className="text-[11px] font-semibold text-primary/70 animate-pulse">Farming aura…</span>
+      <span className="text-[11px] font-semibold text-amber-400/80 animate-pulse">Farming aura…</span>
     </div>
   );
 }
@@ -278,12 +278,19 @@ function ConversationTurn({
 
   return (
     <div className="flex flex-col">
-      {/* ── User message — sticky so it stays in view while AI response scrolls ── */}
+      {/* ── User message ── sticky so it stays in view while AI response scrolls */}
       <div
         className="sticky top-0 z-10 pb-2"
-        style={{ background: "var(--color-background, #0d0d0f)" }}
+        style={{ background: "#0F131A" }}
       >
-        <div className="rounded-2xl px-4 py-3 text-[13px] text-on-surface/90 font-medium leading-relaxed bg-surface-container-high/40 border border-on-surface/10 shadow-sm">
+        <div
+          className="rounded-[14px] px-4 py-3 text-[13px] font-medium leading-relaxed select-text"
+          style={{
+            background: "rgba(255,255,255,0.04)",
+            border: "1px solid rgba(255,255,255,0.08)",
+            color: "rgba(232,234,240,0.90)",
+          }}
+        >
           {userMsg.content}
         </div>
       </div>
@@ -297,17 +304,17 @@ function ConversationTurn({
               onClick={onToggleDetails}
               className="flex items-center gap-2 cursor-pointer select-none group"
             >
-              <div className="flex items-center gap-2 text-[11px] text-outline/50 group-hover:text-outline/70 transition-colors">
+              <div className="flex items-center gap-2 text-[11px] text-on-surface-variant/50 group-hover:text-on-surface-variant/70 transition-colors">
                 {isThinking ? (
                   <div className="flex items-center gap-2 text-primary/70">
                     <SproutFarmingIcon />
-                    <span className="font-semibold animate-pulse">Farming…</span>
+                    <span className="font-semibold text-amber-400/80 animate-pulse">Farming…</span>
                     {stepCount > 0 && (
-                      <span className="text-outline/35 text-[9px] font-normal">(step {stepCount}/{maxSteps})</span>
+                      <span className="text-on-surface-variant/45 text-[9px] font-normal">(step {stepCount}/{maxSteps})</span>
                     )}
                   </div>
                 ) : (
-                  <span className="font-medium text-outline/45">
+                  <span className="font-medium text-on-surface-variant/70">
                     Worked for {assistantMsg?.durationMs !== undefined ? Math.round(assistantMsg.durationMs / 1000) : durationSecs}s
                   </span>
                 )}
@@ -315,13 +322,13 @@ function ConversationTurn({
               {chainNodes.length > 0 && (
                 <ChevronRight
                   size={11}
-                  className={`text-outline/30 transition-transform duration-200 ${detailsOpen ? "rotate-90" : ""}`}
+                  className={`text-on-surface-variant/70 transition-transform duration-200 ${detailsOpen ? "rotate-90" : ""}`}
                 />
               )}
             </div>
 
             {detailsOpen && (
-              <div className="pl-3 py-2 space-y-3 border-l border-outline-variant/15 ml-3 text-[11px] text-outline/80 leading-normal animate-fadeIn">
+              <div className="pl-3 py-2 space-y-3 border-l border-outline-variant/15 ml-3 text-[11px] text-on-surface-variant/80 leading-normal animate-fadeIn">
                 {/* Chain Flow */}
                 {chainNodes.length > 0 && (
                   <div className="space-y-2">
@@ -366,7 +373,7 @@ function ConversationTurn({
                               </button>
                               <button
                                 onClick={clearTask}
-                                className="text-[10px] font-semibold text-outline underline cursor-pointer"
+                                className="text-[10px] font-semibold text-on-surface-variant underline cursor-pointer"
                               >
                                 Cancel
                               </button>
@@ -381,7 +388,7 @@ function ConversationTurn({
                 {/* Execution Log */}
                 {agentLogs.length > 0 && (
                   <div className="pt-2 border-t border-outline-variant/10">
-                    <div className="text-[10px] font-bold text-outline/50 uppercase tracking-wider mb-1">Execution Log</div>
+                    <div className="text-[10px] font-bold text-on-surface-variant/50 uppercase tracking-wider mb-1">Execution Log</div>
                     <LogPanel logs={agentLogs} />
                   </div>
                 )}
@@ -392,17 +399,30 @@ function ConversationTurn({
 
         {/* Sensitive command approval gate */}
         {isLastTurn && isPaused && pendingApprovalCmd && (
-          <div className="p-3.5 rounded-xl bg-amber-500/5 border border-amber-500/20 flex flex-col gap-2.5 mt-1">
+          <div
+            className="p-3.5 rounded-[14px] flex flex-col gap-2.5 mt-1"
+            style={{
+              background: "rgba(255,180,84,0.05)",
+              border: "1px solid rgba(255,180,84,0.18)",
+            }}
+          >
             <div className="flex items-start gap-2">
-              <ShieldCheck className="text-amber-400/80 mt-0.5 shrink-0" size={14} />
+              <ShieldCheck className="shrink-0 mt-0.5" size={14} style={{ color: "rgba(255,180,84,0.80)" }} />
               <div className="flex-1 min-w-0">
-                <span className="text-[9px] text-amber-400/80 font-bold uppercase tracking-wider block">
+                <span className="text-[9px] font-bold uppercase tracking-wider block" style={{ color: "rgba(255,180,84,0.80)" }}>
                   Aura approval required
                 </span>
-                <code className="text-[11px] font-mono text-on-surface/95 break-all block mt-1.5 bg-surface-variant/20 p-2 rounded-lg border border-outline-variant/10">
+                <code
+                  className="text-[11px] font-mono break-all block mt-1.5 p-2 rounded-[10px] select-text"
+                  style={{
+                    color: "rgba(232,234,240,0.95)",
+                    background: "rgba(255,255,255,0.05)",
+                    border: "1px solid rgba(255,255,255,0.07)",
+                  }}
+                >
                   {pendingApprovalCmd.command}
                 </code>
-                <span className="text-[10px] text-outline/50 block mt-1.5 leading-normal">
+                <span className="text-[10px] block mt-1.5 leading-normal select-text" style={{ color: "rgba(232,234,240,0.45)" }}>
                   {pendingApprovalCmd.explanation}
                 </span>
               </div>
@@ -410,13 +430,23 @@ function ConversationTurn({
             <div className="flex gap-2">
               <button
                 onClick={approveAndRunPending}
-                className="flex-1 flex items-center justify-center gap-1.5 text-[10px] font-bold py-1.5 px-3 rounded-lg bg-amber-500 hover:bg-amber-600 text-black transition-all cursor-pointer shadow-sm"
+                className="flex-1 flex items-center justify-center gap-1.5 text-[10px] font-bold py-1.5 px-3 rounded-[10px] transition-all cursor-pointer"
+                style={{ background: "rgba(255,180,84,0.90)", color: "#000", boxShadow: "0 2px 8px rgba(255,180,84,0.15)" }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,180,84,1)")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,180,84,0.90)")}
               >
                 Approve
               </button>
               <button
                 onClick={clearTask}
-                className="flex-1 flex items-center justify-center gap-1.5 text-[10px] font-semibold py-1.5 px-3 rounded-lg bg-surface-variant/30 hover:bg-surface-variant/50 text-on-surface/80 border border-outline-variant/10 transition-all cursor-pointer"
+                className="flex-1 flex items-center justify-center gap-1.5 text-[10px] font-semibold py-1.5 px-3 rounded-[10px] transition-all cursor-pointer"
+                style={{
+                  background: "rgba(255,255,255,0.04)",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  color: "rgba(232,234,240,0.70)",
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.08)")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}
               >
                 Cancel
               </button>
@@ -429,12 +459,12 @@ function ConversationTurn({
         {/* AI response */}
         {assistantMsg && (
           <div className="space-y-2 mt-1">
-            <div className={`text-[12.5px] leading-relaxed break-words ${assistantMsg.isError ? "text-red-400" : "text-on-surface/90"}`}>
+            <div className={`text-[12.5px] leading-relaxed break-words select-text ${assistantMsg.isError ? "text-red-400" : "text-on-surface/90"}`}>
               {renderMarkdown(assistantMsg.content)}
             </div>
 
             {/* Action buttons */}
-            <div className="flex items-center justify-end gap-3 pl-7 text-outline/35">
+            <div className="flex items-center justify-end gap-3 pl-7 text-on-surface-variant/80">
               <button
                 onClick={handleCopy}
                 className="hover:text-on-surface/70 p-1 rounded transition-colors cursor-pointer"
@@ -449,7 +479,14 @@ function ConversationTurn({
               <div className="flex gap-2 pt-1">
                 <button
                   onClick={retryTask}
-                  className="flex-1 flex items-center justify-center gap-1.5 text-[10px] font-bold py-1.5 px-3 rounded-lg transition-all cursor-pointer bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20"
+                  className="flex-1 flex items-center justify-center gap-1.5 text-[10px] font-bold py-1.5 px-3 rounded-[10px] transition-all cursor-pointer"
+                  style={{
+                    background: "rgba(79,140,255,0.10)",
+                    border: "1px solid rgba(79,140,255,0.20)",
+                    color: "#4F8CFF",
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(79,140,255,0.16)")}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(79,140,255,0.10)")}
                 >
                   <RotateCcw size={11} />
                   Retry
@@ -466,13 +503,14 @@ function ConversationTurn({
 // ── Main AgentOverlay Component ────────────────────────────────────────────
 interface AgentOverlayProps {
   sessionId: string;
+  onClose?: () => void;
 }
 
 const MIN_WIDTH = 240;
 const MAX_WIDTH = 600;
 const DEFAULT_WIDTH = 320;
 
-export function AgentOverlay({ sessionId }: AgentOverlayProps) {
+export function AgentOverlay({ sessionId, onClose }: AgentOverlayProps) {
   const {
     status,
     queue,
@@ -587,9 +625,6 @@ export function AgentOverlay({ sessionId }: AgentOverlayProps) {
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [status, queue]);
 
-  // Don't render at all when there's nothing to show
-  if (status === "idle" && chatHistory.length === 0) return null;
-
   const isExecuting = status === "executing";
   const isPaused = status === "paused";
   const isPlanning = status === "planning";
@@ -614,8 +649,15 @@ export function AgentOverlay({ sessionId }: AgentOverlayProps) {
 
   return (
     <div
-      className="relative bg-background border border-outline-variant/10 rounded-2xl flex flex-col z-25 py-3 px-0 select-text"
-      style={{ width, minWidth: MIN_WIDTH, maxWidth: MAX_WIDTH, flexShrink: 0 }}
+      className="relative flex flex-col z-25 select-none"
+      style={{
+        width,
+        minWidth: MIN_WIDTH,
+        maxWidth: MAX_WIDTH,
+        background: "#0F131A",
+        borderLeft: "1px solid rgba(255,255,255,0.06)",
+        // boxShadow: "-4px 0 4px rgba(0,0,0,0.15)",
+      }}
     >
       {/* ── Drag handle on left edge ── */}
       <div
@@ -623,7 +665,12 @@ export function AgentOverlay({ sessionId }: AgentOverlayProps) {
         className="absolute top-0 left-0 w-1.5 h-full cursor-col-resize z-30 group select-none"
         title="Drag to resize"
       >
-        <div className="w-px h-full mr-auto group-hover:bg-primary/40 transition-colors" />
+        <div
+          className="w-px h-full mr-auto transition-colors"
+          style={{ background: "transparent" }}
+          onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(79,140,255,0.35)")}
+          onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+        />
       </div>
 
       {/* ── Custom animations ── */}
@@ -646,18 +693,21 @@ export function AgentOverlay({ sessionId }: AgentOverlayProps) {
 
       {/* ── Header ── */}
       <div
-        className="flex items-center justify-between px-4 pb-2 shrink-0"
-        style={{ borderBottom: "1px solid rgba(var(--color-outline-variant-rgb, 100,100,120), 0.10)" }}
+        className="flex items-center justify-between px-4 py-3 shrink-0"
+        style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
       >
         <div className="flex items-center gap-2">
-          <span className="text-[11px] font-bold tracking-wide text-on-surface">Aura Agent</span>
+          <span className="text-[12px] font-semibold tracking-wide" style={{ color: "#E8EAF0" }}>Aura</span>
           <ActiveSubagentBadge subagent={activeSubagent} />
         </div>
 
         <button
-          onClick={clearTask}
-          className="text-outline/40 hover:text-on-surface hover:bg-surface-variant/20 p-1.5 rounded-lg transition-all cursor-pointer"
-          title="Clear chat"
+          onClick={() => onClose?.()}
+          className="p-1.5 rounded-[8px] transition-all cursor-pointer"
+          style={{ color: "rgba(232,234,240,0.3)" }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; e.currentTarget.style.color = "#E8EAF0"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "rgba(232,234,240,0.3)"; }}
+          title="Close agent panel"
         >
           <X size={13} />
         </button>
@@ -666,18 +716,15 @@ export function AgentOverlay({ sessionId }: AgentOverlayProps) {
       {/* ── Scrollable Chat Area ── */}
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto px-4 pt-3 aurora-ta"
+        className="flex-1 scrollable-overlay px-4 pt-3 aurora-ta"
         style={{ scrollbarGutter: "stable" }}
       >
         {turns.length === 0 && (
-          /* Empty state — only shown when there's status but no history yet */
+          /* Empty state */
           <div className="flex flex-col items-center justify-center h-full py-12 gap-3 text-center">
-            <div className="w-10 h-10 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center">
-              <Brain size={18} className="text-primary/60" />
-            </div>
             <div>
-              <p className="text-[12px] font-semibold text-on-surface/60">Aura is ready</p>
-              <p className="text-[10px] text-outline/40 mt-0.5">Describe a task to get started</p>
+              <p className="text-xs font-semibold" style={{ color: "rgba(232,234,240,0.5)" }}>Nothing to show yet</p>
+              <p className="text-xs mt-0.5" style={{ color: "rgba(232,234,240,0.25)" }}>Run a command or describe a goal</p>
             </div>
           </div>
         )}
@@ -693,8 +740,8 @@ export function AgentOverlay({ sessionId }: AgentOverlayProps) {
               isLastTurn={isLastTurn}
               detailsOpen={detailsOpen}
               logsOpen={logsOpen}
-              chainNodes={isLastTurn ? chainNodes : []}
-              agentLogs={isLastTurn ? agentLogs : []}
+              chainNodes={turn.assistant?.chainNodes || (isLastTurn ? chainNodes : [])}
+              agentLogs={turn.assistant?.agentLogs || (isLastTurn ? agentLogs : [])}
               durationSecs={durationSecs}
               onToggleDetails={() => setDetailsOpen((v) => !v)}
               onToggleLogs={() => setLogsOpen((v) => !v)}
@@ -712,6 +759,30 @@ export function AgentOverlay({ sessionId }: AgentOverlayProps) {
         {/* Bottom sentinel for auto-scroll */}
         <div ref={bottomRef} className="h-2" />
       </div>
+
+      {/* ── Footer with clear/retry actions ── */}
+      {turns.length > 0 && (
+        <div
+          className="shrink-0 flex items-center justify-between px-4 py-2.5"
+          style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}
+        >
+          <span className="text-[10px]" style={{ color: "rgba(232,234,240,0.25)" }}>
+            {turns.length} turn{turns.length !== 1 ? "s" : ""}
+          </span>
+          <button
+            onClick={clearTask}
+            className="flex items-center gap-1.5 text-[10px] font-semibold px-2.5 py-1 rounded-[8px] transition-all cursor-pointer"
+            style={{
+              color: "rgba(232,234,240,0.4)",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; e.currentTarget.style.color = "#E8EAF0"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "rgba(232,234,240,0.4)"; }}
+          >
+            <RotateCcw size={10} />
+            Clear session
+          </button>
+        </div>
+      )}
     </div>
   );
 }

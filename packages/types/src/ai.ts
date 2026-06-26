@@ -1,4 +1,4 @@
-export type ProviderName = 'anthropic' | 'openai' | 'gemini' | 'nvidia' | 'ollama';
+export type ProviderName = 'anthropic' | 'openai' | 'gemini' | 'nvidia' | 'ollama' | 'groq';
 
 export type TaskTier = 'fast' | 'balanced' | 'powerful';
 

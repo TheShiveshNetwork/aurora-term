@@ -2,7 +2,6 @@ import { Terminal } from "lucide-react";
 import { Tab } from "@aurora/types";
 
 import { TerminalPane } from "../components/terminal/TerminalPane";
-import { AgentOverlay } from "../components/terminal/AgentOverlay";
 
 interface TerminalWorkspaceViewProps {
   tab: Tab;
@@ -22,11 +21,9 @@ export function TerminalWorkspaceView({ tab, isVisible, isCommandRunning, isAlte
         <TerminalPane isVisible={isVisible} sessionId={tab.id} isRunning={isCommandRunning} />
       </div>
 
-      <AgentOverlay sessionId={tab.id} />
-
       {showEmptyState && !isAlternateActive && (
         <div className="absolute inset-0 flex flex-col items-center justify-center opacity-30 pointer-events-none select-none z-10 pb-12">
-          <Terminal size={48} className="mb-4 text-primary" />
+          <Terminal size={48} className="mb-4" />
           <span className="font-label-caps uppercase text-[10px] tracking-widest text-on-surface-variant">
             Ready for commands or AI prompts
           </span>

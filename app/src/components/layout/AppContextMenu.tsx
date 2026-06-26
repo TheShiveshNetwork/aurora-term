@@ -1,45 +1,75 @@
 import { Clipboard, Copy, Trash2 } from "lucide-react";
 
 import { AppContextMenu as AppContextMenuState } from "../../stores/useAppShellStore";
-import { RightClickMenuItem, RightClickMenuPanel, RightClickMenuSeparator } from "../ui/RightClickMenu";
+import { MenuView, MenuViewItem, MenuViewSeparator } from "../ui/MenuView";
 
 interface AppContextMenuProps {
   contextMenu: AppContextMenuState;
   onPaste: () => void;
   onCopySelection: () => void;
+  onCutSelection: () => void;
   onClearTerminal: () => void;
   onSelectAll: () => void;
+  onGoToDefinition: () => void;
+  onPeekDefinition: () => void;
+  onFindReferences: () => void;
+  onRenameSymbol: () => void;
+  onFormatDocument: () => void;
+  onRunFile: () => void;
 }
 
-export function AppContextMenu({ contextMenu, onPaste, onCopySelection, onClearTerminal, onSelectAll }: AppContextMenuProps) {
+export function AppContextMenu({ contextMenu, onPaste, onCopySelection, onCutSelection, onClearTerminal, onSelectAll, onGoToDefinition, onPeekDefinition, onFindReferences, onRenameSymbol, onFormatDocument, onRunFile }: AppContextMenuProps) {
   if (!contextMenu) return null;
 
   return (
-    <RightClickMenuPanel anchorX={contextMenu.x} anchorY={contextMenu.y} open={true}>
-      <RightClickMenuItem icon={<Copy size={14} />} onClick={onCopySelection}>
+    <MenuView variant="rightclick" open anchorX={contextMenu.x} anchorY={contextMenu.y} onClose={() => {}}>
+      <MenuViewItem variant="rightclick" onClick={onCopySelection}>
         Copy
-      </RightClickMenuItem>
-      <RightClickMenuItem icon={<Clipboard size={14} />} onClick={onPaste}>
+      </MenuViewItem>
+      <MenuViewItem variant="rightclick" onClick={onCutSelection}>
+        Cut
+      </MenuViewItem>
+      <MenuViewItem variant="rightclick" onClick={onPaste}>
         Paste
-      </RightClickMenuItem>
+      </MenuViewItem>
 
       {contextMenu.source === "terminal" && (
         <>
-          <RightClickMenuSeparator />
-          <RightClickMenuItem danger icon={<Trash2 size={14} />} onClick={onClearTerminal}>
+          <MenuViewSeparator />
+          <MenuViewItem variant="rightclick" danger onClick={onClearTerminal}>
             Clear Terminal
-          </RightClickMenuItem>
+          </MenuViewItem>
         </>
       )}
 
       {contextMenu.source === "file" && (
         <>
-          <RightClickMenuSeparator />
-          <RightClickMenuItem icon={<Copy size={14} />} onClick={onSelectAll}>
+          <MenuViewSeparator />
+          <MenuViewItem variant="rightclick" onClick={onSelectAll}>
             Select All
-          </RightClickMenuItem>
+          </MenuViewItem>
+          <MenuViewSeparator />
+          <MenuViewItem variant="rightclick" onClick={onGoToDefinition}>
+            Go to Definition
+          </MenuViewItem>
+          <MenuViewItem variant="rightclick" onClick={onPeekDefinition}>
+            Peek Definition
+          </MenuViewItem>
+          <MenuViewItem variant="rightclick" onClick={onFindReferences}>
+            Find All References
+          </MenuViewItem>
+          <MenuViewItem variant="rightclick" onClick={onRenameSymbol}>
+            Rename Symbol
+          </MenuViewItem>
+          <MenuViewSeparator />
+          <MenuViewItem variant="rightclick" onClick={onFormatDocument}>
+            Format Document
+          </MenuViewItem>
+          <MenuViewItem variant="rightclick" onClick={onRunFile}>
+            Run / Debug
+          </MenuViewItem>
         </>
       )}
-    </RightClickMenuPanel>
+    </MenuView>
   );
 }

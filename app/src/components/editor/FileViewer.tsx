@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { EditorView, basicSetup } from "codemirror";
-import { EditorState } from "@codemirror/state";
+import { EditorState, Prec } from "@codemirror/state";
 import { javascript } from "@codemirror/lang-javascript";
 import { python } from "@codemirror/lang-python";
 import { json } from "@codemirror/lang-json";
@@ -8,11 +8,24 @@ import { rust } from "@codemirror/lang-rust";
 import { html } from "@codemirror/lang-html";
 import { css } from "@codemirror/lang-css";
 import { xml } from "@codemirror/lang-xml";
-import { oneDark } from "@codemirror/theme-one-dark";
-import { lineNumbers } from "@codemirror/view";
+import { markdown } from "@codemirror/lang-markdown";
+import { sql } from "@codemirror/lang-sql";
+import { yaml } from "@codemirror/lang-yaml";
+import { StreamLanguage } from "@codemirror/language";
+import { shell } from "@codemirror/legacy-modes/mode/shell";
+import { go } from "@codemirror/legacy-modes/mode/go";
+import { java } from "@codemirror/legacy-modes/mode/clike";
+import { cpp } from "@codemirror/legacy-modes/mode/clike";
+import { keymap, lineNumbers } from "@codemirror/view";
+import { Compartment } from "@codemirror/state";
 import { invoke } from "@tauri-apps/api/core";
-import { AlertCircle, Loader, Minus, Plus, RotateCcw } from "lucide-react";
+import { AlertCircle, Loader, Maximize2, Minimize2, Minus, Plus, RotateCcw } from "lucide-react";
 import { useSessionStore } from "../../stores/useSessionStore";
+import { useSettingsStore } from "../../stores/useSettingsStore";
+import { closeAllPopups } from "../../lib/popups";
+import { EDITOR_THEMES } from "./editorThemes";
+import { createMinimapExtension, toggleMinimap } from "./minimapExtension";
+import { SearchPanel } from "./SearchPanel";
 
 interface FileViewerProps {
   tabId: string;
@@ -47,86 +60,43 @@ function getLanguageExtension(filePath: string) {
       return html();
     case "css":
       return css();
+    case "scss":
+    case "sass":
+      return css();
     case "xml":
     case "svg":
       return xml();
+    case "md":
+    case "mdx":
+      return markdown();
+    case "sql":
+      return sql();
+    case "yaml":
+    case "yml":
+      return yaml();
+    case "sh":
+    case "bash":
+    case "zsh":
+      return StreamLanguage.define(shell);
+    case "go":
+      return StreamLanguage.define(go);
+    case "java":
+      return StreamLanguage.define(java);
+    case "c":
+    case "cpp":
+    case "cc":
+    case "cxx":
+    case "h":
+    case "hpp":
+      return StreamLanguage.define(cpp);
     default:
       return [];
   }
 }
 
-const customTheme = EditorView.theme({
-  "&": {
-    fontSize: "13px",
-    height: "100%",
-    backgroundColor: "#1c1b1c !important", // Sets the main background
-  },
-  ".cm-scroller": {
-    fontFamily: "'JetBrains Mono', monospace",
-    overflow: "auto",
-  },
-  ".cm-content": {
-    padding: "8px 0",
-  },
-  ".cm-lineNumbers": {
-    fontFamily: "'JetBrains Mono', monospace",
-    fontSize: "12px",
-    padding: "0 8px 0 4px",
-    color: "rgba(132, 148, 149, 0.5)",
-    minWidth: "40px",
-    userSelect: "none",
-    borderRight: "1px solid rgba(59, 73, 75, 0.2)",
-  },
-  ".cm-activeLineGutter": {
-    color: "rgba(219, 252, 255, 0.8)",
-    backgroundColor: "rgba(0, 240, 255, 0.04)",
-  },
-  ".cm-gutters": {
-    backgroundColor: "#1c1b1c !important", // Matches the main background
-    border: "none",
-  },
-  ".cm-activeLine": {
-    backgroundColor: "rgba(255, 255, 255, 0.03)",
-  },
-  ".cm-selectionBackground": {
-    backgroundColor: "rgba(219, 252, 255, 0.15) !important",
-  },
-  "&.cm-focused .cm-cursor": {
-    borderLeftColor: "rgba(219, 252, 255, 0.8)",
-  },
-  ".cm-cursor": {
-    borderLeftColor: "rgba(219, 252, 255, 0.5)",
-  },
-  ".cm-foldPlaceholder": {
-    backgroundColor: "#1c1b1c",
-    color: "rgba(132, 148, 149, 0.4)",
-    border: "1px solid rgba(59, 73, 75, 0.3)",
-  },
-}, { dark: true });
-
 const ZOOM_MIN = 0.1;
 const ZOOM_MAX = 10;
 const ZOOM_STEP = 0.25;
-
-// Inject scrollbar styles for CodeMirror + image viewer once
-const scrollbarStyleId = "aurora-cm-scrollbar-style";
-if (typeof document !== "undefined" && !document.getElementById(scrollbarStyleId)) {
-  const style = document.createElement("style");
-  style.id = scrollbarStyleId;
-  style.textContent = [
-    `.cm-scroller::-webkit-scrollbar { width: 6px; height: 6px; }`,
-    `.cm-scroller::-webkit-scrollbar-track { background: transparent; }`,
-    `.cm-scroller::-webkit-scrollbar-thumb { background: rgba(132,148,149,0.2); border-radius: 3px; }`,
-    `.cm-scroller::-webkit-scrollbar-thumb:hover { background: rgba(132,148,149,0.35); }`,
-    `.cm-scroller { scrollbar-width: thin; scrollbar-color: rgba(132,148,149,0.2) transparent; }`,
-    `.image-scroll::-webkit-scrollbar { width: 6px; height: 6px; }`,
-    `.image-scroll::-webkit-scrollbar-track { background: transparent; }`,
-    `.image-scroll::-webkit-scrollbar-thumb { background: rgba(132,148,149,0.2); border-radius: 3px; }`,
-    `.image-scroll::-webkit-scrollbar-thumb:hover { background: rgba(132,148,149,0.35); }`,
-    `.image-scroll { scrollbar-width: thin; scrollbar-color: rgba(132,148,149,0.2) transparent; }`,
-  ].join("\n");
-  document.head.appendChild(style);
-}
 
 export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
   const editorRef = useRef<HTMLDivElement>(null);
@@ -135,8 +105,14 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
   const [error, setError] = useState<string | null>(null);
   const initialContentRef = useRef<string>("");
   const updateTab = useSessionStore((s) => s.updateTab);
+  const editorTheme = useSettingsStore((s) => s.editorTheme);
 
   const isImage = isImageFile(filePath);
+  const [showSearch, setShowSearch] = useState(false);
+  const toggleSearchRef = useRef(() => setShowSearch(s => !s));
+  const showMinimap = useSettingsStore((s) => s.showMinimap);
+  const setShowMinimap = useSettingsStore((s) => s.setShowMinimap);
+
 
   const [imageSrc, setImageSrc] = useState("");
   const [zoom, setZoom] = useState(1);
@@ -264,9 +240,28 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
 
         const extensions: any[] = [
           basicSetup,
-          oneDark,
-          customTheme,
+          Prec.high(keymap.of([
+            { key: "Mod-c", run: (view) => {
+              if (!view.state.selection.main.empty) return false;
+              const line = view.state.doc.lineAt(view.state.selection.main.head);
+              navigator.clipboard.writeText(line.text + "\n");
+              return true;
+            }},
+            { key: "Mod-x", run: (view) => {
+              if (!view.state.selection.main.empty) return false;
+              const line = view.state.doc.lineAt(view.state.selection.main.head);
+              navigator.clipboard.writeText(line.text + "\n");
+              view.dispatch({
+                changes: { from: line.from, to: line.to },
+                selection: { anchor: line.from },
+              });
+              return true;
+            }},
+            { key: "Mod-f", run: () => { toggleSearchRef.current?.(); return true; } },
+          ])),
+          EDITOR_THEMES[editorTheme],
           lineNumbers(),
+          createMinimapExtension(showMinimap),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
               const currentContent = update.state.doc.toString();
@@ -308,7 +303,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
       }
       updateTab(tabId, { dirty: false });
     };
-  }, [filePath, tabId, updateTab, isImage, imageMimeType]);
+  }, [filePath, tabId, updateTab, isImage, imageMimeType, editorTheme]);
 
   useEffect(() => {
     const handler = () => {
@@ -316,9 +311,65 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
         viewRef.current.dispatch({ selection: { anchor: 0, head: viewRef.current.state.doc.length } });
       }
     };
+    const handlePaste = (e: Event) => {
+      const text = (e as CustomEvent).detail.text;
+      if (viewRef.current && text) {
+        const sel = viewRef.current.state.selection.main;
+        viewRef.current.dispatch({
+          changes: { from: sel.from, to: sel.to, insert: text },
+          selection: { anchor: sel.from + text.length },
+        });
+        viewRef.current.focus();
+      }
+    };
+    const handleCopyLine = () => {
+      if (viewRef.current) {
+        const sel = viewRef.current.state.selection.main;
+        const line = viewRef.current.state.doc.lineAt(sel.head);
+        navigator.clipboard.writeText(line.text + "\n");
+      }
+    };
+    const handleCutLine = () => {
+      if (viewRef.current) {
+        const sel = viewRef.current.state.selection.main;
+        const line = viewRef.current.state.doc.lineAt(sel.head);
+        navigator.clipboard.writeText(line.text + "\n");
+        viewRef.current.dispatch({
+          changes: { from: line.from, to: line.to },
+          selection: { anchor: line.from },
+        });
+        viewRef.current.focus();
+      }
+    };
+    const handleCutSelection = (e: Event) => {
+      const text = (e as CustomEvent).detail.text;
+      if (viewRef.current && text) {
+        const sel = viewRef.current.state.selection.main;
+        viewRef.current.dispatch({
+          changes: { from: sel.from, to: sel.to },
+        });
+      }
+    };
     window.addEventListener("file-select-all", handler);
-    return () => window.removeEventListener("file-select-all", handler);
+    window.addEventListener("file-paste", handlePaste);
+    window.addEventListener("file-copy-line", handleCopyLine);
+    window.addEventListener("file-cut-line", handleCutLine);
+    window.addEventListener("file-cut-selection", handleCutSelection);
+    return () => {
+      window.removeEventListener("file-select-all", handler);
+      window.removeEventListener("file-paste", handlePaste);
+      window.removeEventListener("file-cut-line", handleCutLine);
+      window.removeEventListener("file-copy-line", handleCopyLine);
+      window.removeEventListener("file-cut-selection", handleCutSelection);
+    };
   }, []);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    const tr = toggleMinimap(view.state, showMinimap);
+    view.dispatch(tr);
+  }, [showMinimap]);
 
   // Store initial content ref so save functions can reset dirty after write
   // (fileContent is stored in the session store via updateListener above)
@@ -335,10 +386,10 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
       }
     }
 
-    window.dispatchEvent(new CustomEvent("aurora-right-click-menu-close"));
+    closeAllPopups();
     window.dispatchEvent(
       new CustomEvent("show-context-menu", {
-        detail: { x: e.clientX, y: e.clientY, selectedText, source: "file" },
+        detail: { x: e.clientX, y: e.clientY, selectedText, source: "file", filePath },
       })
     );
   };
@@ -419,10 +470,25 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
             )}
           </div>
         ) : (
-          <div
-            ref={editorRef}
-            className="h-full w-full overflow-hidden [&_.cm-editor]:h-full [&_.cm-editor]:!bg-[#1c1b1c] [&_.cm-gutters]:!bg-[#1c1b1c]"
-          />
+          <>
+            <div
+              ref={editorRef}
+              className="h-full w-full overflow-hidden [&_.cm-editor]:h-full"
+            />
+            {showSearch && viewRef.current && (
+              <SearchPanel
+                view={viewRef.current}
+                onClose={() => setShowSearch(false)}
+              />
+            )}
+            <button
+              onClick={() => setShowMinimap(!showMinimap)}
+              className="absolute bottom-2 right-2 p-1 rounded transition-opacity hover:opacity-100 opacity-40 text-on-surface/50"
+              title={showMinimap ? "Hide minimap" : "Show minimap"}
+            >
+              {showMinimap ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+            </button>
+          </>
         )}
       </div>
     </div>

@@ -7,6 +7,9 @@ export interface ChatMessage {
   timestamp: number;
   isError?: boolean;
   durationMs?: number;
+  chainNodes?: ChainNode[];
+  agentLogs?: AgentLog[];
+  subagent?: string | null;
 }
 
 export interface AgentCommand {
