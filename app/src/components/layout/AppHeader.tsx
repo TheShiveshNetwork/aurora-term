@@ -1,20 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Command, ExternalLink, FileText, FolderOpen, History, Menu, PanelLeft, PanelLeftClose, PanelRight, PanelRightClose, PanelBottom, PanelBottomClose, PinIcon, PinOff, Plus, Search, Settings, SplitSquareHorizontal, SquareTerminal, Terminal, User, ChevronRight, GitBranch, File, Sliders } from "lucide-react";
 import type { AppViewMode } from "../../stores/useAppShellStore";
-import { invoke } from "@tauri-apps/api/core";
 import { WindowControls } from "../ui/WindowControls";
 import { MenuView, MenuViewItem, MenuViewSeparator } from "../ui/MenuView";
+import { IconButton } from "../ui/IconButton";
 import auroraIcon from "/static/aurora-icon.svg";
 import { SETTINGS_MANIFEST, categoryFor } from "../settings/settingsManifest";
 import type { SettingsManifestEntry } from "../settings/settingsManifest";
-
-interface FileNode {
-  name: string;
-  path: string;
-  is_dir: boolean;
-  is_hidden: boolean;
-  is_gitignored: boolean;
-}
+import { system } from "../../lib/ipc";
+import type { FileNode } from "../../lib/ipc";
 
 interface AppHeaderProps {
   isStandalone?: boolean;
@@ -317,7 +311,7 @@ function SearchBar({ collapsed, cwdAbsolute, onOpenFileAtPath }: { collapsed?: b
 
   useEffect(() => {
     if (focused && !filesLoaded && cwdAbsolute) {
-      invoke<FileNode[]>("read_dir", { path: cwdAbsolute })
+      system.readDir(cwdAbsolute)
         .then(nodes => {
           setFiles(nodes.map(n => ({ name: n.name, path: n.path, is_dir: n.is_dir })));
           setFilesLoaded(true);
@@ -603,29 +597,11 @@ function IconBtn({
   active?: boolean;
 }) {
   return (
-    <button
-      data-tauri-no-drag
+    <IconButton
+      icon={children}
       onClick={onClick}
-      title={title}
-      className="p-2 rounded-[10px] transition-colors cursor-pointer"
-      style={{
-        background: active ? "rgba(79,140,255,0.10)" : "transparent",
-        color: active ? "#4F8CFF" : "rgba(232,234,240,0.45)",
-      }}
-      onMouseEnter={(e) => {
-        if (!active) {
-          e.currentTarget.style.background = "rgba(255,255,255,0.05)";
-          e.currentTarget.style.color = "#E8EAF0";
-        }
-      }}
-      onMouseLeave={(e) => {
-        if (!active) {
-          e.currentTarget.style.background = "transparent";
-          e.currentTarget.style.color = "rgba(232,234,240,0.45)";
-        }
-      }}
-    >
-      {children}
-    </button>
+      tooltip={title}
+      active={active}
+    />
   );
 }

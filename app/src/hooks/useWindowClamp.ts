@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWindow, availableMonitors, LogicalPosition } from "@tauri-apps/api/window";
 
 const TITLE_BAR_VISIBLE = 30;
 
@@ -14,7 +14,7 @@ export function useWindowClamp() {
       clamping.current = true;
       try {
         const pos = await win.outerPosition();
-        const monitors = await win.availableMonitors();
+        const monitors = await availableMonitors();
         if (monitors.length === 0) return;
 
         let minX = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -33,7 +33,7 @@ export function useWindowClamp() {
         if (pos.x + 100 < minX) newX = minX;
 
         if (newX !== pos.x || newY !== pos.y) {
-          await win.setPosition(newX, newY);
+          await win.setPosition(new LogicalPosition(newX, newY));
         }
       } catch {
         // not running in Tauri or missing permission

@@ -353,7 +353,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tauri",
- "uuid",
 ]
 
 [[package]]
@@ -366,14 +365,12 @@ dependencies = [
  "aurora-core",
  "aurora-db",
  "aurora-pty",
- "serde",
  "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-opener",
  "tauri-plugin-prevent-default",
  "tauri-plugin-window-state",
- "thiserror 2.0.18",
  "tokio",
  "tracing",
 ]
@@ -389,18 +386,15 @@ dependencies = [
  "aurora-pty",
  "aurora-sidecar",
  "base64 0.22.1",
- "chrono",
  "ignore",
  "notify",
  "reqwest 0.12.28",
  "rfd",
  "serde",
- "serde_json",
  "sysinfo",
  "tauri",
  "tokio",
  "uuid",
- "which",
 ]
 
 [[package]]
@@ -409,23 +403,16 @@ version = "0.1.0"
 dependencies = [
  "aurora-core",
  "keyring",
- "serde",
  "tauri",
- "thiserror 2.0.18",
  "toml 0.8.23",
- "tracing",
 ]
 
 [[package]]
 name = "aurora-core"
 version = "0.1.0"
 dependencies = [
- "chrono",
  "serde",
- "serde_json",
  "thiserror 2.0.18",
- "toml 0.8.23",
- "uuid",
 ]
 
 [[package]]
@@ -437,8 +424,6 @@ dependencies = [
  "nucleo",
  "rusqlite",
  "serde",
- "thiserror 2.0.18",
- "tracing",
 ]
 
 [[package]]
@@ -448,11 +433,7 @@ dependencies = [
  "aurora-core",
  "portable-pty",
  "serde",
- "serde_json",
- "thiserror 2.0.18",
  "tokio",
- "tracing",
- "uuid",
  "which",
 ]
 
@@ -460,16 +441,10 @@ dependencies = [
 name = "aurora-sidecar"
 version = "0.1.0"
 dependencies = [
- "aurora-config",
  "aurora-core",
  "reqwest 0.12.28",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
  "tokio",
  "tracing",
- "uuid",
- "which",
 ]
 
 [[package]]

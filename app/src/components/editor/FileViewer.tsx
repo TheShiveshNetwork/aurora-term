@@ -1,24 +1,10 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { EditorView, basicSetup } from "codemirror";
 import { EditorState, Prec } from "@codemirror/state";
-import { javascript } from "@codemirror/lang-javascript";
-import { python } from "@codemirror/lang-python";
-import { json } from "@codemirror/lang-json";
-import { rust } from "@codemirror/lang-rust";
-import { html } from "@codemirror/lang-html";
-import { css } from "@codemirror/lang-css";
-import { xml } from "@codemirror/lang-xml";
-import { markdown } from "@codemirror/lang-markdown";
-import { sql } from "@codemirror/lang-sql";
-import { yaml } from "@codemirror/lang-yaml";
-import { StreamLanguage } from "@codemirror/language";
-import { shell } from "@codemirror/legacy-modes/mode/shell";
-import { go } from "@codemirror/legacy-modes/mode/go";
-import { java } from "@codemirror/legacy-modes/mode/clike";
-import { cpp } from "@codemirror/legacy-modes/mode/clike";
 import { keymap, lineNumbers } from "@codemirror/view";
-import { Compartment } from "@codemirror/state";
-import { invoke } from "@tauri-apps/api/core";
+import { system } from "../../lib/ipc";
+import { getLanguageExtension } from "../../lib/codeLang";
+import { isImageFile } from "../../lib/fileUtils";
 import { AlertCircle, Loader, Maximize2, Minimize2, Minus, Plus, RotateCcw } from "lucide-react";
 import { useSessionStore } from "../../stores/useSessionStore";
 import { useSettingsStore } from "../../stores/useSettingsStore";
@@ -31,67 +17,6 @@ interface FileViewerProps {
   tabId: string;
   filePath: string;
   fileName: string;
-}
-
-const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "svg", "webp", "bmp", "ico"]);
-
-function isImageFile(filePath: string): boolean {
-  const ext = filePath.split(".").pop()?.toLowerCase() || "";
-  return IMAGE_EXTENSIONS.has(ext);
-}
-
-function getLanguageExtension(filePath: string) {
-  const ext = filePath.split(".").pop()?.toLowerCase() || "";
-
-  switch (ext) {
-    case "js":
-    case "jsx":
-    case "ts":
-    case "tsx":
-      return javascript({ jsx: true, typescript: true });
-    case "py":
-      return python();
-    case "json":
-      return json();
-    case "rs":
-      return rust();
-    case "html":
-    case "htm":
-      return html();
-    case "css":
-      return css();
-    case "scss":
-    case "sass":
-      return css();
-    case "xml":
-    case "svg":
-      return xml();
-    case "md":
-    case "mdx":
-      return markdown();
-    case "sql":
-      return sql();
-    case "yaml":
-    case "yml":
-      return yaml();
-    case "sh":
-    case "bash":
-    case "zsh":
-      return StreamLanguage.define(shell);
-    case "go":
-      return StreamLanguage.define(go);
-    case "java":
-      return StreamLanguage.define(java);
-    case "c":
-    case "cpp":
-    case "cc":
-    case "cxx":
-    case "h":
-    case "hpp":
-      return StreamLanguage.define(cpp);
-    default:
-      return [];
-  }
 }
 
 const ZOOM_MIN = 0.1;
@@ -223,7 +148,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
         setError(null);
 
         if (isImage) {
-          const b64 = await invoke<string>("read_file_base64", { path: filePath });
+          const b64 = await system.readFileBase64(filePath);
           setImageSrc(`data:${imageMimeType};base64,${b64}`);
           setLoading(false);
           return;
@@ -231,9 +156,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
 
         if (!editorRef.current) return;
 
-        const content = await invoke<string>("read_file_content", {
-          path: filePath,
-        });
+        const content = await system.readFileContent(filePath);
         initialContentRef.current = content;
 
         const languageExt = getLanguageExtension(filePath);

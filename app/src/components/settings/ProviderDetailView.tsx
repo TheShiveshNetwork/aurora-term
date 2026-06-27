@@ -6,18 +6,18 @@ import { ai } from "../../lib/ipc";
 interface ProviderDetailViewProps {
   name: ProviderName;
   config: ProviderConfig;
-  isDefault: boolean;
+  isSelected: boolean;
   keyringHasKey: boolean;
-  onSetDefault: () => void;
+  onSetSelected: () => void;
   onClose: () => void;
 }
 
 export function ProviderDetailView({
   name,
   config,
-  isDefault,
+  isSelected,
   keyringHasKey,
-  onSetDefault,
+  onSetSelected,
   onClose,
 }: ProviderDetailViewProps) {
   const [apiKey, setApiKey] = useState("");
@@ -68,8 +68,8 @@ export function ProviderDetailView({
     }
   };
 
-  const handleSetDefault = () => {
-    onSetDefault();
+  const handleSetSelected = () => {
+    onSetSelected();
     onClose();
   };
 
@@ -84,9 +84,9 @@ export function ProviderDetailView({
           <div>
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium text-[#E8EAF0]">{DISPLAY_NAMES[name]}</span>
-              {isDefault && (
+              {isSelected && (
                 <span className="text-[10px] px-2 py-0.5 rounded-md font-medium tracking-wide bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                  Default
+                  Selected
                 </span>
               )}
             </div>
@@ -232,12 +232,12 @@ export function ProviderDetailView({
             <span className="text-[11px] text-red-400/80">Connection failed</span>
           )}
 
-          {!isDefault && (
+          {!isSelected && (
             <button
-              onClick={handleSetDefault}
+              onClick={handleSetSelected}
               className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium rounded-lg transition-all cursor-pointer bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500/20 ml-auto"
             >
-              Set as Default
+              Set as Selected
             </button>
           )}
         </div>

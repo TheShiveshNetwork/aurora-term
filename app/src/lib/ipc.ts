@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
-import { ProviderName, ProcessInfo } from "@aurora/types";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { ProviderName } from "@aurora/types";
 
 // ─── Config types mirrored from Rust side ────────────────────────────────
 export interface TerminalConfig {
@@ -96,23 +97,33 @@ export const ai = {
     invoke<Record<ProviderName, boolean>>("ai_provider_status"),
 };
 
-export const history = {
-  search: (query: string, limit: number) =>
-    invoke<any[]>("history_search", { query, limit }),
-
-  add: (entry: any) =>
-    invoke<void>("history_add", { entry }),
-};
-
 export const config = {
   get: () => invoke<AppConfig>("config_get"),
   set: (appConfig: AppConfig) => invoke<void>("config_set", { config: appConfig }),
 };
 
-export const process = {
-  list: () => invoke<ProcessInfo[]>("process_list"),
-  kill: (pid: number) => invoke<void>("process_kill", { pid }),
-};
+export interface FileNode {
+  name: string;
+  path: string;
+  is_dir: boolean;
+  is_gitignored?: boolean;
+  children?: FileNode[];
+}
+
+export interface SystemInfo {
+  ram_used_mb: number;
+  ram_total_mb: number;
+  git_branch: string | null;
+  encoding: string;
+}
+
+export interface AgentStepResult {
+  status: string;
+  command?: string;
+  explanation?: string;
+  subagent?: string;
+  message?: string;
+}
 
 export interface GitCommit {
   hash: string;
@@ -155,8 +166,40 @@ export interface GitBranchInfo {
 }
 
 export const system = {
+  getCwd: () =>
+    invoke<string>("get_cwd"),
   getCurrentPwd: () =>
     invoke<string>("get_current_pwd"),
+  getSystemInfo: (cwd?: string, force?: boolean) =>
+    invoke<SystemInfo>("get_system_info", { cwd, force }),
+  readDir: (path: string) =>
+    invoke<FileNode[]>("read_dir", { path }),
+  readFileContent: (path: string) =>
+    invoke<string>("read_file_content", { path }),
+  readFileBase64: (path: string) =>
+    invoke<string>("read_file_base64", { path }),
+  writeFileContent: (path: string, content: string) =>
+    invoke<void>("write_file_content", { path, content }),
+  selectFolder: () =>
+    invoke<string | null>("select_folder"),
+  selectFile: () =>
+    invoke<string | null>("select_file"),
+  deletePath: (path: string) =>
+    invoke<void>("delete_path", { path }),
+  renamePath: (oldPath: string, newName: string) =>
+    invoke<string>("rename_path", { oldPath, newName }),
+  copyPath: (source: string, targetDir: string) =>
+    invoke<string>("copy_path", { source, targetDir }),
+  movePath: (source: string, targetDir: string) =>
+    invoke<string>("move_path", { source, targetDir }),
+  createPath: (parentDir: string, name: string, isDir: boolean) =>
+    invoke<string>("create_path", { parentDir, name, isDir }),
+  watchDirectory: (path: string) =>
+    invoke<void>("watch_directory", { path }),
+  readShellHistory: () =>
+    invoke<string[]>("read_shell_history"),
+  agentPlanStep: (taskId: string, sessionId: string | null, goal: string | null, lastOutput: string | null, exitCode: number | null) =>
+    invoke<AgentStepResult>("agent_plan_step", { taskId, sessionId, goal, lastOutput, exitCode }),
   revealInExplorer: (path: string) =>
     invoke<void>("reveal_in_explorer", { path }),
   getGitBranch: (cwd: string) =>

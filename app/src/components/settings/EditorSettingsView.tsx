@@ -1,6 +1,7 @@
 import React from "react";
 import { useSettingsStore } from "../../stores/useSettingsStore";
 import { SectionTitle, FieldRow } from "./SettingsShared";
+import { ToggleSwitch } from "../ui/ToggleSwitch";
 
 export default function EditorSettingsView() {
   const {
@@ -57,12 +58,7 @@ export default function EditorSettingsView() {
 
       <div id="setting-cursor-blink">
         <FieldRow label="Toggle Word Wrap">
-          <label className="relative inline-flex items-center cursor-pointer">
-            <input type="checkbox" checked={cursorBlink} onChange={() => setCursorBlink(!cursorBlink)} className="sr-only peer" />
-            <div className="w-8 h-4 rounded-full transition-colors peer-checked:bg-primary" style={{ background: cursorBlink ? "#4F8CFF" : "rgba(255,255,255,0.1)" }}>
-              <div className={`w-3.5 h-3.5 rounded-full bg-white transition-transform ${cursorBlink ? "translate-x-4" : "translate-x-0.5"}`} style={{ marginTop: "1px" }} />
-            </div>
-          </label>
+          <ToggleSwitch checked={cursorBlink} onChange={setCursorBlink} />
         </FieldRow>
       </div>
     </div>

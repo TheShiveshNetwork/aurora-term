@@ -2,6 +2,7 @@ import { FolderOpen, FileText, GitBranch, MonitorSmartphone, Palette, ArrowUpFro
 import { Tab } from "@aurora/types";
 
 import { FileViewer } from "../components/editor/FileViewer";
+import { EmptyState } from "../components/ui/EmptyState";
 import auroraIcon from "/static/aurora-icon.png";
 
 interface FileWorkspaceViewProps {

@@ -15,12 +15,8 @@ edition = "2021"
 aurora-core  = { workspace = true }
 tokio        = { workspace = true }
 portable-pty = { workspace = true }
-serde        = { workspace = true }
-serde_json   = { workspace = true }
-thiserror    = { workspace = true }
-tracing      = { workspace = true }
-uuid         = { workspace = true }
-which        = { workspace = true }
+serde  = { workspace = true }
+which  = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

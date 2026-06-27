@@ -13,6 +13,9 @@
     "test": "pnpm --dir app test",
     "typecheck": "pnpm --dir app typecheck"
   },
+  "dependencies": {
+    "@babel/runtime": "^8.0.0"
+  },
   "devDependencies": {
     "@tauri-apps/cli": "^2.1.0"
   }

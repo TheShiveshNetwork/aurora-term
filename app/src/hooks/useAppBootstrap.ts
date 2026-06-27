@@ -1,11 +1,10 @@
 import { useEffect, useRef } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { invoke } from "@tauri-apps/api/core";
 import { v4 as uuidv4 } from "uuid";
 
 import { useAICompletion } from "./useAICompletion";
 import { usePTY } from "./usePTY";
-import { pty, config } from "../lib/ipc";
+import { pty, config, system } from "../lib/ipc";
 import { getDefaultShellLaunch } from "../lib/shell";
 import { closeAllPopups } from "../lib/popups";
 import { useAppShellStore } from "../stores/useAppShellStore";
@@ -65,7 +64,7 @@ export function useAppBootstrap() {
     if (hasSpawnedRef.current) return;
     hasSpawnedRef.current = true;
 
-    invoke<string[]>("read_shell_history")
+    system.readShellHistory()
       .then((history) => useAppShellStore.getState().setShellHistory(history))
       .catch(() => {});
 
@@ -88,7 +87,7 @@ export function useAppBootstrap() {
 
         if (!initialCwd) {
           try {
-            initialCwd = await invoke<string>("get_cwd");
+            initialCwd = await system.getCwd();
           } catch {
             initialCwd = "";
           }
@@ -124,7 +123,7 @@ export function useAppBootstrap() {
       .catch(async () => {
         let initialCwd = "";
         try {
-          initialCwd = await invoke<string>("get_cwd");
+          initialCwd = await system.getCwd();
         } catch {
           initialCwd = "";
         }

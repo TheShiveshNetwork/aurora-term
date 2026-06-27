@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Cpu, GitBranch, Wifi, WifiOff, Copy, Folder } from "lucide-react";
-import { invoke } from "@tauri-apps/api/core";
 import { useAIStore } from "../../stores/useAIStore";
+import { system } from "../../lib/ipc";
 import { useSessionStore } from "../../stores/useSessionStore";
 
 interface SystemInfo {
@@ -78,10 +78,7 @@ export function StatusBar({ cwd }: { cwd?: string }) {
   useEffect(() => {
     async function fetchInfo(force: boolean = false) {
       try {
-        const info = await invoke<SystemInfo>("get_system_info", {
-          cwd: cwdRef.current,
-          force
-        });
+        const info = await system.getSystemInfo(cwdRef.current, force);
         setSysInfo(info);
       } catch (e) {
         // fallback — keep defaults

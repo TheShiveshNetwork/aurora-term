@@ -1,5 +1,4 @@
 import { type FormEvent, useEffect, useMemo } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { v4 as uuidv4 } from "uuid";
 import { Tab } from "@aurora/types";
@@ -149,7 +148,7 @@ export function AppShellView() {
   const handleOpenFolder = async () => {
     setShowMenuDropdown(false);
     try {
-      const selected = await invoke<string | null>("select_folder");
+      const selected = await system.selectFolder();
       if (selected) {
         handleSelectFolderDirectly(selected);
       }
@@ -161,7 +160,7 @@ export function AppShellView() {
   const handleOpenFile = async () => {
     setShowMenuDropdown(false);
     try {
-      const selected = await invoke<string | null>("select_file");
+      const selected = await system.selectFile();
       if (selected) {
         openFile(selected, cwdAbsolute);
         setViewMode("file");
@@ -173,7 +172,7 @@ export function AppShellView() {
 
   const handleOpenRecentFile = (filePath: string) => {
     setShowMenuDropdown(false);
-    invoke("read_dir", { path: cwdAbsolute })
+    system.readDir(cwdAbsolute)
       .then(() => {
         const absolutePath = cwdAbsolute ? `${cwdAbsolute}/${filePath}`.replace(/\/\//g, "/") : filePath;
         openFile(absolutePath, cwdAbsolute);
@@ -599,7 +598,7 @@ export function AppShellView() {
             const tab = useSessionStore.getState().tabs.find((candidate) => candidate.id === pendingCloseTabId);
             if (tab?.fileContent && tab.filePath) {
               try {
-                await invoke("write_file_content", { path: tab.filePath, content: tab.fileContent });
+                await system.writeFileContent(tab.filePath, tab.fileContent);
               } catch (error) {
                 console.error("Failed to save file:", error);
               }

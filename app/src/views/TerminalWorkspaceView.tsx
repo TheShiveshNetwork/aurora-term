@@ -2,6 +2,7 @@ import { Terminal } from "lucide-react";
 import { Tab } from "@aurora/types";
 
 import { TerminalPane } from "../components/terminal/TerminalPane";
+import { EmptyState } from "../components/ui/EmptyState";
 
 interface TerminalWorkspaceViewProps {
   tab: Tab;
@@ -22,11 +23,8 @@ export function TerminalWorkspaceView({ tab, isVisible, isCommandRunning, isAlte
       </div>
 
       {showEmptyState && !isAlternateActive && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center opacity-30 pointer-events-none select-none z-10 pb-12">
-          <Terminal size={48} className="mb-4" />
-          <span className="font-label-caps uppercase text-[10px] tracking-widest text-on-surface-variant">
-            Ready for commands or AI prompts
-          </span>
+        <div className="absolute inset-0 z-10 pb-12 h-full flex items-center justify-center">
+          <EmptyState icon={<Terminal size={48} />} title="Ready for commands or AI prompts" />
         </div>
       )}
     </div>

@@ -10,6 +10,7 @@ import React, {
 import { useBlockStore } from "../../stores/useBlockStore";
 import { pty } from "../../lib/ipc";
 import type { InputMode } from "../../lib/nlClassifier";
+import { useHistoryNavigation } from "../../hooks/useHistoryNavigation";
 
 function computeGhost(input: string, history: string[]): string {
   if (!input.trim()) return "";
@@ -63,8 +64,7 @@ export function GhostInput({
     return () => window.removeEventListener("aurora-focus-terminal-input", handleFocus);
   }, [sessionId]);
 
-  const histNavRef = useRef<number>(-1);
-  const draftRef = useRef<string>("");
+  const { navigateUp, navigateDown, reset } = useHistoryNavigation(history);
 
   const uniqueHistory = [...new Set(history.filter(Boolean).map(cmd => cmd.replace(/`+$/, '')))];
 
@@ -83,7 +83,7 @@ export function GhostInput({
 
     const nextValue = value + ghost;
     onChange(nextValue);
-    histNavRef.current = -1;
+    reset();
 
     requestAnimationFrame(() => {
       inputRef.current?.setSelectionRange(nextValue.length, nextValue.length);
@@ -125,31 +125,15 @@ export function GhostInput({
       // History navigation
       if (e.key === "ArrowUp") {
         e.preventDefault();
-        const commands = uniqueHistory;
-        if (commands.length === 0) return;
-
-        if (histNavRef.current === -1) {
-          draftRef.current = value;
-          histNavRef.current = commands.length - 1;
-        } else if (histNavRef.current > 0) {
-          histNavRef.current -= 1;
-        }
-        onChange(commands[histNavRef.current] ?? "");
+        const newValue = navigateUp(value);
+        onChange(newValue);
         return;
       }
 
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        const commands = uniqueHistory;
-        if (histNavRef.current === -1) return;
-
-        if (histNavRef.current < commands.length - 1) {
-          histNavRef.current += 1;
-          onChange(commands[histNavRef.current] ?? "");
-        } else {
-          histNavRef.current = -1;
-          onChange(draftRef.current);
-        }
+        const newValue = navigateDown();
+        onChange(newValue);
         return;
       }
 
@@ -168,7 +152,7 @@ export function GhostInput({
         e.key !== "Meta" &&
         e.key !== "CapsLock"
       ) {
-        histNavRef.current = -1;
+        reset();
       }
     },
     [acceptGhostCompletion, uniqueHistory, onChange, value, sessionId]
@@ -198,7 +182,7 @@ export function GhostInput({
 
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-      histNavRef.current = -1;
+      reset();
       onChange(e.target.value);
     },
     [onChange]
@@ -228,8 +212,13 @@ export function GhostInput({
     inputRef.current?.focus();
   }, []);
 
+  const handleFormSubmit = useCallback((e: React.FormEvent<HTMLFormElement>) => {
+    reset();
+    onSubmit(e);
+  }, [reset, onSubmit]);
+
   return (
-    <form onSubmit={onSubmit} className={`flex items-start ${className}`} onClick={handleWrapperClick}>
+    <form onSubmit={handleFormSubmit} className={`flex items-start ${className}`} onClick={handleWrapperClick}>
       <div className="relative flex-1 flex items-start overflow-hidden">
         <span
           ref={mirrorRef}
