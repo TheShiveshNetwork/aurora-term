@@ -16,6 +16,9 @@ import {
 } from "lucide-react";
 import { useAgentExecution } from "../../hooks/useAgentExecution";
 import type { ChainNode, ChatMessage } from "../../stores/useAgentStore";
+import { renderMarkdown, renderInline } from "../../lib/markdown";
+import { useDragResize } from "../../hooks/useDragResize";
+import { useCopyWithFeedback } from "../../hooks/useCopyWithFeedback";
 
 // ── Status helpers ────────────────────────────────────────────────────────
 
@@ -82,136 +85,6 @@ function SproutFarmingIcon() {
 // bold, italic, and proper paragraph/line-break handling.
 // Also unescapes Windows paths (\\) → (\).
 
-function unescapeBackslashes(str: string): string {
-  // JSON-encoded paths like D:\\builds\\aurora → D:\builds\aurora
-  return str.replace(/\\\\/g, "\\");
-}
-
-function renderInline(text: string): React.ReactNode {
-  // Split on bold, italic, and inline-code patterns
-  const tokens = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*|`[^`\n]+`)/g);
-  return tokens.map((tok, i) => {
-    if (tok.startsWith("**") && tok.endsWith("**")) {
-      return <strong key={i} className="font-semibold text-on-surface">{tok.slice(2, -2)}</strong>;
-    }
-    if (tok.startsWith("*") && tok.endsWith("*") && tok.length > 2) {
-      return <em key={i}>{tok.slice(1, -1)}</em>;
-    }
-    if (tok.startsWith("`") && tok.endsWith("`") && tok.length > 2) {
-      return (
-        <code key={i} className="px-1.5 py-0.5 mx-0.5 bg-surface-variant/40 rounded text-[10.5px] font-mono border border-outline-variant/10 text-on-surface/90 font-medium">
-          {tok.slice(1, -1)}
-        </code>
-      );
-    }
-    return tok || null;
-  });
-}
-
-function renderMarkdown(text: string | null): React.ReactNode {
-  if (!text) return null;
-
-  const raw = unescapeBackslashes(text);
-  const lines = raw.split(/\r?\n/);
-  const elements: React.ReactNode[] = [];
-  let i = 0;
-
-  while (i < lines.length) {
-    const line = lines[i];
-
-    // ── Fenced code block ─────────────────────────────────────
-    if (line.trimStart().startsWith("```")) {
-      const codeLines: string[] = [];
-      i++;
-      while (i < lines.length && !lines[i].trimStart().startsWith("```")) {
-        codeLines.push(lines[i]);
-        i++;
-      }
-      elements.push(
-        <pre key={`cb-${i}`} className="my-2.5 p-3 bg-surface-variant/20 rounded-xl overflow-x-auto text-[11px] font-mono border border-outline-variant/10 text-on-surface/90 leading-relaxed whitespace-pre-wrap break-all">
-          <code>{codeLines.join("\n").trim()}</code>
-        </pre>
-      );
-      i++; // skip closing ```
-      continue;
-    }
-
-    // ── ATX Headings ──────────────────────────────────────────
-    const h3 = /^### (.+)/.exec(line);
-    if (h3) {
-      elements.push(<p key={`h3-${i}`} className="text-[12px] font-bold text-on-surface mt-2 mb-0.5">{renderInline(h3[1])}</p>);
-      i++; continue;
-    }
-    const h2 = /^## (.+)/.exec(line);
-    if (h2) {
-      elements.push(<p key={`h2-${i}`} className="text-[13px] font-bold text-on-surface mt-2.5 mb-1">{renderInline(h2[1])}</p>);
-      i++; continue;
-    }
-    const h1 = /^# (.+)/.exec(line);
-    if (h1) {
-      elements.push(<p key={`h1-${i}`} className="text-[14px] font-bold text-on-surface mt-3 mb-1">{renderInline(h1[1])}</p>);
-      i++; continue;
-    }
-
-    // ── Unordered list (- or *) ───────────────────────────────
-    if (/^[-*] /.test(line)) {
-      const items: string[] = [];
-      while (i < lines.length && /^[-*] /.test(lines[i])) {
-        items.push(lines[i].slice(2));
-        i++;
-      }
-      elements.push(
-        <ul key={`ul-${i}`} className="my-1.5 pl-4 space-y-0.5 list-disc list-outside">
-          {items.map((item, j) => (
-            <li key={j} className="text-[12.5px] leading-relaxed text-on-surface/90">
-              {renderInline(item)}
-            </li>
-          ))}
-        </ul>
-      );
-      continue;
-    }
-
-    // ── Ordered list (1. 2. …) ────────────────────────────────
-    if (/^\d+\. /.test(line)) {
-      const items: string[] = [];
-      while (i < lines.length && /^\d+\. /.test(lines[i])) {
-        items.push(lines[i].replace(/^\d+\. /, ""));
-        i++;
-      }
-      elements.push(
-        <ol key={`ol-${i}`} className="my-1.5 pl-4 space-y-0.5 list-decimal list-outside">
-          {items.map((item, j) => (
-            <li key={j} className="text-[12.5px] leading-relaxed text-on-surface/90">
-              {renderInline(item)}
-            </li>
-          ))}
-        </ol>
-      );
-      continue;
-    }
-
-    // ── Blank line → visual spacing ───────────────────────────
-    if (line.trim() === "") {
-      // Only add spacing if previous element exists (avoid leading gap)
-      if (elements.length > 0) {
-        elements.push(<div key={`sp-${i}`} className="h-1.5" />);
-      }
-      i++; continue;
-    }
-
-    // ── Regular paragraph line ────────────────────────────────
-    elements.push(
-      <p key={`p-${i}`} className="text-[12.5px] leading-relaxed text-on-surface/90">
-        {renderInline(line)}
-      </p>
-    );
-    i++;
-  }
-
-  return <div className="space-y-0.5">{elements}</div>;
-}
-
 // ── Typing / Farming indicator ─────────────────────────────────────────────
 function ThinkingBubble() {
   return (
@@ -266,15 +139,7 @@ function ConversationTurn({
   stepCount,
   maxSteps,
 }: TurnProps) {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = () => {
-    if (assistantMsg?.content) {
-      navigator.clipboard.writeText(assistantMsg.content);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  };
+  const { copied, handleCopy } = useCopyWithFeedback();
 
   return (
     <div className="flex flex-col">
@@ -466,7 +331,7 @@ function ConversationTurn({
             {/* Action buttons */}
             <div className="flex items-center justify-end gap-3 pl-7 text-on-surface-variant/80">
               <button
-                onClick={handleCopy}
+                onClick={() => handleCopy(assistantMsg?.content || "")}
                 className="hover:text-on-surface/70 p-1 rounded transition-colors cursor-pointer"
                 title="Copy Response"
               >
@@ -506,10 +371,6 @@ interface AgentOverlayProps {
   onClose?: () => void;
 }
 
-const MIN_WIDTH = 240;
-const MAX_WIDTH = 600;
-const DEFAULT_WIDTH = 320;
-
 export function AgentOverlay({ sessionId, onClose }: AgentOverlayProps) {
   const {
     status,
@@ -532,47 +393,20 @@ export function AgentOverlay({ sessionId, onClose }: AgentOverlayProps) {
   const [durationSecs, setDurationSecs] = useState<number>(0);
   const timerRef = useRef<any>(null);
 
-  // Resize
-  const [width, setWidth] = useState(DEFAULT_WIDTH);
-  const isDragging = useRef(false);
-  const dragStartX = useRef(0);
-  const dragStartWidth = useRef(DEFAULT_WIDTH);
+  const MIN_PANEL_WIDTH = 240;
+  const MAX_PANEL_WIDTH = 600;
+  const { size: width, onMouseDown: onDragHandleMouseDown } = useDragResize({
+    axis: "x",
+    min: MIN_PANEL_WIDTH,
+    max: MAX_PANEL_WIDTH,
+    initial: 380,
+  });
 
   // Auto-scroll ref — points to the bottom sentinel element
   const bottomRef = useRef<HTMLDivElement>(null);
   // Chat scroll container ref — for detecting user scroll
   const scrollRef = useRef<HTMLDivElement>(null);
   const userScrolledUp = useRef(false);
-
-  const onDragHandleMouseDown = (e: React.MouseEvent) => {
-    e.preventDefault();
-    isDragging.current = true;
-    dragStartX.current = e.clientX;
-    dragStartWidth.current = width;
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-  };
-
-  useEffect(() => {
-    const onMouseMove = (e: MouseEvent) => {
-      if (!isDragging.current) return;
-      const delta = e.clientX - dragStartX.current;
-      const newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, dragStartWidth.current - delta));
-      setWidth(newWidth);
-    };
-    const onMouseUp = () => {
-      if (!isDragging.current) return;
-      isDragging.current = false;
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-    };
-    window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener("mouseup", onMouseUp);
-    return () => {
-      window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("mouseup", onMouseUp);
-    };
-  }, []);
 
   // Track user scrolling so we don't forcibly scroll when they've scrolled up
   useEffect(() => {
@@ -652,8 +486,8 @@ export function AgentOverlay({ sessionId, onClose }: AgentOverlayProps) {
       className="relative flex flex-col z-25 select-none"
       style={{
         width,
-        minWidth: MIN_WIDTH,
-        maxWidth: MAX_WIDTH,
+        minWidth: MIN_PANEL_WIDTH,
+        maxWidth: MAX_PANEL_WIDTH,
         background: "#0F131A",
         borderLeft: "1px solid rgba(255,255,255,0.06)",
         // boxShadow: "-4px 0 4px rgba(0,0,0,0.15)",

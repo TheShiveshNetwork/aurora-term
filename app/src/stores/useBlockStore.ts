@@ -15,6 +15,10 @@ interface BlockStore {
   toggleCollapse: (sessionId: string, blockId: string) => void;
   clearBlocks: (sessionId: string) => void;
   
+  // ── Compound Actions ───────────────────────────────────────────────────────
+  beginBlockExecution: (sessionId: string, block: Block) => void;
+  endBlockExecution: (sessionId: string) => void;
+
   // ── Warp-Style Coordinates API ─────────────────────────────────────────────
   beginBlock: (sessionId: string, command: string, anchorRow: number) => Block;
   finalizeBlock: (sessionId: string, blockId: string, exitCode: number) => void;
@@ -131,6 +135,25 @@ export const useBlockStore = create<BlockStore>((set) => ({
       delete copy[sessionId];
       return { blocks: copy };
     }),
+
+  // ── Compound Action Implementations ────────────────────────────────────────
+  beginBlockExecution: (sessionId, block) => {
+    set((state) => {
+      const sessionBlocks = state.blocks[sessionId] || [];
+      return {
+        blocks: { ...state.blocks, [sessionId]: [...sessionBlocks, block] },
+        runningBlockId: { ...state.runningBlockId, [sessionId]: block.id },
+        commandOutputReceived: { ...state.commandOutputReceived, [sessionId]: false },
+      };
+    });
+  },
+
+  endBlockExecution: (sessionId) => {
+    set((state) => ({
+      runningBlockId: { ...state.runningBlockId, [sessionId]: null },
+      commandOutputReceived: { ...state.commandOutputReceived, [sessionId]: false },
+    }));
+  },
 
   // ── Warp-Style Coordinates API Implementations ─────────────────────────────
   beginBlock: (sessionId, command, anchorRow) => {

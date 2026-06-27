@@ -5,7 +5,6 @@ import {
   Copy, FolderOpen, Terminal, ExternalLink, ClipboardCopy, Pencil, Trash2, AlertTriangle,
   ClipboardList, Scissors, CopyMinus, GitBranch, Plus,
 } from "lucide-react";
-import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useSessionStore } from "../../stores/useSessionStore";
@@ -13,6 +12,9 @@ import { useAppShellStore } from "../../stores/useAppShellStore";
 import { MenuView, MenuViewItem, MenuViewSeparator } from "./MenuView";
 import { closeAllPopups, onClosePopups } from "../../lib/popups";
 import type { SideSection } from "../../stores/useAppShellStore";
+import { useCopyWithFeedback } from "../../hooks/useCopyWithFeedback";
+import { system } from "../../lib/ipc";
+import type { FileNode } from "../../lib/ipc";
 import { FileOutline } from "./FileOutline";
 import { FileTimeline } from "./FileTimeline";
 import { GitTree } from "./GitTree";
@@ -35,14 +37,6 @@ interface SidePanelProps {
   collapsed: boolean;
   cwd?: string;
   activeFilePath?: string;
-}
-
-interface FileNode {
-  name: string;
-  path: string;
-  is_dir: boolean;
-  is_hidden: boolean;
-  is_gitignored: boolean;
 }
 
 interface FileMenuState { x: number; y: number; node: FileNode }
@@ -94,7 +88,7 @@ function TreeNode({
     loadedRef.current = true;
     setLoading(true);
     try {
-      setChildren(await invoke<FileNode[]>("read_dir", { path: node.path }));
+      setChildren(await system.readDir(node.path));
     } catch (err) {
       console.error(err);
       loadedRef.current = false;
@@ -670,7 +664,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
     try {
       const parts = absolutePath.split(/[/\\]/);
       setWorkspaceName(parts[parts.length - 1] || absolutePath);
-      const res = await invoke<FileNode[]>("read_dir", { path: absolutePath });
+      const res = await system.readDir(absolutePath);
       if (seq !== loadSeqRef.current) return;
       const sorted = sortNodes(res);
       serializedRootRef.current = JSON.stringify(sorted);
@@ -685,7 +679,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
   }, []);
 
   useEffect(() => {
-    invoke<string>("get_cwd").then((dir) => { setResolvedCwd(dir); loadTree(dir); }).catch(console.error);
+    system.getCwd().then((dir) => { setResolvedCwd(dir); loadTree(dir); }).catch(console.error);
   }, [loadTree]);
 
   useEffect(() => {
@@ -706,7 +700,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
 
   useEffect(() => {
     if (!resolvedCwd) return;
-    invoke("watch_directory", { path: resolvedCwd }).catch(() => { });
+    system.watchDirectory(resolvedCwd).catch(() => { });
   }, [resolvedCwd]);
 
   useEffect(() => {
@@ -717,7 +711,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(async () => {
         try {
-          const res = await invoke<FileNode[]>("read_dir", { path: resolvedCwd });
+          const res = await system.readDir(resolvedCwd);
           const sorted = sortNodes(res);
           const serialized = JSON.stringify(sorted);
           if (serialized !== serializedRootRef.current) { serializedRootRef.current = serialized; setRootNodes(sorted); }
@@ -759,8 +753,8 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
     closeAllPopups(); setFileMenu({ x: e.clientX, y: e.clientY, node });
   }, []);
   const handleActivateNode = useCallback((path: string) => setActivePath(path), []);
-  const copyToClipboard = (text: string) => navigator.clipboard.writeText(text).catch(console.error);
-  const revealInExplorer = (path: string) => invoke("reveal_in_explorer", { path }).catch(console.error);
+  const { handleCopy: copyToClipboard } = useCopyWithFeedback();
+  const revealInExplorer = (path: string) => system.revealInExplorer(path).catch(console.error);
   const getTargetPath = (node: FileNode) => node.is_dir ? node.path : node.path.replace(/[/\\][^/\\]+$/, "");
 
   const handleOpenFolderInAurora = () => {
@@ -794,7 +788,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
       for (let i = 0; i < segments.length; i++) {
         const seg = segments[i]; if (!seg) continue;
         const isLast = i === segments.length - 1;
-        await invoke("create_path", { parentDir: current, name: seg, isDir: isLast ? creatingIn.type === "folder" : true }).catch(() => { });
+        await system.createPath(current, seg, isLast ? creatingIn.type === "folder" : true).catch(() => { });
         if (!isLast) current = current + "/" + seg;
       }
       setCreatingIn(null); setCreatingName("");
@@ -812,7 +806,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
     if (!renameState) return;
     const newName = renameState.value.trim();
     if (!newName || newName === renameState.currentName) { setRenameState(null); return; }
-    try { await invoke("rename_path", { oldPath: renameState.path, newName }); setRenameState(null); if (resolvedCwd) loadTree(resolvedCwd); }
+    try { await system.renamePath(renameState.path, newName); setRenameState(null); if (resolvedCwd) loadTree(resolvedCwd); }
     catch (err) { console.error(err); setRenameState(null); }
   };
 
@@ -821,7 +815,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
   const confirmDelete = async () => {
     if (!deleteConfirm) return;
     setIsDeleting(true); setDeleteError(null);
-    try { await invoke("delete_path", { path: deleteConfirm.node.path }); setDeleteConfirm(null); if (resolvedCwd) loadTree(resolvedCwd); }
+    try { await system.deletePath(deleteConfirm.node.path); setDeleteConfirm(null); if (resolvedCwd) loadTree(resolvedCwd); }
     catch (err) { setDeleteError(String(err)); }
     finally { setIsDeleting(false); }
   };
@@ -836,9 +830,9 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
     try {
       if (operation === "cut") {
         const name = srcPath.split(/[/\\]/).pop() || "";
-        await invoke("rename_path", { oldPath: srcPath, newName: name });
+        await system.renamePath(srcPath, name);
       } else {
-        await invoke("copy_path", { source: srcPath, targetDir: resolvedCwd });
+        await system.copyPath(srcPath, resolvedCwd);
       }
       clipboardRef.current = null; setClipboardHasContent(false);
       if (resolvedCwd) loadTree(resolvedCwd);
@@ -903,7 +897,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
         const treeRow = el?.closest<HTMLElement>("[data-path]") ?? null;
         const targetPath = treeRow?.dataset.path;
         if (targetPath && treeRow?.dataset.isDir === "true") {
-          try { await invoke("move_path", { source: srcPath, targetDir: targetPath }); if (resolvedCwd) loadTree(resolvedCwd); }
+          try { await system.movePath(srcPath, targetPath); if (resolvedCwd) loadTree(resolvedCwd); }
           catch (err) { console.error(err); }
         }
       }
@@ -941,7 +935,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
       else if (payload.type === "drop") {
         setIsExternalDragging(false); setDragOverPath(null);
         if (resolvedCwd) {
-          for (const p of payload.paths) invoke("copy_path", { source: p, targetDir: resolvedCwd }).catch(console.error);
+          for (const p of payload.paths) system.copyPath(p, resolvedCwd).catch(console.error);
           loadTree(resolvedCwd);
         }
       }
@@ -1247,7 +1241,7 @@ const FILE_ICON_MAP: Record<string, { icon: typeof FileText; color: string }> = 
   ps1: { icon: FileCode, color: "#012456" },
 };
 
-function FileIcon({ fileName, isActive, isGitignored }: { fileName: string; isActive: boolean; isGitignored: boolean }) {
+function FileIcon({ fileName, isActive, isGitignored = false }: { fileName: string; isActive: boolean; isGitignored?: boolean }) {
   const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
   const match = FILE_ICON_MAP[ext];
   const IconComponent = match?.icon ?? FileText;

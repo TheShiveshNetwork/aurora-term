@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { system } from "../../lib/ipc";
 import type { GitStatusEntry, GitBranchInfo } from "../../lib/ipc";
+import { useDragResize } from "../../hooks/useDragResize";
 import { useSessionStore } from "../../stores/useSessionStore";
 import { CommitDiffView } from "../editor/CommitDiffView";
 import { GitTree } from "../ui/GitTree";
@@ -74,8 +75,9 @@ export function GitView({ cwd, tabId }: GitViewProps) {
   const [commitMessage, setCommitMessage] = useState("");
   const [branchFilter, setBranchFilter] = useState("");
   const [showBranchDropdown, setShowBranchDropdown] = useState(false);
-  const [leftWidth, setLeftWidth] = useState(280);
-  const [resizing, setResizing] = useState(false);
+  const { size: leftWidth, onMouseDown: startResize } = useDragResize({
+    axis: "x", min: 180, max: 500, initial: 300,
+  });
 
   const stagedFiles = useMemo(() =>
     status.filter(e => e.x !== " " && e.x !== "?" && e.x !== "!"),
@@ -270,25 +272,6 @@ export function GitView({ cwd, tabId }: GitViewProps) {
       setSelectedDiff("(error loading diff)");
     }
   }, [cwd]);
-
-  // ── Resize logic ──────────────────────────────────────────────────────
-  const startResize = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    setResizing(true);
-    const startX = e.clientX;
-    const startW = leftWidth;
-    const onMove = (ev: MouseEvent) => {
-      const w = Math.max(180, Math.min(500, startW + ev.clientX - startX));
-      setLeftWidth(w);
-    };
-    const onUp = () => {
-      setResizing(false);
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-    };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-  }, [leftWidth]);
 
   if (loading) {
     return (
@@ -537,7 +520,7 @@ export function GitView({ cwd, tabId }: GitViewProps) {
         <div
           onMouseDown={startResize}
           className="w-1 shrink-0 cursor-col-resize relative transition-colors hover:bg-primary/30"
-          style={{ background: resizing ? "rgba(79,140,255,0.3)" : "transparent" }}
+          style={{ background: "transparent" }}
         />
 
         {/* ── Right panel: commit form + diff + graph ─────────────── */}

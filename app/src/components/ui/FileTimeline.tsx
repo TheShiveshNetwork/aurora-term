@@ -1,25 +1,10 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { GitCommitHorizontal } from "lucide-react";
-import { v4 as uuidv4 } from "uuid";
 import { system, type GitLogResult } from "../../lib/ipc";
 import { useAppShellStore } from "../../stores/useAppShellStore";
 import { useSessionStore } from "../../stores/useSessionStore";
-
-function relativeDate(dateStr: string): string {
-  const now = Date.now();
-  const d = new Date(dateStr).getTime();
-  const diff = now - d;
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "now";
-  if (mins < 60) return `${mins}m`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d`;
-  const months = Math.floor(days / 30);
-  if (months < 12) return `${months}mo`;
-  return `${Math.floor(months / 12)}y`;
-}
+import { relativeDate } from "../../lib/time";
+import { getFileDiffAtCommit, openDiffTab } from "../../lib/gitUtils";
 
 export function FileTimeline({ filePath }: { filePath?: string }) {
   const [data, setData] = useState<GitLogResult | null>(null);
@@ -50,23 +35,8 @@ export function FileTimeline({ filePath }: { filePath?: string }) {
   const handleSelectCommit = useCallback(async (hash: string) => {
     if (!cwdAbsolute || !filePath) return;
     try {
-      const [oldContent, newContent] = await Promise.all([
-        system.getGitFileContentAtCommit(cwdAbsolute, filePath, `${hash}~1`),
-        system.getGitFileContentAtCommit(cwdAbsolute, filePath, hash),
-      ]);
-      const fileName = filePath.split(/[/\\]/).pop() || filePath;
-      const id = uuidv4();
-      addTab({
-        id,
-        name: `Diff: ${fileName} @ ${hash.slice(0, 7)}`,
-        type: "diff",
-        filePath,
-        diffOldContent: oldContent,
-        diffNewContent: newContent,
-        diffCommitHash: hash,
-        created_at: Date.now(),
-      });
-      setActiveTabId(id);
+      const [oldContent, newContent] = await getFileDiffAtCommit(cwdAbsolute, filePath, hash);
+      openDiffTab(addTab, setActiveTabId, filePath, hash, oldContent, newContent);
     } catch {
       // silent
     }

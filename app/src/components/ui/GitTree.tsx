@@ -1,9 +1,10 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { RefreshCw } from "lucide-react";
-import { v4 as uuidv4 } from "uuid";
 import { system, type GitLogResult, type ChangedFile } from "../../lib/ipc";
 import { useAppShellStore } from "../../stores/useAppShellStore";
 import { useSessionStore } from "../../stores/useSessionStore";
+import { relativeDate } from "../../lib/time";
+import { getFileDiffAtCommit, openDiffTab } from "../../lib/gitUtils";
 
 // ─── constants ────────────────────────────────────────────────────────────────
 const BRANCH_COLORS = [
@@ -41,21 +42,6 @@ const STATUS_COLOR: Record<string, string> = {
   R: "rgba(79,140,255,0.75)",
   C: "rgba(80,227,194,0.75)",
 };
-
-// ─── helpers ──────────────────────────────────────────────────────────────────
-function relativeDate(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "now";
-  if (mins < 60) return `${mins}m`;
-  const h = Math.floor(mins / 60);
-  if (h < 24) return `${h}h`;
-  const d = Math.floor(h / 24);
-  if (d < 30) return `${d}d`;
-  const mo = Math.floor(d / 30);
-  if (mo < 12) return `${mo}mo`;
-  return `${Math.floor(mo / 12)}y`;
-}
 
 // ─── graph computation ────────────────────────────────────────────────────────
 interface GraphData {
@@ -333,22 +319,8 @@ export function GitTree() {
   const handleOpenFileDiff = useCallback(async (hash: string, filePath: string) => {
     if (!cwdAbsolute) return;
     try {
-      const [oldContent, newContent] = await Promise.all([
-        system.getGitFileContentAtCommit(cwdAbsolute, filePath, `${hash}~1`),
-        system.getGitFileContentAtCommit(cwdAbsolute, filePath, hash),
-      ]);
-      const id = uuidv4();
-      addTab({
-        id,
-        name: `Diff: ${(filePath.split(/[/\\]/).pop() ?? filePath)} @ ${hash.slice(0, 7)}`,
-        type: "diff",
-        filePath,
-        diffOldContent: oldContent,
-        diffNewContent: newContent,
-        diffCommitHash: hash,
-        created_at: Date.now(),
-      });
-      setActiveTabId(id);
+      const [oldContent, newContent] = await getFileDiffAtCommit(cwdAbsolute, filePath, hash);
+      openDiffTab(addTab, setActiveTabId, filePath, hash, oldContent, newContent);
     } catch { /* silent */ }
   }, [cwdAbsolute, addTab, setActiveTabId]);
 

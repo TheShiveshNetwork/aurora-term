@@ -5,6 +5,7 @@ import { vim, Vim, CodeMirror } from "@replit/codemirror-vim";
 import { defaultKeymap } from "@codemirror/commands";
 import { shell } from "@codemirror/legacy-modes/mode/shell";
 import { StreamLanguage } from "@codemirror/language";
+import { useHistoryNavigation } from "../../hooks/useHistoryNavigation";
 
 export type EditorMode = "NORMAL" | "INSERT" | "VISUAL" | "COMMAND";
 
@@ -53,8 +54,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
   ({ sessionId, history, onSubmit, onModeChange }, ref) => {
     const editorRef = useRef<HTMLDivElement>(null);
     const viewRef = useRef<EditorView | null>(null);
-    const historyIndexRef = useRef<number>(-1);
-    const draftRef = useRef<string>("");
+    const { navigateUp, navigateDown, reset } = useHistoryNavigation(history);
 
     // Expose methods to parent components (like focusing and setting values)
     useImperativeHandle(ref, () => ({
@@ -86,8 +86,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
         view.dispatch({
           changes: { from: 0, to: view.state.doc.length, insert: "" },
         });
-        historyIndexRef.current = -1;
-        draftRef.current = "";
+        reset();
         return true;
       };
 
@@ -95,28 +94,10 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
         const view = viewRef.current;
         if (!view) return;
 
-        const uniqueHistory = [...new Set(history.filter(Boolean))];
-        if (uniqueHistory.length === 0) return;
-
-        if (direction === "prev") {
-          if (historyIndexRef.current === -1) {
-            draftRef.current = view.state.doc.toString();
-            historyIndexRef.current = uniqueHistory.length - 1;
-          } else if (historyIndexRef.current > 0) {
-            historyIndexRef.current -= 1;
-          }
-        } else {
-          if (historyIndexRef.current === -1) return;
-          if (historyIndexRef.current < uniqueHistory.length - 1) {
-            historyIndexRef.current += 1;
-          } else {
-            historyIndexRef.current = -1;
-          }
-        }
-
-        const value = historyIndexRef.current === -1 
-          ? draftRef.current 
-          : uniqueHistory[historyIndexRef.current] || "";
+        const currentValue = view.state.doc.toString();
+        const value = direction === "prev"
+          ? navigateUp(currentValue)
+          : navigateDown();
 
         view.dispatch({
           changes: { from: 0, to: view.state.doc.length, insert: value },

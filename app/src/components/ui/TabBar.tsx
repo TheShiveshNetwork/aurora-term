@@ -3,8 +3,8 @@ import { Terminal, FileText, Plus, X, Copy, Pin, Edit3, XCircle, Trash2, ArrowLe
 import { useSessionStore } from "../../stores/useSessionStore";
 import { Tab, TabType } from "@aurora/types";
 import { MenuView, MenuViewItem, MenuViewSeparator } from "./MenuView";
-import { invoke } from "@tauri-apps/api/core";
 import { closeAllPopups, onClosePopups } from "../../lib/popups";
+import { system } from "../../lib/ipc";
 
 interface TabBarProps {
   viewMode: "terminal" | "file";
@@ -581,7 +581,7 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
             <MenuViewItem variant="rightclick" icon={<ExternalLink size={13} />} onClick={async () => {
               if (!contextTab) return;
               try {
-                const cwd = await invoke<string>("get_cwd");
+                const cwd = await system.getCwd();
                 const rel = contextTab.tab.filePath
                   ? contextTab.tab.filePath.replace(cwd, "").replace(/^[/\\]/, "")
                   : "";

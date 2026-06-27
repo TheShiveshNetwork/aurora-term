@@ -2,49 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { EditorView, basicSetup } from "codemirror";
 import { EditorState } from "@codemirror/state";
 import { MergeView } from "@codemirror/merge";
-import { javascript } from "@codemirror/lang-javascript";
-import { python } from "@codemirror/lang-python";
-import { json } from "@codemirror/lang-json";
-import { rust } from "@codemirror/lang-rust";
-import { html } from "@codemirror/lang-html";
-import { css } from "@codemirror/lang-css";
-import { xml } from "@codemirror/lang-xml";
-import { markdown } from "@codemirror/lang-markdown";
-import { sql } from "@codemirror/lang-sql";
-import { yaml } from "@codemirror/lang-yaml";
-import { StreamLanguage } from "@codemirror/language";
-import { shell } from "@codemirror/legacy-modes/mode/shell";
-import { go } from "@codemirror/legacy-modes/mode/go";
-import { java } from "@codemirror/legacy-modes/mode/clike";
-import { cpp } from "@codemirror/legacy-modes/mode/clike";
 import { EditorView as EditorViewClass } from "@codemirror/view";
 import { useSettingsStore } from "../../stores/useSettingsStore";
-import { EDITOR_THEMES } from "./editorThemes";
-import { showMinimap } from "@replit/codemirror-minimap";
-
-// ─── language detection ───────────────────────────────────────────────────────
-function getLanguageExtension(filePath: string) {
-  const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
-  switch (ext) {
-    case "js": case "jsx": case "ts": case "tsx":
-      return javascript({ jsx: true, typescript: true });
-    case "py": return python();
-    case "json": return json();
-    case "rs": return rust();
-    case "html": case "htm": return html();
-    case "css": case "scss": case "sass": return css();
-    case "xml": case "svg": return xml();
-    case "md": case "mdx": return markdown();
-    case "sql": return sql();
-    case "yaml": case "yml": return yaml();
-    case "sh": case "bash": case "zsh": return StreamLanguage.define(shell);
-    case "go": return StreamLanguage.define(go);
-    case "java": return StreamLanguage.define(java);
-    case "c": case "cpp": case "cc": case "cxx": case "h": case "hpp":
-      return StreamLanguage.define(cpp);
-    default: return [];
-  }
-}
+import { EDITOR_THEMES, READONLY_EDITOR_THEME } from "./editorThemes";
+import { createMinimapExtension } from "./minimapExtension";
+import { getLanguageExtension } from "../../lib/codeLang";
+import { PathBreadcrumb } from "./PathBreadcrumb";
 
 // ─── global styles injected once ─────────────────────────────────────────────
 const STYLE_ID = "aurora-diff-style";
@@ -98,16 +61,6 @@ if (typeof document !== "undefined" && !document.getElementById(STYLE_ID)) {
   document.head.appendChild(s);
 }
 
-// ─── minimap ──────────────────────────────────────────────────────────────────
-const minimapCreate = () => ({ dom: document.createElement("div") });
-function makeMinimap() {
-  return showMinimap.compute(["doc"], () => ({
-    create: minimapCreate,
-    displayText: "characters" as const,
-    showOverlay: "always" as const,
-  }));
-}
-
 // ─── scroll sync ──────────────────────────────────────────────────────────────
 function attachScrollSync(self: EditorView, getOther: () => EditorView | null): () => void {
   let locked = false;
@@ -125,58 +78,6 @@ function attachScrollSync(self: EditorView, getOther: () => EditorView | null): 
   };
   self.scrollDOM.addEventListener("scroll", handler, { passive: true });
   return () => self.scrollDOM.removeEventListener("scroll", handler);
-}
-
-// ─── breadcrumb ───────────────────────────────────────────────────────────────
-function PathBreadcrumb({ filePath, commitHash, onOpenFile }: {
-  filePath: string; commitHash?: string; onOpenFile?: (p: string) => void;
-}) {
-  const parts = filePath.replace(/^\/+/, "").split("/").filter(Boolean);
-
-  return (
-    <div className="flex items-center justify-between shrink-0 border-b px-3"
-      style={{ height: 34, borderColor: "rgba(232,234,240,0.07)", background: "rgba(0,0,0,0.20)" }}>
-
-      <div className="flex items-center gap-0.5 min-w-0 overflow-hidden font-mono" style={{ fontSize: 11 }}>
-        {parts.map((part, i) => {
-          const isFile = i === parts.length - 1;
-          const partial = "/" + parts.slice(0, i + 1).join("/");
-          return (
-            <span key={i} className="flex items-center shrink-0">
-              {i > 0 && <span style={{ color: "rgba(232,234,240,0.18)", margin: "0 2px" }}>/</span>}
-              <span title={partial} onClick={() => !isFile && onOpenFile?.(partial)}
-                style={{
-                  color: isFile ? "rgba(232,234,240,0.88)" : "rgba(232,234,240,0.38)",
-                  fontWeight: isFile ? 500 : 400,
-                  cursor: !isFile && onOpenFile ? "pointer" : "default",
-                  maxWidth: isFile ? 260 : 120,
-                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "inline-block",
-                }}
-                onMouseEnter={(e) => { if (!isFile && onOpenFile) e.currentTarget.style.color = "rgba(232,234,240,0.75)"; }}
-                onMouseLeave={(e) => { if (!isFile) e.currentTarget.style.color = "rgba(232,234,240,0.38)"; }}
-              >{part}</span>
-            </span>
-          );
-        })}
-      </div>
-
-      <div className="flex items-center gap-2 shrink-0 ml-3">
-        {commitHash && (
-          <span className="font-mono px-1.5 py-0.5 rounded"
-            style={{ fontSize: 9, color: "rgba(232,234,240,0.35)", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(232,234,240,0.08)" }}>
-            {commitHash.slice(0, 7)}
-          </span>
-        )}
-        {onOpenFile && (
-          <button onClick={() => onOpenFile(filePath)}
-            style={{ fontSize: 10, fontFamily: "monospace", color: "rgba(232,234,240,0.38)", background: "transparent", border: "1px solid rgba(232,234,240,0.1)", borderRadius: 4, padding: "2px 8px", cursor: "pointer" }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = "#E8EAF0"; e.currentTarget.style.background = "rgba(255,255,255,0.06)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = "rgba(232,234,240,0.38)"; e.currentTarget.style.background = "transparent"; }}
-          >↗ open</button>
-        )}
-      </div>
-    </div>
-  );
 }
 
 // ─── DiffEditor ───────────────────────────────────────────────────────────────
@@ -217,22 +118,13 @@ export function DiffEditor({
 
     const langExt = getLanguageExtension(filePath);
 
-    const editorThemeExt = EditorViewClass.theme({
-      "&": { backgroundColor: "transparent", height: "100%" },
-      ".cm-gutters": { backgroundColor: "transparent" },
-      ".cm-activeLineGutter": { backgroundColor: "transparent" },
-      ".cm-activeLine": { backgroundColor: "rgba(255,255,255,0.022)" },
-      ".cm-scroller": { fontFamily: "'JetBrains Mono','Fira Code','Cascadia Code',monospace", fontSize: "12px", lineHeight: "1.65" },
-      ".cm-content": { padding: "4px 0" },
-    });
-
     const base = [
       basicSetup,
       EDITOR_THEMES[editorTheme],
-      makeMinimap(),
+      createMinimapExtension(true),
       EditorViewClass.editable.of(false),
       EditorState.readOnly.of(true),
-      editorThemeExt,
+      READONLY_EDITOR_THEME,
       ...(langExt ? [langExt] : []),
     ];
 

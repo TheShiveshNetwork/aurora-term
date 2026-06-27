@@ -3,6 +3,7 @@ import { Block } from "@aurora/types";
 import { useBlockStore } from "../../stores/useBlockStore";
 import { Copy, Bookmark, ChevronUp, ChevronDown, Check, ShieldAlert, Sparkles } from "lucide-react";
 import { ai } from "../../lib/ipc";
+import { useCopyWithFeedback } from "../../hooks/useCopyWithFeedback";
 
 interface TerminalBlockProps {
   sessionId: string;
@@ -10,18 +11,12 @@ interface TerminalBlockProps {
 }
 
 export function TerminalBlock({ sessionId, block }: TerminalBlockProps) {
-  const [copied, setCopied] = useState(false);
+  const { copied, handleCopy } = useCopyWithFeedback();
   const [explaining, setExplaining] = useState(false);
 
-  const handleCopy = () => {
+  const handleCopyClick = () => {
     if (!block.output_summary && !block.command) return;
-    const textToCopy = `${block.command}\n${block.output_summary || ""}`;
-    navigator.clipboard.writeText(textToCopy)
-      .then(() => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      })
-      .catch(console.error);
+    handleCopy(`${block.command}\n${block.output_summary || ""}`);
   };
 
   const handleBookmarkToggle = (e: React.MouseEvent) => {
@@ -88,7 +83,7 @@ export function TerminalBlock({ sessionId, block }: TerminalBlockProps) {
         {/* Copy command + output */}
         <button
           type="button"
-          onClick={handleCopy}
+          onClick={handleCopyClick}
           className="p-1 hover:bg-[var(--color-term-bg)] rounded text-[var(--color-ui-text)] hover:text-primary transition-colors cursor-pointer"
           title="Copy command and output summary"
         >

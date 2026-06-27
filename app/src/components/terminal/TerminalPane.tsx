@@ -12,6 +12,7 @@ import { buildXtermTheme } from "../../lib/xtermTheme";
 import { recalculateAnchors, getRowHeight } from "../../lib/terminal/blockAnchors";
 
 import { TerminalBlock } from "./TerminalBlock";
+import { stripAnsi, stripPromptSentinels, extractSentinelValue, CWD_SENTINEL, BRANCH_SENTINEL } from "../../lib/terminal/cleanup";
 import { pty, system } from "../../lib/ipc";
 import { SquareTerminal } from "lucide-react";
 import { Block } from "@aurora/types";
@@ -354,11 +355,9 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
           let foundSentinel = false;
 
           if (!inAlt) {
-            const sentinelRegex = /__AURORA_CWD__=([^\r\n]+)(?:\r?\n|$)/g;
-            let sMatch;
-            while ((sMatch = sentinelRegex.exec(cleanData)) !== null) {
-              let path = sMatch[1].trim();
-              path = path.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, "");
+            const cwdValue = extractSentinelValue(cleanData, CWD_SENTINEL);
+            if (cwdValue) {
+              let path = stripAnsi(cwdValue);
               path = path.replace(/\[K$/, "").trim();
 
               console.log(`[TerminalPane ${sessionId}] Captured shell sentinel: ${path}`);
@@ -375,11 +374,9 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
             }
 
             // Parse workspace branch sentinels
-            const branchRegex = /__AURORA_BRANCH__=([^\r\n]*)(?:\r?\n|$)/g;
-            let bMatch;
-            while ((bMatch = branchRegex.exec(cleanData)) !== null) {
-              let branchName = bMatch[1].trim();
-              branchName = branchName.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, "");
+            const branchValue = extractSentinelValue(cleanData, BRANCH_SENTINEL);
+            if (branchValue) {
+              let branchName = stripAnsi(branchValue);
               branchName = branchName.replace(/\[K$/, "").trim();
               branchRef.current = branchName || null;
               console.log(`[TerminalPane ${sessionId}] Captured branch sentinel: ${branchName}`);
@@ -408,10 +405,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
           cleanData = cleanData.replace(/^\r?>+\s*$/gm, "");   // Strip any remaining prompt-only lines
 
           // Strip individual sentinel lines cleanly from output so they don't print to screen
-          cleanData = cleanData.replace(/(?:\r?\n)?__AURORA_PROMPT_START__[^\r\n]*/g, "");
-          cleanData = cleanData.replace(/(?:\r?\n)?__AURORA_CWD__[^\r\n]*/g, "");
-          cleanData = cleanData.replace(/(?:\r?\n)?__AURORA_BRANCH__[^\r\n]*/g, "");
-          cleanData = cleanData.replace(/(?:\r?\n)?__AURORA_PROMPT_END__[^\r\n]*/g, "");
+          cleanData = stripPromptSentinels(cleanData);
 
           // Standard OSC 133 sequences logic
           const osc133Regex = /\x1b\]133;([A-D])(?:;(\d+))?\x07/g;
@@ -453,10 +447,9 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
                 // Parse CWD and finalize block in failsafe data if found
                 const inAltFailsafe = useSessionStore.getState().alternateBufferActive[sessionId] || false;
                 if (!inAltFailsafe) {
-                  const failsafeCwdMatch = /__AURORA_CWD__=([^\r\n]+)(?:\r?\n|$)/.exec(failsafeData);
-                  if (failsafeCwdMatch) {
-                    let path = failsafeCwdMatch[1].trim();
-                    path = path.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, "");
+                  const failsafeCwdValue = extractSentinelValue(failsafeData, CWD_SENTINEL);
+                  if (failsafeCwdValue) {
+                    let path = stripAnsi(failsafeCwdValue);
                     path = path.replace(/\[K$/, "").trim();
                     setCwd(path);
                     setIsCwdLoading(false);
@@ -471,10 +464,9 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
                   }
 
                   // Parse branch in failsafe data if found
-                  const failsafeBranchMatch = /__AURORA_BRANCH__=([^\r\n]*)(?:\r?\n|$)/.exec(failsafeData);
-                  if (failsafeBranchMatch) {
-                    let branchName = failsafeBranchMatch[1].trim();
-                    branchName = branchName.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, "");
+                  const failsafeBranchValue = extractSentinelValue(failsafeData, BRANCH_SENTINEL);
+                  if (failsafeBranchValue) {
+                    let branchName = stripAnsi(failsafeBranchValue);
                     branchName = branchName.replace(/\[K$/, "").trim();
                     branchRef.current = branchName || null;
                   }
@@ -483,10 +475,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
                 // Strip PowerShell prompt symbols and sentinel lines from failsafe data
                 failsafeData = failsafeData.replace(/^\r?>+\s*/gm, "");
                 failsafeData = failsafeData.replace(/^\r?>+\s*$/gm, "");
-                failsafeData = failsafeData.replace(/(?:\r?\n)?__AURORA_PROMPT_START__[^\r\n]*/g, "");
-                failsafeData = failsafeData.replace(/(?:\r?\n)?__AURORA_CWD__[^\r\n]*/g, "");
-                failsafeData = failsafeData.replace(/(?:\r?\n)?__AURORA_BRANCH__[^\r\n]*/g, "");
-                failsafeData = failsafeData.replace(/(?:\r?\n)?__AURORA_PROMPT_END__[^\r\n]*/g, "");
+                failsafeData = stripPromptSentinels(failsafeData);
 
                 if (failsafeData && termRef.current) {
                   termRef.current.write(failsafeData);
@@ -502,10 +491,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
           // Keep block summary records populated
           const activeBlockId = useBlockStore.getState().runningBlockId[sessionId];
           if (activeBlockId) {
-            const plainChunk = cleanData.replace(
-              /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g,
-              ""
-            );
+            const plainChunk = stripAnsi(cleanData);
             useBlockStore.getState().appendBlockOutput(sessionId, activeBlockId, plainChunk);
 
             if (termRef.current) {

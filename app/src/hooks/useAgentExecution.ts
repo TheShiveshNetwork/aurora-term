@@ -1,9 +1,8 @@
 import { useCallback, useRef } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { v4 as uuidv4 } from "uuid";
 import { useAgentStore, AgentCommand, defaultSessionState, CONST_DEFAULT_SESSION_STATE } from "../stores/useAgentStore";
 import { useBlockStore } from "../stores/useBlockStore";
-import { pty } from "../lib/ipc";
+import { pty, system } from "../lib/ipc";
 import { Block } from "@aurora/types";
 
 // ── Sensitive command detection ───────────────────────────────────────────
@@ -110,21 +109,13 @@ export function useAgentExecution(sessionId: string | null) {
     state.incrementStep(targetSessionId);
 
     try {
-      const step = await invoke<{
-        status: string;
-        command?: string;
-        explanation?: string;
-        subagent?: string;
-        message?: string;
-      }>("agent_plan_step", {
+      const step = await system.agentPlanStep(
         taskId,
-        // Pass the session (tab) ID so the agent server uses it as the Mastra
-        // memory thread, giving each tab its own persistent conversation context.
-        sessionId: targetSessionId,
-        goal: lastOutput === undefined ? originalGoal : null,
-        lastOutput: lastOutput || null,
-        exitCode: exitCode !== undefined ? exitCode : null,
-      });
+        targetSessionId,
+        lastOutput === undefined ? originalGoal : null,
+        lastOutput || null,
+        exitCode !== undefined ? exitCode : null,
+      );
 
       // ── Completed ──────────────────────────────────────────────────────
       if (step.status === "completed") {

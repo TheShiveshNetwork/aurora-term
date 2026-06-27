@@ -145,7 +145,7 @@ function classifyKnownCommand(input: string, words: string[]): InputMode {
   if (hasNLStructure(words)) return "natural-language";
 
   const shellScore = scoreShellIndicators(input);
-  const nlScore = scoreNLIndicatorsExcludingVerbs(input);
+  const nlScore = scoreNLIndicators(input, false);
   if (nlScore > shellScore) return "natural-language";
   return "command";
 }
@@ -173,7 +173,7 @@ function scoreShellIndicators(input: string): number {
   return score;
 }
 
-function scoreNLIndicators(input: string): number {
+function scoreNLIndicators(input: string, includeVerbs = true): number {
   let score = 0;
 
   if (QUESTION_STARTS.test(input)) score += 8;
@@ -183,28 +183,7 @@ function scoreNLIndicators(input: string): number {
 
   if (/[?.!]$/.test(input.trim())) score += 3;
 
-  if (NL_VERBS.test(input)) score += 4;
-
-  if (/^(find|show|tell|explain|help|create|make|build|deploy)/i.test(input)) score += 3;
-
-  if (/\b(me|my|the|all|every|each|some|any|this|that|these|those)\b/i.test(input)) score += 1;
-
-  if (/^[A-Z][a-z]+\s/.test(input.trim())) score += 2;
-
-  if (/(\bmodified\b|\bchanged\b|\bcreated\b|\bupdated\b|\brecent\b|\blatest\b|\boldest\b|\blast\s+\w+\b)/i.test(input)) score += 2;
-
-  return score;
-}
-
-function scoreNLIndicatorsExcludingVerbs(input: string): number {
-  let score = 0;
-
-  if (QUESTION_STARTS.test(input)) score += 8;
-
-  const words = input.split(/\s+/);
-  if (words.length >= 4) score += 2;
-
-  if (/[?.!]$/.test(input.trim())) score += 3;
+  if (includeVerbs && NL_VERBS.test(input)) score += 4;
 
   if (/^(find|show|tell|explain|help|create|make|build|deploy)/i.test(input)) score += 3;
 

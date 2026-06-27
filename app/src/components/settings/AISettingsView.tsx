@@ -18,7 +18,7 @@ export default function AISettingsView() {
     ai.getProviderStatus().then(setKeyringStatus).catch(console.error);
   }, []);
 
-  const handleSetDefault = (name: ProviderName) => {
+  const handleSetSelected = (name: ProviderName) => {
     setActiveProvider(name);
   };
 
@@ -34,7 +34,7 @@ export default function AISettingsView() {
         <ProviderSelector
           providers={providerNames}
           activeProvider={activeProvider}
-          onChange={handleSetDefault}
+          onChange={handleSetSelected}
         />
       </div>
 
@@ -43,7 +43,7 @@ export default function AISettingsView() {
         <div className="space-y-2">
           {providerNames.map((name) => {
             const config = providers[name];
-            const isDefault = name === activeProvider;
+            const isSelected = name === activeProvider;
             const isExpanded = selectedProvider === name;
             const hasKey = keyringStatus[name];
 
@@ -54,7 +54,7 @@ export default function AISettingsView() {
                   className={`flex items-center justify-between w-full p-3 rounded-xl border transition-all cursor-pointer text-left ${isExpanded
                     ? "border-white/[0.08] bg-[#1c202a]/80"
                     : "border-white/[0.04] bg-[#161920]/40 hover:bg-[#1c202a]/60"
-                    } ${isDefault ? "ring-1 ring-blue-500/20" : ""}`}
+                    } ${isSelected ? "ring-1 ring-blue-500/20" : ""}`}
                 >
                   <div className="flex items-center gap-3">
                     <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-white/[0.02] border border-white/[0.04] shrink-0">
@@ -63,9 +63,9 @@ export default function AISettingsView() {
                     <div>
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-medium text-[#E8EAF0]">{DISPLAY_NAMES[name]}</span>
-                        {isDefault && (
+                        {isSelected && (
                           <span className="text-[10px] px-2 py-0.5 rounded-md font-medium tracking-wide bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                            Default
+                            Selected
                           </span>
                         )}
                         {name === "ollama" && (
@@ -95,9 +95,9 @@ export default function AISettingsView() {
                     <ProviderDetailView
                       name={name}
                       config={config}
-                      isDefault={isDefault}
+                      isSelected={isSelected}
                       keyringHasKey={!!hasKey}
-                      onSetDefault={() => handleSetDefault(name)}
+                      onSetSelected={() => handleSetSelected(name)}
                       onClose={() => setSelectedProvider(null)}
                     />
                   </div>

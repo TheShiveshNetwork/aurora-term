@@ -12,9 +12,6 @@ edition = "2021"
 
 [dependencies]
 aurora-core = { workspace = true }
-tauri       = { workspace = true }
-toml        = { workspace = true }
-serde       = { workspace = true }
-thiserror   = { workspace = true }
-tracing     = { workspace = true }
-keyring     = { workspace = true }
+tauri   = { workspace = true }
+toml    = { workspace = true }
+keyring = { workspace = true }
