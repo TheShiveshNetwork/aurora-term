@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, startTransition, useMemo } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { Terminal } from "@xterm/xterm";
 
 import { FitAddon } from "@xterm/addon-fit";
@@ -9,16 +9,11 @@ import { useBlockStore } from "../../stores/useBlockStore";
 import { useSettingsStore } from "../../stores/useSettingsStore";
 import { useSessionStore } from "../../stores/useSessionStore";
 import { buildXtermTheme } from "../../lib/xtermTheme";
-import { recalculateAnchors, getRowHeight } from "../../lib/terminal/blockAnchors";
+import { getRowHeight } from "../../lib/terminal/blockAnchors";
 
-import { TerminalBlock } from "./TerminalBlock";
-import { stripAnsi, cleanPtyData, processOSC133, stripOSC133 } from "../../lib/terminal/cleanup";
-import { SHELL_PROMPT_COMMAND } from "../../lib/shell";
+import { stripAnsi, cleanPtyData } from "../../lib/terminal/cleanup";
 import { pty, system } from "../../lib/ipc";
 import { SquareTerminal } from "lucide-react";
-import { Block } from "@aurora/types";
-
-const EMPTY_BLOCKS: Block[] = [];
 
 interface TerminalPaneProps {
   sessionId: string;
@@ -31,6 +26,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
   const xtermRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
+  
   // Layout context parameters
   const [cwd, setCwd] = useState("~/workspace");
   const cwdRef = useRef(cwd);
@@ -39,8 +35,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
   const [isSessionDead, setIsSessionDead] = useState(false);
   const [sessionExitCode, setSessionExitCode] = useState<number | null>(null);
 
-  // Read registered blocks for this session from state
-  const sessionBlocks = useBlockStore((state) => state.blocks[sessionId] || EMPTY_BLOCKS);
+  // Subscribe only to the runningBlockId of this session to keep execution states in sync
   const runningBlockId = useBlockStore((state) => state.runningBlockId[sessionId]);
   const isCommandRunning = !!runningBlockId;
   const isAlternateActive = useSessionStore((state) => state.alternateBufferActive[sessionId] || false);
@@ -48,10 +43,10 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
   const fontFamily = useSettingsStore((state) => state.fontFamily);
   const fontSize = useSettingsStore((state) => state.fontSize);
 
-  // Get dynamic cell dimensions to verify layout alignments
+  // Get dynamic cell dimensions
   const [lineHeight, setLineHeight] = useState(19.5);
 
-  // Ref to track the pending resize timer to enable cleanups across renders
+  // Ref to track the pending resize timer
   const resizeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastColsRef = useRef<number>(0);
   const lastRowsRef = useRef<number>(0);
@@ -75,23 +70,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
             console.warn("PTY resize failed:", err);
           });
         }
-      }, 100); // 100ms debounce ensures ConPTY stability during buffer/padding/font transitions
-    };
-  }, [sessionId]);
-
-  // Recalculate anchors and update store inside transition boundaries
-  const recalc = useMemo(() => {
-    let debounceTimer: ReturnType<typeof setTimeout>;
-    return () => {
-      clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => {
-        const term = termRef.current;
-        if (!term || !(term as any)._core || !term.buffer) return;
-        const anchors = recalculateAnchors(term, sessionId);
-        startTransition(() => {
-          useBlockStore.getState().setAnchorY(sessionId, anchors);
-        });
-      }, 16); // Throttled to ~60fps
+      }, 100);
     };
   }, [sessionId]);
 
@@ -102,7 +81,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
     }
   }, [theme]);
 
-  // Sync font size and family when they change in settings (but NOT dynamically on command run/exit!)
+  // Sync font size and family when they change in settings
   useEffect(() => {
     const term = termRef.current;
     const fit = fitRef.current;
@@ -123,20 +102,17 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
             debouncedResize(cols, rows);
           }
         }
-        // Re-measure exact row height for dynamic overlay positioning
         const ch = getRowHeight(term);
         if (ch > 0) setLineHeight(ch);
-        recalc();
       } catch (err) {
         console.warn("Font refit failed:", err);
       }
     }, 150);
 
     return () => clearTimeout(timer);
-  }, [fontFamily, fontSize, sessionId, recalc, debouncedResize]);
+  }, [fontFamily, fontSize, sessionId, debouncedResize]);
 
   // When alternate buffer toggles, refit xterm to catch up with the layout change
-  // (e.g. input bar appearing/disappearing changes the terminal container height)
   useEffect(() => {
     const term = termRef.current;
     const fit = fitRef.current;
@@ -174,7 +150,6 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
 
       // When exiting alternate buffer, ensure any running block is finalized and state cleared.
       if (!active) {
-        // Force-reset all active mouse tracking protocols to restore standard canvas drag selection
         console.log(`[TerminalPane ${sessionId}] Resetting mouse tracking on alternate buffer exit`);
         termRef.current?.write("\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l");
 
@@ -183,7 +158,6 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
           console.log(`[TerminalPane ${sessionId}] Finalizing running block on alternate buffer exit`);
           useBlockStore.getState().finalizeBlock(sessionId, runningId, 0);
         }
-        // Clear running block state and command output flag.
         useBlockStore.getState().setRunningBlockId(sessionId, null);
         useBlockStore.getState().setCommandOutputReceived(sessionId, false);
         // Restore focus to input.
@@ -206,7 +180,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
       cursorInactiveStyle: "none",
       cursorWidth: 0,
       theme: buildXtermTheme(),
-      disableStdin: true, // Decoupled input: disable direct keyboard inputs on xterm canvas
+      disableStdin: true, // Decoupled input
     });
 
     termRef.current = term;
@@ -248,8 +222,6 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
     const bufferDisposable = term.buffer.onBufferChange((buffer) => {
       const isAlternate = buffer.type === "alternate";
       console.log(`[TerminalPane ${sessionId}] xterm buffer changed to: ${buffer.type} (isAlternate=${isAlternate})`);
-
-      // Delegate all synchronization and cleanup logic to syncAlternateBufferState.
       syncAlternateBufferState(isAlternate);
     });
 
@@ -260,15 +232,13 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
       if (ch > 0) setLineHeight(ch);
     } catch (_) { }
 
-    // Try to fit, but ignore failures if dimensions are not available yet (e.g. during initial mount display:none)
     try {
       if (xtermRef.current && xtermRef.current.clientWidth > 0 && xtermRef.current.clientHeight > 0) {
         fit.fit();
       }
     } catch (_) { }
-    recalc();
 
-    // 4. Hook up ResizeObserver with rAF batching to avoid redundant fit/measure per frame
+    // 4. Hook up ResizeObserver with rAF batching
     let resizeRafId = 0;
     const ro = new ResizeObserver(() => {
       if (isDisposed) return;
@@ -285,8 +255,6 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
             lastColsRef.current = cols;
             lastRowsRef.current = rows;
 
-            // Skip PTY resizes during the critical alternate buffer transition window (500ms)
-            // and defer them to after the window to avoid ConPTY deadlocks while maintaining perfect sizing.
             const timeSinceTransition = Date.now() - lastTransitionTimeRef.current;
             const isTransitioning = timeSinceTransition < 500;
             if (isTransitioning) {
@@ -305,7 +273,6 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
               }
               debouncedResize(cols, rows);
             }
-            recalc();
           }
         } catch (err) {
           console.warn("Resize fit failed:", err);
@@ -316,27 +283,24 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
 
     // 5. Connect scroll calculation hooks
     term.onScroll(() => {
-      if (isDisposed) return;
-      recalc();
+      // Coordinate calculations removed
     });
 
     // 6. Global PTY data stream listener
     let dataBuffer = "";
     let frameId = 0;
-    let leftoverBuffer = ""; // To catch sequences split across chunks
+    let leftoverBuffer = "";
     let failsafeTimeout: ReturnType<typeof setTimeout> | null = null;
 
     const flushBuffer = () => {
       if (isDisposed) return;
 
-      // Clear any pending failsafe timeout
       if (failsafeTimeout) {
         clearTimeout(failsafeTimeout);
         failsafeTimeout = null;
       }
 
       try {
-        // Failsafe: if leftoverBuffer gets too large, force flush it to prevent infinite hang
         if (leftoverBuffer.length > 2000) {
           console.warn(`[TerminalPane ${sessionId}] Leftover buffer too large (${leftoverBuffer.length} chars). Force flushing.`);
           if (termRef.current) {
@@ -350,50 +314,30 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
           leftoverBuffer = "";
           dataBuffer = "";
 
-
-
-          // Parse CWD sentinels and strip prompt/echo markers in a single pass
           const inAlt = useSessionStore.getState().alternateBufferActive[sessionId] || false;
-          let foundSentinel = false;
 
           if (!inAlt) {
-            const { cwdValue } = cleanPtyData(cleanData);
+            const { cwdValue, cleanData: stripped, exitCode } = cleanPtyData(cleanData);
+            cleanData = stripped;
+
             if (cwdValue) {
               console.log(`[TerminalPane ${sessionId}] Captured shell sentinel: ${cwdValue}`);
-              foundSentinel = true;
               setCwd(cwdValue);
               setIsCwdLoading(false);
-
               syncAlternateBufferState(false);
 
               window.dispatchEvent(
                 new CustomEvent("cwd-change", { detail: { path: cwdValue, sessionId } })
               );
-            }
 
-            // If we found a sentinel but a block is still marked as running, finalize as fallback
-            if (foundSentinel) {
               const activeId = useBlockStore.getState().runningBlockId[sessionId];
               if (activeId) {
-                useBlockStore.getState().finalizeBlock(sessionId, activeId, 0);
+                const finalExitCode = exitCode !== null ? exitCode : 0;
+                useBlockStore.getState().finalizeBlock(sessionId, activeId, finalExitCode);
               }
             }
           }
 
-          // Standard OSC 133 sequences logic (run on raw data before any stripping)
-          processOSC133(cleanData, (code, arg) => {
-            const currentProgressId = useBlockStore.getState().runningBlockId[sessionId];
-            if (code === "D" && currentProgressId) {
-              const codeNum = parseInt(arg || "0", 10);
-              useBlockStore.getState().finalizeBlock(sessionId, currentProgressId, codeNum);
-            }
-          });
-
-          // Strip sentinel/prompt/echo lines and PS> markers in one combined pass
-          const { cleanData: stripped } = cleanPtyData(cleanData);
-          cleanData = stripped;
-
-          // Check if we ended with a partial sequence to preserve for next chunk
           const lastEsc = cleanData.lastIndexOf("\x1b");
           const lastAurora = cleanData.lastIndexOf("__AURORA_");
           let splitIndex = -1;
@@ -411,24 +355,25 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
             leftoverBuffer = cleanData.slice(splitIndex);
             cleanData = cleanData.slice(0, splitIndex);
 
-            // Failsafe: if we buffered a partial prompt, schedule a force-flush in 250ms
             failsafeTimeout = setTimeout(() => {
               if (leftoverBuffer && !isDisposed) {
                 console.warn(`[TerminalPane ${sessionId}] Failsafe triggered: Flushing split prompt buffer after timeout`);
                 let failsafeData = leftoverBuffer;
                 leftoverBuffer = "";
 
-                // Parse CWD and finalize block in failsafe data if found
                 const inAltFailsafe = useSessionStore.getState().alternateBufferActive[sessionId] || false;
                 if (!inAltFailsafe) {
-                  const { cwdValue: failsafeCwdValue } = cleanPtyData(failsafeData);
+                  const { cwdValue: failsafeCwdValue, cleanData: failsafeStripped, exitCode: failsafeExitCode } = cleanPtyData(failsafeData);
+                  failsafeData = failsafeStripped;
+
                   if (failsafeCwdValue) {
                     setCwd(failsafeCwdValue);
                     setIsCwdLoading(false);
                     syncAlternateBufferState(false);
                     const activeId = useBlockStore.getState().runningBlockId[sessionId];
                     if (activeId) {
-                      useBlockStore.getState().finalizeBlock(sessionId, activeId, 0);
+                      const finalExitCode = failsafeExitCode !== null ? failsafeExitCode : 0;
+                      useBlockStore.getState().finalizeBlock(sessionId, activeId, finalExitCode);
                     }
                     window.dispatchEvent(
                       new CustomEvent("cwd-change", { detail: { path: failsafeCwdValue, sessionId } })
@@ -436,41 +381,22 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
                   }
                 }
 
-                // Strip prompt symbols and sentinel lines from failsafe data in one pass
-                failsafeData = cleanPtyData(failsafeData).cleanData;
-
                 if (failsafeData && termRef.current) {
                   termRef.current.write(failsafeData);
                 }
-                recalc();
               }
             }, 250);
           }
 
-          // Clean boundary sequences before feed
-          cleanData = stripOSC133(cleanData);
-
-          // Keep block summary records populated
           const activeBlockId = useBlockStore.getState().runningBlockId[sessionId];
           if (activeBlockId) {
             const plainChunk = stripAnsi(cleanData);
             useBlockStore.getState().appendBlockOutput(sessionId, activeBlockId, plainChunk);
-
-            if (termRef.current) {
-              const activeBuffer = termRef.current.buffer?.active;
-              if (activeBuffer) {
-                const currentCursorRow = activeBuffer.cursorY + activeBuffer.baseY;
-                useBlockStore.getState().updateBlock(sessionId, activeBlockId, {
-                  output_row_end: Math.max(currentCursorRow + 1, activeBuffer.baseY + termRef.current.rows),
-                });
-              }
-            }
           }
 
           if (cleanData && termRef.current) {
             termRef.current.write(cleanData);
           }
-          recalc();
         }
       } catch (err) {
         console.error(`[TerminalPane ${sessionId}] Error inside flushBuffer:`, err);
@@ -490,61 +416,12 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
 
     const handleCommandRun = (e: Event) => {
       if (isDisposed) return;
-      // const { cmd } = (e as CustomEvent<{ cmd: string }>).detail;
       const term = termRef.current;
       if (!term || !term.buffer || !term.buffer.active) return;
 
-      // Print thin full-width horizontal divider between commands using UI color
-      const E = "\x1b";
-
-      // Determine a suitable color from CSS variables (fallback to gray)
-      const cssColor = (typeof window !== "undefined")
-        ? getComputedStyle(document.documentElement).getPropertyValue("--color-ui-border")
-        : "";
-      const parseColor = (s: string) => {
-        const str = (s || "").trim();
-        if (!str) return null;
-        if (str.startsWith("#")) {
-          const hex = str.replace("#", "");
-          if (hex.length === 6) {
-            return { r: parseInt(hex.slice(0, 2), 16), g: parseInt(hex.slice(2, 4), 16), b: parseInt(hex.slice(4, 6), 16) };
-          }
-        }
-        const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(str);
-        if (m) return { r: +m[1], g: +m[2], b: +m[3] };
-        return null;
-      };
-
-      const rgb = parseColor(cssColor) || { r: 128, g: 128, b: 128 };
-      const colorSeq = `${E}[38;2;${rgb.r};${rgb.g};${rgb.b}m`;
-      const cols = (term.cols && term.cols > 0) ? term.cols : 80;
-      const line = "─".repeat(Math.max(cols, 1));
-      const divider = `\r\n\r\n${colorSeq}${line}${E}[0m\r\n\r\n`;
-      term.write(divider);
-
-      // Print the custom styled command header: folder > 
-      const folder = cwdRef.current.split(/[\/\\]/).filter(Boolean).pop() || cwdRef.current;
-      const prefix = `${E}[1;36m${folder}${E}[0m ${E}[1;33m>${E}[0m `;
-      term.write(prefix);
-      term.scrollToBottom();
-
-      // Transfer focus from GhostInput to xterm so interactive CLI tools
-      // receive keystrokes (arrows, letters, etc.) via onData → pty.write.
-      // Must also enable stdin immediately — the React effect may lag behind.
       term.focus();
       term.options.disableStdin = false;
-
-      const cursorRow = term.buffer.active.cursorY + term.buffer.active.baseY;
-      console.log(`[TerminalPane ${sessionId}] Command run captured. Cursor row: ${cursorRow}`);
-
-      const runningId = useBlockStore.getState().runningBlockId[sessionId];
-      if (runningId) {
-        useBlockStore.getState().updateBlock(sessionId, runningId, {
-          anchor_row: cursorRow,
-          output_row_end: cursorRow + 1,
-        });
-        recalc();
-      }
+      term.scrollToBottom();
     };
 
     const handleTerminalClear = (e: Event) => {
@@ -553,7 +430,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
       const term = termRef.current;
       if (term) {
         term.clear();
-        term.write("\x1b[3J\x1b[H\x1b[2J"); // Wipes screen & scrollback fully, homes cursor
+        term.write("\x1b[3J\x1b[H\x1b[2J");
       }
     };
 
@@ -581,14 +458,12 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
       syncAlternateBufferState(false);
     };
 
-    // Subscriptions
     window.addEventListener(`pty-session-data:${sessionId}`, handlePtyData);
     window.addEventListener(`pty-command-run:${sessionId}`, handleCommandRun as EventListener);
     window.addEventListener(`pty-session-exit:${sessionId}`, handleSessionExit);
     window.addEventListener("terminal-clear", handleTerminalClear);
     window.addEventListener("terminal-copy", handleTerminalCopy);
 
-    // Initial folder read
     system
       .getCurrentPwd()
       .then((path) => {
@@ -599,7 +474,6 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
       })
       .catch(() => { });
 
-    // Focus global input bar by default
     setTimeout(() => {
       if (isDisposed) return;
       window.dispatchEvent(
@@ -634,41 +508,36 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
         clearTimeout(failsafeTimeout);
       }
     };
-  }, [sessionId, recalc, debouncedResize]);
+  }, [sessionId, debouncedResize]);
 
   const handleRestartSession = async () => {
     try {
       setIsSessionDead(false);
       setSessionExitCode(null);
 
-      // Force-reset alternate buffer and execution states
       useSessionStore.getState().setAlternateBufferActive(sessionId, false);
       useBlockStore.getState().setRunningBlockId(sessionId, null);
       useBlockStore.getState().setCommandOutputReceived(sessionId, false);
 
-      // Notify the parent App component to reset session interaction state
       window.dispatchEvent(
         new CustomEvent("terminal-session-restart", { detail: { sessionId } })
       );
 
       if (termRef.current) {
-        termRef.current.write("\x1b[?1049l"); // Force exit alternate screen buffer
+        termRef.current.write("\x1b[?1049l");
         termRef.current.clear();
-        termRef.current.write("\x1b[3J\x1b[H\x1b[2J"); // Wipes screen & scrollback fully
+        termRef.current.write("\x1b[3J\x1b[H\x1b[2J");
       }
 
-      // Purge session blocks
       useBlockStore.getState().clearBlocks(sessionId);
 
-      // Respawn process under same session_id!
       const isWin = window.navigator.userAgent.includes("Windows");
       const defaultShell = isWin ? "powershell.exe" : "bash";
-      const args = isWin ? ["-NoLogo", "-NoExit", "-Command", SHELL_PROMPT_COMMAND] : [];
+      const args = isWin ? ["-NoLogo"] : [];
 
       await pty.spawn(defaultShell, args, {}, cwd, sessionId);
       console.log(`[TerminalPane ${sessionId}] Successfully restarted dead PTY session!`);
 
-      // Request focus on bottom command input
       setTimeout(() => {
         window.dispatchEvent(
           new CustomEvent("aurora-focus-terminal-input", { detail: { sessionId } })
@@ -679,23 +548,17 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
     }
   };
 
-  // Forward keystrokes to global inputBar editor
   const handleKeyDownCapture = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    // If a command is running or alternate buffer is active, let keystrokes flow naturally into xterm.
     if (isCommandRunning || isAlternateActive) return;
 
-    // Escape standard propagation if scrolling or typing in input bar
     const activeEl = document.activeElement;
     if (activeEl?.classList.contains("aurora-ta")) return;
 
-    // Focus global input bar
     window.dispatchEvent(
       new CustomEvent("aurora-focus-terminal-input", { detail: { sessionId } })
     );
   };
 
-  // Dynamically toggle disableStdin based on command execution state and buffer swap states.
-  // Also focus xterm to redirect keystrokes away from GhostInput during interactive CLI tools.
   useEffect(() => {
     const term = termRef.current;
     if (!term) return;
@@ -731,30 +594,16 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
         isolation: "isolate",
       }}
     >
-      {/* ── Terminal Viewer Container (positioned context for layers) ───────────────── */}
+      {/* ── Terminal Viewer Container ───────────────── */}
       <div className="flex-1 w-full relative select-none bg-transparent overflow-hidden">
         {/* ── Layer 0: xterm canvas mount container ─────────────────────────── */}
         <div
           ref={xtermRef}
-          className="w-full h-full"
+          className="w-full h-full pb-3"
         />
-
-        {/* ── Layer 1: GPU composited React block overlays ─────────────────────── */}
-        <div
-          className="absolute inset-0 pointer-events-none"
-          style={{
-            zIndex: 1,
-            willChange: "transform",
-            transform: "translateZ(0)",
-          }}
-        >
-          {!isAlternateActive && sessionBlocks.map((block) => (
-            <TerminalBlock key={block.id} sessionId={sessionId} block={block} />
-          ))}
-        </div>
       </div>
 
-      {/* ── Layer 2: Glassmorphic Session Terminated Recovery Card ─────────── */}
+      {/* ── Glassmorphic Session Terminated Recovery Card ─────────── */}
       {isSessionDead && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/60 backdrop-blur-md z-30 animate-in fade-in duration-200">
           <div className="bg-surface border border-outline-variant/30 rounded-2xl p-6 max-w-sm w-full text-center shadow-2xl flex flex-col items-center gap-4">
@@ -778,6 +627,4 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
       )}
     </div>
   );
-}
-
-
+};

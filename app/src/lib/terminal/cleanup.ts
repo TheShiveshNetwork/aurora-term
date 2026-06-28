@@ -10,7 +10,7 @@ const PS_PROMPT_RE = /^\r?PS\s*>\s*/gm;
 const CONT_PROMPT_RE = /^\r?>+\s*/gm;
 const CONT_ONLY_RE = /^\r?>+\s*$/gm;
 const OSC133_RE = /\x1b\]133;([A-D])(?:;(\d+))?\x07/g;
-const CWD_VALUE_RE = /__AURORA_CWD__=([^\r\n]*)/;
+const CWD_EXIT_RE = /__AURORA_CWD__=([^;\r\n]*)(?:;EXIT_CODE=(\d+))?/;
 
 export function stripAnsi(text: string): string {
   return text.replace(ANSI_REGEX, "");
@@ -19,24 +19,24 @@ export function stripAnsi(text: string): string {
 export interface PtyCleanResult {
   cleanData: string;
   cwdValue: string | null;
+  exitCode: number | null;
 }
 
 export function cleanPtyData(data: string): PtyCleanResult {
   let cwdValue: string | null = null;
+  let exitCode: number | null = null;
 
-  const cwdMatch = CWD_VALUE_RE.exec(data);
+  const cwdMatch = CWD_EXIT_RE.exec(data);
   if (cwdMatch) {
     cwdValue = cwdMatch[1].replace(ANSI_REGEX, "").replace(/\[K$/, "").trim();
+    if (cwdMatch[2]) {
+      exitCode = parseInt(cwdMatch[2], 10);
+    }
   }
 
-  const cleanData = data
-    .replace(CLEAN_LINES_RE, "")
-    .replace(PS_PROMPT_RE, "")
-    .replace(CONT_PROMPT_RE, "")
-    .replace(CONT_ONLY_RE, "")
-    .trim();
+  const cleanData = data.replace(CLEAN_LINES_RE, "");
 
-  return { cleanData, cwdValue };
+  return { cleanData, cwdValue, exitCode };
 }
 
 export function stripPromptSentinels(text: string): string {

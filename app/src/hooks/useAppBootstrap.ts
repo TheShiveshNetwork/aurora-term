@@ -193,7 +193,7 @@ export function useAppBootstrap() {
 
       const isWin = window.navigator.userAgent.includes("Windows");
       const cdCmd = isWin ? `Set-Location "${path}"` : `cd "${path}"`;
-      pty.write(tabId, `${cdCmd}\r\n`).catch(console.error);
+      pty.write(tabId, `${cdCmd}\r`).catch(console.error);
     };
 
     window.addEventListener("sidebar-open-in-terminal", handleOpenInTerminal);

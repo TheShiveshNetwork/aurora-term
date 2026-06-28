@@ -78,7 +78,12 @@ export function usePTY() {
     existingSessionId?: string
   ) => {
     try {
-      const sessionId = await pty.spawn(shell, args, env, cwd, existingSessionId);
+      const isWin = window.navigator.userAgent.includes("Windows");
+      const mergedEnv = { ...env };
+      if (!isWin && shell.includes("bash")) {
+        mergedEnv["PROMPT_COMMAND"] = 'echo "__AURORA_CWD__=$(pwd);EXIT_CODE=$?"';
+      }
+      const sessionId = await pty.spawn(shell, args, mergedEnv, cwd, existingSessionId);
 
       const tab = tabs.find(t => t.id === sessionId);
       if (!tab) {

@@ -20,23 +20,28 @@ export function useCommandExecution(tabs: Tab[], activeTabId: string | null) {
   const markSessionInteracted = useAppShellStore((state) => state.markSessionInteracted);
   const clearSessionInteracted = useAppShellStore((state) => state.clearSessionInteracted);
 
-  const blocks = useBlockStore((state) => state.blocks);
-  const runningBlockId = useBlockStore((state) => state.runningBlockId);
+  const activeTab = useMemo(() => tabs.find((tab) => tab.id === activeTabId) || null, [activeTabId, tabs]);
+  const targetSessionId = activeTab?.type === "file"
+    ? (tabs.find((tab) => tab.type === "terminal")?.id ?? activeTabId)
+    : activeTabId;
+
+  const activeRunningBlockId = useBlockStore((state) => targetSessionId ? state.runningBlockId[targetSessionId] : null);
   const addBlock = useBlockStore((state) => state.addBlock);
   const updateBlock = useBlockStore((state) => state.updateBlock);
   const alternateBufferActive = useSessionStore((state) => state.alternateBufferActive);
 
   const activeCommandInput = activeTabId ? commandInputs[activeTabId] ?? "" : "";
+  
+  const activeTabBlocks = useMemo(() => {
+    if (!targetSessionId) return [];
+    return useBlockStore.getState().blocks[targetSessionId] || [];
+  }, [targetSessionId]);
 
-  const activeTab = useMemo(() => tabs.find((tab) => tab.id === activeTabId) || null, [activeTabId, tabs]);
-  const targetSessionId = activeTab?.type === "file"
-    ? (tabs.find((tab) => tab.type === "terminal")?.id ?? activeTabId)
-    : activeTabId;
-  const activeTabBlocks = targetSessionId ? blocks[targetSessionId] || [] : [];
-  const activeRunningBlockId = targetSessionId ? runningBlockId[targetSessionId] : null;
-  const activeRunningBlock = activeRunningBlockId
-    ? activeTabBlocks.find((block) => block.id === activeRunningBlockId)
-    : null;
+  const activeRunningBlock = useMemo(() => {
+    if (!activeRunningBlockId) return null;
+    return activeTabBlocks.find((block) => block.id === activeRunningBlockId) || null;
+  }, [activeRunningBlockId, activeTabBlocks]);
+
   const isCommandRunning = activeRunningBlock?.status === "running";
   const isAlternateActive = activeTabId ? alternateBufferActive[activeTabId] || false : false;
 
@@ -117,27 +122,8 @@ export function useCommandExecution(tabs: Tab[], activeTabId: string | null) {
       markSessionInteracted(targetId);
       window.dispatchEvent(new CustomEvent(`pty-command-run:${targetId}`, { detail: { cmd } }));
 
-      await pty.write(targetId, `${cmd}\r\n`);
-
-      const isCdCommand = /^(?:cd|chdir|pushd|popd|Set-Location|sl)(\s|$)/i.test(cmd.trim());
-      if (isCdCommand) {
-        setIsCwdLoading(true);
-
-        const isWin = window.navigator.userAgent.includes("Windows");
-        const echoCmd = isWin
-          ? `Write-Host "__AURORA_CWD__=$PWD"\r\n`
-          : `echo "__AURORA_CWD__=$(pwd)"\n`;
-
-        setTimeout(() => {
-          const inAlt = useSessionStore.getState().alternateBufferActive[targetId] || false;
-          if (inAlt) {
-            setIsCwdLoading(false);
-            return;
-          }
-
-          pty.write(targetId, echoCmd).catch(console.error);
-        }, 150);
-      }
+      // Write user command
+      await pty.write(targetId, `${cmd}\r`);
     } catch (error) {
       console.error("Failed to write command to shell:", error);
       updateBlock(targetId, blockId, {

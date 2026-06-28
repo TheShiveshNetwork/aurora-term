@@ -42,8 +42,6 @@ export function AppShellView() {
     system.getAvailableCommands().then(setAvailableCommands).catch(() => { });
   }, []);
 
-  const { blocks } = useBlockStore();
-
   const {
     sidebarCollapsed,
     showMenuDropdown,
@@ -136,7 +134,6 @@ export function AppShellView() {
   const isStandaloneView = activeTab?.type === "file" || activeTab?.type === "diff" || activeTab?.type === "git";
   const activeFilePath = (activeTab?.type === "file" || activeTab?.type === "diff") ? activeTab.filePath : undefined;
   const pendingTab = pendingCloseTabId ? tabs.find((tab) => tab.id === pendingCloseTabId) || null : null;
-  const currentTerminalBlocks = targetSessionId ? blocks[targetSessionId] || [] : [];
   const hasInteracted = activeTabId ? Boolean(interactedSessions[activeTabId]) : false;
 
   const handleSelectFolderDirectly = (path: string) => {
@@ -574,7 +571,6 @@ export function AppShellView() {
                             isCommandRunning={isTabActive ? isCommandRunning : undefined}
                             isAlternateActive={isAlternateActive}
                             hasInteracted={hasInteracted}
-                            activeBlocksCount={tab.id === targetSessionId ? currentTerminalBlocks.length : 0}
                           />
                         )}
                       </div>

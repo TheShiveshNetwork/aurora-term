@@ -10,11 +10,10 @@ interface TerminalWorkspaceViewProps {
   isCommandRunning?: boolean;
   isAlternateActive: boolean;
   hasInteracted: boolean;
-  activeBlocksCount: number;
 }
 
-export function TerminalWorkspaceView({ tab, isVisible, isCommandRunning, isAlternateActive, hasInteracted, activeBlocksCount }: TerminalWorkspaceViewProps) {
-  const showEmptyState = !hasInteracted && activeBlocksCount <= 1;
+export function TerminalWorkspaceView({ tab, isVisible, isCommandRunning, isAlternateActive, hasInteracted }: TerminalWorkspaceViewProps) {
+  const showEmptyState = !hasInteracted;
 
   return (
     <div className="relative h-full flex flex-row bg-surface-container-low overflow-hidden">
