@@ -58,6 +58,7 @@ export function GitView({ cwd, tabId }: GitViewProps) {
   const [selectedDiff, setSelectedDiff] = useState<string | null>(null);
   const [diffLoading, setDiffLoading] = useState(false);
   const loadingFileRef = useRef<string | null>(null);
+  const diffCacheRef = useRef<Map<string, string>>(new Map());
   const [commitMessage, setCommitMessage] = useState("");
   const [branchFilter, setBranchFilter] = useState("");
   const [showBranchDropdown, setShowBranchDropdown] = useState(false);
@@ -133,64 +134,73 @@ export function GitView({ cwd, tabId }: GitViewProps) {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  const clearDiffCache = useCallback(() => { diffCacheRef.current.clear(); }, []);
+
   const handleStage = useCallback(async (paths: string[]) => {
     try {
       await system.gitAdd(cwd, paths);
+      clearDiffCache();
       useGitStore.getState().invalidateStatus(cwd);
       await refreshStatus();
     } catch (e) { console.error(e); }
-  }, [cwd, refreshStatus]);
+  }, [cwd, refreshStatus, clearDiffCache]);
 
   const handleUnstage = useCallback(async (paths: string[]) => {
     try {
       await system.gitReset(cwd, paths);
+      clearDiffCache();
       useGitStore.getState().invalidateStatus(cwd);
       await refreshStatus();
     } catch (e) { console.error(e); }
-  }, [cwd, refreshStatus]);
+  }, [cwd, refreshStatus, clearDiffCache]);
 
   const handleRestore = useCallback(async (paths: string[]) => {
     try {
       await system.gitRestore(cwd, paths);
+      clearDiffCache();
       useGitStore.getState().invalidateStatus(cwd);
       await refreshStatus();
     } catch (e) { console.error(e); }
-  }, [cwd, refreshStatus]);
+  }, [cwd, refreshStatus, clearDiffCache]);
 
   const handleCommit = useCallback(async () => {
     if (!commitMessage.trim()) return;
     try {
       const hash = await system.gitCommit(cwd, commitMessage.trim());
       setCommitMessage("");
+      clearDiffCache();
       useGitStore.getState().invalidateStatus(cwd);
       useGitStore.getState().invalidateBranches(cwd);
       await Promise.all([refreshStatus(), refreshBranches()]);
     } catch (e) { console.error(e); }
-  }, [cwd, commitMessage, refreshStatus, refreshBranches]);
+  }, [cwd, commitMessage, refreshStatus, refreshBranches, clearDiffCache]);
 
   const handleCheckout = useCallback(async (branch: string) => {
     try {
       await system.gitCheckout(cwd, branch);
+      clearDiffCache();
       useGitStore.getState().invalidateAll(cwd);
       await Promise.all([refreshStatus(), refreshBranches()]);
     } catch (e) { console.error(e); }
-  }, [cwd, refreshStatus, refreshBranches]);
+  }, [cwd, refreshStatus, refreshBranches, clearDiffCache]);
 
   const handlePush = useCallback(async () => {
     try {
       await system.gitPush(cwd, "origin", currentBranch);
+      clearDiffCache();
       useGitStore.getState().invalidateBranches(cwd);
       await refreshBranches();
     } catch (e) { console.error(e); }
-  }, [cwd, currentBranch, refreshBranches]);
+  }, [cwd, currentBranch, refreshBranches, clearDiffCache]);
 
   const handlePull = useCallback(async () => {
     try {
       await system.gitPull(cwd, "origin", currentBranch);
+      clearDiffCache();
       useGitStore.getState().invalidateAll(cwd);
       await Promise.all([refreshStatus(), refreshBranches()]);
     } catch (e) { console.error(e); }
-  }, [cwd, currentBranch, refreshStatus, refreshBranches]);
+  }, [cwd, currentBranch, refreshStatus, refreshBranches, clearDiffCache]);
 
   const SECTION_MIN = 28;
   const leftPanelRef = useRef<HTMLDivElement>(null);
@@ -241,10 +251,11 @@ export function GitView({ cwd, tabId }: GitViewProps) {
   const handleFetch = useCallback(async () => {
     try {
       await system.gitFetch(cwd, "origin");
+      clearDiffCache();
       useGitStore.getState().invalidateAll(cwd);
       await Promise.all([refreshStatus(), refreshBranches()]);
     } catch (e) { console.error(e); }
-  }, [cwd, refreshStatus, refreshBranches]);
+  }, [cwd, refreshStatus, refreshBranches, clearDiffCache]);
 
   // ── Branch actions ─────────────────────────────────────────────
   const handleMergeBranch = useCallback(async (branch: string) => {
@@ -252,20 +263,22 @@ export function GitView({ cwd, tabId }: GitViewProps) {
     if (!target) return;
     try {
       await system.gitExec(cwd, ["merge", target]);
+      clearDiffCache();
       useGitStore.getState().invalidateAll(cwd);
       await Promise.all([refreshStatus(), refreshBranches()]);
     } catch (e) { alert(String(e)); }
-  }, [cwd, currentBranch, refreshStatus, refreshBranches]);
+  }, [cwd, currentBranch, refreshStatus, refreshBranches, clearDiffCache]);
 
   const handleRebaseBranch = useCallback(async (branch: string) => {
     const target = prompt(`Rebase ${currentBranch} onto:`, branch);
     if (!target) return;
     try {
       await system.gitExec(cwd, ["rebase", target]);
+      clearDiffCache();
       useGitStore.getState().invalidateAll(cwd);
       await Promise.all([refreshStatus(), refreshBranches()]);
     } catch (e) { alert(String(e)); }
-  }, [cwd, currentBranch, refreshStatus, refreshBranches]);
+  }, [cwd, currentBranch, refreshStatus, refreshBranches, clearDiffCache]);
 
   const handleCreateBranch = useCallback(async () => {
     const name = prompt("Branch name:");
@@ -360,15 +373,24 @@ export function GitView({ cwd, tabId }: GitViewProps) {
 
   const handleSelectFile = useCallback(async (entry: GitStatusEntry, staged?: boolean) => {
     const path = entry.path;
+    const showStaged = staged ?? (entry.x !== " " && entry.x !== "?" && entry.x !== "!");
+    const cacheKey = `${showStaged ? "staged" : "unstaged"}:${path}`;
+    const cached = diffCacheRef.current.get(cacheKey);
+    if (cached !== undefined) {
+      loadingFileRef.current = path;
+      setSelectedFile(path);
+      setSelectedDiff(cached);
+      return;
+    }
     loadingFileRef.current = path;
     setSelectedFile(path);
     setSelectedDiff(null);
     setDiffLoading(true);
     try {
-      const showStaged = staged ?? (entry.x !== " " && entry.x !== "?" && entry.x !== "!");
       const diff = showStaged
         ? await system.gitDiffStaged(cwd, path)
         : await system.gitDiffUnstaged(cwd, path);
+      diffCacheRef.current.set(cacheKey, diff);
       if (loadingFileRef.current === path) setSelectedDiff(diff);
     } catch {
       if (loadingFileRef.current === path) setSelectedDiff("(error loading diff)");
@@ -385,7 +407,12 @@ export function GitView({ cwd, tabId }: GitViewProps) {
     if (existing) { setActiveTabId(existing.id); return; }
     try {
       const isStaged = stagedFiles.some(e => e.path === path);
-      const diff = await (isStaged ? system.gitDiffStaged(cwd, path) : system.gitDiffUnstaged(cwd, path));
+      const cacheKey = `${isStaged ? "staged" : "unstaged"}:${path}`;
+      let diff = diffCacheRef.current.get(cacheKey);
+      if (diff === undefined) {
+        diff = await (isStaged ? system.gitDiffStaged(cwd, path) : system.gitDiffUnstaged(cwd, path));
+        diffCacheRef.current.set(cacheKey, diff);
+      }
       const id = uuidv4();
       const name = path.split(/[\\/]/).pop() || path;
       addTab({ id, name, type: "diff", filePath: resolvedPath, diffContent: diff, created_at: Date.now() });
@@ -680,12 +707,12 @@ export function GitView({ cwd, tabId }: GitViewProps) {
               disabled={!commitMessage.trim() || !stagedForCommit}
               className="px-3 py-1.5 text-[11px] font-medium rounded-lg transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-default"
               style={{
-                background: "rgba(79,140,255,0.12)",
-                color: "#4F8CFF",
-                border: "1px solid rgba(79,140,255,0.2)",
+                background: "rgba(79,140,255,1)",
+                color: "#FFFFFF",
+                border: "none",
               }}
-              onMouseEnter={e => { if (!e.currentTarget.disabled) e.currentTarget.style.background = "rgba(79,140,255,0.22)"; }}
-              onMouseLeave={e => { e.currentTarget.style.background = "rgba(79,140,255,0.12)"; }}
+              onMouseEnter={e => { if (!e.currentTarget.disabled) e.currentTarget.style.background = "rgba(59,120,235,1)"; }}
+              onMouseLeave={e => { if (!e.currentTarget.disabled) e.currentTarget.style.background = "rgba(79,140,255,1)"; }}
             >
               Commit to {currentBranch}
             </button>

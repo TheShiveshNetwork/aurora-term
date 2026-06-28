@@ -53,6 +53,7 @@ export interface UiStateConfig {
   tab_bar_visible: boolean;
   pinned_tabs: string[];
   workspace_cwd?: string;
+  project_dir?: string;
 }
 
 export interface AppConfig {
@@ -211,8 +212,8 @@ export const system = {
     invoke<{ git_branch: string | null }>("get_cwd_info", { cwd }),
   getGitBranch: (cwd: string) =>
     invoke<string | null>("get_git_branch", { cwd }),
-  getGitLog: (cwd: string, maxCount?: number) =>
-    invoke<GitLogResult>("get_git_log", { cwd, maxCount }),
+  getGitLog: (cwd: string, maxCount?: number, skip?: number) =>
+    invoke<GitLogResult>("get_git_log", { cwd, maxCount, skip }),
   getGitFileLog: (cwd: string, filePath: string) =>
     invoke<GitLogResult>("get_git_file_log", { cwd, filePath }),
   getGitGraph: (cwd: string) =>

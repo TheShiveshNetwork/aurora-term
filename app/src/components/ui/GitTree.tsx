@@ -2,10 +2,14 @@ import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { system, type GitLogResult, type ChangedFile } from "../../lib/ipc";
 import { useAppShellStore } from "../../stores/useAppShellStore";
 import { useSessionStore } from "../../stores/useSessionStore";
+import { useGitStore } from "../../stores/useGitStore";
 import { relativeDate } from "../../lib/time";
 import { getFileDiffAtCommit, openDiffTab } from "../../lib/gitUtils";
 import { LoadingSpinner } from "./LoadingSpinner";
 import { ScrollLoader } from "./ScrollLoader";
+
+// Module-level dedup lock — prevents two GitTree instances from fetching simultaneously for the same cwd
+const inflightFetches = new Map<string, Promise<GitLogResult>>();
 
 // ─── constants ────────────────────────────────────────────────────────────────
 const BRANCH_COLORS = [
@@ -64,14 +68,20 @@ function buildGraphData(data: GitLogResult): GraphData {
     (branchByHash[b.commit_hash] ??= []).push(b.name);
   }
 
-  // colour per branch — main always gets index 0
+  // colour per branch — main/master gets amber, current branch gets purple
+  const mainBranchName = branches.find(b => /^main$|^master$/.test(b.name))?.name;
+  const upstreamName = mainBranchName || currentBranch;
   const branchColors: Record<string, string> = {};
-  branchColors[currentBranch] = BRANCH_COLORS[0];
+  branchColors[upstreamName] = BRANCH_COLORS[0];
   let ci = 1;
   for (const b of branches) {
     if (!branchColors[b.name]) {
-      branchColors[b.name] = BRANCH_COLORS[ci % BRANCH_COLORS.length];
-      ci++;
+      if (b.name === currentBranch && b.name !== upstreamName) {
+        branchColors[b.name] = "#9A7CFF";
+      } else {
+        branchColors[b.name] = BRANCH_COLORS[ci % BRANCH_COLORS.length];
+        ci++;
+      }
     }
   }
 
@@ -100,7 +110,6 @@ function buildGraphData(data: GitLogResult): GraphData {
   // ── unpushed detection ──────────────────────────────────────────────────
   // Commits on the current branch that are NOT reachable from main/master
   // get colored purple to distinguish them as unpushed work.
-  const mainBranchName = branches.find(b => /^main$|^master$/.test(b.name))?.name;
   let unpushedSet = new Set<string>();
   if (mainBranchName && mainBranchName !== currentBranch) {
     const mainBranchTip = branches.find(b => b.name === mainBranchName)?.commit_hash;
@@ -375,7 +384,8 @@ export function GitTree({ variant = "compact" }: GitTreeProps) {
 
   const INITIAL_COUNT = 100;
   const PAGE_SIZE = 100;
-  const maxCountRef = useRef(INITIAL_COUNT);
+  const dataRef = useRef(data);
+  dataRef.current = data;
 
   const [copiedHash, setCopiedHash] = useState<string | null>(null);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -388,45 +398,62 @@ export function GitTree({ variant = "compact" }: GitTreeProps) {
   }, []);
 
   const rootRef = useRef<HTMLDivElement>(null);
-  const fetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const cwdAbsolute = useAppShellStore((s) => s.cwdAbsolute);
+  const fetchKeyRef = useRef(0);
+  const cwdAbsolute = useAppShellStore((s) => s.projectDir || s.cwdAbsolute);
+  const gitLogVersion = useGitStore((s) => s.gitLogVersion[cwdAbsolute] || 0);
   const addTab = useSessionStore((s) => s.addTab);
   const setActiveTabId = useSessionStore((s) => s.setActiveTabId);
 
-  // ── fetch log ──────────────────────────────────────────────────────────────
+  // ── auto-fetch on mount with shared cache + dedup ─────────────────────────
   const fetchLog = useCallback(async () => {
     if (!cwdAbsolute) return;
+    const key = ++fetchKeyRef.current;
+    // Check shared store cache first (30s TTL)
+    const cached = useGitStore.getState().getGitLog(cwdAbsolute);
+    if (cached) { setData(cached); return; }
     setLoading(true);
     setError(null);
-    maxCountRef.current = INITIAL_COUNT;
     try {
-      const result = await system.getGitLog(cwdAbsolute, INITIAL_COUNT);
+      // Dedup: if another GitTree instance is already fetching for this cwd, wait on it
+      if (!inflightFetches.has(cwdAbsolute)) {
+        inflightFetches.set(
+          cwdAbsolute,
+          system.getGitLog(cwdAbsolute, INITIAL_COUNT, 0),
+        );
+      }
+      const result = await inflightFetches.get(cwdAbsolute)!;
+      // Only update if we're still the active fetch
+      if (key !== fetchKeyRef.current) return;
+      useGitStore.getState().setGitLog(cwdAbsolute, result);
       setData(result);
     } catch (e) {
-      setError(String(e));
+      if (key === fetchKeyRef.current) setError(String(e));
     } finally {
-      setLoading(false);
+      inflightFetches.delete(cwdAbsolute);
+      if (key === fetchKeyRef.current) setLoading(false);
     }
   }, [cwdAbsolute]);
 
-  useEffect(() => {
-    if (fetchTimer.current) clearTimeout(fetchTimer.current);
-    fetchTimer.current = setTimeout(fetchLog, 150);
-    return () => { if (fetchTimer.current) clearTimeout(fetchTimer.current); };
-  }, [fetchLog]);
+  useEffect(() => { fetchLog(); }, [fetchLog, gitLogVersion]);
 
-  // ── scroll-based loading ────────────────────────────────────────────────────
+  // ── scroll-based loading (incremental, appends not replaces) ───────────────
   const fetchMore = useCallback(async () => {
-    if (!cwdAbsolute || !data?.has_more || loadingMore) return;
+    const d = dataRef.current;
+    if (!cwdAbsolute || !d?.has_more || loadingMore) return;
     setLoadingMore(true);
-    maxCountRef.current += PAGE_SIZE;
+    const skip = d.commits.length;
     try {
-      const result = await system.getGitLog(cwdAbsolute, maxCountRef.current);
-      setData(result);
+      const result = await system.getGitLog(cwdAbsolute, PAGE_SIZE, skip);
+      const updated = {
+        ...d,
+        commits: [...d.commits, ...result.commits],
+        has_more: result.has_more,
+      };
+      setData(updated);
+      useGitStore.getState().setGitLog(cwdAbsolute, updated);
     } catch { /* keep existing data */ }
     finally { setLoadingMore(false); }
-  }, [cwdAbsolute, data?.has_more, loadingMore]);
+  }, [cwdAbsolute, loadingMore]);
 
 
 

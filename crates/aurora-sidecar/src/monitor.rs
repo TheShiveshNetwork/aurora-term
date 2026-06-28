@@ -33,6 +33,16 @@ pub fn start_monitor(
             // Intentional kill signal — manager called kill() or Drop
             _ = &mut kill_receiver => {
                 tracing::info!("aurora-agent sidecar: kill signal received, terminating");
+                #[cfg(target_os = "windows")]
+                {
+                    if let Some(pid) = child.id() {
+                        let mut kill_cmd = tokio::process::Command::new("taskkill");
+                        kill_cmd.args(["/F", "/T", "/PID", &pid.to_string()]);
+                        kill_cmd.stdout(std::process::Stdio::null());
+                        kill_cmd.stderr(std::process::Stdio::null());
+                        let _ = kill_cmd.status().await;
+                    }
+                }
                 let _ = child.kill().await;
                 let _ = child.wait().await;
             }

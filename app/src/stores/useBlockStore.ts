@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import { Block } from "@aurora/types";
 
+const runningOutputs = new Map<string, string>();
+
 interface BlockStore {
   blocks: Record<string, Block[]>; // keyed by session_id
   runningBlockId: Record<string, string | null>; // keyed by session_id
@@ -64,28 +66,20 @@ export const useBlockStore = create<BlockStore>((set) => ({
     })),
     
   setCommandOutputReceived: (sessionId, received) =>
-    set((state) => ({
-      commandOutputReceived: {
-        ...state.commandOutputReceived,
-        [sessionId]: received,
-      },
-    })),
-    
-  appendBlockOutput: (sessionId, blockId, chunk) =>
     set((state) => {
-      const sessionBlocks = state.blocks[sessionId] || [];
-      const updated = sessionBlocks.map((b) =>
-        b.id === blockId
-          ? { ...b, output_summary: (b.output_summary || "") + chunk }
-          : b
-      );
+      if (state.commandOutputReceived[sessionId] === received) return state;
       return {
-        blocks: {
-          ...state.blocks,
-          [sessionId]: updated,
+        commandOutputReceived: {
+          ...state.commandOutputReceived,
+          [sessionId]: received,
         },
       };
     }),
+    
+  appendBlockOutput: (sessionId, blockId, chunk) => {
+    const current = runningOutputs.get(blockId) || "";
+    runningOutputs.set(blockId, current + chunk);
+  },
     
   setAIExplain: (sessionId, blockId, explain) =>
     set((state) => {
@@ -194,6 +188,8 @@ export const useBlockStore = create<BlockStore>((set) => ({
   finalizeBlock: (sessionId, blockId, exitCode) => {
     set((state) => {
       const sessionBlocks = state.blocks[sessionId] || [];
+      const outputSummary = runningOutputs.get(blockId) || "";
+      runningOutputs.delete(blockId);
       const updated = sessionBlocks.map((b) =>
         b.id === blockId
           ? {
@@ -201,6 +197,7 @@ export const useBlockStore = create<BlockStore>((set) => ({
               exit_code: exitCode,
               status: (exitCode === 0 ? "success" : "error") as Block["status"],
               finished_at: Date.now(),
+              output_summary: outputSummary,
             }
           : b
       );
@@ -220,17 +217,24 @@ export const useBlockStore = create<BlockStore>((set) => ({
   setAnchorY: (sessionId, anchors) => {
     set((state) => {
       const sessionBlocks = state.blocks[sessionId] || [];
+      let changed = false;
       const updated = sessionBlocks.map((b) => {
         const coords = anchors[b.id];
         if (coords) {
-          return {
-            ...b,
-            anchor_y: coords.y,
-            output_height_px: coords.height ?? b.output_height_px,
-          };
+          const nextY = coords.y;
+          const nextHeight = coords.height ?? b.output_height_px;
+          if (b.anchor_y !== nextY || b.output_height_px !== nextHeight) {
+            changed = true;
+            return {
+              ...b,
+              anchor_y: nextY,
+              output_height_px: nextHeight,
+            };
+          }
         }
         return b;
       });
+      if (!changed) return state;
       return {
         blocks: {
           ...state.blocks,

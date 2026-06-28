@@ -10,7 +10,7 @@ export function FileTimeline({ filePath }: { filePath?: string }) {
   const [data, setData] = useState<GitLogResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const cwdAbsolute = useAppShellStore((s) => s.cwdAbsolute);
+  const cwdAbsolute = useAppShellStore((s) => s.projectDir || s.cwdAbsolute);
   const addTab = useSessionStore((s) => s.addTab);
   const setActiveTabId = useSessionStore((s) => s.setActiveTabId);
 

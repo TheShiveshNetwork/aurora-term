@@ -74,3 +74,11 @@ impl GitWatcher {
         lock.remove(cwd);
     }
 }
+
+impl Drop for GitWatcher {
+    fn drop(&mut self) {
+        if let Ok(watchers) = self.watchers.get_mut() {
+            watchers.clear();
+        }
+    }
+}

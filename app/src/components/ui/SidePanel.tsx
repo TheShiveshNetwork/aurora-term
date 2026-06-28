@@ -709,30 +709,8 @@ export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab, onAddTab 
   }, []);
 
   useEffect(() => {
-    system.getCwd().then((dir) => { setResolvedCwd(dir); loadTree(dir); }).catch(console.error);
-  }, [loadTree]);
-
-  useEffect(() => {
-    if (!cwd || pathsEqual(cwd, resolvedCwd)) return;
-    setResolvedCwd(cwd); loadTree(cwd);
-  }, [cwd, resolvedCwd, loadTree]);
-
-  const loadTreeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const { path } = (e as CustomEvent<{ path: string }>).detail;
-      if (!path || pathsEqual(path, resolvedCwd)) return;
-      if (loadTreeDebounceRef.current) clearTimeout(loadTreeDebounceRef.current);
-      loadTreeDebounceRef.current = setTimeout(() => {
-        setResolvedCwd(path); loadTree(path);
-      }, 300);
-    };
-    window.addEventListener("cwd-change", handler);
-    return () => {
-      window.removeEventListener("cwd-change", handler);
-      if (loadTreeDebounceRef.current) clearTimeout(loadTreeDebounceRef.current);
-    };
-  }, [resolvedCwd, loadTree]);
+    if (cwd) { setResolvedCwd(cwd); loadTree(cwd); }
+  }, [cwd, loadTree]);
 
   useEffect(() => {
     if (!resolvedCwd) return;

@@ -104,7 +104,7 @@ export function AppHeader({
       id="aurora-tab-bar"
       ref={headerRef}
       data-tauri-drag-region
-      className="flex items-center w-full pl-3 py-0 h-auto z-50 select-none gap-3 shrink-0"
+      className="grid grid-cols-[1fr_minmax(0,400px)_1fr] items-center w-full pl-3 py-0 h-auto z-50 select-none gap-3 shrink-0"
       style={{
         background: "#0A0D14",
         borderBottom: "1px solid rgba(255,255,255,0.05)",
@@ -117,7 +117,7 @@ export function AppHeader({
             <button
               data-tauri-no-drag
               onClick={(event) => { event.stopPropagation(); onToggleMenu(); }}
-              className="flex items-center justify-center w-8 h-8 rounded-[10px] cursor-pointer select-none transition-colors"
+              className="flex items-center justify-center w-8 h-8 rounded-[10px] cursor-pointer select-none transition-colors my-1"
               style={{
                 background: menuOpen ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.04)",
                 border: menuOpen ? "1px solid rgba(79,140,255,0.20)" : "1px solid rgba(255,255,255,0.07)",
@@ -202,86 +202,93 @@ export function AppHeader({
           </>
         )}
 
-        {/* View mode toggle */}
-        <div
-          className="flex items-center gap-0.5 ml-1 p-0.5 rounded-[12px]"
-          style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.05)" }}
-        >
-          <ViewButton active={viewMode === "terminal"} onClick={onShowTerminalView} title="Terminal View">
-            <SquareTerminal size={13} />
-          </ViewButton>
-          <ViewButton active={viewMode === "file"} onClick={onShowFileView} title="Workspace View">
-            <FolderOpen size={13} />
-          </ViewButton>
-          <ViewButton active={viewMode === "agent"} onClick={onShowAgentView} title="Agent View">
-            <Command size={13} />
-          </ViewButton>
-        </div>
-
-        <IconBtn onClick={onOpenGitView} title={"Open Git View"} active={gitViewActive}>
-          <GitBranch size={14} />
-        </IconBtn>
-      </div>
-
-      {/* ── Center: search bar ── */}
-      <SearchBar collapsed={searchCollapsed} cwdAbsolute={cwdAbsolute} onOpenFileAtPath={onOpenFileAtPath} />
-
-      {/* ── Right: panel toggles + pin + settings + avatar + window controls ── */}
-      <div id="header-right" data-tauri-no-drag className="flex items-center gap-0.5 py-1">
-        {!isStandalone && (
+        {!noFolder && (
           <>
-            <IconBtn onClick={onToggleSidebar} title={sidebarCollapsed ? "Show Sidebar" : "Hide Sidebar"}>
-              {sidebarCollapsed ? <PanelLeft size={14} /> : <PanelLeftClose size={14} />}
-            </IconBtn>
+            {/* View mode toggle */}
+            <div
+              className="flex items-center gap-0.5 ml-1 p-0.5 rounded-[12px]"
+              style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.05)" }}
+            >
+              <ViewButton active={viewMode === "terminal"} onClick={onShowTerminalView} title="Terminal View">
+                <SquareTerminal size={13} />
+              </ViewButton>
+              <ViewButton active={viewMode === "file"} onClick={onShowFileView} title="Workspace View">
+                <FolderOpen size={13} />
+              </ViewButton>
+              <ViewButton active={viewMode === "agent"} onClick={onShowAgentView} title="Agent View">
+                <Command size={13} />
+              </ViewButton>
+            </div>
 
-            <IconBtn onClick={onToggleAgentOverlay} title={agentOverlayOpen ? "Hide Agent Panel" : "Show Agent Panel"}>
-              {agentOverlayOpen ? <PanelRightClose size={14} /> : <PanelRight size={14} />}
-            </IconBtn>
-
-            <IconBtn onClick={onToggleChatInput} title={chatInputOpen ? "Hide Chat Input" : "Show Chat Input"}>
-              {chatInputOpen ? <PanelBottomClose size={14} /> : <PanelBottom size={14} />}
+            <IconBtn onClick={onOpenGitView} title={"Open Git View"} active={gitViewActive}>
+              <GitBranch size={14} />
             </IconBtn>
           </>
         )}
-
-        {viewMode !== "agent" && <div className="w-px h-5 mx-1" style={{ background: "rgba(255,255,255,0.06)" }} />}
-
-        {viewMode !== "agent" && !isStandalone && (
-          <IconBtn
-            onClick={onToggleTabBar}
-            title={tabBarVisible ? "Hide Tab Bar" : "Show Tab Bar"}
-            active={!tabBarVisible}
-          >
-            {tabBarVisible ? <PinIcon size={13} /> : <PinOff size={13} />}
-          </IconBtn>
-        )}
-
-        {!isStandalone && (
-          <div className="w-px h-5 mx-1" style={{ background: "rgba(255,255,255,0.06)" }} />
-        )}
-
-        <IconBtn onClick={onOpenSettings} title="Settings">
-          <Settings size={14} />
-        </IconBtn>
-
-        <button
-          data-tauri-no-drag
-          className="p-0.5 rounded-full transition-all cursor-pointer mr-1 ml-0.5"
-          style={{ outline: "1px solid rgba(154,124,255,0.2)" }}
-          onMouseEnter={(e) => (e.currentTarget.style.outline = "2px solid rgba(154,124,255,0.35)")}
-          onMouseLeave={(e) => (e.currentTarget.style.outline = "1px solid rgba(154,124,255,0.2)")}
-        >
-          <div
-            className="w-7 h-7 rounded-full flex items-center justify-center"
-            style={{ background: "rgba(154,124,255,0.12)", color: "#9A7CFF" }}
-          >
-            <User size={13} />
-          </div>
-        </button>
       </div>
 
-      <div id="window-controls" className="flex items-center shrink-0 ml-auto">
-        <WindowControls />
+      {/* ── Center: search bar ── */}
+      <div className="flex justify-center min-w-0">
+        <SearchBar collapsed={searchCollapsed} cwdAbsolute={cwdAbsolute} onOpenFileAtPath={onOpenFileAtPath} />
+      </div>
+
+      {/* ── Right: panel toggles + pin + settings + avatar + window controls ── */}
+      <div className="flex items-center justify-end gap-0.5 shrink-0">
+        <div id="header-right" data-tauri-no-drag className="flex items-center gap-0.5 py-1">
+          {!noFolder && !isStandalone && (
+            <>
+              <IconBtn onClick={onToggleSidebar} title={sidebarCollapsed ? "Show Sidebar" : "Hide Sidebar"}>
+                {sidebarCollapsed ? <PanelLeft size={14} /> : <PanelLeftClose size={14} />}
+              </IconBtn>
+
+              <IconBtn onClick={onToggleAgentOverlay} title={agentOverlayOpen ? "Hide Agent Panel" : "Show Agent Panel"}>
+                {agentOverlayOpen ? <PanelRightClose size={14} /> : <PanelRight size={14} />}
+              </IconBtn>
+
+              <IconBtn onClick={onToggleChatInput} title={chatInputOpen ? "Hide Chat Input" : "Show Chat Input"}>
+                {chatInputOpen ? <PanelBottomClose size={14} /> : <PanelBottom size={14} />}
+              </IconBtn>
+            </>
+          )}
+
+          {!noFolder && viewMode !== "agent" && <div className="w-px h-5 mx-1" style={{ background: "rgba(255,255,255,0.06)" }} />}
+
+          {!noFolder && viewMode !== "agent" && !isStandalone && (
+            <IconBtn
+              onClick={onToggleTabBar}
+              title={tabBarVisible ? "Hide Tab Bar" : "Show Tab Bar"}
+              active={!tabBarVisible}
+            >
+              {tabBarVisible ? <PinIcon size={13} /> : <PinOff size={13} />}
+            </IconBtn>
+          )}
+
+          {!noFolder && !isStandalone && (
+            <div className="w-px h-5 mx-1" style={{ background: "rgba(255,255,255,0.06)" }} />
+          )}
+
+          <IconBtn onClick={onOpenSettings} title="Settings">
+            <Settings size={14} />
+          </IconBtn>
+
+          <button
+            data-tauri-no-drag
+            className="p-0.5 rounded-full transition-all cursor-pointer mr-1 ml-0.5"
+            style={{ outline: "1px solid rgba(154,124,255,0.2)" }}
+            onMouseEnter={(e) => (e.currentTarget.style.outline = "2px solid rgba(154,124,255,0.35)")}
+            onMouseLeave={(e) => (e.currentTarget.style.outline = "1px solid rgba(154,124,255,0.2)")}
+          >
+            <div
+              className="w-7 h-7 rounded-full flex items-center justify-center"
+              style={{ background: "rgba(154,124,255,0.12)", color: "#9A7CFF" }}
+            >
+              <User size={13} />
+            </div>
+          </button>
+        </div>
+        <div id="window-controls" className="flex h-full items-center shrink-0">
+          <WindowControls />
+        </div>
       </div>
     </header>
   );

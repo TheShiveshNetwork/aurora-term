@@ -11,6 +11,7 @@ pub struct SidecarManager {
     kill_sender: Arc<Mutex<Option<oneshot::Sender<()>>>>,
     port: Option<u16>,
     config_path: Option<PathBuf>,
+    child_pid: Option<u32>,
 }
 
 impl Default for SidecarManager {
@@ -25,6 +26,7 @@ impl SidecarManager {
             kill_sender: Arc::new(Mutex::new(None)),
             port: None,
             config_path: None,
+            child_pid: None,
         }
     }
 
@@ -85,6 +87,7 @@ impl SidecarManager {
             .map_err(|e| AppError::Sidecar(format!("Failed to spawn aurora-agent serve: {}", e)))?;
         let _ = std::fs::write("d:/builds/aurora/sidecar_status.log", "SidecarManager::spawn: command spawned successfully");
 
+        self.child_pid = child.id();
         self.port = Some(port);
         self.config_path = None;
 
@@ -144,6 +147,16 @@ impl SidecarManager {
 
     /// Kill the sidecar process by signalling the monitor (which owns the child).
     pub async fn kill(&mut self) -> Result<(), AppError> {
+        #[cfg(target_os = "windows")]
+        {
+            if let Some(pid) = self.child_pid.take() {
+                let mut kill_cmd = std::process::Command::new("taskkill");
+                kill_cmd.args(["/F", "/T", "/PID", &pid.to_string()]);
+                kill_cmd.stdout(std::process::Stdio::null());
+                kill_cmd.stderr(std::process::Stdio::null());
+                let _ = kill_cmd.status();
+            }
+        }
         {
             let mut lock = self.kill_sender.lock().await;
             if let Some(sender) = lock.take() {

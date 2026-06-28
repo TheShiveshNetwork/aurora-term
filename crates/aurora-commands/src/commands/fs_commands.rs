@@ -468,3 +468,12 @@ pub fn watch_git(
 
     Ok(())
 }
+
+#[command]
+pub fn unwatch_git(
+    state: tauri::State<'_, AppState>,
+    cwd: String,
+) -> Result<(), String> {
+    state.git_watcher.stop_watching(&cwd);
+    Ok(())
+}

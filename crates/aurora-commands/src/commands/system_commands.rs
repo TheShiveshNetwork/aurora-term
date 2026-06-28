@@ -148,38 +148,61 @@ fn run_git(args: &[&str], cwd: Option<&str>) -> Result<String, AppError> {
 }
 
 #[command]
-pub async fn get_git_log(cwd: String, max_count: Option<u32>) -> Result<GitLogResult, AppError> {
+pub async fn get_git_log(cwd: String, max_count: Option<u32>, skip: Option<u32>) -> Result<GitLogResult, AppError> {
     let request_count = max_count.unwrap_or(500);
     let fetch_count = request_count + 1;
     let limit_str = fetch_count.to_string();
+    let skip_val = skip.unwrap_or(0);
+    let is_initial = skip_val == 0;
 
-    // Spawn all 4 git processes concurrently — cuts latency by ~75%
+    // Build log args with optional skip for incremental pagination
     let cc1 = cwd.clone(); let ls = limit_str.clone();
     let log_h = tokio::task::spawn_blocking(move || {
-        run_git(&["log", "--all", "--format=%H|||%P|||%an|||%ai|||%s", "--max-count", &ls], Some(&cc1))
+        if skip_val > 0 {
+            run_git(&[
+                "log", "--all", "--format=%H|||%P|||%an|||%ai|||%s",
+                "--skip", &skip_val.to_string(),
+                "--max-count", &ls,
+            ], Some(&cc1))
+        } else {
+            run_git(&[
+                "log", "--all", "--format=%H|||%P|||%an|||%ai|||%s",
+                "--max-count", &ls,
+            ], Some(&cc1))
+        }
     });
 
-    let cc2 = cwd.clone();
-    let branch_h = tokio::task::spawn_blocking(move || {
-        run_git(&["branch", "--format=%(refname:short)|||%(objectname)"], Some(&cc2))
-    });
+    // Only fetch refs on initial load — subsequent pages only need commits
+    let branch_h = if is_initial {
+        let cc2 = cwd.clone();
+        Some(tokio::task::spawn_blocking(move || {
+            run_git(&["branch", "--format=%(refname:short)|||%(objectname)"], Some(&cc2))
+        }))
+    } else {
+        None
+    };
 
-    let cc3 = cwd.clone();
-    let tag_h = tokio::task::spawn_blocking(move || {
-        run_git(&["tag", "--format=%(refname:short)|||%(objectname)"], Some(&cc3))
-    });
+    let tag_h = if is_initial {
+        let cc3 = cwd.clone();
+        Some(tokio::task::spawn_blocking(move || {
+            run_git(&["tag", "--format=%(refname:short)|||%(objectname)"], Some(&cc3))
+        }))
+    } else {
+        None
+    };
 
-    let cc4 = cwd.clone();
-    let branch_current_h = tokio::task::spawn_blocking(move || {
-        let out = run_git(&["rev-parse", "--abbrev-ref", "HEAD"], Some(&cc4)).ok()?;
-        let trimmed = out.trim().to_string();
-        if trimmed.is_empty() || trimmed == "HEAD" { None } else { Some(trimmed) }
-    });
+    let branch_current_h = if is_initial {
+        let cc4 = cwd.clone();
+        Some(tokio::task::spawn_blocking(move || {
+            let out = run_git(&["rev-parse", "--abbrev-ref", "HEAD"], Some(&cc4)).ok()?;
+            let trimmed = out.trim().to_string();
+            if trimmed.is_empty() || trimmed == "HEAD" { None } else { Some(trimmed) }
+        }))
+    } else {
+        None
+    };
 
     let log_output = log_h.await.map_err(|e| AppError::Io(e.to_string()))??;
-    let branch_output = branch_h.await.map_err(|e| AppError::Io(e.to_string()))??;
-    let tag_output = tag_h.await.map_err(|e| AppError::Io(e.to_string()))??;
-    let current_branch = branch_current_h.await.map_err(|e| AppError::Io(e.to_string()))?;
 
     let mut commits = Vec::new();
     for line in log_output.lines() {
@@ -206,29 +229,39 @@ pub async fn get_git_log(cwd: String, max_count: Option<u32>) -> Result<GitLogRe
         commits.truncate(request_count as usize);
     }
 
-    let mut branches = Vec::new();
-    for line in branch_output.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() { continue; }
-        let parts: Vec<&str> = trimmed.split("|||").collect();
-        if parts.len() < 2 { continue; }
-        branches.push(GitRef {
-            name: parts[0].to_string(),
-            commit_hash: parts[1].to_string(),
-        });
-    }
+    let (branches, tags, current_branch) = if is_initial {
+        let branch_output = branch_h.unwrap().await.map_err(|e| AppError::Io(e.to_string()))??;
+        let tag_output = tag_h.unwrap().await.map_err(|e| AppError::Io(e.to_string()))??;
+        let cb = branch_current_h.unwrap().await.map_err(|e| AppError::Io(e.to_string()))?;
 
-    let mut tags = Vec::new();
-    for line in tag_output.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() { continue; }
-        let parts: Vec<&str> = trimmed.split("|||").collect();
-        if parts.len() < 2 { continue; }
-        tags.push(GitRef {
-            name: parts[0].to_string(),
-            commit_hash: parts[1].to_string(),
-        });
-    }
+        let mut branches = Vec::new();
+        for line in branch_output.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() { continue; }
+            let parts: Vec<&str> = trimmed.split("|||").collect();
+            if parts.len() < 2 { continue; }
+            branches.push(GitRef {
+                name: parts[0].to_string(),
+                commit_hash: parts[1].to_string(),
+            });
+        }
+
+        let mut tags = Vec::new();
+        for line in tag_output.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() { continue; }
+            let parts: Vec<&str> = trimmed.split("|||").collect();
+            if parts.len() < 2 { continue; }
+            tags.push(GitRef {
+                name: parts[0].to_string(),
+                commit_hash: parts[1].to_string(),
+            });
+        }
+
+        (branches, tags, cb)
+    } else {
+        (Vec::new(), Vec::new(), None)
+    };
 
     Ok(GitLogResult {
         commits,
@@ -403,7 +436,7 @@ pub struct GitStatusEntry {
 pub async fn git_status(cwd: String) -> Result<Vec<GitStatusEntry>, AppError> {
     tokio::task::spawn_blocking(move || {
         let output = run_git_strict(&[
-            "status", "--porcelain", "-u",
+            "status", "--porcelain",
         ], Some(&cwd))?;
         let mut entries = Vec::new();
         for line in output.lines() {
@@ -733,19 +766,21 @@ pub fn get_current_pwd() -> Result<String, String> {
 static COMMANDS_CACHE: Mutex<Option<(Vec<String>, Instant)>> = Mutex::new(None);
 
 #[command]
-pub fn get_available_commands() -> Vec<String> {
+pub async fn get_available_commands() -> Result<Vec<String>, AppError> {
     if let Ok(cache) = COMMANDS_CACHE.lock() {
         if let Some((cmds, time)) = cache.as_ref() {
-            if time.elapsed() < Duration::from_secs(60) {
-                return cmds.clone();
+            if time.elapsed() < Duration::from_secs(600) {
+                return Ok(cmds.clone());
             }
         }
     }
-    let result = scan_path_commands();
+    let result = tokio::task::spawn_blocking(scan_path_commands)
+        .await
+        .map_err(|e| AppError::Io(format!("Failed to spawn path scanning task: {}", e)))?;
     if let Ok(mut cache) = COMMANDS_CACHE.lock() {
         *cache = Some((result.clone(), Instant::now()));
     }
-    result
+    Ok(result)
 }
 
 fn scan_path_commands() -> Vec<String> {

@@ -24,6 +24,8 @@ interface AppShellStore {
   pendingCloseTabId: string | null;
   lastActiveTerminalId: string | null;
   lastActiveFileId: string | null;
+  projectDir: string;
+  projectDirLabel: string;
   cwd: string;
   cwdAbsolute: string;
   sessionCwds: Record<string, string>;
@@ -50,6 +52,7 @@ interface AppShellStore {
   setPendingCloseTabId: (tabId: string | null) => void;
   setLastActiveTerminalId: (tabId: string | null) => void;
   setLastActiveFileId: (tabId: string | null) => void;
+  setProjectDir: (path: string) => void;
   setCwd: (cwd: string) => void;
   setCwdAbsolute: (cwdAbsolute: string) => void;
   setWorkspaceCwd: (cwdAbsolute: string) => void;
@@ -83,6 +86,8 @@ export const useAppShellStore = create<AppShellStore>((set) => ({
   pendingCloseTabId: null,
   lastActiveTerminalId: null,
   lastActiveFileId: null,
+  projectDir: "",
+  projectDirLabel: "",
   cwd: "~/workspace",
   cwdAbsolute: "",
   sessionCwds: {},
@@ -115,6 +120,10 @@ export const useAppShellStore = create<AppShellStore>((set) => ({
   setPendingCloseTabId: (pendingCloseTabId) => set({ pendingCloseTabId }),
   setLastActiveTerminalId: (lastActiveTerminalId) => set({ lastActiveTerminalId }),
   setLastActiveFileId: (lastActiveFileId) => set({ lastActiveFileId }),
+  setProjectDir: (path) => set({
+    projectDir: path,
+    projectDirLabel: path ? workspaceLabel(path) : "",
+  }),
   setCwd: (cwd) => set({ cwd }),
   setCwdAbsolute: (cwdAbsolute) => set({ cwdAbsolute }),
   setWorkspaceCwd: (cwdAbsolute) =>

@@ -1,6 +1,5 @@
-﻿import React, { useRef, useState, useCallback, useEffect } from "react";
+import React, { useRef, useState, useCallback, useEffect } from "react";
 import { Terminal, FileText, Plus, X, Copy, Pin, Edit3, XCircle, Trash2, ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, ExternalLink, GitBranch, GitBranchPlus } from "lucide-react";
-import { useSessionStore } from "../../stores/useSessionStore";
 import { useOpenTabs, EDITOR_LIKE_TYPES } from "../../hooks/useOpenTabs";
 import { Tab } from "@aurora/types";
 import { MenuView, MenuViewItem, MenuViewSeparator } from "./MenuView";
@@ -16,8 +15,7 @@ interface TabBarProps {
 }
 
 export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplicateTab }: TabBarProps) {
-  const { tabs: rawTabs, activeTabId, setActiveTabId, reorderTabs, updateTab } = useSessionStore();
-  const { tabs: sortedTabs } = useOpenTabs();
+  const { tabs: sortedTabs, rawTabs, activeTabId, setActiveTabId, reorderTabs, updateTab } = useOpenTabs();
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [overIdx, setOverIdx] = useState<number | null>(null);
   const [dropIndicator, setDropIndicator] = useState<{ left: number } | null>(null);

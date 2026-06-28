@@ -8,6 +8,8 @@ import { useSessionStore } from "../stores/useSessionStore";
 import { Tab } from "@aurora/types";
 import { Block } from "@aurora/types";
 
+const EMPTY_BLOCKS: Block[] = [];
+
 export function useCommandExecution(tabs: Tab[], activeTabId: string | null) {
   const commandInputs = useAppShellStore((state) => state.commandInputs);
   const shellHistory = useAppShellStore((state) => state.shellHistory);
@@ -32,10 +34,7 @@ export function useCommandExecution(tabs: Tab[], activeTabId: string | null) {
 
   const activeCommandInput = activeTabId ? commandInputs[activeTabId] ?? "" : "";
   
-  const activeTabBlocks = useMemo(() => {
-    if (!targetSessionId) return [];
-    return useBlockStore.getState().blocks[targetSessionId] || [];
-  }, [targetSessionId]);
+  const activeTabBlocks = useBlockStore(useCallback((state) => (targetSessionId ? state.blocks[targetSessionId] : undefined) || EMPTY_BLOCKS, [targetSessionId]));
 
   const activeRunningBlock = useMemo(() => {
     if (!activeRunningBlockId) return null;
@@ -93,7 +92,7 @@ export function useCommandExecution(tabs: Tab[], activeTabId: string | null) {
       window.dispatchEvent(new CustomEvent("terminal-clear", { detail: { sessionId: targetId } }));
 
       const isWindows = window.navigator.userAgent.toLowerCase().includes("windows");
-      const clearCommand = isWindows ? "cls\r\n" : "clear\r\n";
+      const clearCommand = isWindows ? "cls\r" : "clear\r";
       await pty.write(targetId, clearCommand);
       return;
     }

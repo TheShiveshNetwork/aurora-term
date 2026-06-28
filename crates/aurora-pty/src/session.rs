@@ -9,11 +9,11 @@ use aurora_core::AppError;
 #[derive(Debug, Clone, Serialize)]
 pub enum PtyEvent {
     Data {
-        session_id: String,
+        session_id: std::sync::Arc<str>,
         data: String,
     },
     Exit {
-        session_id: String,
+        session_id: std::sync::Arc<str>,
         exit_code: i32,
     },
 }
@@ -71,11 +71,12 @@ pub fn start_reader_loop(
 ) {
     tokio::task::spawn_blocking(move || {
         let mut buf = [0u8; 4096];
+        let session_id_arc: std::sync::Arc<str> = session_id.into();
         loop {
             match reader.read(&mut buf) {
                 Ok(0) | Err(_) => {
                     let _ = sender.send(PtyEvent::Exit {
-                        session_id: session_id.clone(),
+                        session_id: session_id_arc.clone(),
                         exit_code: 0,
                     });
                     break;
@@ -83,7 +84,7 @@ pub fn start_reader_loop(
                 Ok(n) => {
                     let data = String::from_utf8_lossy(&buf[..n]).to_string();
                     let _ = sender.send(PtyEvent::Data {
-                        session_id: session_id.clone(),
+                        session_id: session_id_arc.clone(),
                         data,
                     });
                 }

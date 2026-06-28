@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useSessionStore } from "../stores/useSessionStore";
 import type { Tab } from "@aurora/types";
 
@@ -16,15 +17,18 @@ export function useOpenTabs() {
   const reorderTabs = useSessionStore((s) => s.reorderTabs);
   const updateTab = useSessionStore((s) => s.updateTab);
 
-  const sortedTabs = [...tabs].sort((a, b) => {
-    if (a.pinned && !b.pinned) return -1;
-    if (!a.pinned && b.pinned) return 1;
-    return 0;
-  });
+  const sortedTabs = useMemo(() => {
+    return [...tabs].sort((a, b) => {
+      if (a.pinned && !b.pinned) return -1;
+      if (!a.pinned && b.pinned) return 1;
+      return 0;
+    });
+  }, [tabs]);
 
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? null;
 
   return {
+    rawTabs: tabs,
     tabs: sortedTabs,
     activeTabId,
     activeTab,

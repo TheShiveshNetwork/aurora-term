@@ -41,6 +41,9 @@ export default defineConfig(async () => ({
           if (id.includes("@xterm") || id.includes("xterm")) {
             return "xterm";
           }
+          if (id.includes("codemirror") || id.includes("@codemirror") || id.includes("@uiw/codemirror") || id.includes("@replit/codemirror")) {
+            return "codemirror";
+          }
         },
       },
     },

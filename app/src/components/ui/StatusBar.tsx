@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Cpu, GitBranch, Wifi, WifiOff, Copy, Folder } from "lucide-react";
 import { useAIStore } from "../../stores/useAIStore";
+import { useAppShellStore } from "../../stores/useAppShellStore";
+import { useShallow } from "zustand/react/shallow";
 import { system } from "../../lib/ipc";
 import { useSessionStore } from "../../stores/useSessionStore";
 
@@ -52,9 +54,17 @@ function Tooltip({ children, show, className = "" }: { children: React.ReactNode
   ) : null;
 }
 
-export function StatusBar({ cwd, noFolder }: { cwd?: string; noFolder?: boolean }) {
+export function StatusBar({ noFolder }: { noFolder?: boolean }) {
   const { activeProvider } = useAIStore();
   const { tabs, activeTabId } = useSessionStore();
+  const { sessionCwds, projectDir, cwdAbsolute } = useAppShellStore(
+    useShallow((s) => ({
+      sessionCwds: s.sessionCwds,
+      projectDir: s.projectDir,
+      cwdAbsolute: s.cwdAbsolute,
+    }))
+  );
+  const cwd = activeTabId ? (sessionCwds[activeTabId] || projectDir || cwdAbsolute) : (projectDir || cwdAbsolute);
   const activeFileTab = tabs.find(t => t.id === activeTabId && t.type === "file");
   const [showPathTooltip, setShowPathTooltip] = useState(false);
   const [tooltipCopied, setTooltipCopied] = useState(false);
@@ -99,11 +109,28 @@ export function StatusBar({ cwd, noFolder }: { cwd?: string; noFolder?: boolean 
       if (path) fetchGitBranch(path);
     };
 
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        fetchRam();
+      }
+    };
+
     window.addEventListener("cwd-change", handleCwdChange);
-    const interval = setInterval(fetchRam, 30000);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    if (document.visibilityState === "visible") {
+      fetchRam();
+    }
+
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        fetchRam();
+      }
+    }, 30000);
 
     return () => {
       window.removeEventListener("cwd-change", handleCwdChange);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       clearInterval(interval);
       if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current);
       if (cwdTooltipTimeoutRef.current) clearTimeout(cwdTooltipTimeoutRef.current);

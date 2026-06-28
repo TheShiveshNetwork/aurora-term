@@ -26,7 +26,48 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
   const xtermRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
-  
+  const webglAddonRef = useRef<WebglAddon | null>(null);
+
+  const isVisibleRef = useRef(isVisible);
+  useEffect(() => {
+    isVisibleRef.current = isVisible;
+  }, [isVisible]);
+
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term) return;
+
+    if (isVisible) {
+      if (!webglAddonRef.current) {
+        try {
+          const webgl = new WebglAddon();
+          webgl.onContextLoss(() => {
+            console.warn(`[TerminalPane ${sessionId}] WebGL context lost, disposing WebGL addon...`);
+            webgl.dispose();
+            if (webglAddonRef.current === webgl) {
+              webglAddonRef.current = null;
+            }
+          });
+          term.loadAddon(webgl);
+          webglAddonRef.current = webgl;
+          console.log(`[TerminalPane ${sessionId}] WebGL GPU acceleration enabled successfully`);
+        } catch (err) {
+          console.warn(`[TerminalPane ${sessionId}] WebGL addon failed to load, falling back to standard canvas renderer:`, err);
+        }
+      }
+    } else {
+      if (webglAddonRef.current) {
+        try {
+          webglAddonRef.current.dispose();
+        } catch (err) {
+          console.warn("Failed to dispose WebGL addon:", err);
+        }
+        webglAddonRef.current = null;
+        console.log(`[TerminalPane ${sessionId}] WebGL GPU acceleration disabled (tab hidden)`);
+      }
+    }
+  }, [isVisible, sessionId]);
+
   // Layout context parameters
   const [cwd, setCwd] = useState("~/workspace");
   const cwdRef = useRef(cwd);
@@ -196,17 +237,23 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
     term.loadAddon(weblinks);
     term.open(xtermRef.current);
 
-    // Load WebGL addon for GPU hardware-accelerated rendering
-    try {
-      const webgl = new WebglAddon();
-      webgl.onContextLoss(() => {
-        console.warn(`[TerminalPane ${sessionId}] WebGL context lost, disposing WebGL addon...`);
-        webgl.dispose();
-      });
-      term.loadAddon(webgl);
-      console.log(`[TerminalPane ${sessionId}] WebGL GPU acceleration enabled successfully`);
-    } catch (err) {
-      console.warn(`[TerminalPane ${sessionId}] WebGL addon failed to load, falling back to standard canvas renderer:`, err);
+    // Load WebGL addon for GPU hardware-accelerated rendering if visible
+    if (isVisibleRef.current) {
+      try {
+        const webgl = new WebglAddon();
+        webgl.onContextLoss(() => {
+          console.warn(`[TerminalPane ${sessionId}] WebGL context lost, disposing WebGL addon...`);
+          webgl.dispose();
+          if (webglAddonRef.current === webgl) {
+            webglAddonRef.current = null;
+          }
+        });
+        term.loadAddon(webgl);
+        webglAddonRef.current = webgl;
+        console.log(`[TerminalPane ${sessionId}] WebGL GPU acceleration enabled successfully`);
+      } catch (err) {
+        console.warn(`[TerminalPane ${sessionId}] WebGL addon failed to load, falling back to standard canvas renderer:`, err);
+      }
     }
 
     // Connect xterm onData to PTY write for interactive sub-processes
@@ -241,11 +288,11 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
     // 4. Hook up ResizeObserver with rAF batching
     let resizeRafId = 0;
     const ro = new ResizeObserver(() => {
-      if (isDisposed) return;
+      if (isDisposed || !isVisibleRef.current) return;
       if (resizeRafId) return;
       resizeRafId = requestAnimationFrame(() => {
         resizeRafId = 0;
-        if (isDisposed) return;
+        if (isDisposed || !isVisibleRef.current) return;
         const container = xtermRef.current;
         if (!container || !container.clientWidth || !container.clientHeight) return;
         try {
@@ -388,11 +435,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
             }, 250);
           }
 
-          const activeBlockId = useBlockStore.getState().runningBlockId[sessionId];
-          if (activeBlockId) {
-            const plainChunk = stripAnsi(cleanData);
-            useBlockStore.getState().appendBlockOutput(sessionId, activeBlockId, plainChunk);
-          }
+
 
           if (cleanData && termRef.current) {
             termRef.current.write(cleanData);
@@ -483,6 +526,12 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
 
     return () => {
       isDisposed = true;
+      if (webglAddonRef.current) {
+        try {
+          webglAddonRef.current.dispose();
+        } catch (_) { }
+        webglAddonRef.current = null;
+      }
       termRef.current = null;
       ro.disconnect();
       if ((term as any)._deferredResizeTimer) {
@@ -599,7 +648,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
         {/* ── Layer 0: xterm canvas mount container ─────────────────────────── */}
         <div
           ref={xtermRef}
-          className="w-full h-full pb-3"
+          className="w-full h-full mb-2"
         />
       </div>
 

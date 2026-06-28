@@ -15,8 +15,6 @@ export function useAppBootstrap() {
 
   const { tabs, activeTabId, spawnSession, killSession, openFile, setActiveTabId } = usePTY();
   const theme = useSettingsStore((state) => state.theme);
-  const cwdAbsolute = useAppShellStore((state) => state.cwdAbsolute);
-  const sessionCwds = useAppShellStore((state) => state.sessionCwds);
 
   const hasSpawnedRef = useRef(false);
   const hasHadTabsRef = useRef(false);
@@ -44,18 +42,9 @@ export function useAppBootstrap() {
     useAppShellStore.getState().setViewMode(activeTab.type === "terminal" ? "terminal" : "file");
   }, [activeTabId, tabs]);
 
-  useEffect(() => {
-    if (!activeTabId) return;
-
-    const activeTab = tabs.find((tab) => tab.id === activeTabId);
-    const currentPath = activeTab?.type === "file"
-      ? activeTab.cwd
-      : sessionCwds[activeTabId];
-
-    if (!currentPath) return;
-
-    useAppShellStore.getState().setWorkspaceCwd(currentPath);
-  }, [activeTabId, sessionCwds, tabs]);
+  // NOTE: Do NOT update projectDir from sessionCwds on tab switch.
+  // projectDir is the trusted root set by "Open Folder" and is never
+  // changed by terminal `cd` or tab switching. Only sessionCwds is updated.
 
   useEffect(() => {
     if (hasSpawnedRef.current) return;
@@ -80,6 +69,11 @@ export function useAppBootstrap() {
               store.updateTab(tab.id, { pinned: true });
             }
           }
+          // Restore projectDir from config (the trusted project root)
+          if (cfg.ui.project_dir) {
+            useAppShellStore.getState().setProjectDir(cfg.ui.project_dir);
+          }
+          // Restore workspace_cwd for backward compat / active context
           if (cfg.ui.workspace_cwd) {
             initialCwd = cfg.ui.workspace_cwd;
           }
@@ -138,7 +132,9 @@ export function useAppBootstrap() {
       const { path } = (event as CustomEvent<{ path: string }>).detail;
       if (!path) return;
 
-      openFileRef.current(path, cwdAbsolute);
+      const projectDir = useAppShellStore.getState().projectDir;
+      const cwdAbsolute = useAppShellStore.getState().cwdAbsolute;
+      openFileRef.current(path, projectDir || cwdAbsolute);
       useAppShellStore.getState().setViewMode("file");
     };
 
@@ -149,7 +145,7 @@ export function useAppBootstrap() {
       window.removeEventListener("sidebar-open-file", handleOpenFile);
       window.removeEventListener("sidebar-open-file-current-tab", handleOpenFile);
     };
-  }, [cwdAbsolute]);
+  }, []);
 
   useEffect(() => {
     const handleContextMenu = (event: Event) => {
@@ -178,6 +174,8 @@ export function useAppBootstrap() {
 
       const activeShell = tabs.find((tab) => tab.id === activeTabId)?.shell || getDefaultShellLaunch().shell;
       const args = activeShell.includes("powershell") ? ["-NoLogo", "-NoExit"] : [];
+      // Spawn in the clicked directory (path) — this is deliberate: user clicked
+      // "Open terminal here" in the file tree, so cwd = that subdirectory.
       spawnSession(activeShell, args, {}, path).catch(console.error);
     };
 

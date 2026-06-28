@@ -136,12 +136,14 @@ export function AgentHeroView({ onSend }: { onSend?: (text: string) => void }) {
     let running = true;
     const tick = () => {
       if (!running) return;
-      waveTRef.current += 0.036;
-      letterElsRef.current.forEach((s, i) => {
-        if (s) s.style.transform = `translateY(${Math.sin(waveTRef.current + i * 0.35) * 1.5}px)`;
-      });
-      curAngleRef.current = lerpAngleDeg(curAngleRef.current, targetAngleRef.current, focusedRef.current ? 0.22 : 0.04);
-      if (outerRef.current) setGlare(outerRef.current, curAngleRef.current);
+      if (document.visibilityState === "visible") {
+        waveTRef.current += 0.036;
+        letterElsRef.current.forEach((s, i) => {
+          if (s) s.style.transform = `translateY(${Math.sin(waveTRef.current + i * 0.35) * 1.5}px)`;
+        });
+        curAngleRef.current = lerpAngleDeg(curAngleRef.current, targetAngleRef.current, focusedRef.current ? 0.22 : 0.04);
+        if (outerRef.current) setGlare(outerRef.current, curAngleRef.current);
+      }
       rafIdRef.current = requestAnimationFrame(tick);
     };
     rafIdRef.current = requestAnimationFrame(tick);
