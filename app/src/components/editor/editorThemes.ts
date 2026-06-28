@@ -1,18 +1,5 @@
 import { EditorView } from "@codemirror/view";
 import type { Extension } from "@codemirror/state";
-import { oneDarkTheme } from "@codemirror/theme-one-dark";
-import { atomone } from "@uiw/codemirror-theme-atomone";
-import { bespin } from "@uiw/codemirror-theme-bespin";
-import { dracula } from "@uiw/codemirror-theme-dracula";
-import { githubDark } from "@uiw/codemirror-theme-github";
-import { materialDark } from "@uiw/codemirror-theme-material";
-import { monokai } from "@uiw/codemirror-theme-monokai";
-import { nord } from "@uiw/codemirror-theme-nord";
-import { okaidia } from "@uiw/codemirror-theme-okaidia";
-import { solarizedDark } from "@uiw/codemirror-theme-solarized";
-import { tokyoNight } from "@uiw/codemirror-theme-tokyo-night";
-import { vscodeDark } from "@uiw/codemirror-theme-vscode";
-import { xcodeDark } from "@uiw/codemirror-theme-xcode";
 import type { EditorThemeName } from "../../stores/useSettingsStore";
 
 export const READONLY_EDITOR_THEME = EditorView.theme({
@@ -24,18 +11,59 @@ export const READONLY_EDITOR_THEME = EditorView.theme({
   ".cm-content": { padding: "4px 0" },
 });
 
-export const EDITOR_THEMES: Record<EditorThemeName, Extension> = {
-  "one-dark": oneDarkTheme,
-  atomone,
-  bespin,
-  dracula,
-  github: githubDark,
-  material: materialDark,
-  monokai,
-  nord,
-  okaidia,
-  solarized: solarizedDark,
-  "tokyo-night": tokyoNight,
-  vscode: vscodeDark,
-  xcode: xcodeDark,
-};
+export async function getEditorTheme(name: EditorThemeName): Promise<Extension> {
+  switch (name) {
+    case "one-dark": {
+      const { oneDarkTheme } = await import("@codemirror/theme-one-dark");
+      return oneDarkTheme;
+    }
+    case "atomone": {
+      const { atomone } = await import("@uiw/codemirror-theme-atomone");
+      return atomone;
+    }
+    case "bespin": {
+      const { bespin } = await import("@uiw/codemirror-theme-bespin");
+      return bespin;
+    }
+    case "dracula": {
+      const { dracula } = await import("@uiw/codemirror-theme-dracula");
+      return dracula;
+    }
+    case "github": {
+      const { githubDark } = await import("@uiw/codemirror-theme-github");
+      return githubDark;
+    }
+    case "material": {
+      const { materialDark } = await import("@uiw/codemirror-theme-material");
+      return materialDark;
+    }
+    case "monokai": {
+      const { monokai } = await import("@uiw/codemirror-theme-monokai");
+      return monokai;
+    }
+    case "nord": {
+      const { nord } = await import("@uiw/codemirror-theme-nord");
+      return nord;
+    }
+    case "okaidia": {
+      const { okaidia } = await import("@uiw/codemirror-theme-okaidia");
+      return okaidia;
+    }
+    case "solarized": {
+      const { solarizedDark } = await import("@uiw/codemirror-theme-solarized");
+      return solarizedDark;
+    }
+    case "tokyo-night": {
+      const { tokyoNight } = await import("@uiw/codemirror-theme-tokyo-night");
+      return tokyoNight;
+    }
+    case "vscode": {
+      const { vscodeDark } = await import("@uiw/codemirror-theme-vscode");
+      return vscodeDark;
+    }
+    case "xcode": {
+      const { xcodeDark } = await import("@uiw/codemirror-theme-xcode");
+      return xcodeDark;
+    }
+  }
+}

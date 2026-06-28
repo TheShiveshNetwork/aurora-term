@@ -167,6 +167,16 @@ export interface GitBranchInfo {
   commit_hash: string;
 }
 
+// Deduplicate concurrent file reads — when openFile starts reading a file
+// before the FileViewer mounts, both calls share the same in-flight promise.
+const pendingFileReads = new Map<string, Promise<string>>();
+
+export function preloadFileContent(path: string): void {
+  if (!pendingFileReads.has(path)) {
+    pendingFileReads.set(path, invoke<string>("read_file_content", { path }));
+  }
+}
+
 export const system = {
   getCwd: () =>
     invoke<string>("get_cwd"),
@@ -178,8 +188,14 @@ export const system = {
     invoke<FileNode[]>("read_dir", { path }),
   searchFiles: (root: string, query: string) =>
     invoke<FileNode[]>("search_files", { root, query }),
-  readFileContent: (path: string) =>
-    invoke<string>("read_file_content", { path }),
+  readFileContent: async (path: string) => {
+    const pending = pendingFileReads.get(path);
+    if (pending) {
+      pendingFileReads.delete(path);
+      return pending;
+    }
+    return invoke<string>("read_file_content", { path });
+  },
   readFileBase64: (path: string) =>
     invoke<string>("read_file_base64", { path }),
   writeFileContent: (path: string, content: string) =>

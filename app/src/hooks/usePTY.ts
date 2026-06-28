@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { v4 as uuidv4 } from "uuid";
-import { pty } from "../lib/ipc";
+import { preloadFileContent, pty } from "../lib/ipc";
 import { useSessionStore } from "../stores/useSessionStore";
 import { useBlockStore } from "../stores/useBlockStore";
 import { Tab } from "@aurora/types";
@@ -153,6 +153,10 @@ export function usePTY() {
 
     addTab(newTab);
     setActiveTabId(fileId);
+
+    // Start reading file content immediately, in parallel with React rendering.
+    // The FileViewer will pick up the in-flight or cached result.
+    preloadFileContent(filePath);
 
     return fileId;
   };

@@ -620,7 +620,7 @@ function SearchBar({ collapsed, cwdAbsolute, onOpenFileAtPath }: { collapsed?: b
   }
 
   return (
-    <div data-search-bar className="flex-1 flex justify-center min-w-0" data-tauri-drag-region>
+    <div data-search-bar className="flex-1 flex justify-center min-w-0">
       <div className="relative w-full" style={{ maxWidth: "400px" }}>
         <div
           className="flex items-center h-9 py-1 px-2 gap-3 transition-all duration-200 warp-input-glow rounded-md w-full"

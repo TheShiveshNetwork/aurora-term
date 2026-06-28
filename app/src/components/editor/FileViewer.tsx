@@ -1,8 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { EditorView, basicSetup } from "codemirror";
-import { EditorState, Prec } from "@codemirror/state";
-import { keymap, lineNumbers } from "@codemirror/view";
-import { autocompletion, completionKeymap } from "@codemirror/autocomplete";
+import type { EditorView } from "@codemirror/view";
 import { system } from "../../lib/ipc";
 import { getLanguageExtension } from "../../lib/codeLang";
 import { isImageFile } from "../../lib/fileUtils";
@@ -10,7 +7,7 @@ import { AlertCircle, Loader, Maximize2, Minimize2, Minus, Plus, RotateCcw } fro
 import { useSessionStore } from "../../stores/useSessionStore";
 import { useSettingsStore } from "../../stores/useSettingsStore";
 import { closeAllPopups } from "../../lib/popups";
-import { EDITOR_THEMES } from "./editorThemes";
+import { getEditorTheme } from "./editorThemes";
 import { createMinimapExtension, toggleMinimap } from "./minimapExtension";
 import { SearchPanel } from "./SearchPanel";
 
@@ -161,6 +158,8 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
   }, [filePath]);
 
   useEffect(() => {
+    let cancelled = false;
+
     const loadFile = async () => {
       try {
         setLoading(true);
@@ -168,17 +167,34 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
 
         if (isImage) {
           const b64 = await system.readFileBase64(filePath);
+          if (cancelled) return;
           setImageSrc(`data:${imageMimeType};base64,${b64}`);
           setLoading(false);
           return;
         }
 
-        if (!editorRef.current) return;
+        if (!editorRef.current) { setLoading(false); return; }
 
-        const content = await system.readFileContent(filePath);
+        const [
+          { EditorView, keymap, lineNumbers },
+          { EditorState, Prec },
+          { autocompletion },
+          { basicSetup },
+          content,
+          languageExt,
+          theme,
+        ] = await Promise.all([
+          import("@codemirror/view"),
+          import("@codemirror/state"),
+          import("@codemirror/autocomplete"),
+          import("codemirror"),
+          system.readFileContent(filePath),
+          getLanguageExtension(filePath),
+          getEditorTheme(editorTheme),
+        ]);
+        if (cancelled || !editorRef.current) { setLoading(false); return; }
+
         initialContentRef.current = content;
-
-        const languageExt = getLanguageExtension(filePath);
 
         const extensions: any[] = [
           basicSetup,
@@ -206,7 +222,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
             { key: "F3", run: () => { toggleSearchRef.current?.(); return true; } },
             { key: "Shift-F3", run: () => { toggleSearchRef.current?.(); return true; } },
           ])),
-          EDITOR_THEMES[editorTheme],
+          theme,
           lineNumbers(),
           createMinimapExtension(showMinimap),
           EditorView.updateListener.of((update) => {
@@ -218,12 +234,8 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
           }),
         ];
 
-        if (languageExt) {
-          if (Array.isArray(languageExt)) {
-            extensions.push(...languageExt);
-          } else {
-            extensions.push(languageExt);
-          }
+        if (languageExt.length > 0) {
+          extensions.push(...languageExt);
         }
 
         const state = EditorState.create({
@@ -239,15 +251,18 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
         viewRef.current = view;
         setLoading(false);
       } catch (err) {
-        console.error("Failed to load file:", err);
-        setError(String(err) || "Failed to load file");
-        setLoading(false);
+        if (!cancelled) {
+          console.error("Failed to load file:", err);
+          setError(String(err) || "Failed to load file");
+          setLoading(false);
+        }
       }
     };
 
     loadFile();
 
     return () => {
+      cancelled = true;
       if (viewRef.current) {
         viewRef.current.destroy();
         viewRef.current = null;

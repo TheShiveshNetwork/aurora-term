@@ -1,9 +1,9 @@
 import { useMemo, useEffect, useRef, useState } from "react";
-import { EditorView, basicSetup } from "codemirror";
-import { EditorState, type Extension, type Range } from "@codemirror/state";
-import { EditorView as EditorViewClass, ViewPlugin, Decoration, type DecorationSet, type ViewUpdate, lineNumbers } from "@codemirror/view";
+import type { EditorView } from "@codemirror/view";
+import type { Extension, Range } from "@codemirror/state";
+import type { Decoration, DecorationSet, ViewUpdate } from "@codemirror/view";
 import { useSettingsStore } from "../../stores/useSettingsStore";
-import { EDITOR_THEMES, READONLY_EDITOR_THEME } from "./editorThemes";
+import { getEditorTheme, READONLY_EDITOR_THEME } from "./editorThemes";
 import { createMinimapExtension } from "./minimapExtension";
 import { PathBreadcrumb } from "./PathBreadcrumb";
 
@@ -26,48 +26,7 @@ if (typeof document !== "undefined" && !document.getElementById(STYLE_ID)) {
   document.head.appendChild(s);
 }
 
-const diffLinePlugin = ViewPlugin.fromClass(
-  class {
-    decorations: DecorationSet;
 
-    constructor(view: EditorView) {
-      this.decorations = this.build(view);
-    }
-
-    update(u: ViewUpdate) {
-      if (u.docChanged || u.viewportChanged) {
-        this.decorations = this.build(u.view);
-      }
-    }
-
-    build(view: EditorView): DecorationSet {
-      const ranges: Range<Decoration>[] = [];
-
-      for (const { from, to } of view.visibleRanges) {
-        let pos = from;
-        while (pos <= to) {
-          const line = view.state.doc.lineAt(pos);
-          const first = line.text[0];
-
-          if (first === "+") {
-            ranges.push(Decoration.line({ class: "aurora-diff-add" }).range(line.from));
-          } else if (first === "-") {
-            ranges.push(Decoration.line({ class: "aurora-diff-del" }).range(line.from));
-          } else if (first === "@") {
-            ranges.push(Decoration.line({ class: "aurora-diff-hdr" }).range(line.from));
-          } else if (first === "…") {
-            ranges.push(Decoration.line({ class: "aurora-collapsed" }).range(line.from));
-          }
-
-          pos = line.to + 1;
-        }
-      }
-
-      return Decoration.set(ranges, true);
-    }
-  },
-  { decorations: (v) => v.decorations }
-);
 
 type DiffBlock = { kind: "hdr"; lines: string[] } | { kind: "ctx"; lines: string[] } | { kind: "chg"; lines: string[] };
 
@@ -216,67 +175,132 @@ export function CommitDiffView({
     return text;
   }, [collapsible, blocks, expanded, diff]);
 
-  const customLineNumbers = useMemo(() => lineNumbers({
-    formatNumber: (n: number) => {
-      const v = fileLineNumsRef.current[n - 1];
-      return v > 0 ? String(v) : "";
-    },
-  }), []);
 
-  const collapsedClickHandler = useMemo(() => EditorViewClass.domEventHandlers({
-    mousedown: (event: MouseEvent, view: EditorViewClass) => {
-      if (!collapsibleRef.current) return false;
-      const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
-      if (pos === null) return false;
-      const line = view.state.doc.lineAt(pos);
-      if (!line.text.startsWith("… ")) return false;
-      const lineNr = line.number - 1;
-      const blockIdx = lineToBlockRef.current[lineNr];
-      if (blockIdx !== undefined && blockIdx >= 0) {
-        event.preventDefault();
-        setExpanded(prev => {
-          const next = new Set(prev);
-          if (next.has(blockIdx)) next.delete(blockIdx);
-          else next.add(blockIdx);
-          return next;
-        });
-        return true;
-      }
-      return false;
-    },
-  }), []);
-
-  const extensions = useMemo((): Extension[] => [
-    basicSetup,
-    EDITOR_THEMES[editorTheme],
-    createMinimapExtension(true),
-    diffLinePlugin,
-    EditorViewClass.editable.of(false),
-    EditorState.readOnly.of(true),
-    READONLY_EDITOR_THEME,
-    customLineNumbers,
-    collapsedClickHandler,
-  ], [editorTheme, customLineNumbers, collapsedClickHandler]);
 
   const collapsibleRef = useRef(collapsible);
   collapsibleRef.current = collapsible;
+
+
 
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
     viewRef.current?.destroy();
+    viewRef.current = null;
+    let cancelled = false;
 
-    const view = new EditorView({
-      state: EditorState.create({ doc: collapsedText, extensions }),
-      parent: el,
+    Promise.all([
+      import("codemirror"),
+      import("@codemirror/state"),
+      import("@codemirror/view"),
+      getEditorTheme(editorTheme),
+    ]).then(([
+      { EditorView, basicSetup },
+      { EditorState },
+      { EditorView: EditorViewClass, ViewPlugin, Decoration, lineNumbers },
+      theme,
+    ]) => {
+      if (cancelled) return;
+
+      const diffLinePlugin = ViewPlugin.fromClass(
+        class {
+          decorations: DecorationSet;
+
+          constructor(view: EditorView) {
+            this.decorations = this.build(view);
+          }
+
+          update(u: ViewUpdate) {
+            if (u.docChanged || u.viewportChanged) {
+              this.decorations = this.build(u.view);
+            }
+          }
+
+          build(view: EditorView): DecorationSet {
+            const ranges: Range<Decoration>[] = [];
+
+            for (const { from, to } of view.visibleRanges) {
+              let pos = from;
+              while (pos <= to) {
+                const line = view.state.doc.lineAt(pos);
+                const first = line.text[0];
+
+                if (first === "+") {
+                  ranges.push(Decoration.line({ class: "aurora-diff-add" }).range(line.from));
+                } else if (first === "-") {
+                  ranges.push(Decoration.line({ class: "aurora-diff-del" }).range(line.from));
+                } else if (first === "@") {
+                  ranges.push(Decoration.line({ class: "aurora-diff-hdr" }).range(line.from));
+                } else if (first === "…") {
+                  ranges.push(Decoration.line({ class: "aurora-collapsed" }).range(line.from));
+                }
+
+                pos = line.to + 1;
+              }
+            }
+
+            return Decoration.set(ranges, true);
+          }
+        },
+        { decorations: (v) => v.decorations }
+      );
+
+      const customLineNumbers = lineNumbers({
+        formatNumber: (n: number) => {
+          const v = fileLineNumsRef.current[n - 1];
+          return v > 0 ? String(v) : "";
+        },
+      });
+
+      const collapsedClickHandler = EditorViewClass.domEventHandlers({
+        mousedown: (event: MouseEvent, view: EditorView) => {
+          if (!collapsibleRef.current) return false;
+          const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+          if (pos === null) return false;
+          const line = view.state.doc.lineAt(pos);
+          if (!line.text.startsWith("… ")) return false;
+          const lineNr = line.number - 1;
+          const blockIdx = lineToBlockRef.current[lineNr];
+          if (blockIdx !== undefined && blockIdx >= 0) {
+            event.preventDefault();
+            setExpanded(prev => {
+              const next = new Set(prev);
+              if (next.has(blockIdx)) next.delete(blockIdx);
+              else next.add(blockIdx);
+              return next;
+            });
+            return true;
+          }
+          return false;
+        },
+      });
+
+      const view = new EditorView({
+        state: EditorState.create({
+          doc: collapsedText,
+          extensions: [
+            basicSetup,
+            createMinimapExtension(true),
+            diffLinePlugin,
+            EditorViewClass.editable.of(false),
+            EditorState.readOnly.of(true),
+            READONLY_EDITOR_THEME,
+            customLineNumbers,
+            collapsedClickHandler,
+            theme,
+          ],
+        }),
+        parent: el,
+      });
+      viewRef.current = view;
     });
-    viewRef.current = view;
 
     return () => {
-      view.destroy();
+      cancelled = true;
+      viewRef.current?.destroy();
       viewRef.current = null;
     };
-  }, [collapsedText, extensions]);
+  }, [collapsedText, editorTheme]);
 
   return (
     <div className="h-full w-full flex flex-col" style={{ background: "var(--surface-container-low, #12131a)", minHeight: 0 }}>

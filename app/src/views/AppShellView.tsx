@@ -1,4 +1,4 @@
-import { type FormEvent, lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { type FormEvent, lazy, Suspense, useEffect, useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { v4 as uuidv4 } from "uuid";
@@ -28,6 +28,10 @@ import { classifyInput, setAvailableCommands, type ShellType } from "../lib/nlCl
 import { system } from "../lib/ipc";
 import { closeAllPopups, onClosePopups } from "../lib/popups";
 
+// Eagerly preload file editor chunk at module load time so opening a file
+// never waits for a network fetch — React.lazy reuses the cached module.
+import("./FileWorkspaceView");
+
 const FileWorkspaceView = lazy(() => import("./FileWorkspaceView").then(m => ({ default: m.FileWorkspaceView })));
 const AgentView = lazy(() => import("./AgentView").then(m => ({ default: m.AgentView })));
 const DiffWorkspaceView = lazy(() => import("../components/editor/DiffWorkspaceView").then(m => ({ default: m.DiffWorkspaceView })));
@@ -40,13 +44,6 @@ export function AppShellView() {
   const setTheme = useSettingsStore((state) => state.setTheme);
   usePersistUIState();
   useWindowClamp();
-
-  const [visitedTabIds, setVisitedTabIds] = useState<string[]>([]);
-  useEffect(() => {
-    if (activeTabId && !visitedTabIds.includes(activeTabId)) {
-      setVisitedTabIds((prev) => [...prev, activeTabId]);
-    }
-  }, [activeTabId, visitedTabIds]);
 
   useEffect(() => {
     system.getAvailableCommands().then(setAvailableCommands).catch(() => { });
@@ -434,7 +431,6 @@ export function AppShellView() {
 
   return (
     <div
-      data-tauri-drag-region
       className="bg-background text-on-surface font-body-base overflow-hidden h-screen flex flex-col select-none"
       onContextMenu={(event) => event.preventDefault()}
       onClick={() => {
@@ -591,7 +587,6 @@ export function AppShellView() {
                   <div className="flex-1 min-h-0 w-full relative overflow-hidden">
                     {tabs.map((tab) => {
                       const isTabActive = tab.id === activeTabId;
-                      const isVisited = visitedTabIds.includes(tab.id) || isTabActive;
 
                       return (
                         <div
@@ -603,8 +598,7 @@ export function AppShellView() {
                             zIndex: isTabActive ? 10 : 0,
                           }}
                         >
-                          {isVisited ? (
-                            tab.type === "file" ? (
+                          {tab.type === "file" ? (
                               <Suspense fallback={<div className="flex-1 flex items-center justify-center h-full"><span className="text-sm text-on-surface-variant">Loading editor...</span></div>}>
                                 <FileWorkspaceView tab={tab} onOpenFile={handleOpenFile} onOpenFolder={handleOpenFolder} />
                               </Suspense>
@@ -637,8 +631,7 @@ export function AppShellView() {
                                 isAlternateActive={isAlternateActive}
                                 hasInteracted={hasInteracted}
                               />
-                            )
-                          ) : null}
+                            )}
                         </div>
                       );
                     })}
