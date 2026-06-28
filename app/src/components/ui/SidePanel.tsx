@@ -39,6 +39,7 @@ interface SidePanelProps {
   cwd?: string;
   activeFilePath?: string;
   onKillTab?: (id: string) => void;
+  onAddTab?: (type: "terminal" | "file") => void;
 }
 
 interface FileMenuState { x: number; y: number; node: FileNode }
@@ -169,6 +170,7 @@ function TreeNode({
         title={isRenaming ? undefined : node.name}
         data-path={node.path}
         data-is-dir={node.is_dir ? "true" : "false"}
+        data-active-file={isActive ? "true" : undefined}
         onPointerDown={(e) => { if (!node.is_dir) onPointerDown(e, node); }}
         className={`flex items-center gap-1.5 cursor-pointer transition-colors ${isBeingDragged ? "opacity-40" : ""}`}
         style={{
@@ -274,8 +276,10 @@ function SectionToggle() {
   const [open, setOpen] = useState(false);
   const sectionVisibility = useAppShellStore((s) => s.sectionVisibility);
   const toggleSection = useAppShellStore((s) => s.toggleSection);
-  const activeTab = useSessionStore((s) => s.tabs.find((t) => t.id === s.activeTabId));
-  const isTerminalView = activeTab?.type === "terminal";
+  const isTerminalView = useSessionStore((s) => {
+    const t = s.tabs.find((t) => t.id === s.activeTabId);
+    return t?.type === "terminal";
+  });
   const disabledInTerminal: SideSection[] = ["outline", "timeline"];
 
   return (
@@ -330,7 +334,7 @@ const DEFAULT_HEIGHTS: Record<SideSection, number> = {
 
 // ── CollapsibleSection ────────────────────────────────────────────────────────
 // All sections use explicit pixel heights. No flex-grow special cases.
-function CollapsibleSection({
+const CollapsibleSection = React.memo(function CollapsibleSection({
   label, open, onToggle, bodyHeight, onResizeStart, showResizeHandle, controls, loading, children,
 }: {
   label: string;
@@ -397,7 +401,7 @@ function CollapsibleSection({
       )}
     </div>
   );
-}
+});
 
 // ── Sidepanel layout hook (mirrors ide_side_panel_v2.html redistribution logic) ─
 // All sections get explicit pixel body heights. Container height tracked via
@@ -576,7 +580,9 @@ const MAX_WIDTH = 520;
 const DEFAULT_WIDTH = 220;
 
 // ── SidePanel ─────────────────────────────────────────────────────────────────
-export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab }: SidePanelProps) {
+export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab, onAddTab }: SidePanelProps) {
+  const [showAddTabMenu, setShowAddTabMenu] = useState(false);
+  const addTabBtnRef = useRef<HTMLDivElement>(null);
   const [selectedFile, setSelectedFile] = useState("");
   const [activePath, setActivePath] = useState("");
   const [rootNodes, setRootNodes] = useState<FileNode[]>([]);
@@ -616,6 +622,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab }: SidePan
   const dragSourcePathRef = useRef<string | null>(null);
 
   const sectionsRef = useRef<HTMLDivElement | null>(null);
+  const treeRef = useRef<HTMLDivElement | null>(null);
   const loadSeqRef = useRef(0);
   const hasDataRef = useRef(false);
   const serializedRootRef = useRef("");
@@ -641,6 +648,26 @@ export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab }: SidePan
     if (activeFilePath) { setSelectedFile(activeFilePath); setActivePath(activeFilePath); }
     else { setSelectedFile(""); setActivePath(""); }
   }, [activeFilePath]);
+
+  // Scroll active file into view (poll until rendered after async directory loads)
+  useEffect(() => {
+    if (!activePath) return;
+    let count = 0;
+    const maxAttempts = 50;
+    let timer: ReturnType<typeof setTimeout>;
+    const tryScroll = () => {
+      const el = treeRef.current?.querySelector<HTMLElement>('[data-active-file="true"]');
+      if (el) {
+        el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        return;
+      }
+      if (count++ < maxAttempts) {
+        timer = setTimeout(tryScroll, 100);
+      }
+    };
+    timer = setTimeout(tryScroll, 100);
+    return () => clearTimeout(timer);
+  }, [activePath]);
 
   // Close menus on outside events
   useEffect(() => {
@@ -690,15 +717,21 @@ export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab }: SidePan
     setResolvedCwd(cwd); loadTree(cwd);
   }, [cwd, resolvedCwd, loadTree]);
 
-  const lastLoadedPathRef = useRef("");
+  const loadTreeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     const handler = (e: Event) => {
       const { path } = (e as CustomEvent<{ path: string }>).detail;
-      if (!path || pathsEqual(path, resolvedCwd) || pathsEqual(path, lastLoadedPathRef.current)) return;
-      lastLoadedPathRef.current = path; setResolvedCwd(path); loadTree(path);
+      if (!path || pathsEqual(path, resolvedCwd)) return;
+      if (loadTreeDebounceRef.current) clearTimeout(loadTreeDebounceRef.current);
+      loadTreeDebounceRef.current = setTimeout(() => {
+        setResolvedCwd(path); loadTree(path);
+      }, 300);
     };
     window.addEventListener("cwd-change", handler);
-    return () => window.removeEventListener("cwd-change", handler);
+    return () => {
+      window.removeEventListener("cwd-change", handler);
+      if (loadTreeDebounceRef.current) clearTimeout(loadTreeDebounceRef.current);
+    };
   }, [resolvedCwd, loadTree]);
 
   useEffect(() => {
@@ -719,7 +752,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab }: SidePan
           const serialized = JSON.stringify(sorted);
           if (serialized !== serializedRootRef.current) { serializedRootRef.current = serialized; setRootNodes(sorted); }
         } catch { /* silent */ }
-      }, 80);
+      }, 300);
     }).then((fn) => { unlisten = fn; });
     return () => { if (unlisten) unlisten(); if (debounceTimer) clearTimeout(debounceTimer); };
   }, [collapsed, resolvedCwd]);
@@ -1045,9 +1078,11 @@ export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab }: SidePan
                 {filteredNodes.length === 0 && !isLoading && (
                   <div className="text-[11px] italic px-3 py-3" style={{ color: "rgba(232,234,240,0.2)" }}>No files</div>
                 )}
-                {filteredNodes.map((node) => (
-                  <TreeNode key={node.path} node={node} depth={0} {...treeNodeProps} />
-                ))}
+                <div ref={treeRef}>
+                  {filteredNodes.map((node) => (
+                    <TreeNode key={node.path} node={node} depth={0} {...treeNodeProps} />
+                  ))}
+                </div>
                 {creatingIn && creatingIn.parentPath === resolvedCwd && (
                   <div className="flex items-center gap-1.5" style={{ paddingLeft: "10px", paddingTop: "4px", paddingBottom: "4px", minHeight: "24px" }}>
                     <input
@@ -1078,6 +1113,45 @@ export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab }: SidePan
             bodyHeight={sectionHeights["open-tabs"]}
             showResizeHandle={!!sectionSeamOpen["open-tabs"]}
             onResizeStart={(e) => startResize("open-tabs", e)}
+            controls={
+              <div ref={addTabBtnRef} className="relative">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (e.shiftKey) {
+                      setShowAddTabMenu(!showAddTabMenu);
+                    } else {
+                      onAddTab?.("terminal");
+                    }
+                  }}
+                  className="w-6 h-6 flex items-center justify-center rounded-md transition-all cursor-pointer"
+                  style={{ color: "rgba(232,234,240,0.35)" }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; e.currentTarget.style.color = "#E8EAF0"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "rgba(232,234,240,0.35)"; }}
+                  title="New Tab (click: terminal, shift+click: options)"
+                >
+                  <Plus size={14} />
+                </button>
+                {showAddTabMenu && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setShowAddTabMenu(false)} />
+                    <MenuView
+                      variant="primary"
+                      open={true}
+                      onClose={() => setShowAddTabMenu(false)}
+                      className="absolute left-0 top-[calc(100%+4px)] min-w-[132px] z-20"
+                    >
+                      <MenuViewItem icon={<Terminal size={12} />} onClick={() => { onAddTab?.("terminal"); setShowAddTabMenu(false); }}>
+                        Terminal Tab
+                      </MenuViewItem>
+                      <MenuViewItem icon={<FileText size={12} />} onClick={() => { onAddTab?.("file"); setShowAddTabMenu(false); }}>
+                        Workspace Tab
+                      </MenuViewItem>
+                    </MenuView>
+                  </>
+                )}
+              </div>
+            }
           >
             <OpenTabs onKillTab={onKillTab} />
           </CollapsibleSection>

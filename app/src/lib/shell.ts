@@ -1,4 +1,4 @@
-export const SHELL_PROMPT_COMMAND = `function prompt { $cwd = $ExecutionContext.SessionState.Path.CurrentLocation; $branch = (git branch --show-current 2>$null); "__AURORA_PROMPT_START__" + [char]13 + [char]10 + "__AURORA_CWD__=$cwd" + [char]13 + [char]10 + "__AURORA_BRANCH__=$branch" + [char]13 + [char]10 + "__AURORA_PROMPT_END__"; return ' ' }; Clear-Host`;
+export const SHELL_PROMPT_COMMAND = `function prompt { $cwd = $ExecutionContext.SessionState.Path.CurrentLocation; "__AURORA_PROMPT_START__" + [char]13 + [char]10 + "__AURORA_CWD__=$cwd" + [char]13 + [char]10 + "__AURORA_PROMPT_END__"; return ' ' }; Clear-Host`;
 
 export function isWindowsPlatform(): boolean {
   return window.navigator.userAgent.includes("Windows");

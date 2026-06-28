@@ -3,10 +3,14 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Instant;
 use tauri::command;
+use tauri::Emitter;
 use base64::Engine;
+use serde_json;
+use notify::Watcher;
 use aurora_core::AppError;
 use crate::state::AppState;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
+use ignore::WalkBuilder;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FileNode {
@@ -116,6 +120,59 @@ pub fn read_dir(path: Option<String>) -> Result<Vec<FileNode>, AppError> {
     }
 
     Ok(nodes)
+}
+
+#[command]
+pub fn search_files(root: String, query: String) -> Result<Vec<FileNode>, AppError> {
+    let root_path = PathBuf::from(&root);
+    if !root_path.is_dir() {
+        return Err(AppError::Io("Root is not a directory".to_string()));
+    }
+
+    let query_lower = query.to_lowercase();
+    let mut results = Vec::new();
+    let max_results = 50;
+
+    let walker = WalkBuilder::new(&root_path)
+        .standard_filters(true)
+        .build();
+
+    for entry in walker {
+        if results.len() >= max_results {
+            break;
+        }
+        let entry = entry.map_err(|e| AppError::Io(e.to_string()))?;
+        let path = entry.path();
+        let name = match path.file_name().and_then(|n| n.to_str()) {
+            Some(n) => n.to_string(),
+            None => continue,
+        };
+
+        if name.is_empty() || is_hidden_name(&name) {
+            continue;
+        }
+
+        if name.to_lowercase().contains(&query_lower) {
+            let is_dir = path.is_dir();
+            results.push(FileNode {
+                name,
+                path: path.to_string_lossy().into_owned(),
+                is_dir,
+                is_hidden: false,
+                is_gitignored: false,
+            });
+        }
+    }
+
+    results.sort_by(|a, b| {
+        match (a.is_dir, b.is_dir) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+        }
+    });
+
+    Ok(results)
 }
 
 #[command]
@@ -352,5 +409,62 @@ pub fn watch_directory(
     path: String,
 ) -> Result<(), String> {
     state.file_watcher.watch(path, app_handle);
+    Ok(())
+}
+
+#[command]
+pub fn watch_git(
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    cwd: String,
+) -> Result<(), String> {
+    let git_dir = PathBuf::from(&cwd).join(".git");
+    if !git_dir.exists() {
+        return Err("Not a git repository".to_string());
+    }
+
+    let app_clone = app_handle.clone();
+    let cwd_for_watcher = cwd.clone();
+    let mut watcher = notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
+        if let Ok(event) = res {
+            let paths: Vec<String> = event.paths.iter()
+                .filter_map(|p| p.file_name().and_then(|n| n.to_str().map(|s| s.to_string())))
+                .collect();
+
+            let event_type = if paths.iter().any(|p| p.contains("index") || p.ends_with(".lock")) {
+                "index"
+            } else if paths.iter().any(|p| p == "HEAD" || p.starts_with("refs/")) {
+                "refs"
+            } else if paths.iter().any(|p| p.starts_with("FETCH_HEAD") || p.starts_with("refs/remotes/")) {
+                "remote"
+            } else {
+                "index"
+            };
+
+            let _ = app_clone.emit("git-changed", serde_json::json!({
+                "cwd": cwd_for_watcher,
+                "type": event_type,
+            }));
+        }
+    }).map_err(|e| e.to_string())?;
+
+    let paths_to_watch = [
+        git_dir.join("index"),
+        git_dir.join("HEAD"),
+        git_dir.join("FETCH_HEAD"),
+        git_dir.join("refs"),
+    ];
+
+    for path in &paths_to_watch {
+        if path.exists() {
+            let _ = watcher.watch(path, if path.is_dir() { notify::RecursiveMode::Recursive } else { notify::RecursiveMode::NonRecursive });
+        }
+    }
+
+    let _ = watcher.watch(git_dir.as_path(), notify::RecursiveMode::NonRecursive);
+
+    // Store watcher in AppState so it stays alive
+    state.git_watcher.store(cwd, watcher);
+
     Ok(())
 }

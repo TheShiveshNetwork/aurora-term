@@ -48,7 +48,7 @@ function TabRow({ tab, index, isActive, onSelect, onKillTab, onContextMenu, onPo
         e.stopPropagation();
         onContextMenu(e, tab);
       }}
-      className={`flex items-center gap-2 px-3 py-1 cursor-pointer transition-colors select-none`}
+      className={`flex items-center gap-2 pl-2 pr-1 py-1 cursor-pointer transition-colors select-none`}
       style={{
         // minHeight: "28px",
         background: isActive || isDragging

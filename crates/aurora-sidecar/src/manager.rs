@@ -4,10 +4,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::oneshot;
 use aurora_core::AppError;
 
 pub struct SidecarManager {
-    child: Arc<Mutex<Option<tokio::process::Child>>>,
+    kill_sender: Arc<Mutex<Option<oneshot::Sender<()>>>>,
     port: Option<u16>,
     config_path: Option<PathBuf>,
 }
@@ -21,7 +22,7 @@ impl Default for SidecarManager {
 impl SidecarManager {
     pub fn new() -> Self {
         Self {
-            child: Arc::new(Mutex::new(None)),
+            kill_sender: Arc::new(Mutex::new(None)),
             port: None,
             config_path: None,
         }
@@ -39,7 +40,7 @@ impl SidecarManager {
         envs: Vec<(String, String)>,
     ) -> Result<u16, AppError> {
         let _ = std::fs::write("d:/builds/aurora/sidecar_status.log", "SidecarManager::spawn: entered");
-        // Ensure any existing process is terminated first
+        // Signal any previous monitor and terminate existing process
         self.kill().await?;
         let _ = std::fs::write("d:/builds/aurora/sidecar_status.log", "SidecarManager::spawn: killed old child");
 
@@ -84,15 +85,15 @@ impl SidecarManager {
             .map_err(|e| AppError::Sidecar(format!("Failed to spawn aurora-agent serve: {}", e)))?;
         let _ = std::fs::write("d:/builds/aurora/sidecar_status.log", "SidecarManager::spawn: command spawned successfully");
 
-        {
-            let mut lock = self.child.lock().await;
-            *lock = Some(child);
-        }
         self.port = Some(port);
         self.config_path = None;
 
-        // Start background crash monitoring
-        crate::monitor::start_monitor(self.child.clone(), crashed_sender);
+        // Start background crash monitoring (event-driven, no polling)
+        let kill_sender = crate::monitor::start_monitor(child, crashed_sender);
+        {
+            let mut lock = self.kill_sender.lock().await;
+            *lock = Some(kill_sender);
+        }
 
         // Perform health check loop (up to 3 seconds)
         let client = reqwest::Client::new();
@@ -141,11 +142,13 @@ impl SidecarManager {
         }
     }
 
-    /// Kill the sidecar process.
+    /// Kill the sidecar process by signalling the monitor (which owns the child).
     pub async fn kill(&mut self) -> Result<(), AppError> {
-        let mut lock = self.child.lock().await;
-        if let Some(mut child) = lock.take() {
-            let _ = child.kill().await;
+        {
+            let mut lock = self.kill_sender.lock().await;
+            if let Some(sender) = lock.take() {
+                let _ = sender.send(());
+            }
         }
         self.port = None;
         if let Some(path) = self.config_path.take() {
@@ -167,10 +170,8 @@ impl SidecarManager {
 
 impl Drop for SidecarManager {
     fn drop(&mut self) {
-        if let Ok(mut lock) = self.child.try_lock() {
-            if let Some(mut child) = lock.take() {
-                let _ = child.start_kill();
-            }
+        if let Ok(mut lock) = self.kill_sender.try_lock() {
+            drop(lock.take());
         }
         if let Some(path) = self.config_path.take() {
             let _ = std::fs::remove_file(path);

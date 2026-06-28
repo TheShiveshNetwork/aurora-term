@@ -50,7 +50,7 @@ fn get_git_branch_cached(cwd: Option<&str>, force: bool) -> Option<String> {
     if !force {
         if let Ok(cache) = GIT_CACHE.lock() {
             if let Some((cached_cwd, branch, time)) = cache.as_ref() {
-                if cached_cwd == &cwd_str && time.elapsed() < Duration::from_secs(60) {
+                if cached_cwd == &cwd_str && time.elapsed() < Duration::from_secs(25) {
                     return branch.clone();
                 }
             }
@@ -152,35 +152,34 @@ pub async fn get_git_log(cwd: String, max_count: Option<u32>) -> Result<GitLogRe
     let request_count = max_count.unwrap_or(500);
     let fetch_count = request_count + 1;
     let limit_str = fetch_count.to_string();
-    let cwd_clone = cwd.clone();
-    let log_output = tokio::task::spawn_blocking(move || {
-        run_git(&[
-            "log", "--all",
-            "--format=%H|||%P|||%an|||%ai|||%s",
-            "--max-count", &limit_str,
-        ], Some(&cwd_clone))
-    }).await.map_err(|e| AppError::Io(e.to_string()))??;
 
-    let cwd_clone2 = cwd.clone();
-    let branch_output = tokio::task::spawn_blocking(move || {
-        run_git(&[
-            "branch", "--format=%(refname:short)|||%(objectname)"
-        ], Some(&cwd_clone2))
-    }).await.map_err(|e| AppError::Io(e.to_string()))??;
+    // Spawn all 4 git processes concurrently — cuts latency by ~75%
+    let cc1 = cwd.clone(); let ls = limit_str.clone();
+    let log_h = tokio::task::spawn_blocking(move || {
+        run_git(&["log", "--all", "--format=%H|||%P|||%an|||%ai|||%s", "--max-count", &ls], Some(&cc1))
+    });
 
-    let cwd_clone3 = cwd.clone();
-    let tag_output = tokio::task::spawn_blocking(move || {
-        run_git(&[
-            "tag", "--format=%(refname:short)|||%(objectname)"
-        ], Some(&cwd_clone3))
-    }).await.map_err(|e| AppError::Io(e.to_string()))??;
+    let cc2 = cwd.clone();
+    let branch_h = tokio::task::spawn_blocking(move || {
+        run_git(&["branch", "--format=%(refname:short)|||%(objectname)"], Some(&cc2))
+    });
 
-    let cwd_clone4 = cwd.clone();
-    let current_branch = tokio::task::spawn_blocking(move || {
-        let out = run_git(&["rev-parse", "--abbrev-ref", "HEAD"], Some(&cwd_clone4)).ok()?;
+    let cc3 = cwd.clone();
+    let tag_h = tokio::task::spawn_blocking(move || {
+        run_git(&["tag", "--format=%(refname:short)|||%(objectname)"], Some(&cc3))
+    });
+
+    let cc4 = cwd.clone();
+    let branch_current_h = tokio::task::spawn_blocking(move || {
+        let out = run_git(&["rev-parse", "--abbrev-ref", "HEAD"], Some(&cc4)).ok()?;
         let trimmed = out.trim().to_string();
         if trimmed.is_empty() || trimmed == "HEAD" { None } else { Some(trimmed) }
-    }).await.map_err(|e| AppError::Io(e.to_string()))?;
+    });
+
+    let log_output = log_h.await.map_err(|e| AppError::Io(e.to_string()))??;
+    let branch_output = branch_h.await.map_err(|e| AppError::Io(e.to_string()))??;
+    let tag_output = tag_h.await.map_err(|e| AppError::Io(e.to_string()))??;
+    let current_branch = branch_current_h.await.map_err(|e| AppError::Io(e.to_string()))?;
 
     let mut commits = Vec::new();
     for line in log_output.lines() {
@@ -242,27 +241,26 @@ pub async fn get_git_log(cwd: String, max_count: Option<u32>) -> Result<GitLogRe
 
 #[command]
 pub async fn get_git_file_log(cwd: String, file_path: String) -> Result<GitLogResult, AppError> {
-    let cwd_clone = cwd.clone();
-    let fp_clone = file_path.clone();
-    let log_output = tokio::task::spawn_blocking(move || {
-        run_git(&[
-            "log", "--all",
-            "--format=%H|||%P|||%an|||%ai|||%s",
-            "--max-count=50", "--", &fp_clone
-        ], Some(&cwd_clone))
-    }).await.map_err(|e| AppError::Io(e.to_string()))??;
+    let cc1 = cwd.clone(); let fp = file_path.clone();
+    let log_h = tokio::task::spawn_blocking(move || {
+        run_git(&["log", "--all", "--format=%H|||%P|||%an|||%ai|||%s", "--max-count=50", "--", &fp], Some(&cc1))
+    });
 
-    let cwd_clone2 = cwd.clone();
-    let branch_output = tokio::task::spawn_blocking(move || {
-        run_git(&["branch", "--format=%(refname:short)|||%(objectname)"], Some(&cwd_clone2))
-    }).await.map_err(|e| AppError::Io(e.to_string()))??;
+    let cc2 = cwd.clone();
+    let branch_h = tokio::task::spawn_blocking(move || {
+        run_git(&["branch", "--format=%(refname:short)|||%(objectname)"], Some(&cc2))
+    });
 
-    let cwd_clone3 = cwd.clone();
-    let current_branch = tokio::task::spawn_blocking(move || {
-        let out = run_git(&["rev-parse", "--abbrev-ref", "HEAD"], Some(&cwd_clone3)).ok()?;
+    let cc3 = cwd.clone();
+    let branch_current_h = tokio::task::spawn_blocking(move || {
+        let out = run_git(&["rev-parse", "--abbrev-ref", "HEAD"], Some(&cc3)).ok()?;
         let trimmed = out.trim().to_string();
         if trimmed.is_empty() || trimmed == "HEAD" { None } else { Some(trimmed) }
-    }).await.map_err(|e| AppError::Io(e.to_string()))?;
+    });
+
+    let log_output = log_h.await.map_err(|e| AppError::Io(e.to_string()))??;
+    let branch_output = branch_h.await.map_err(|e| AppError::Io(e.to_string()))??;
+    let current_branch = branch_current_h.await.map_err(|e| AppError::Io(e.to_string()))?;
 
     let mut commits = Vec::new();
     for line in log_output.lines() {
@@ -706,6 +704,17 @@ pub async fn git_remote_list(cwd: String) -> Result<Vec<String>, AppError> {
     }).await.map_err(|e| AppError::Io(e.to_string()))?
 }
 
+#[derive(serde::Serialize)]
+pub struct CwdInfo {
+    pub git_branch: Option<String>,
+}
+
+#[command]
+pub fn get_cwd_info(cwd: String) -> CwdInfo {
+    let git_branch = get_git_branch_cached(Some(&cwd), false);
+    CwdInfo { git_branch }
+}
+
 #[command]
 pub fn get_current_pwd() -> Result<String, String> {
     std::env::current_dir()
@@ -721,8 +730,25 @@ pub fn get_current_pwd() -> Result<String, String> {
 //   Linux    → ~/.bash_history → ~/.zsh_history → fish_history
 //
 // Up to 2 000 distinct entries are returned.
+static COMMANDS_CACHE: Mutex<Option<(Vec<String>, Instant)>> = Mutex::new(None);
+
 #[command]
 pub fn get_available_commands() -> Vec<String> {
+    if let Ok(cache) = COMMANDS_CACHE.lock() {
+        if let Some((cmds, time)) = cache.as_ref() {
+            if time.elapsed() < Duration::from_secs(60) {
+                return cmds.clone();
+            }
+        }
+    }
+    let result = scan_path_commands();
+    if let Ok(mut cache) = COMMANDS_CACHE.lock() {
+        *cache = Some((result.clone(), Instant::now()));
+    }
+    result
+}
+
+fn scan_path_commands() -> Vec<String> {
     let path_var = match std::env::var("PATH") {
         Ok(v) => v,
         Err(_) => return Vec::new(),

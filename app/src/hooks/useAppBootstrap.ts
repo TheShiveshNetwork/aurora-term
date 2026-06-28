@@ -1,6 +1,5 @@
 import { useEffect, useRef } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { v4 as uuidv4 } from "uuid";
 
 import { useAICompletion } from "./useAICompletion";
 import { usePTY } from "./usePTY";
@@ -8,10 +7,8 @@ import { pty, config, system } from "../lib/ipc";
 import { getDefaultShellLaunch } from "../lib/shell";
 import { closeAllPopups } from "../lib/popups";
 import { useAppShellStore } from "../stores/useAppShellStore";
-import { useBlockStore } from "../stores/useBlockStore";
 import { useSessionStore } from "../stores/useSessionStore";
 import { useSettingsStore } from "../stores/useSettingsStore";
-import { Block } from "@aurora/types";
 
 export function useAppBootstrap() {
   useAICompletion();
@@ -64,6 +61,9 @@ export function useAppBootstrap() {
     if (hasSpawnedRef.current) return;
     hasSpawnedRef.current = true;
 
+    // Signal the app shell is ready to render immediately
+    useAppShellStore.getState().setBootstrapReady(true);
+
     system.readShellHistory()
       .then((history) => useAppShellStore.getState().setShellHistory(history))
       .catch(() => {});
@@ -94,31 +94,6 @@ export function useAppBootstrap() {
         }
 
         useAppShellStore.getState().setWorkspaceCwd(initialCwd);
-
-        const { shell, args } = getDefaultShellLaunch();
-        spawnSession(shell, args, {}, initialCwd)
-          .then((sessionId) => {
-            setActiveTabId(sessionId);
-            useAppShellStore.getState().setSessionCwd(sessionId, initialCwd);
-
-            const initBlock: Block = {
-              id: uuidv4(),
-              session_id: sessionId,
-              command: "init-aurora",
-              started_at: Date.now(),
-              status: "success",
-              output_type: "plain",
-              collapsed: false,
-              bookmarked: false,
-              output_summary: "Welcome to Aurora Terminal. Interactive AI console active.",
-              anchor_row: 0,
-              output_row_end: 0,
-              anchor_y: 0,
-            };
-
-            useBlockStore.getState().addBlock(sessionId, initBlock);
-          })
-          .catch(console.error);
       })
       .catch(async () => {
         let initialCwd = "";
@@ -128,31 +103,6 @@ export function useAppBootstrap() {
           initialCwd = "";
         }
         useAppShellStore.getState().setWorkspaceCwd(initialCwd);
-
-        const { shell, args } = getDefaultShellLaunch();
-        spawnSession(shell, args, {}, initialCwd)
-          .then((sessionId) => {
-            setActiveTabId(sessionId);
-            useAppShellStore.getState().setSessionCwd(sessionId, initialCwd);
-
-            const initBlock: Block = {
-              id: uuidv4(),
-              session_id: sessionId,
-              command: "init-aurora",
-              started_at: Date.now(),
-              status: "success",
-              output_type: "plain",
-              collapsed: false,
-              bookmarked: false,
-              output_summary: "Welcome to Aurora Terminal. Interactive AI console active.",
-              anchor_row: 0,
-              output_row_end: 0,
-              anchor_y: 0,
-            };
-
-            useBlockStore.getState().addBlock(sessionId, initBlock);
-          })
-          .catch(console.error);
       });
 
     const handleToggleCommandPalette = () => {
@@ -171,7 +121,7 @@ export function useAppBootstrap() {
       window.removeEventListener("toggle-command-palette", handleToggleCommandPalette);
       window.removeEventListener("toggle-ai-bar", handleToggleAiBar);
     };
-  }, [setActiveTabId, spawnSession]);
+  }, []);
 
   useEffect(() => {
     const handleSessionRestart = (event: Event) => {

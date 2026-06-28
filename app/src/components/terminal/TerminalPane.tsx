@@ -12,7 +12,8 @@ import { buildXtermTheme } from "../../lib/xtermTheme";
 import { recalculateAnchors, getRowHeight } from "../../lib/terminal/blockAnchors";
 
 import { TerminalBlock } from "./TerminalBlock";
-import { stripAnsi, stripPromptSentinels, extractSentinelValue, CWD_SENTINEL, BRANCH_SENTINEL } from "../../lib/terminal/cleanup";
+import { stripAnsi, cleanPtyData, processOSC133, stripOSC133 } from "../../lib/terminal/cleanup";
+import { SHELL_PROMPT_COMMAND } from "../../lib/shell";
 import { pty, system } from "../../lib/ipc";
 import { SquareTerminal } from "lucide-react";
 import { Block } from "@aurora/types";
@@ -37,7 +38,6 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
   const [isCwdLoading, setIsCwdLoading] = useState(false);
   const [isSessionDead, setIsSessionDead] = useState(false);
   const [sessionExitCode, setSessionExitCode] = useState<number | null>(null);
-  const branchRef = useRef<string | null>(null);
 
   // Read registered blocks for this session from state
   const sessionBlocks = useBlockStore((state) => state.blocks[sessionId] || EMPTY_BLOCKS);
@@ -268,45 +268,49 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
     } catch (_) { }
     recalc();
 
-    // 4. Hook up ResizeObserver to recalculate character cells on container changes
+    // 4. Hook up ResizeObserver with rAF batching to avoid redundant fit/measure per frame
+    let resizeRafId = 0;
     const ro = new ResizeObserver(() => {
       if (isDisposed) return;
-      const container = xtermRef.current;
-      if (!container || !container.clientWidth || !container.clientHeight) return;
-      try {
-        fit.fit();
-        const { cols, rows } = term;
-        if (cols > 0 && rows > 0 && (cols !== lastColsRef.current || rows !== lastRowsRef.current)) {
-          lastColsRef.current = cols;
-          lastRowsRef.current = rows;
+      if (resizeRafId) return;
+      resizeRafId = requestAnimationFrame(() => {
+        resizeRafId = 0;
+        if (isDisposed) return;
+        const container = xtermRef.current;
+        if (!container || !container.clientWidth || !container.clientHeight) return;
+        try {
+          fit.fit();
+          const { cols, rows } = term;
+          if (cols > 0 && rows > 0 && (cols !== lastColsRef.current || rows !== lastRowsRef.current)) {
+            lastColsRef.current = cols;
+            lastRowsRef.current = rows;
 
-          // Skip PTY resizes during the critical alternate buffer transition window (500ms)
-          // and defer them to after the window to avoid ConPTY deadlocks while maintaining perfect sizing.
-          const timeSinceTransition = Date.now() - lastTransitionTimeRef.current;
-          const isTransitioning = timeSinceTransition < 500;
-          if (isTransitioning) {
-            console.log(`[TerminalPane ${sessionId}] Deferring PTY resize during transition window: ${cols}x${rows}`);
-            const remainingTime = 500 - timeSinceTransition + 50; // add 50ms safety margin
-            if ((term as any)._deferredResizeTimer) {
-              clearTimeout((term as any)._deferredResizeTimer);
-            }
-            (term as any)._deferredResizeTimer = setTimeout(() => {
-              if (!isDisposed) {
-                console.log(`[TerminalPane ${sessionId}] Running deferred PTY resize: ${cols}x${rows}`);
-                debouncedResize(cols, rows);
+            // Skip PTY resizes during the critical alternate buffer transition window (500ms)
+            // and defer them to after the window to avoid ConPTY deadlocks while maintaining perfect sizing.
+            const timeSinceTransition = Date.now() - lastTransitionTimeRef.current;
+            const isTransitioning = timeSinceTransition < 500;
+            if (isTransitioning) {
+              const remainingTime = 500 - timeSinceTransition + 50;
+              if ((term as any)._deferredResizeTimer) {
+                clearTimeout((term as any)._deferredResizeTimer);
               }
-            }, remainingTime);
-          } else {
-            if ((term as any)._deferredResizeTimer) {
-              clearTimeout((term as any)._deferredResizeTimer);
+              (term as any)._deferredResizeTimer = setTimeout(() => {
+                if (!isDisposed) {
+                  debouncedResize(cols, rows);
+                }
+              }, remainingTime);
+            } else {
+              if ((term as any)._deferredResizeTimer) {
+                clearTimeout((term as any)._deferredResizeTimer);
+              }
+              debouncedResize(cols, rows);
             }
-            debouncedResize(cols, rows);
+            recalc();
           }
-          recalc();
+        } catch (err) {
+          console.warn("Resize fit failed:", err);
         }
-      } catch (err) {
-        console.warn("Resize fit failed:", err);
-      }
+      });
     });
     ro.observe(xtermRef.current);
 
@@ -348,76 +352,46 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
 
 
 
-          // Parse workspace CWD sentinels — hide them from terminal output
-          // Only parse sentinels if we are NOT inside the alternate screen buffer (TUI running).
-          // This prevents files being edited in vim/nano containing sentinel strings from resetting the prompt mode and sidepanel.
+          // Parse CWD sentinels and strip prompt/echo markers in a single pass
           const inAlt = useSessionStore.getState().alternateBufferActive[sessionId] || false;
           let foundSentinel = false;
 
           if (!inAlt) {
-            const cwdValue = extractSentinelValue(cleanData, CWD_SENTINEL);
+            const { cwdValue } = cleanPtyData(cleanData);
             if (cwdValue) {
-              let path = stripAnsi(cwdValue);
-              path = path.replace(/\[K$/, "").trim();
-
-              console.log(`[TerminalPane ${sessionId}] Captured shell sentinel: ${path}`);
+              console.log(`[TerminalPane ${sessionId}] Captured shell sentinel: ${cwdValue}`);
               foundSentinel = true;
-              setCwd(path);
+              setCwd(cwdValue);
               setIsCwdLoading(false);
 
-              // Force UI transition out of full-screen/alternate mode if we're at a prompt
               syncAlternateBufferState(false);
 
               window.dispatchEvent(
-                new CustomEvent("cwd-change", { detail: { path, sessionId } })
+                new CustomEvent("cwd-change", { detail: { path: cwdValue, sessionId } })
               );
             }
 
-            // Parse workspace branch sentinels
-            const branchValue = extractSentinelValue(cleanData, BRANCH_SENTINEL);
-            if (branchValue) {
-              let branchName = stripAnsi(branchValue);
-              branchName = branchName.replace(/\[K$/, "").trim();
-              branchRef.current = branchName || null;
-              console.log(`[TerminalPane ${sessionId}] Captured branch sentinel: ${branchName}`);
-            }
-
-            // If we found a sentinel but a block is still marked as running, it might mean 
-            // the terminal doesn't support OSC 133 D. We should finalize it here as a fallback.
+            // If we found a sentinel but a block is still marked as running, finalize as fallback
             if (foundSentinel) {
               const activeId = useBlockStore.getState().runningBlockId[sessionId];
               if (activeId) {
-                console.log(`[TerminalPane ${sessionId}] Finalizing block via prompt sentinel fallback`);
                 useBlockStore.getState().finalizeBlock(sessionId, activeId, 0);
               }
             }
           }
 
-          // Strip automated sentinel echoes (e.g. from manual cd commands)
-          cleanData = cleanData.replace(
-            /(?:\r?\n)?.*(?:Write-Host|echo)\s+["\x27]?__AURORA_[A-Z_]+__[^\r\n]*/g,
-            ""
-          );
-
-          // Strip PowerShell prompts and continuation symbols (PS>, >>, etc.)
-          cleanData = cleanData.replace(/^\r?PS\s*>\s*/gm, "");  // Strip "PS> " at line start (optional \r prefix)
-          cleanData = cleanData.replace(/^\r?>+\s*/gm, "");    // Strip continuation prompts ("> ", ">> ", etc.) — optional \r prefix for PSReadLine
-          cleanData = cleanData.replace(/^\r?>+\s*$/gm, "");   // Strip any remaining prompt-only lines
-
-          // Strip individual sentinel lines cleanly from output so they don't print to screen
-          cleanData = stripPromptSentinels(cleanData);
-
-          // Standard OSC 133 sequences logic
-          const osc133Regex = /\x1b\]133;([A-D])(?:;(\d+))?\x07/g;
-          let match;
-          while ((match = osc133Regex.exec(cleanData)) !== null) {
-            const [, code, arg] = match;
+          // Standard OSC 133 sequences logic (run on raw data before any stripping)
+          processOSC133(cleanData, (code, arg) => {
             const currentProgressId = useBlockStore.getState().runningBlockId[sessionId];
             if (code === "D" && currentProgressId) {
               const codeNum = parseInt(arg || "0", 10);
               useBlockStore.getState().finalizeBlock(sessionId, currentProgressId, codeNum);
             }
-          }
+          });
+
+          // Strip sentinel/prompt/echo lines and PS> markers in one combined pass
+          const { cleanData: stripped } = cleanPtyData(cleanData);
+          cleanData = stripped;
 
           // Check if we ended with a partial sequence to preserve for next chunk
           const lastEsc = cleanData.lastIndexOf("\x1b");
@@ -447,11 +421,9 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
                 // Parse CWD and finalize block in failsafe data if found
                 const inAltFailsafe = useSessionStore.getState().alternateBufferActive[sessionId] || false;
                 if (!inAltFailsafe) {
-                  const failsafeCwdValue = extractSentinelValue(failsafeData, CWD_SENTINEL);
+                  const { cwdValue: failsafeCwdValue } = cleanPtyData(failsafeData);
                   if (failsafeCwdValue) {
-                    let path = stripAnsi(failsafeCwdValue);
-                    path = path.replace(/\[K$/, "").trim();
-                    setCwd(path);
+                    setCwd(failsafeCwdValue);
                     setIsCwdLoading(false);
                     syncAlternateBufferState(false);
                     const activeId = useBlockStore.getState().runningBlockId[sessionId];
@@ -459,23 +431,13 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
                       useBlockStore.getState().finalizeBlock(sessionId, activeId, 0);
                     }
                     window.dispatchEvent(
-                      new CustomEvent("cwd-change", { detail: { path, sessionId } })
+                      new CustomEvent("cwd-change", { detail: { path: failsafeCwdValue, sessionId } })
                     );
-                  }
-
-                  // Parse branch in failsafe data if found
-                  const failsafeBranchValue = extractSentinelValue(failsafeData, BRANCH_SENTINEL);
-                  if (failsafeBranchValue) {
-                    let branchName = stripAnsi(failsafeBranchValue);
-                    branchName = branchName.replace(/\[K$/, "").trim();
-                    branchRef.current = branchName || null;
                   }
                 }
 
-                // Strip PowerShell prompt symbols and sentinel lines from failsafe data
-                failsafeData = failsafeData.replace(/^\r?>+\s*/gm, "");
-                failsafeData = failsafeData.replace(/^\r?>+\s*$/gm, "");
-                failsafeData = stripPromptSentinels(failsafeData);
+                // Strip prompt symbols and sentinel lines from failsafe data in one pass
+                failsafeData = cleanPtyData(failsafeData).cleanData;
 
                 if (failsafeData && termRef.current) {
                   termRef.current.write(failsafeData);
@@ -486,7 +448,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
           }
 
           // Clean boundary sequences before feed
-          cleanData = cleanData.replace(/\x1b\]133;[^\x07]*\x07/g, "");
+          cleanData = stripOSC133(cleanData);
 
           // Keep block summary records populated
           const activeBlockId = useBlockStore.getState().runningBlockId[sessionId];
@@ -560,10 +522,9 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
       const divider = `\r\n\r\n${colorSeq}${line}${E}[0m\r\n\r\n`;
       term.write(divider);
 
-      // Print the custom styled command header: folder (branch) > 
+      // Print the custom styled command header: folder > 
       const folder = cwdRef.current.split(/[\/\\]/).filter(Boolean).pop() || cwdRef.current;
-      const branchStr = branchRef.current ? ` ${E}[1;32m(${branchRef.current})${E}[0m` : "";
-      const prefix = `${E}[1;36m${folder}${E}[0m${branchStr} ${E}[1;33m>${E}[0m `;
+      const prefix = `${E}[1;36m${folder}${E}[0m ${E}[1;33m>${E}[0m `;
       term.write(prefix);
       term.scrollToBottom();
 
@@ -702,8 +663,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
       // Respawn process under same session_id!
       const isWin = window.navigator.userAgent.includes("Windows");
       const defaultShell = isWin ? "powershell.exe" : "bash";
-      const promptCmd = `function prompt { $cwd = $ExecutionContext.SessionState.Path.CurrentLocation; $branch = (git branch --show-current 2>$null); "__AURORA_PROMPT_START__" + [char]13 + [char]10 + "__AURORA_CWD__=$cwd" + [char]13 + [char]10 + "__AURORA_BRANCH__=$branch" + [char]13 + [char]10 + "__AURORA_PROMPT_END__"; return ' ' }; Clear-Host`;
-      const args = isWin ? ["-NoLogo", "-NoExit", "-Command", promptCmd] : [];
+      const args = isWin ? ["-NoLogo", "-NoExit", "-Command", SHELL_PROMPT_COMMAND] : [];
 
       await pty.spawn(defaultShell, args, {}, cwd, sessionId);
       console.log(`[TerminalPane ${sessionId}] Successfully restarted dead PTY session!`);

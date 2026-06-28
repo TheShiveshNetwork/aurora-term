@@ -23,6 +23,7 @@ import { CommandInputBar } from "../components/layout/CommandInputBar";
 import { TerminalWorkspaceView } from "./TerminalWorkspaceView";
 import { FileWorkspaceView } from "./FileWorkspaceView";
 import { AgentView } from "./AgentView";
+import { NewWindowView } from "./NewWindowView";
 import { DiffWorkspaceView } from "../components/editor/DiffWorkspaceView";
 import { CommitDiffView } from "../components/editor/CommitDiffView";
 import { GitView } from "../components/git/GitView";
@@ -142,6 +143,9 @@ export function AppShellView() {
     useAppShellStore.getState().setWorkspaceCwd(path);
     if (activeTabId) {
       setSessionCwd(activeTabId, path);
+    } else {
+      const { shell, args } = getDefaultShellLaunch();
+      spawnSession(shell, args, {}, path).catch(console.error);
     }
   };
 
@@ -426,83 +430,114 @@ export function AppShellView() {
         onOpenFileAtPath={(path: string) => { openFile(path, cwdAbsolute); setViewMode("file"); }}
         onOpenGitView={handleOpenGitView}
         gitViewActive={gitViewActive}
+        noFolder={tabs.length === 0}
       />
 
-      <div className="flex flex-1 overflow-hidden">
-        <SidePanel collapsed={sidebarCollapsed} cwd={cwdAbsolute} activeFilePath={activeFilePath} onKillTab={(id) => {
-          const tab = tabs.find((candidate) => candidate.id === id);
-          if (tab?.type === "file" && tab.dirty) {
-            setPendingCloseTabId(id);
-            return;
-          }
-          killSession(id);
-        }} />
+      {tabs.length === 0 ? (
+        <NewWindowView onOpenFolder={handleOpenFolder} />
+      ) : (
+        <div className="flex flex-1 overflow-hidden">
+          <SidePanel collapsed={sidebarCollapsed} cwd={cwdAbsolute} activeFilePath={activeFilePath}
+            onKillTab={(id) => {
+              const tab = tabs.find((candidate) => candidate.id === id);
+              if (tab?.type === "file" && tab.dirty) {
+                setPendingCloseTabId(id);
+                return;
+              }
+              killSession(id);
+            }}
+            onAddTab={async (type: "terminal" | "file") => {
+              if (type === "terminal") {
+                const { shell, args } = getDefaultShellLaunch();
+                try {
+                  const sessionId = await spawnSession(shell, args, {}, cwdAbsolute);
+                  setSessionCwd(sessionId, cwdAbsolute);
+                } catch (error) {
+                  console.error("Failed to spawn session:", error);
+                }
+                return;
+              }
 
-        <main className="flex-1 flex flex-col min-w-0 bg-surface-container-low overflow-hidden relative">
-          {viewMode === "agent" ? (
-            <div className="flex-1 min-h-0 overflow-hidden">
-              <AgentView />
-            </div>
-          ) : (
-            <>
-              {!isStandalone && (
-                <div className={tabBarVisible ? "" : "hidden"}>
-                  <TabBar
-                    viewMode={viewMode}
-                    onSetViewMode={setViewMode}
-                    onAddTab={async (type: "terminal" | "file") => {
-                      if (type === "terminal") {
-                        const { shell, args } = getDefaultShellLaunch();
-                        try {
-                          const sessionId = await spawnSession(shell, args, {}, cwdAbsolute);
-                          setSessionCwd(sessionId, cwdAbsolute);
-                        } catch (error) {
-                          console.error("Failed to spawn session:", error);
+              const welcomeTabId = uuidv4();
+              const newTab: Tab = {
+                id: welcomeTabId,
+                name: "Workspace",
+                type: "file",
+                filePath: undefined,
+                cwd: cwdAbsolute,
+                created_at: Date.now(),
+              };
+              useSessionStore.getState().addTab(newTab);
+              setActiveTabId(welcomeTabId);
+              setViewMode("file");
+            }}
+          />
+
+          <main className="flex-1 flex flex-col min-w-0 bg-surface-container-low overflow-hidden relative">
+            {viewMode === "agent" ? (
+              <div className="flex-1 min-h-0 overflow-hidden">
+                <AgentView />
+              </div>
+            ) : (
+              <>
+                {!isStandalone && (
+                  <div className={tabBarVisible ? "" : "hidden"}>
+                    <TabBar
+                      viewMode={viewMode}
+                      onSetViewMode={setViewMode}
+                      onAddTab={async (type: "terminal" | "file") => {
+                        if (type === "terminal") {
+                          const { shell, args } = getDefaultShellLaunch();
+                          try {
+                            const sessionId = await spawnSession(shell, args, {}, cwdAbsolute);
+                            setSessionCwd(sessionId, cwdAbsolute);
+                          } catch (error) {
+                            console.error("Failed to spawn session:", error);
+                          }
+                          return;
                         }
-                        return;
-                      }
 
-                      const welcomeTabId = uuidv4();
-                      const newTab: Tab = {
-                        id: welcomeTabId,
-                        name: "Workspace",
-                        type: "file",
-                        filePath: undefined,
-                        cwd: cwdAbsolute,
-                        created_at: Date.now(),
-                      };
-                      useSessionStore.getState().addTab(newTab);
-                      setActiveTabId(welcomeTabId);
-                      setViewMode("file");
-                    }}
-                    onKillTab={(id) => {
-                      const tab = tabs.find((candidate) => candidate.id === id);
-                      if (tab?.type === "file" && tab.dirty) {
-                        setPendingCloseTabId(id);
-                        return;
-                      }
+                        const welcomeTabId = uuidv4();
+                        const newTab: Tab = {
+                          id: welcomeTabId,
+                          name: "Workspace",
+                          type: "file",
+                          filePath: undefined,
+                          cwd: cwdAbsolute,
+                          created_at: Date.now(),
+                        };
+                        useSessionStore.getState().addTab(newTab);
+                        setActiveTabId(welcomeTabId);
+                        setViewMode("file");
+                      }}
+                      onKillTab={(id) => {
+                        const tab = tabs.find((candidate) => candidate.id === id);
+                        if (tab?.type === "file" && tab.dirty) {
+                          setPendingCloseTabId(id);
+                          return;
+                        }
 
-                      killSession(id);
-                    }}
-                    onDuplicateTab={handleDuplicateTab}
-                  />
-                </div>
-              )}
+                        killSession(id);
+                      }}
+                      onDuplicateTab={handleDuplicateTab}
+                    />
+                  </div>
+                )}
 
-              <div
-                className={`flex-1 overflow-hidden w-full flex flex-col relative ${(isStandaloneView || isAlternateActive) ? "" : "px-3 pt-3"}`} onMouseDown={(event) => {
-                  const target = event.target as HTMLElement;
-                  if (target.closest(".xterm")) {
-                    return;
-                  }
+                <div
+                  className={`flex-1 overflow-hidden w-full flex flex-col relative ${(isStandaloneView || isAlternateActive) ? "" : "px-3 pt-3"}`} onMouseDown={(event) => {
+                    const target = event.target as HTMLElement;
+                    if (target.closest(".xterm")) {
+                      return;
+                    }
 
-                  if (activeTab?.type === "terminal" && !isCommandRunning && !isAlternateActive) {
-                    window.dispatchEvent(new CustomEvent("aurora-focus-terminal-input", { detail: { sessionId: activeTabId } }));
-                  }
-                }}
-              >
-                <div className="flex-1 min-h-0 w-full relative overflow-hidden">
-                  {tabs.map((tab) => {
+                    if (activeTab?.type === "terminal" && !isCommandRunning && !isAlternateActive) {
+                      window.dispatchEvent(new CustomEvent("aurora-focus-terminal-input", { detail: { sessionId: activeTabId } }));
+                    }
+                  }}
+                >
+                  <div className="flex-1 min-h-0 w-full relative overflow-hidden">
+                    {tabs.map((tab) => {
                     const isTabActive = tab.id === activeTabId;
 
                     return (
@@ -593,6 +628,7 @@ export function AppShellView() {
           <AgentOverlay sessionId={activeTabId} onClose={() => setShowAiBar(false)} />
         )}
       </div>
+      )}
 
       <SaveChangesModal
         tab={pendingTab}
@@ -697,7 +733,7 @@ export function AppShellView() {
         }}
       />
 
-      <StatusBar cwd={cwdAbsolute} />
+      <StatusBar cwd={cwdAbsolute} noFolder={tabs.length === 0} />
     </div>
   );
 }

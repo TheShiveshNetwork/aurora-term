@@ -4,6 +4,7 @@ import { useSessionStore } from "../stores/useSessionStore";
 import { config } from "../lib/ipc";
 
 export function usePersistUIState() {
+  const dirtyRef = useRef(false);
   const latestRef = useRef({
     sidebarCollapsed: useAppShellStore.getState().sidebarCollapsed,
     tabBarVisible: useAppShellStore.getState().tabBarVisible,
@@ -13,21 +14,26 @@ export function usePersistUIState() {
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const flush = useRef(() => {
+    if (!dirtyRef.current) return;
+    dirtyRef.current = false;
+    const { sidebarCollapsed, tabBarVisible, pinnedTabs, workspaceCwd } = latestRef.current;
+    config.get()
+      .then((cfg) => {
+        cfg.ui.sidebar_collapsed = sidebarCollapsed;
+        cfg.ui.tab_bar_visible = tabBarVisible;
+        cfg.ui.pinned_tabs = pinnedTabs;
+        cfg.ui.workspace_cwd = workspaceCwd || undefined;
+        return config.set(cfg);
+      })
+      .catch(() => {});
+  });
+
   useEffect(() => {
     const scheduleWrite = () => {
+      dirtyRef.current = true;
       if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => {
-        const { sidebarCollapsed, tabBarVisible, pinnedTabs, workspaceCwd } = latestRef.current;
-        config.get()
-          .then((cfg) => {
-            cfg.ui.sidebar_collapsed = sidebarCollapsed;
-            cfg.ui.tab_bar_visible = tabBarVisible;
-            cfg.ui.pinned_tabs = pinnedTabs;
-            cfg.ui.workspace_cwd = workspaceCwd || undefined;
-            return config.set(cfg);
-          })
-          .catch(() => {});
-      }, 300);
+      timerRef.current = setTimeout(flush.current, 5000);
     };
 
     const unsub1 = useAppShellStore.subscribe((state) => {
@@ -43,10 +49,16 @@ export function usePersistUIState() {
       scheduleWrite();
     });
 
+    const onUnload = () => flush.current();
+
+    window.addEventListener("beforeunload", onUnload);
+
     return () => {
       unsub1();
       unsub2();
+      window.removeEventListener("beforeunload", onUnload);
       if (timerRef.current) clearTimeout(timerRef.current);
+      flush.current();
     };
   }, []);
 }

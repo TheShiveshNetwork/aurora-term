@@ -7,34 +7,36 @@ interface NewWindowViewProps {
 
 export function NewWindowView({ onOpenFolder }: NewWindowViewProps) {
   return (
-    <div className="flex-1 flex flex-col items-center justify-center p-8 text-center max-w-5xl mx-auto w-full text-on-surface select-none">
-      <div className="flex flex-col items-center">
-        <img src={auroraIcon} alt="" className="w-32 h-32 rounded-[6px] shrink-0 object-contain" />
-        <h2 className="text-xl font-bold tracking-tight mt-5">Aurora</h2>
-        <p className="text-sm text-on-surface-variant/60 mt-1.5 leading-relaxed">
-          Open a folder to start your agentic session.
-        </p>
-      </div>
+    <div className="overflow-y-auto flex-1 flex flex-col items-start justify-start h-full min-h-0">
+      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center max-w-3xl w-full mx-auto text-on-surface select-none">
+        <div className="flex flex-col items-center">
+          <img src={auroraIcon} alt="" className="w-32 h-32 rounded-[6px] shrink-0 object-cover" />
+          <h2 className="text-xl font-bold tracking-tight mt-5">Aurora</h2>
+          <p className="text-sm text-on-surface-variant/60 mt-1.5 leading-relaxed">
+            Open a folder to start your agentic session.
+          </p>
+        </div>
 
-      <hr className="w-full max-w-sm my-8 border-outline" />
+        <hr className="w-full my-8 border-outline" />
 
-      <div className="flex flex-col gap-2.5 w-full max-w-sm">
-        <span className="text-sm text-left font-medium leading-relaxed">
-          Get Started
-        </span>
-        <ViewOptionButton label="Open Folder" icon={<FolderOpen />} onClick={onOpenFolder} keymap="Ctrl + O" />
-      </div>
+        <div className="flex flex-col gap-2.5 w-full">
+          <span className="text-sm text-left font-medium leading-relaxed">
+            Get Started
+          </span>
+          <ViewOptionButton label="Open Folder" icon={<FolderOpen />} onClick={onOpenFolder} keymap="Ctrl + O" />
+        </div>
 
-      <hr className="w-full max-w-sm my-8 border-outline" />
+        <hr className="w-full my-8 border-outline" />
 
-      <div className="flex flex-col gap-2.5 text-left w-full max-w-sm">
-        <span className="text-sm text-left font-medium leading-relaxed">
-          Tips
-        </span>
-        <div className="flex flex-col gap-4 text-xs text-gray-400 leading-relaxed">
-          <TipItem icon="zap" text='Press Ctrl + O or click "Open Folder" to select your project directory.' />
-          <TipItem icon="monitor" text='Switch to Agent Mode using the header toggle or press Ctrl + I to start an AI-powered terminal session.' />
-          <TipItem icon="file" text="Once a folder is open, you can create, edit, and run files through the integrated terminal and AI assistant." />
+        <div className="flex flex-col gap-2.5 text-left w-full">
+          <span className="text-sm text-left font-medium leading-relaxed">
+            Tips
+          </span>
+          <div className="flex flex-col gap-4 text-xs text-gray-400 leading-relaxed">
+            <TipItem icon="zap" text='Press Ctrl + O or click "Open Folder" to select your project directory.' />
+            <TipItem icon="monitor" text='Switch to Agent Mode using the header toggle or press Ctrl + I to start an AI-powered terminal session.' />
+            <TipItem icon="file" text="Once a folder is open, you can create, edit, and run files through the integrated terminal and AI assistant." />
+          </div>
         </div>
       </div>
     </div>

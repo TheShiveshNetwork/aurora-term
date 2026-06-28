@@ -175,6 +175,8 @@ export const system = {
     invoke<SystemInfo>("get_system_info", { cwd, force }),
   readDir: (path: string) =>
     invoke<FileNode[]>("read_dir", { path }),
+  searchFiles: (root: string, query: string) =>
+    invoke<FileNode[]>("search_files", { root, query }),
   readFileContent: (path: string) =>
     invoke<string>("read_file_content", { path }),
   readFileBase64: (path: string) =>
@@ -197,12 +199,16 @@ export const system = {
     invoke<string>("create_path", { parentDir, name, isDir }),
   watchDirectory: (path: string) =>
     invoke<void>("watch_directory", { path }),
+  watchGit: (cwd: string) =>
+    invoke<void>("watch_git", { cwd }),
   readShellHistory: () =>
     invoke<string[]>("read_shell_history"),
   agentPlanStep: (taskId: string, sessionId: string | null, goal: string | null, lastOutput: string | null, exitCode: number | null) =>
     invoke<AgentStepResult>("agent_plan_step", { taskId, sessionId, goal, lastOutput, exitCode }),
   revealInExplorer: (path: string) =>
     invoke<void>("reveal_in_explorer", { path }),
+  getCwdInfo: (cwd: string) =>
+    invoke<{ git_branch: string | null }>("get_cwd_info", { cwd }),
   getGitBranch: (cwd: string) =>
     invoke<string | null>("get_git_branch", { cwd }),
   getGitLog: (cwd: string, maxCount?: number) =>

@@ -31,6 +31,7 @@ interface AppShellStore {
   commandInputs: Record<string, string>;
   interactedSessions: Record<string, true>;
   isCwdLoading: boolean;
+  bootstrapReady: boolean;
   sectionVisibility: Record<SideSection, boolean>;
 
   setSidebarCollapsed: (collapsed: boolean) => void;
@@ -60,6 +61,7 @@ interface AppShellStore {
   markSessionInteracted: (sessionId: string) => void;
   clearSessionInteracted: (sessionId: string) => void;
   setIsCwdLoading: (loading: boolean) => void;
+  setBootstrapReady: (ready: boolean) => void;
   toggleSection: (section: SideSection) => void;
   setSectionVisibility: (sections: Partial<Record<SideSection, boolean>>) => void;
 }
@@ -88,6 +90,7 @@ export const useAppShellStore = create<AppShellStore>((set) => ({
   commandInputs: {},
   interactedSessions: {},
   isCwdLoading: false,
+  bootstrapReady: false,
   sectionVisibility: {
     folders: true,
     "open-tabs": true,
@@ -158,6 +161,7 @@ export const useAppShellStore = create<AppShellStore>((set) => ({
       return { interactedSessions: copy };
     }),
   setIsCwdLoading: (isCwdLoading) => set({ isCwdLoading }),
+  setBootstrapReady: (bootstrapReady) => set({ bootstrapReady }),
   toggleSection: (section) =>
     set((state) => ({
       sectionVisibility: {

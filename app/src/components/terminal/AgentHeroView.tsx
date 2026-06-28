@@ -131,27 +131,15 @@ export function AgentHeroView({ onSend }: { onSend?: (text: string) => void }) {
     }
   }, [phraseIdx]);
 
-  // ── Waving Animation Math Loop ────────────────────────────────────────────
+  // ── Merged Animation Loop: wave + glare in a single rAF callback ──────────
   useEffect(() => {
     let running = true;
-    const wave = () => {
+    const tick = () => {
       if (!running) return;
       waveTRef.current += 0.036;
       letterElsRef.current.forEach((s, i) => {
         if (s) s.style.transform = `translateY(${Math.sin(waveTRef.current + i * 0.35) * 1.5}px)`;
       });
-      rafIdRef.current = requestAnimationFrame(wave);
-    };
-    rafIdRef.current = requestAnimationFrame(wave);
-    return () => { running = false; cancelAnimationFrame(rafIdRef.current); };
-  }, []);
-
-  // ── Tight-Lock Perimeter Glare Animation Loop ────────────────────────────
-  useEffect(() => {
-    let running = true;
-    const tick = () => {
-      if (!running) return;
-      // Faster lerp (0.22) and smoother tracking to make glare follow cursor
       curAngleRef.current = lerpAngleDeg(curAngleRef.current, targetAngleRef.current, focusedRef.current ? 0.22 : 0.04);
       if (outerRef.current) setGlare(outerRef.current, curAngleRef.current);
       rafIdRef.current = requestAnimationFrame(tick);

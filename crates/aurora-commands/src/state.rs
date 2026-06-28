@@ -3,13 +3,14 @@ use tokio::sync::Mutex;
 use aurora_pty::{PtyManager, PtyEvent};
 use aurora_db::HistoryDb;
 use aurora_core::AppConfig;
-use crate::watcher::FileWatcher;
+use crate::watcher::{FileWatcher, GitWatcher};
 
 pub struct AppState {
     pub pty_manager: Arc<Mutex<PtyManager>>,
     pub history_db: Arc<Mutex<HistoryDb>>,
     pub config: Arc<Mutex<AppConfig>>,
     pub file_watcher: FileWatcher,
+    pub git_watcher: GitWatcher,
     pub sidecar: Arc<Mutex<aurora_sidecar::manager::SidecarManager>>,
     /// Channel sender for PTY events — passed to PtyManager on spawn.
     pub pty_event_sender: tokio::sync::mpsc::UnboundedSender<PtyEvent>,
@@ -27,6 +28,7 @@ impl AppState {
             history_db: Arc::new(Mutex::new(history_db)),
             config: Arc::new(Mutex::new(config)),
             file_watcher: FileWatcher::new(),
+            git_watcher: GitWatcher::new(),
             sidecar: Arc::new(Mutex::new(aurora_sidecar::manager::SidecarManager::new())),
             pty_event_sender,
         }

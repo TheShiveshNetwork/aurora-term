@@ -221,6 +221,20 @@ body {
   background: rgba(255, 255, 255, 0.25) !important;
 }
 
+/* Tab bar: 2px thin scrollbar, hidden by default, shown on hover */
+#aurora-tab-bar::-webkit-scrollbar {
+  height: 2px;
+}
+
+#aurora-tab-bar::-webkit-scrollbar-thumb {
+  background: transparent !important;
+  border-radius: 99px;
+}
+
+#aurora-tab-bar:hover::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.25) !important;
+}
+
 /* ── 6. Utility Modifiers ─────────────────────────────────────────── */
 .no-scrollbar {
   -ms-overflow-style: none;

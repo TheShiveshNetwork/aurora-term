@@ -52,7 +52,7 @@ function Tooltip({ children, show, className = "" }: { children: React.ReactNode
   ) : null;
 }
 
-export function StatusBar({ cwd }: { cwd?: string }) {
+export function StatusBar({ cwd, noFolder }: { cwd?: string; noFolder?: boolean }) {
   const { activeProvider } = useAIStore();
   const { tabs, activeTabId } = useSessionStore();
   const activeFileTab = tabs.find(t => t.id === activeTabId && t.type === "file");
@@ -76,26 +76,31 @@ export function StatusBar({ cwd }: { cwd?: string }) {
   cwdRef.current = cwd;
 
   useEffect(() => {
-    async function fetchInfo(force: boolean = false) {
+    async function fetchRam() {
       try {
-        const info = await system.getSystemInfo(cwdRef.current, force);
-        setSysInfo(info);
-      } catch (e) {
-        // fallback — keep defaults
-      }
+        const info = await system.getSystemInfo(cwdRef.current, false);
+        setSysInfo((prev) => ({ ...prev, ram_used_mb: info.ram_used_mb, ram_total_mb: info.ram_total_mb }));
+      } catch (_) {}
     }
 
-    fetchInfo(false);
+    async function fetchGitBranch(cwd: string) {
+      try {
+        const info = await system.getCwdInfo(cwd);
+        setSysInfo((prev) => ({ ...prev, git_branch: info.git_branch }));
+      } catch (_) {}
+    }
+
+    if (cwdRef.current) {
+      fetchGitBranch(cwdRef.current);
+    }
 
     const handleCwdChange = (e: Event) => {
-      const { sessionId } = (e as CustomEvent<{ path: string; sessionId: string }>).detail;
-      if (sessionId === activeTabId) {
-        fetchInfo(true);
-      }
+      const { path } = (e as CustomEvent<{ path: string; sessionId: string }>).detail;
+      if (path) fetchGitBranch(path);
     };
 
     window.addEventListener("cwd-change", handleCwdChange);
-    const interval = setInterval(() => fetchInfo(false), 30000);
+    const interval = setInterval(fetchRam, 30000);
 
     return () => {
       window.removeEventListener("cwd-change", handleCwdChange);
@@ -103,10 +108,10 @@ export function StatusBar({ cwd }: { cwd?: string }) {
       if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current);
       if (cwdTooltipTimeoutRef.current) clearTimeout(cwdTooltipTimeoutRef.current);
     };
-  }, [cwd, activeTabId]);
+  }, [activeTabId]);
 
   return (
-    <footer id="aurora-status-bar" className="flex justify-between items-center px-4 h-7 w-full z-50 select-none text-[11px] font-medium"
+    <footer id="aurora-status-bar" className="flex justify-between items-center px-4 h-7 w-full z-50 select-none text-[11px] font-medium shrink-0"
       style={{
         background: "#0A0D14",
         borderTop: "1px solid rgba(255,255,255,0.05)",
@@ -115,7 +120,7 @@ export function StatusBar({ cwd }: { cwd?: string }) {
       {/* Left side */}
       <div className="flex items-center gap-4">
         {/* Git branch */}
-        {sysInfo.git_branch && (
+        {sysInfo.git_branch && !noFolder && (
           <div
             className="relative flex items-center gap-1.5"
             style={{ color: "#3DDC84" }}
@@ -132,7 +137,7 @@ export function StatusBar({ cwd }: { cwd?: string }) {
         )}
 
         {/* CWD and Active File */}
-        {cwd && (
+        {cwd && !noFolder && (
           <>
             {sysInfo.git_branch && <span style={{ color: "rgba(255,255,255,0.15)" }}>|</span>}
             <div className="flex items-center">

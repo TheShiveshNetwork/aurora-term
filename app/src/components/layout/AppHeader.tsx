@@ -41,6 +41,7 @@ interface AppHeaderProps {
   projectName: string;
   cwdAbsolute: string;
   onOpenFileAtPath: (path: string) => void;
+  noFolder?: boolean;
 }
 
 export function AppHeader({
@@ -76,6 +77,7 @@ export function AppHeader({
   projectName,
   cwdAbsolute,
   onOpenFileAtPath,
+  noFolder,
 }: AppHeaderProps) {
   const headerRef = useRef<HTMLDivElement>(null);
   const [searchCollapsed, setSearchCollapsed] = useState(false);
@@ -83,11 +85,10 @@ export function AppHeader({
   const measureSearchSpace = useCallback(() => {
     const header = headerRef.current;
     if (!header) return;
-    const left = header.querySelector<HTMLElement>("#header-left");
-    const right = header.querySelector<HTMLElement>("#header-right");
-    if (!left || !right) return;
-    const available = header.offsetWidth - left.offsetWidth - right.offsetWidth - 32;
-    setSearchCollapsed(available < 180);
+    const searchBar = header.querySelector<HTMLElement>('[data-search-bar]');
+    if (searchBar) {
+      setSearchCollapsed(searchBar.offsetWidth < 140);
+    }
   }, []);
 
   useEffect(() => {
@@ -111,50 +112,95 @@ export function AppHeader({
     >
       {/* ── Left: branding pill + view mode ── */}
       <div id="header-left" data-tauri-no-drag className="flex items-center gap-1.5 py-1 shrink-0">
-        <img src={auroraIcon} alt="" className="w-8 h-8 rounded-[6px] shrink-0 object-cover" />
-        <div className="relative">
-          <button
-            data-tauri-no-drag
-            onClick={(event) => { event.stopPropagation(); onToggleMenu(); }}
-            className="flex items-center gap-1.5 h-8 px-2.5 rounded-[10px] cursor-pointer select-none transition-colors"
-            style={{
-              background: menuOpen ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.04)",
-              border: menuOpen ? "1px solid rgba(79,140,255,0.20)" : "1px solid rgba(255,255,255,0.07)",
-            }}
-            onMouseEnter={(e) => { if (!menuOpen) e.currentTarget.style.background = "rgba(255,255,255,0.07)"; }}
-            onMouseLeave={(e) => { if (!menuOpen) e.currentTarget.style.background = "rgba(255,255,255,0.04)"; }}
-            title="Aurora Menu"
-          >
-            <span className="text-[13px] font-semibold" style={{ color: "rgba(232,234,240,0.85)" }}>{projectName}</span>
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style={{ color: "rgba(232,234,240,0.35)" }}>
-              <path d="M2.5 3.5L5 6.5L7.5 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
+        {noFolder ? (
+          <div className="relative">
+            <button
+              data-tauri-no-drag
+              onClick={(event) => { event.stopPropagation(); onToggleMenu(); }}
+              className="flex items-center justify-center w-8 h-8 rounded-[10px] cursor-pointer select-none transition-colors"
+              style={{
+                background: menuOpen ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.04)",
+                border: menuOpen ? "1px solid rgba(79,140,255,0.20)" : "1px solid rgba(255,255,255,0.07)",
+              }}
+              onMouseEnter={(e) => { if (!menuOpen) e.currentTarget.style.background = "rgba(255,255,255,0.07)"; }}
+              onMouseLeave={(e) => { if (!menuOpen) e.currentTarget.style.background = "rgba(255,255,255,0.04)"; }}
+              title="Aurora Menu"
+            >
+              <Menu size={16} style={{ color: "rgba(232,234,240,0.6)" }} />
+            </button>
 
-          <MenuView
-            variant="primary"
-            open={menuOpen}
-            onClose={() => onToggleMenu()}
-            className="absolute left-0 mt-1.5 w-60 z-[999]"
-            style={{ pointerEvents: "auto" }}
-          >
-            <MenuViewItem icon={<FolderOpen size={13} />} onClick={onOpenFolder} shortcut="Ctrl+O">Open Folder</MenuViewItem>
-            <MenuViewItem icon={<FileText size={13} />} onClick={onOpenFile} shortcut="Ctrl+P">Open File</MenuViewItem>
-            <MenuViewItem icon={<History size={13} />} disabled>Open Recent…</MenuViewItem>
-            <MenuViewSeparator />
-            <MenuViewItem icon={<Plus size={13} />} onClick={onNewWindow} shortcut="Ctrl+Shift+N">New Window</MenuViewItem>
-            <MenuViewItem icon={<SquareTerminal size={13} />} onClick={onNewTab} shortcut="Ctrl+T">New Tab</MenuViewItem>
-            <MenuViewSeparator />
-            <MenuViewItem icon={<Terminal size={13} />} onClick={onCloseSession}>Close Session</MenuViewItem>
-            <MenuViewItem icon={<SplitSquareHorizontal size={13} />} onClick={onCloseTab}>Close Tab</MenuViewItem>
-            <MenuViewItem icon={<SplitSquareHorizontal size={13} />} onClick={onCloseOtherTabs}>Close Other Tabs</MenuViewItem>
-            <MenuViewSeparator />
-            <MenuViewItem icon={<Command size={13} />} onClick={onOpenSettings} shortcut="Ctrl+Shift+P">Command Palette</MenuViewItem>
-            <MenuViewItem icon={<Settings size={13} />} onClick={onToggleTheme}>Switch Mode ({theme})</MenuViewItem>
-            <MenuViewSeparator />
-            <MenuViewItem icon={<ExternalLink size={13} />} onClick={onExit} danger>Exit</MenuViewItem>
-          </MenuView>
-        </div>
+            <MenuView
+              variant="primary"
+              open={menuOpen}
+              onClose={() => onToggleMenu()}
+              className="absolute left-0 mt-1.5 w-60 z-[999]"
+              style={{ pointerEvents: "auto" }}
+            >
+              <MenuViewItem icon={<FolderOpen size={13} />} onClick={onOpenFolder} shortcut="Ctrl+O">Open Folder</MenuViewItem>
+              <MenuViewItem icon={<FileText size={13} />} onClick={onOpenFile} shortcut="Ctrl+P">Open File</MenuViewItem>
+              <MenuViewItem icon={<History size={13} />} disabled>Open Recent…</MenuViewItem>
+              <MenuViewSeparator />
+              <MenuViewItem icon={<Plus size={13} />} onClick={onNewWindow} shortcut="Ctrl+Shift+N">New Window</MenuViewItem>
+              <MenuViewItem icon={<SquareTerminal size={13} />} onClick={onNewTab} shortcut="Ctrl+T">New Tab</MenuViewItem>
+              <MenuViewSeparator />
+              <MenuViewItem icon={<Terminal size={13} />} onClick={onCloseSession}>Close Session</MenuViewItem>
+              <MenuViewItem icon={<SplitSquareHorizontal size={13} />} onClick={onCloseTab}>Close Tab</MenuViewItem>
+              <MenuViewItem icon={<SplitSquareHorizontal size={13} />} onClick={onCloseOtherTabs}>Close Other Tabs</MenuViewItem>
+              <MenuViewSeparator />
+              <MenuViewItem icon={<Command size={13} />} onClick={onOpenSettings} shortcut="Ctrl+Shift+P">Command Palette</MenuViewItem>
+              <MenuViewItem icon={<Settings size={13} />} onClick={onToggleTheme}>Switch Mode ({theme})</MenuViewItem>
+              <MenuViewSeparator />
+              <MenuViewItem icon={<ExternalLink size={13} />} onClick={onExit} danger>Exit</MenuViewItem>
+            </MenuView>
+          </div>
+        ) : (
+          <>
+            <img src={auroraIcon} alt="" className="w-8 h-8 rounded-[6px] shrink-0 object-cover" />
+            <div className="relative">
+              <button
+                data-tauri-no-drag
+                onClick={(event) => { event.stopPropagation(); onToggleMenu(); }}
+                className="flex items-center gap-1.5 h-8 px-2.5 rounded-[10px] cursor-pointer select-none transition-colors"
+                style={{
+                  background: menuOpen ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.04)",
+                  border: menuOpen ? "1px solid rgba(79,140,255,0.20)" : "1px solid rgba(255,255,255,0.07)",
+                }}
+                onMouseEnter={(e) => { if (!menuOpen) e.currentTarget.style.background = "rgba(255,255,255,0.07)"; }}
+                onMouseLeave={(e) => { if (!menuOpen) e.currentTarget.style.background = "rgba(255,255,255,0.04)"; }}
+                title="Aurora Menu"
+              >
+                <span className="text-[13px] font-semibold" style={{ color: "rgba(232,234,240,0.85)" }}>{projectName}</span>
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style={{ color: "rgba(232,234,240,0.35)" }}>
+                  <path d="M2.5 3.5L5 6.5L7.5 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+
+              <MenuView
+                variant="primary"
+                open={menuOpen}
+                onClose={() => onToggleMenu()}
+                className="absolute left-0 mt-1.5 w-60 z-[999]"
+                style={{ pointerEvents: "auto" }}
+              >
+                <MenuViewItem icon={<FolderOpen size={13} />} onClick={onOpenFolder} shortcut="Ctrl+O">Open Folder</MenuViewItem>
+                <MenuViewItem icon={<FileText size={13} />} onClick={onOpenFile} shortcut="Ctrl+P">Open File</MenuViewItem>
+                <MenuViewItem icon={<History size={13} />} disabled>Open Recent…</MenuViewItem>
+                <MenuViewSeparator />
+                <MenuViewItem icon={<Plus size={13} />} onClick={onNewWindow} shortcut="Ctrl+Shift+N">New Window</MenuViewItem>
+                <MenuViewItem icon={<SquareTerminal size={13} />} onClick={onNewTab} shortcut="Ctrl+T">New Tab</MenuViewItem>
+                <MenuViewSeparator />
+                <MenuViewItem icon={<Terminal size={13} />} onClick={onCloseSession}>Close Session</MenuViewItem>
+                <MenuViewItem icon={<SplitSquareHorizontal size={13} />} onClick={onCloseTab}>Close Tab</MenuViewItem>
+                <MenuViewItem icon={<SplitSquareHorizontal size={13} />} onClick={onCloseOtherTabs}>Close Other Tabs</MenuViewItem>
+                <MenuViewSeparator />
+                <MenuViewItem icon={<Command size={13} />} onClick={onOpenSettings} shortcut="Ctrl+Shift+P">Command Palette</MenuViewItem>
+                <MenuViewItem icon={<Settings size={13} />} onClick={onToggleTheme}>Switch Mode ({theme})</MenuViewItem>
+                <MenuViewSeparator />
+                <MenuViewItem icon={<ExternalLink size={13} />} onClick={onExit} danger>Exit</MenuViewItem>
+              </MenuView>
+            </div>
+          </>
+        )}
 
         {/* View mode toggle */}
         <div
@@ -181,7 +227,7 @@ export function AppHeader({
       <SearchBar collapsed={searchCollapsed} cwdAbsolute={cwdAbsolute} onOpenFileAtPath={onOpenFileAtPath} />
 
       {/* ── Right: panel toggles + pin + settings + avatar + window controls ── */}
-      <div id="header-right" data-tauri-no-drag className="flex items-center gap-0.5 py-1 shrink-0">
+      <div id="header-right" data-tauri-no-drag className="flex items-center gap-0.5 py-1">
         {!isStandalone && (
           <>
             <IconBtn onClick={onToggleSidebar} title={sidebarCollapsed ? "Show Sidebar" : "Hide Sidebar"}>
@@ -232,10 +278,11 @@ export function AppHeader({
             <User size={13} />
           </div>
         </button>
-
       </div>
 
-      <WindowControls />
+      <div id="window-controls" className="flex items-center shrink-0 ml-auto">
+        <WindowControls />
+      </div>
     </header>
   );
 }
@@ -285,11 +332,13 @@ function SearchBar({ collapsed, cwdAbsolute, onOpenFileAtPath }: { collapsed?: b
   const [value, setValue] = useState("");
   const [iconOpen, setIconOpen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(-1);
-  const [files, setFiles] = useState<{ name: string; path: string; is_dir: boolean }[]>([]);
-  const [filesLoaded, setFilesLoaded] = useState(false);
+  const [searchResults, setSearchResults] = useState<{ name: string; path: string; is_dir: boolean }[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const selectedRef = useRef<HTMLButtonElement>(null);
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchSeq = useRef(0);
   const expanded = focused || value.length > 0;
 
   useEffect(() => {
@@ -306,44 +355,57 @@ function SearchBar({ collapsed, cwdAbsolute, onOpenFileAtPath }: { collapsed?: b
   }, []);
 
   useEffect(() => {
-    setFilesLoaded(false);
-    setFiles([]);
-  }, [cwdAbsolute]);
-
-  useEffect(() => {
-    if (focused && !filesLoaded && cwdAbsolute) {
-      system.readDir(cwdAbsolute)
-        .then(nodes => {
-          setFiles(nodes.map(n => ({ name: n.name, path: n.path, is_dir: n.is_dir })));
-          setFilesLoaded(true);
-        })
-        .catch(() => { });
-    }
-  }, [focused, filesLoaded, cwdAbsolute]);
-
-  useEffect(() => {
     if (!focused) {
       setValue("");
+      setSearchResults([]);
     }
   }, [focused]);
+
+  useEffect(() => {
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    const trimmed = value.trim();
+    if (!trimmed) {
+      setSearchResults([]);
+      setSearchLoading(false);
+      return;
+    }
+    if (!cwdAbsolute) return;
+    setSearchLoading(true);
+    searchTimer.current = setTimeout(() => {
+      const seq = ++searchSeq.current;
+      system.searchFiles(cwdAbsolute, trimmed)
+        .then(nodes => {
+          if (seq !== searchSeq.current) return;
+          setSearchResults(nodes.map(n => ({ name: n.name, path: n.path, is_dir: n.is_dir })));
+          setSearchLoading(false);
+        })
+        .catch(() => {
+          if (seq !== searchSeq.current) return;
+          setSearchLoading(false);
+        });
+    }, 200);
+    return () => {
+      if (searchTimer.current) clearTimeout(searchTimer.current);
+    };
+  }, [value, cwdAbsolute]);
 
   const query = value.toLowerCase().trim();
 
   const matchedDirs = useMemo(() => {
-    if (!query || !files.length) return [];
+    if (!query || !searchResults.length) return [];
     const seen = new Set<string>();
-    return files
+    return searchResults
       .filter(f => f.is_dir && f.name.toLowerCase().includes(query) && !seen.has(f.name) && seen.add(f.name))
       .slice(0, 6);
-  }, [query, files]);
+  }, [query, searchResults]);
 
   const matchedRegularFiles = useMemo(() => {
-    if (!query || !files.length) return [];
+    if (!query || !searchResults.length) return [];
     const seen = new Set<string>();
-    return files
+    return searchResults
       .filter(f => !f.is_dir && f.name.toLowerCase().includes(query) && !seen.has(f.name) && seen.add(f.name))
       .slice(0, 8);
-  }, [query, files]);
+  }, [query, searchResults]);
 
   const matchedSettings = useMemo(() => {
     if (!query) return [];
@@ -415,7 +477,7 @@ function SearchBar({ collapsed, cwdAbsolute, onOpenFileAtPath }: { collapsed?: b
 
   if (collapsed && !iconOpen) {
     return (
-      <div className="flex-1 flex justify-center">
+      <div data-search-bar className="flex-1 flex justify-center min-w-0">
         <button
           onClick={() => setIconOpen(true)}
           className="p-2 rounded-[10px] transition-colors cursor-pointer"
@@ -430,9 +492,129 @@ function SearchBar({ collapsed, cwdAbsolute, onOpenFileAtPath }: { collapsed?: b
     );
   }
 
+  if (collapsed && iconOpen) {
+    return (
+      <>
+        <div data-search-bar className="flex-1 min-w-0" />
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center"
+          style={{ background: "rgba(0,0,0,0.3)" }}
+          onClick={() => { setIconOpen(false); setFocused(false); }}
+        >
+          <div className="w-full max-w-md px-4" onClick={(e) => e.stopPropagation()}>
+            <div
+              className="flex items-center h-9 py-1 px-2 gap-3 rounded-md w-full"
+              style={{
+                background: "rgba(15,19,26,0.95)",
+                border: focused ? "1px solid rgba(79,140,255,0.3)" : "1px solid rgba(255,255,255,0.07)",
+                backdropFilter: "blur(12px)",
+              }}
+            >
+              <Search size={14} className="shrink-0" style={{ color: focused ? "rgba(79,140,255,0.7)" : "rgba(232,234,240,0.3)" }} />
+              <input
+                ref={inputRef}
+                type="text"
+                placeholder="Search files and settings…"
+                className="flex-1 bg-transparent text-[13px] outline-none placeholder:text-white/25 min-w-0"
+                style={{ color: "#E8EAF0" }}
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                onFocus={() => setFocused(true)}
+                onBlur={() => {
+                  setTimeout(() => setFocused(false), 150);
+                }}
+                onKeyDown={handleKeyDown}
+                autoFocus
+              />
+              {searchLoading && value.trim() && (
+                <svg className="animate-spin shrink-0" width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ color: "rgba(79,140,255,0.6)" }}>
+                  <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
+                </svg>
+              )}
+            </div>
+            {showDropdown && (
+              <div
+                ref={dropdownRef}
+                className="mt-1 rounded-lg overflow-hidden z-[9999] select-text"
+                style={{
+                  background: "#141822",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+                  maxHeight: "320px",
+                }}
+              >
+                {matchedDirs.length > 0 && (
+                  <div>
+                    <div className="flex items-center gap-2 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider"
+                      style={{ color: "rgba(232,234,240,0.35)", background: "rgba(255,255,255,0.03)" }}>
+                      <Terminal size={11} />
+                      Open terminal in
+                    </div>
+                    {matchedDirs.map((d, di) => {
+                      const idx = di;
+                      const isSelected = idx === selectedIndex;
+                      return (
+                        <button
+                          key={d.path}
+                          ref={isSelected ? selectedRef : undefined}
+                          onClick={() => { setIconOpen(false); setValue(""); window.dispatchEvent(new CustomEvent("sidebar-open-in-new-tab", { detail: { path: d.path } })); }}
+                          className="flex items-center gap-2.5 w-full text-left px-3 py-2 text-[12px] transition-colors cursor-pointer"
+                          style={{
+                            color: "#E8EAF0",
+                            background: isSelected ? "rgba(79,140,255,0.15)" : "transparent",
+                          }}
+                          onMouseEnter={() => setSelectedIndex(idx)}
+                        >
+                          <FolderOpen size={13} style={{ color: "rgba(79,140,255,0.6)" }} />
+                          <span className="truncate">{d.name}/</span>
+                          <span className="ml-auto text-[10px] shrink-0" style={{ color: "rgba(232,234,240,0.3)" }}>New Terminal</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                {(matchedDirs.length > 0 && (matchedRegularFiles.length > 0 || matchedSettings.length > 0)) && (
+                  <div className="h-px mx-3" style={{ background: "rgba(255,255,255,0.06)" }} />
+                )}
+                {matchedRegularFiles.length > 0 && (
+                  <div>
+                    <div className="flex items-center gap-2 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider"
+                      style={{ color: "rgba(232,234,240,0.35)", background: "rgba(255,255,255,0.03)" }}>
+                      <File size={11} />
+                      Files
+                    </div>
+                    {matchedRegularFiles.map((f, fi) => {
+                      const idx = dirCount + fi;
+                      const isSelected = idx === selectedIndex;
+                      return (
+                        <button
+                          key={f.path}
+                          ref={isSelected ? selectedRef : undefined}
+                          onClick={() => { setIconOpen(false); setValue(""); onOpenFileAtPath(f.path); }}
+                          className="flex items-center gap-2.5 w-full text-left px-3 py-2 text-[12px] transition-colors cursor-pointer"
+                          style={{
+                            color: "#E8EAF0",
+                            background: isSelected ? "rgba(79,140,255,0.15)" : "transparent",
+                          }}
+                          onMouseEnter={() => setSelectedIndex(idx)}
+                        >
+                          <FileText size={13} style={{ color: "rgba(232,234,240,0.4)" }} />
+                          <span className="truncate">{f.name}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </>
+    );
+  }
+
   return (
-    <div className="flex-1 flex justify-center" data-tauri-drag-region>
-      <div className="relative w-full" style={{ maxWidth: collapsed ? "220px" : "400px" }}>
+    <div data-search-bar className="flex-1 flex justify-center min-w-0" data-tauri-drag-region>
+      <div className="relative w-full" style={{ maxWidth: "400px" }}>
         <div
           className="flex items-center h-9 py-1 px-2 gap-3 transition-all duration-200 warp-input-glow rounded-md w-full"
           style={{
@@ -454,9 +636,12 @@ function SearchBar({ collapsed, cwdAbsolute, onOpenFileAtPath }: { collapsed?: b
               setTimeout(() => setFocused(false), 150);
             }}
             onKeyDown={handleKeyDown}
-            autoFocus={collapsed && iconOpen}
           />
-          {!expanded && !collapsed && (
+          {searchLoading && value.trim() ? (
+            <svg className="animate-spin shrink-0" width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ color: "rgba(79,140,255,0.6)" }}>
+              <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
+            </svg>
+          ) : !expanded ? (
             <kbd
               className="shrink-0 text-sm flex items-center gap-1 font-mono px-1.5 py-0.5 rounded-[6px] select-none"
               style={{
@@ -467,7 +652,7 @@ function SearchBar({ collapsed, cwdAbsolute, onOpenFileAtPath }: { collapsed?: b
             >
               {"CTRL"} {"P"}
             </kbd>
-          )}
+          ) : null}
         </div>
 
         {showDropdown && (

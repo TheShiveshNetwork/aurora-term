@@ -81,9 +81,9 @@ function buildGraphData(data: GitLogResult): GraphData {
   // stays on lane 0.  Everything else gets lane 1+.
   const mainTipHash = branches.find(b => b.name === currentBranch)?.commit_hash;
   const mainSet = new Set<string>();
+  const hashIdx: Record<string, number> = {};
+  commits.forEach((c, i) => (hashIdx[c.hash] = i));
   if (mainTipHash) {
-    const hashIdx: Record<string, number> = {};
-    commits.forEach((c, i) => (hashIdx[c.hash] = i));
     const q = [mainTipHash];
     while (q.length) {
       const h = q.pop()!;
@@ -94,6 +94,33 @@ function buildGraphData(data: GitLogResult): GraphData {
       // only follow the *first* parent to stay on the main spine
       const firstParent = commits[ci2].parents[0];
       if (firstParent) q.push(firstParent);
+    }
+  }
+
+  // ── unpushed detection ──────────────────────────────────────────────────
+  // Commits on the current branch that are NOT reachable from main/master
+  // get colored purple to distinguish them as unpushed work.
+  const mainBranchName = branches.find(b => /^main$|^master$/.test(b.name))?.name;
+  let unpushedSet = new Set<string>();
+  if (mainBranchName && mainBranchName !== currentBranch) {
+    const mainBranchTip = branches.find(b => b.name === mainBranchName)?.commit_hash;
+    if (mainBranchTip) {
+      const mainAncestors = new Set<string>();
+      const q = [mainBranchTip];
+      while (q.length) {
+        const h = q.pop()!;
+        if (mainAncestors.has(h)) continue;
+        mainAncestors.add(h);
+        const ci2 = hashIdx[h];
+        if (ci2 == null) continue;
+        for (const p of commits[ci2].parents) {
+          if (p) q.push(p);
+        }
+      }
+      // unpushed = on current branch spine but not reachable from main
+      for (const h of mainSet) {
+        if (!mainAncestors.has(h)) unpushedSet.add(h);
+      }
     }
   }
 
@@ -110,7 +137,7 @@ function buildGraphData(data: GitLogResult): GraphData {
     if (mainSet.has(c.hash)) {
       // ── spine commit ──────────────────────────────────────────────────
       commitLane[c.hash] = 0;
-      commitColors[c.hash] = BRANCH_COLORS[0];
+      commitColors[c.hash] = unpushedSet.has(c.hash) ? "#9A7CFF" : BRANCH_COLORS[0];
 
       // if this commit is the tip of any non-main branch, open that lane
       for (const t of tags) {
@@ -623,7 +650,7 @@ export function GitTree({ variant = "compact" }: GitTreeProps) {
 
                 {/* expanded file list */}
                 {isRowExpanded && (
-                  <div>
+                  <div className={`pl-4`}>
                     {isLoadingFiles ? (
                       <div className="flex items-center gap-1.5 py-1" style={{ paddingLeft: canvasW + 12 }}>
                         <LoadingSpinner size={9} inline />
