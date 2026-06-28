@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use notify::{Event, RecursiveMode, Watcher};
@@ -43,5 +44,41 @@ impl FileWatcher {
         }
 
         *watcher_lock = watcher;
+    }
+}
+
+pub struct GitWatcher {
+    watchers: Mutex<HashMap<String, RecommendedWatcher>>,
+}
+
+impl Default for GitWatcher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl GitWatcher {
+    pub fn new() -> Self {
+        Self {
+            watchers: Mutex::new(HashMap::new()),
+        }
+    }
+
+    pub fn store(&self, cwd: String, watcher: RecommendedWatcher) {
+        let mut lock = self.watchers.lock().unwrap();
+        lock.insert(cwd, watcher);
+    }
+
+    pub fn stop_watching(&self, cwd: &str) {
+        let mut lock = self.watchers.lock().unwrap();
+        lock.remove(cwd);
+    }
+}
+
+impl Drop for GitWatcher {
+    fn drop(&mut self) {
+        if let Ok(watchers) = self.watchers.get_mut() {
+            watchers.clear();
+        }
     }
 }

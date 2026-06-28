@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { EditorView } from "@codemirror/view";
-import { setSearchQuery, SearchQuery, findNext, findPrevious, replaceAll, selectSelectionMatches } from "@codemirror/search";
+import { setSearchQuery, SearchQuery, findNext, findPrevious, replaceAll, selectSelectionMatches, openSearchPanel, closeSearchPanel } from "@codemirror/search";
 import { X, ChevronDown, ArrowUp, ArrowDown, Combine } from "lucide-react";
 
 interface SearchPanelProps {
@@ -39,8 +39,10 @@ export function SearchPanel({ view, onClose }: SearchPanelProps) {
   const findRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    openSearchPanel(view);
     findRef.current?.focus();
-  }, []);
+    findRef.current?.select();
+  }, [view]);
 
   const doSearch = useCallback((text: string) => {
     if (text) {
@@ -90,16 +92,17 @@ export function SearchPanel({ view, onClose }: SearchPanelProps) {
     }
   }, [view, findText, replaceText]);
 
-  const handleChangeAll = useCallback(() => {
+  const handleSelectAll = useCallback(() => {
     if (findText) {
       const query = new SearchQuery({ search: findText, caseSensitive: false });
       view.dispatch({ effects: setSearchQuery.of(query) });
       selectSelectionMatches(view);
-      handleClose();
+      onClose();
     }
-  }, [view, findText]);
+  }, [view, findText, onClose]);
 
   const handleClose = useCallback(() => {
+    closeSearchPanel(view);
     view.dispatch({ effects: setSearchQuery.of(new SearchQuery({ search: "" })) });
     view.focus();
     onClose();
@@ -128,10 +131,12 @@ export function SearchPanel({ view, onClose }: SearchPanelProps) {
 
   return (
     <div
-      className="absolute top-3 right-3 z-30 min-w-[300px] overflow-hidden rounded-xl shadow-2xl bg-[rgba(15,18,25,0.85)] border border-white/8"
+      className="absolute top-3 right-3 z-30 min-w-[300px] overflow-hidden rounded-xl shadow-2xl"
       style={{
+        background: "rgba(15,18,25,0.85)",
         backdropFilter: "blur(24px)",
         WebkitBackdropFilter: "blur(24px)",
+        border: "1px solid rgba(232,234,240,0.08)",
       }}
     >
       <div className="flex items-center gap-1.5 pl-3 pr-1.5 py-1.5">
@@ -171,6 +176,14 @@ export function SearchPanel({ view, onClose }: SearchPanelProps) {
           <ChevronDown size={13} className={`transition-transform ${showReplace ? "rotate-180" : ""}`} />
         </button>
         <button
+          onClick={handleSelectAll}
+          disabled={!findText}
+          className="p-1 rounded hover:bg-white/8 text-white/45 hover:text-white/80 disabled:opacity-20 disabled:cursor-default"
+          title="Select all matches with multiple cursors"
+        >
+          <Combine size={13} />
+        </button>
+        <button
           onClick={handleClose}
           className="p-1 rounded hover:bg-white/8 text-white/45 hover:text-white/80"
           title="Close"
@@ -189,15 +202,6 @@ export function SearchPanel({ view, onClose }: SearchPanelProps) {
             placeholder="Replace"
             className="flex-1 bg-transparent border-none outline-none text-[13px] text-white placeholder:text-white/25"
           />
-          <button
-            onClick={handleChangeAll}
-            disabled={!findText}
-            className="px-2 py-1 text-[11px] font-medium rounded-md bg-white/8 text-white/60 hover:bg-white/12 disabled:opacity-25 transition-colors"
-            title="Select all occurrences with multiple cursors"
-          >
-            <Combine size={12} className="inline mr-1" />
-            Change All
-          </button>
           <button
             onClick={handleReplaceAll}
             disabled={!findText}

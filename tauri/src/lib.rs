@@ -1,7 +1,7 @@
+use std::path::PathBuf;
 use aurora_commands::state::AppState;
 use aurora_config::ConfigLoader;
 use aurora_core::config::AppConfig;
-use aurora_db::HistoryDb;
 use aurora_pty::{PtyManager, PtyEvent};
 use tauri::{Manager, Emitter};
 use tauri_plugin_prevent_default::Flags;
@@ -11,19 +11,52 @@ fn start_pty_event_bridge(
     mut receiver: tokio::sync::mpsc::UnboundedReceiver<PtyEvent>,
 ) {
     tokio::spawn(async move {
-        while let Some(event) = receiver.recv().await {
-            match event {
-                PtyEvent::Data { session_id, data } => {
-                    let _ = app_handle.emit("pty_data", serde_json::json!({
-                        "session_id": session_id,
-                        "data": data,
-                    }));
+        let mut buffers: std::collections::HashMap<std::sync::Arc<str>, String> = std::collections::HashMap::new();
+        let mut interval = tokio::time::interval(std::time::Duration::from_millis(16));
+        
+        loop {
+            tokio::select! {
+                maybe_event = receiver.recv() => {
+                    match maybe_event {
+                        Some(PtyEvent::Data { session_id, data }) => {
+                            buffers.entry(session_id).or_default().push_str(&data);
+                        }
+                        Some(PtyEvent::Exit { session_id, exit_code }) => {
+                            if let Some(buffered) = buffers.remove(&session_id) {
+                                if !buffered.is_empty() {
+                                    let _ = app_handle.emit("pty_data", serde_json::json!({
+                                        "session_id": &*session_id,
+                                        "data": buffered,
+                                    }));
+                                }
+                            }
+                            let _ = app_handle.emit("pty_exit", serde_json::json!({
+                                "session_id": &*session_id,
+                                "exit_code": exit_code,
+                            }));
+                        }
+                        None => {
+                            for (session_id, buffered) in buffers {
+                                if !buffered.is_empty() {
+                                    let _ = app_handle.emit("pty_data", serde_json::json!({
+                                        "session_id": &*session_id,
+                                        "data": buffered,
+                                    }));
+                                }
+                            }
+                            break;
+                        }
+                    }
                 }
-                PtyEvent::Exit { session_id, exit_code } => {
-                    let _ = app_handle.emit("pty_exit", serde_json::json!({
-                        "session_id": session_id,
-                        "exit_code": exit_code,
-                    }));
+                _ = interval.tick() => {
+                    for (session_id, buffered) in buffers.iter_mut() {
+                        if !buffered.is_empty() {
+                            let _ = app_handle.emit("pty_data", serde_json::json!({
+                                "session_id": &**session_id,
+                                "data": std::mem::take(buffered),
+                            }));
+                        }
+                    }
                 }
             }
         }
@@ -46,17 +79,18 @@ pub fn run() {
             let config_loader = ConfigLoader::new(app)?;
             let config = config_loader.load().unwrap_or_else(|_| AppConfig::default());
             
-            let db_dir = app.path()
+            let db_dir: Option<PathBuf> = app.path()
                 .app_data_dir()
-                .map_err(|e| anyhow::anyhow!("Failed to get app data dir: {}", e))?;
-            let history_db = HistoryDb::new(Some(db_dir))?;
+                .map_err(|e| anyhow::anyhow!("Failed to get app data dir: {}", e))
+                .ok();
             
             let pty_manager = PtyManager::new();
             let (pty_sender, pty_receiver) = tokio::sync::mpsc::unbounded_channel::<PtyEvent>();
             
             start_pty_event_bridge(app.handle().clone(), pty_receiver);
             
-            let state = AppState::new(pty_manager, history_db, config, pty_sender);
+            // DB is lazily initialised on first history_search / history_add call
+            let state = AppState::new(pty_manager, config, pty_sender, db_dir);
             app.manage(state);
             
             // Spawn aurora-agent sidecar asynchronously on startup
@@ -77,6 +111,7 @@ pub fn run() {
             aurora_commands::pty_kill,
             aurora_commands::get_cwd,
             aurora_commands::read_dir,
+            aurora_commands::search_files,
             aurora_commands::read_file_content,
             aurora_commands::read_file_base64,
             aurora_commands::write_file_content,
@@ -93,6 +128,7 @@ pub fn run() {
             aurora_commands::process_list,
             aurora_commands::process_kill,
             aurora_commands::get_system_info,
+            aurora_commands::get_cwd_info,
             aurora_commands::get_current_pwd,
             aurora_commands::read_shell_history,
             aurora_commands::reveal_in_explorer,
@@ -104,6 +140,8 @@ pub fn run() {
             aurora_commands::select_file,
             aurora_commands::create_path,
             aurora_commands::watch_directory,
+            aurora_commands::watch_git,
+            aurora_commands::unwatch_git,
             aurora_commands::get_git_branch,
             aurora_commands::get_git_log,
             aurora_commands::get_git_file_log,
@@ -133,6 +171,17 @@ pub fn run() {
             aurora_commands::agent_plan_step,
             aurora_commands::get_available_commands,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            if let tauri::RunEvent::Exit = event {
+                if let Some(state) = app_handle.try_state::<AppState>() {
+                    let sidecar = state.sidecar.clone();
+                    tauri::async_runtime::block_on(async move {
+                        let mut lock = sidecar.lock().await;
+                        let _ = lock.kill().await;
+                    });
+                }
+            }
+        });
 }

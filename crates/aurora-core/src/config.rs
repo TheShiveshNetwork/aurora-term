@@ -67,6 +67,8 @@ pub struct UiStateConfig {
     pub pinned_tabs: Vec<String>,
     #[serde(default)]
     pub workspace_cwd: Option<String>,
+    #[serde(default)]
+    pub project_dir: Option<String>,
 }
 
 impl Default for UiStateConfig {
@@ -76,6 +78,7 @@ impl Default for UiStateConfig {
             tab_bar_visible: true,
             pinned_tabs: Vec::new(),
             workspace_cwd: None,
+            project_dir: None,
         }
     }
 }

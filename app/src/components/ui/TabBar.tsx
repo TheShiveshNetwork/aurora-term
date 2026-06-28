@@ -1,7 +1,7 @@
-﻿import React, { useRef, useState, useCallback, useEffect } from "react";
+import React, { useRef, useState, useCallback, useEffect } from "react";
 import { Terminal, FileText, Plus, X, Copy, Pin, Edit3, XCircle, Trash2, ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, ExternalLink, GitBranch, GitBranchPlus } from "lucide-react";
-import { useSessionStore } from "../../stores/useSessionStore";
-import { Tab, TabType } from "@aurora/types";
+import { useOpenTabs, EDITOR_LIKE_TYPES } from "../../hooks/useOpenTabs";
+import { Tab } from "@aurora/types";
 import { MenuView, MenuViewItem, MenuViewSeparator } from "./MenuView";
 import { closeAllPopups, onClosePopups } from "../../lib/popups";
 import { system } from "../../lib/ipc";
@@ -14,10 +14,8 @@ interface TabBarProps {
   onDuplicateTab?: (tab: Tab) => void;
 }
 
-const FILE_LIKE_TYPES: TabType[] = ["file", "diff", "git"];
-
 export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplicateTab }: TabBarProps) {
-  const { tabs, activeTabId, setActiveTabId, reorderTabs, updateTab } = useSessionStore();
+  const { tabs: sortedTabs, rawTabs, activeTabId, setActiveTabId, reorderTabs, updateTab } = useOpenTabs();
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [overIdx, setOverIdx] = useState<number | null>(null);
   const [dropIndicator, setDropIndicator] = useState<{ left: number } | null>(null);
@@ -58,8 +56,8 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
   };
 
   const expandedTabs = viewMode === "file"
-    ? tabs.filter((t) => FILE_LIKE_TYPES.includes(t.type))
-    : tabs.filter((t) => t.type === "terminal");
+    ? rawTabs.filter((t) => EDITOR_LIKE_TYPES.includes(t.type))
+    : rawTabs.filter((t) => t.type === "terminal");
 
   // ── Dynamic overflow detection ───────────────────────────────────
   const [isOverflowing, setIsOverflowing] = useState(false);
@@ -90,13 +88,6 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
     };
   }, [expandedTabs.length]);
 
-  // Pinned tabs always sorted first
-  const sortedTabs = [...tabs].sort((a, b) => {
-    if (a.pinned && !b.pinned) return -1;
-    if (!a.pinned && b.pinned) return 1;
-    return 0;
-  });
-
   // Check scroll positions
   const updateScrollState = useCallback(() => {
     const el = containerRef.current;
@@ -116,7 +107,7 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
       el.removeEventListener("scroll", updateScrollState);
       window.removeEventListener("resize", updateScrollState);
     };
-  }, [tabs, viewMode, updateScrollState]);
+  }, [rawTabs, viewMode, updateScrollState]);
 
   // Horizontal mouse wheel scrolling
   useEffect(() => {
@@ -267,8 +258,8 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
         const toTab = sortedTabs[toIdx];
 
         if (fromTab && toTab && !fromTab.pinned && !toTab.pinned) {
-          const originalFrom = tabs.findIndex(t => t.id === fromTab.id);
-          const originalTo = tabs.findIndex(t => t.id === toTab.id);
+          const originalFrom = rawTabs.findIndex(t => t.id === fromTab.id);
+          const originalTo = rawTabs.findIndex(t => t.id === toTab.id);
 
           if (originalFrom !== -1 && originalTo !== -1) {
             reorderTabs(originalFrom, originalTo);
@@ -287,7 +278,7 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
     document.body.style.userSelect = "none";
     window.addEventListener("mousemove", onMouseMove);
     window.addEventListener("mouseup", onMouseUp);
-  }, [getTabIndexFromX, reorderTabs, sortedTabs, tabs]);
+  }, [getTabIndexFromX, reorderTabs, sortedTabs, rawTabs]);
 
   return (
     <div
@@ -324,7 +315,7 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
           const isActive = tab.id === activeTabId;
           const isDragging = dragIdx === index;
           const isOver = overIdx === index && !isDragging;
-          const isExpanded = viewMode === "file" ? FILE_LIKE_TYPES.includes(tab.type) : tab.type === "terminal";
+          const isExpanded = viewMode === "file" ? EDITOR_LIKE_TYPES.includes(tab.type) : tab.type === "terminal";
           const isPinned = tab.pinned;
 
           return (
@@ -334,7 +325,7 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
               onMouseDown={(e) => handleMouseDown(e, index)}
               onClick={() => {
                 setActiveTabId(tab.id);
-                const mode = FILE_LIKE_TYPES.includes(tab.type) ? "file" : "terminal";
+                const mode = EDITOR_LIKE_TYPES.includes(tab.type) ? "file" : "terminal";
                 if (mode !== viewMode) {
                   onSetViewMode(mode);
                 }
@@ -513,7 +504,7 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
         <MenuViewItem variant="rightclick" icon={<XCircle size={13} />} onClick={() => {
           if (!contextTab) return;
           const targetType = contextTab.tab.type;
-          tabs.forEach((t) => {
+          rawTabs.forEach((t) => {
             if (t.type === targetType && t.id !== contextTab.tab.id && !t.pinned) {
               onKillTab(t.id);
             }
@@ -527,7 +518,7 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
         <MenuViewItem variant="rightclick" icon={<Trash2 size={13} />} onClick={() => {
           if (!contextTab) return;
           const targetType = contextTab.tab.type;
-          tabs.forEach((t) => {
+          rawTabs.forEach((t) => {
             if (t.type === targetType && !t.pinned) {
               onKillTab(t.id);
             }
@@ -543,8 +534,8 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
         <MenuViewItem variant="rightclick" icon={<ArrowLeft size={13} />} onClick={() => {
           if (!contextTab) return;
           const targetType = contextTab.tab.type;
-          const rightIdx = tabs.findIndex((t) => t.id === contextTab.tab.id);
-          tabs.forEach((t, i) => {
+          const rightIdx = rawTabs.findIndex((t) => t.id === contextTab.tab.id);
+          rawTabs.forEach((t, i) => {
             if (t.type === targetType && i < rightIdx && !t.pinned) {
               onKillTab(t.id);
             }
@@ -557,8 +548,8 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
         <MenuViewItem variant="rightclick" icon={<ArrowRight size={13} />} onClick={() => {
           if (!contextTab) return;
           const targetType = contextTab.tab.type;
-          const rightIdx = tabs.findIndex((t) => t.id === contextTab.tab.id);
-          tabs.forEach((t, i) => {
+          const rightIdx = rawTabs.findIndex((t) => t.id === contextTab.tab.id);
+          rawTabs.forEach((t, i) => {
             if (t.type === targetType && i > rightIdx && !t.pinned) {
               onKillTab(t.id);
             }

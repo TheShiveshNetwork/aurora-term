@@ -3,9 +3,34 @@ import React, { useEffect, useState } from "react";
 
 export function WindowControls() {
   const [isMac, setIsMac] = useState(false);
+  const [isMaximized, setIsMaximized] = useState(false);
 
   useEffect(() => {
     setIsMac(navigator.userAgent.includes("Mac"));
+
+    // Check initial maximized state
+    const checkMaximized = async () => {
+      try {
+        const maximized = await getCurrentWindow().isMaximized();
+        setIsMaximized(maximized);
+      } catch (err) {
+        console.error("Failed to check maximized state:", err);
+      }
+    };
+
+    checkMaximized();
+
+    // Listen for window resize/maximize events to update the icon dynamically
+    let unlisten: () => void;
+    getCurrentWindow().onResized(() => {
+      checkMaximized();
+    }).then((fn) => {
+      unlisten = fn;
+    });
+
+    return () => {
+      if (unlisten) unlisten();
+    };
   }, []);
 
   const handleMinimize = async (e: React.MouseEvent) => {
@@ -49,7 +74,7 @@ export function WindowControls() {
           onClick={handleClose}
           onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
           data-tauri-no-drag
-          className="w-3 h-3 rounded-full bg-[#ff5f56] border border-[#e0443e] cursor-pointer hover:opacity-80 transition-opacity"
+          className="w-3.5 h-3.5 rounded-full bg-[#ff5f56] border border-[#e0443e] cursor-pointer hover:opacity-80 transition-opacity"
           title="Close"
         />
         <button
@@ -57,7 +82,7 @@ export function WindowControls() {
           onClick={handleMinimize}
           onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
           data-tauri-no-drag
-          className="w-3 h-3 rounded-full bg-[#ffbd2e] border border-[#dea123] cursor-pointer hover:opacity-80 transition-opacity"
+          className="w-3.5 h-3.5 rounded-full bg-[#ffbd2e] border border-[#dea123] cursor-pointer hover:opacity-80 transition-opacity"
           title="Minimize"
         />
         <button
@@ -65,53 +90,67 @@ export function WindowControls() {
           onClick={handleMaximize}
           onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
           data-tauri-no-drag
-          className="w-3 h-3 rounded-full bg-[#27c93f] border border-[#1aab29] cursor-pointer hover:opacity-80 transition-opacity"
+          className="w-3.5 h-3.5 rounded-full bg-[#27c93f] border border-[#1aab29] cursor-pointer hover:opacity-80 transition-opacity"
           title="Maximize"
         />
       </div>
     );
   }
 
-  // Windows / Linux layout: minimize | maximize | close on the right
+  // Windows / Linux layout: minimize | maximize/restore | close on the right
   return (
     <div
       data-tauri-no-drag
       className="flex items-center h-full select-none"
     >
+      {/* Minimize */}
       <button
         type="button"
         onClick={handleMinimize}
         onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
         data-tauri-no-drag
-        className="w-10 h-8 flex items-center justify-center hover:bg-white/10 text-white/50 hover:text-white transition-colors cursor-pointer"
+        className="w-11 min-h-8 h-full flex items-center justify-center hover:bg-white/10 text-white/50 hover:text-white transition-colors cursor-pointer"
         title="Minimize"
       >
-        <svg width="10" height="1" viewBox="0 0 10 1" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M0 0.5H10" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M1 6H11" stroke="currentColor" strokeWidth="1.2" />
         </svg>
       </button>
+
+      {/* Maximize / Restore */}
       <button
         type="button"
         onClick={handleMaximize}
         onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
         data-tauri-no-drag
-        className="w-10 h-8 flex items-center justify-center hover:bg-white/10 text-white/50 hover:text-white transition-colors cursor-pointer"
-        title="Maximize"
+        className="w-11 min-h-8 h-full flex items-center justify-center hover:bg-white/10 text-white/50 hover:text-white transition-colors cursor-pointer"
+        title={isMaximized ? "Restore Down" : "Maximize"}
       >
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <rect x="1" y="1" width="8" height="8" rx="1" stroke="currentColor" strokeWidth="1"/>
-        </svg>
+        {isMaximized ? (
+          /* Standard Windows Restore Down Icon (Overlapping Squares) - Scaled Up */
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M3.5 1.5H10.5V8.5" stroke="currentColor" strokeWidth="1.2" fill="none" />
+            <rect x="1.5" y="3.5" width="7" height="7" stroke="currentColor" strokeWidth="1.2" fill="none" />
+          </svg>
+        ) : (
+          /* Standard Windows Maximize Icon (Single Square) - Scaled Up */
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="2" y="2" width="8" height="8" stroke="currentColor" strokeWidth="1.2" fill="none" />
+          </svg>
+        )}
       </button>
+
+      {/* Close */}
       <button
         type="button"
         onClick={handleClose}
         onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
         data-tauri-no-drag
-        className="w-10 h-8 flex items-center justify-center hover:bg-red-500 text-white/50 hover:text-white transition-colors cursor-pointer"
+        className="w-11 min-h-8 h-full flex items-center justify-center hover:bg-red-500 text-white/50 hover:text-white transition-colors cursor-pointer"
         title="Close"
       >
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M1.5 1.5L8.5 8.5M8.5 1.5L1.5 8.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M2 2L10 10M10 2L2 10" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
         </svg>
       </button>
     </div>

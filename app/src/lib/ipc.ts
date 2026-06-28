@@ -53,6 +53,7 @@ export interface UiStateConfig {
   tab_bar_visible: boolean;
   pinned_tabs: string[];
   workspace_cwd?: string;
+  project_dir?: string;
 }
 
 export interface AppConfig {
@@ -143,6 +144,7 @@ export interface GitLogResult {
   branches: GitRef[];
   tags: GitRef[];
   current_branch: string | null;
+  has_more: boolean;
 }
 
 export interface ChangedFile {
@@ -165,6 +167,16 @@ export interface GitBranchInfo {
   commit_hash: string;
 }
 
+// Deduplicate concurrent file reads — when openFile starts reading a file
+// before the FileViewer mounts, both calls share the same in-flight promise.
+const pendingFileReads = new Map<string, Promise<string>>();
+
+export function preloadFileContent(path: string): void {
+  if (!pendingFileReads.has(path)) {
+    pendingFileReads.set(path, invoke<string>("read_file_content", { path }));
+  }
+}
+
 export const system = {
   getCwd: () =>
     invoke<string>("get_cwd"),
@@ -174,8 +186,16 @@ export const system = {
     invoke<SystemInfo>("get_system_info", { cwd, force }),
   readDir: (path: string) =>
     invoke<FileNode[]>("read_dir", { path }),
-  readFileContent: (path: string) =>
-    invoke<string>("read_file_content", { path }),
+  searchFiles: (root: string, query: string) =>
+    invoke<FileNode[]>("search_files", { root, query }),
+  readFileContent: async (path: string) => {
+    const pending = pendingFileReads.get(path);
+    if (pending) {
+      pendingFileReads.delete(path);
+      return pending;
+    }
+    return invoke<string>("read_file_content", { path });
+  },
   readFileBase64: (path: string) =>
     invoke<string>("read_file_base64", { path }),
   writeFileContent: (path: string, content: string) =>
@@ -196,16 +216,20 @@ export const system = {
     invoke<string>("create_path", { parentDir, name, isDir }),
   watchDirectory: (path: string) =>
     invoke<void>("watch_directory", { path }),
+  watchGit: (cwd: string) =>
+    invoke<void>("watch_git", { cwd }),
   readShellHistory: () =>
     invoke<string[]>("read_shell_history"),
   agentPlanStep: (taskId: string, sessionId: string | null, goal: string | null, lastOutput: string | null, exitCode: number | null) =>
     invoke<AgentStepResult>("agent_plan_step", { taskId, sessionId, goal, lastOutput, exitCode }),
   revealInExplorer: (path: string) =>
     invoke<void>("reveal_in_explorer", { path }),
+  getCwdInfo: (cwd: string) =>
+    invoke<{ git_branch: string | null }>("get_cwd_info", { cwd }),
   getGitBranch: (cwd: string) =>
     invoke<string | null>("get_git_branch", { cwd }),
-  getGitLog: (cwd: string) =>
-    invoke<GitLogResult>("get_git_log", { cwd }),
+  getGitLog: (cwd: string, maxCount?: number, skip?: number) =>
+    invoke<GitLogResult>("get_git_log", { cwd, maxCount, skip }),
   getGitFileLog: (cwd: string, filePath: string) =>
     invoke<GitLogResult>("get_git_file_log", { cwd, filePath }),
   getGitGraph: (cwd: string) =>

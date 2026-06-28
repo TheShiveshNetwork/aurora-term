@@ -1,10 +1,15 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
-import { RefreshCw } from "lucide-react";
 import { system, type GitLogResult, type ChangedFile } from "../../lib/ipc";
 import { useAppShellStore } from "../../stores/useAppShellStore";
 import { useSessionStore } from "../../stores/useSessionStore";
+import { useGitStore } from "../../stores/useGitStore";
 import { relativeDate } from "../../lib/time";
 import { getFileDiffAtCommit, openDiffTab } from "../../lib/gitUtils";
+import { LoadingSpinner } from "./LoadingSpinner";
+import { ScrollLoader } from "./ScrollLoader";
+
+// Module-level dedup lock — prevents two GitTree instances from fetching simultaneously for the same cwd
+const inflightFetches = new Map<string, Promise<GitLogResult>>();
 
 // ─── constants ────────────────────────────────────────────────────────────────
 const BRANCH_COLORS = [
@@ -63,14 +68,20 @@ function buildGraphData(data: GitLogResult): GraphData {
     (branchByHash[b.commit_hash] ??= []).push(b.name);
   }
 
-  // colour per branch — main always gets index 0
+  // colour per branch — main/master gets amber, current branch gets purple
+  const mainBranchName = branches.find(b => /^main$|^master$/.test(b.name))?.name;
+  const upstreamName = mainBranchName || currentBranch;
   const branchColors: Record<string, string> = {};
-  branchColors[currentBranch] = BRANCH_COLORS[0];
+  branchColors[upstreamName] = BRANCH_COLORS[0];
   let ci = 1;
   for (const b of branches) {
     if (!branchColors[b.name]) {
-      branchColors[b.name] = BRANCH_COLORS[ci % BRANCH_COLORS.length];
-      ci++;
+      if (b.name === currentBranch && b.name !== upstreamName) {
+        branchColors[b.name] = "#9A7CFF";
+      } else {
+        branchColors[b.name] = BRANCH_COLORS[ci % BRANCH_COLORS.length];
+        ci++;
+      }
     }
   }
 
@@ -80,9 +91,9 @@ function buildGraphData(data: GitLogResult): GraphData {
   // stays on lane 0.  Everything else gets lane 1+.
   const mainTipHash = branches.find(b => b.name === currentBranch)?.commit_hash;
   const mainSet = new Set<string>();
+  const hashIdx: Record<string, number> = {};
+  commits.forEach((c, i) => (hashIdx[c.hash] = i));
   if (mainTipHash) {
-    const hashIdx: Record<string, number> = {};
-    commits.forEach((c, i) => (hashIdx[c.hash] = i));
     const q = [mainTipHash];
     while (q.length) {
       const h = q.pop()!;
@@ -93,6 +104,32 @@ function buildGraphData(data: GitLogResult): GraphData {
       // only follow the *first* parent to stay on the main spine
       const firstParent = commits[ci2].parents[0];
       if (firstParent) q.push(firstParent);
+    }
+  }
+
+  // ── unpushed detection ──────────────────────────────────────────────────
+  // Commits on the current branch that are NOT reachable from main/master
+  // get colored purple to distinguish them as unpushed work.
+  let unpushedSet = new Set<string>();
+  if (mainBranchName && mainBranchName !== currentBranch) {
+    const mainBranchTip = branches.find(b => b.name === mainBranchName)?.commit_hash;
+    if (mainBranchTip) {
+      const mainAncestors = new Set<string>();
+      const q = [mainBranchTip];
+      while (q.length) {
+        const h = q.pop()!;
+        if (mainAncestors.has(h)) continue;
+        mainAncestors.add(h);
+        const ci2 = hashIdx[h];
+        if (ci2 == null) continue;
+        for (const p of commits[ci2].parents) {
+          if (p) q.push(p);
+        }
+      }
+      // unpushed = on current branch spine but not reachable from main
+      for (const h of mainSet) {
+        if (!mainAncestors.has(h)) unpushedSet.add(h);
+      }
     }
   }
 
@@ -109,7 +146,7 @@ function buildGraphData(data: GitLogResult): GraphData {
     if (mainSet.has(c.hash)) {
       // ── spine commit ──────────────────────────────────────────────────
       commitLane[c.hash] = 0;
-      commitColors[c.hash] = BRANCH_COLORS[0];
+      commitColors[c.hash] = unpushedSet.has(c.hash) ? "#9A7CFF" : BRANCH_COLORS[0];
 
       // if this commit is the tip of any non-main branch, open that lane
       for (const t of tags) {
@@ -155,6 +192,12 @@ function buildGraphData(data: GitLogResult): GraphData {
 }
 
 // ─── canvas draw ──────────────────────────────────────────────────────────────
+interface CommitBounds {
+  center: number;
+  top: number;
+  bottom: number;
+}
+
 function drawGraph(
   canvas: HTMLCanvasElement,
   commits: GitLogResult["commits"],
@@ -163,6 +206,8 @@ function drawGraph(
   w: number,
   commitCenters: Record<string, number>,
   totalHeight: number,
+  commitBounds?: Record<string, CommitBounds>,
+  laneWidth: number = LANE_W,
 ) {
   const { commitLane, commitColors, branchByHash, currentBranch } = graph;
   const ctx = canvas.getContext("2d")!;
@@ -171,7 +216,7 @@ function drawGraph(
   ctx.clearRect(0, 0, w * dpr, totalHeight * dpr);
   ctx.scale(dpr, dpr);
 
-  const lx = (lane: number) => (lane + 0.5) * LANE_W;
+  const lx = (lane: number) => (lane + 0.5) * laneWidth;
 
   // ── draw edges ────────────────────────────────────────────────────────────
   for (let i = 0; i < commits.length; i++) {
@@ -179,38 +224,87 @@ function drawGraph(
     const cLane = commitLane[c.hash] ?? 0;
     const color = commitColors[c.hash] ?? "rgba(232,234,240,0.3)";
     const cy1 = commitCenters[c.hash] ?? (i + 0.5) * ROW_H;
+    const top1 = commitBounds?.[c.hash]?.top ?? cy1 - ROW_H / 2;
+    const bot1 = commitBounds?.[c.hash]?.bottom ?? cy1 + ROW_H / 2;
 
     for (const p of c.parents) {
       const pCy = commitCenters[p];
       if (pCy == null) continue;
       const pLane = commitLane[p] ?? 0;
       const pColor = commitColors[p] ?? color;
+      const top2 = commitBounds?.[p]?.top ?? pCy - ROW_H / 2;
+      const bot2 = commitBounds?.[p]?.bottom ?? pCy + ROW_H / 2;
 
-      const x1 = lx(cLane), y1 = cy1;
-      const x2 = lx(pLane), y2 = pCy;
+      if (commitBounds) {
+        // expanded — vertical column lines + center-to-center connector
+        const cx = lx(cLane);
+        const px = lx(cLane === pLane ? cLane : pLane);
 
-      ctx.beginPath();
-      ctx.lineWidth = LINE_W;
-      ctx.globalAlpha = 0.65;
+        // vertical through current row — only top→center for off-spine lanes (no tail below dot)
+        ctx.beginPath();
+        ctx.lineWidth = LINE_W;
+        ctx.globalAlpha = 0.65;
+        ctx.strokeStyle = color;
+        ctx.moveTo(cx, top1);
+        ctx.lineTo(cx, cLane === 0 ? bot1 : cy1);
+        ctx.stroke();
 
-      if (cLane === pLane) {
+        // connector — center to center (matches the dot position)
+        ctx.beginPath();
+        ctx.lineWidth = LINE_W;
+        ctx.globalAlpha = 0.65;
+        ctx.moveTo(cx, cy1);
+        if (cLane === pLane) {
+          ctx.strokeStyle = pColor;
+          ctx.lineTo(px, pCy);
+        } else if (cLane === 0) {
+          ctx.strokeStyle = color;
+          const cpY = pCy - ROW_H * 0.4;
+          ctx.bezierCurveTo(cx, cpY, px, cpY, px, pCy);
+        } else {
+          ctx.strokeStyle = color;
+          const cpY = cy1 + ROW_H * 0.4;
+          ctx.bezierCurveTo(cx, cpY, px, cpY, px, pCy);
+        }
+        ctx.stroke();
+
+        // vertical through parent row
+        ctx.beginPath();
+        ctx.lineWidth = LINE_W;
+        ctx.globalAlpha = 0.65;
         ctx.strokeStyle = pColor;
-        ctx.moveTo(x1, y1);
-        ctx.lineTo(x2, y2);
-      } else if (cLane === 0) {
-        ctx.strokeStyle = color;
-        ctx.moveTo(x1, y1);
-        const cpY = y2 - ROW_H * 0.4;
-        ctx.bezierCurveTo(x1, cpY, x2, cpY, x2, y2);
-      } else {
-        ctx.strokeStyle = color;
-        ctx.moveTo(x1, y1);
-        const cpY = y1 + ROW_H * 0.4;
-        ctx.bezierCurveTo(x1, cpY, x2, cpY, x2, y2);
-      }
+        ctx.moveTo(px, top2);
+        ctx.lineTo(px, bot2);
+        ctx.stroke();
 
-      ctx.stroke();
-      ctx.globalAlpha = 1;
+        ctx.globalAlpha = 1;
+      } else {
+        // compact — direct center-to-center connector
+        const x1 = lx(cLane), y1 = cy1;
+        const x2 = lx(pLane), y2 = pCy;
+
+        ctx.beginPath();
+        ctx.lineWidth = LINE_W;
+        ctx.globalAlpha = 0.65;
+
+        if (cLane === pLane) {
+          ctx.strokeStyle = pColor;
+          ctx.moveTo(x1, y1);
+          ctx.lineTo(x2, y2);
+        } else if (cLane === 0) {
+          ctx.strokeStyle = color;
+          ctx.moveTo(x1, y1);
+          const cpY = y2 - ROW_H * 0.4;
+          ctx.bezierCurveTo(x1, cpY, x2, cpY, x2, y2);
+        } else {
+          ctx.strokeStyle = color;
+          ctx.moveTo(x1, y1);
+          const cpY = y1 + ROW_H * 0.4;
+          ctx.bezierCurveTo(x1, cpY, x2, cpY, x2, y2);
+        }
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
     }
   }
 
@@ -249,9 +343,11 @@ interface GraphCanvasProps {
   width: number;
   commitCenters: Record<string, number>;
   totalHeight: number;
+  commitBounds?: Record<string, CommitBounds>;
+  laneWidth?: number;
 }
 
-function GraphCanvas({ data, graph, width, commitCenters, totalHeight }: GraphCanvasProps) {
+function GraphCanvas({ data, graph, width, commitCenters, totalHeight, commitBounds, laneWidth }: GraphCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const { commits } = data;
   const dpr = window.devicePixelRatio || 1;
@@ -259,8 +355,8 @@ function GraphCanvas({ data, graph, width, commitCenters, totalHeight }: GraphCa
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || width === 0) return;
-    drawGraph(canvas, commits, graph, dpr, width, commitCenters, totalHeight);
-  }, [commits, graph, width, dpr, commitCenters, totalHeight]);
+    drawGraph(canvas, commits, graph, dpr, width, commitCenters, totalHeight, commitBounds, laneWidth);
+  }, [commits, graph, width, dpr, commitCenters, totalHeight, commitBounds, laneWidth]);
 
   return (
     <canvas
@@ -273,31 +369,93 @@ function GraphCanvas({ data, graph, width, commitCenters, totalHeight }: GraphCa
 }
 
 // ─── GitTree ──────────────────────────────────────────────────────────────────
-export function GitTree() {
+interface GitTreeProps {
+  variant?: "compact" | "expanded";
+}
+
+export function GitTree({ variant = "compact" }: GitTreeProps) {
   const [data, setData] = useState<GitLogResult | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedHash, setExpandedHash] = useState<string | null>(null);
   const [commitFiles, setCommitFiles] = useState<Record<string, ChangedFile[]>>({});
   const [filesLoading, setFilesLoading] = useState<Record<string, boolean>>({});
 
-  const rootRef = useRef<HTMLDivElement>(null);
+  const INITIAL_COUNT = 100;
+  const PAGE_SIZE = 100;
+  const dataRef = useRef(data);
+  dataRef.current = data;
 
-  const cwdAbsolute = useAppShellStore((s) => s.cwdAbsolute);
+  const [copiedHash, setCopiedHash] = useState<string | null>(null);
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const copyHash = useCallback((hash: string) => {
+    navigator.clipboard.writeText(hash).catch(console.error);
+    setCopiedHash(hash);
+    if (copiedTimer.current) clearTimeout(copiedTimer.current);
+    copiedTimer.current = setTimeout(() => setCopiedHash(null), 1500);
+  }, []);
+
+  const rootRef = useRef<HTMLDivElement>(null);
+  const fetchKeyRef = useRef(0);
+  const cwdAbsolute = useAppShellStore((s) => s.projectDir || s.cwdAbsolute);
+  const gitLogVersion = useGitStore((s) => s.gitLogVersion[cwdAbsolute] || 0);
   const addTab = useSessionStore((s) => s.addTab);
   const setActiveTabId = useSessionStore((s) => s.setActiveTabId);
 
-  // ── fetch log ──────────────────────────────────────────────────────────────
+  // ── auto-fetch on mount with shared cache + dedup ─────────────────────────
   const fetchLog = useCallback(async () => {
     if (!cwdAbsolute) return;
+    const key = ++fetchKeyRef.current;
+    // Check shared store cache first (30s TTL)
+    const cached = useGitStore.getState().getGitLog(cwdAbsolute);
+    if (cached) { setData(cached); return; }
     setLoading(true);
     setError(null);
-    try { setData(await system.getGitLog(cwdAbsolute)); }
-    catch (e) { setError(String(e)); }
-    finally { setLoading(false); }
+    try {
+      // Dedup: if another GitTree instance is already fetching for this cwd, wait on it
+      if (!inflightFetches.has(cwdAbsolute)) {
+        inflightFetches.set(
+          cwdAbsolute,
+          system.getGitLog(cwdAbsolute, INITIAL_COUNT, 0),
+        );
+      }
+      const result = await inflightFetches.get(cwdAbsolute)!;
+      // Only update if we're still the active fetch
+      if (key !== fetchKeyRef.current) return;
+      useGitStore.getState().setGitLog(cwdAbsolute, result);
+      setData(result);
+    } catch (e) {
+      if (key === fetchKeyRef.current) setError(String(e));
+    } finally {
+      inflightFetches.delete(cwdAbsolute);
+      if (key === fetchKeyRef.current) setLoading(false);
+    }
   }, [cwdAbsolute]);
 
-  useEffect(() => { fetchLog(); }, [fetchLog]);
+  useEffect(() => { fetchLog(); }, [fetchLog, gitLogVersion]);
+
+  // ── scroll-based loading (incremental, appends not replaces) ───────────────
+  const fetchMore = useCallback(async () => {
+    const d = dataRef.current;
+    if (!cwdAbsolute || !d?.has_more || loadingMore) return;
+    setLoadingMore(true);
+    const skip = d.commits.length;
+    try {
+      const result = await system.getGitLog(cwdAbsolute, PAGE_SIZE, skip);
+      const updated = {
+        ...d,
+        commits: [...d.commits, ...result.commits],
+        has_more: result.has_more,
+      };
+      setData(updated);
+      useGitStore.getState().setGitLog(cwdAbsolute, updated);
+    } catch { /* keep existing data */ }
+    finally { setLoadingMore(false); }
+  }, [cwdAbsolute, loadingMore]);
+
+
 
   // ── expand commit ──────────────────────────────────────────────────────────
   const handleToggleCommit = useCallback(async (hash: string) => {
@@ -325,13 +483,13 @@ export function GitTree() {
   }, [cwdAbsolute, addTab, setActiveTabId]);
 
   // ── commit layouts (moved before early returns — hooks must be unconditional) ──
-  const commitCenters = useMemo(() => {
+  const commitBounds = useMemo(() => {
     const cs = data?.commits ?? [];
     if (cs.length === 0) return {};
-    const map: Record<string, number> = {};
+    const map: Record<string, CommitBounds> = {};
     let y = 0;
     for (const c of cs) {
-      map[c.hash] = y + ROW_H / 2;
+      const top = y;
       y += ROW_H;
       if (expandedHash === c.hash) {
         const files = commitFiles[c.hash];
@@ -341,28 +499,34 @@ export function GitTree() {
           y += FILE_ROW_H;
         }
       }
+      map[c.hash] = { center: top + ROW_H / 2, top, bottom: y };
     }
     return map;
   }, [data, expandedHash, commitFiles]);
 
+  const commitCenters = useMemo(() => {
+    const keys = Object.keys(commitBounds);
+    if (keys.length === 0) return {};
+    const map: Record<string, number> = {};
+    for (const [hash, b] of Object.entries(commitBounds)) {
+      map[hash] = b.center;
+    }
+    return map;
+  }, [commitBounds]);
+
   const totalHeight = useMemo(() => {
-    const keys = Object.keys(commitCenters);
+    const keys = Object.keys(commitBounds);
     if (keys.length === 0) return 0;
-    const maxY = Math.max(...Object.values(commitCenters));
-    return maxY + ROW_H / 2;
-  }, [commitCenters]);
+    const maxY = Math.max(...Object.values(commitBounds).map(b => b.bottom));
+    return maxY;
+  }, [commitBounds]);
 
   // ── early returns ──────────────────────────────────────────────────────────
   if (!cwdAbsolute)
     return <div className="px-3 py-2 text-xs" style={{ color: "rgba(232,234,240,0.25)" }}>No workspace open</div>;
 
   if (loading && !data)
-    return (
-      <div className="flex items-center gap-1.5 justify-center py-3" style={{ color: "rgba(232,234,240,0.25)" }}>
-        <RefreshCw size={11} className="animate-spin" />
-        <span className="text-xs">Loading graph…</span>
-      </div>
-    );
+    return <LoadingSpinner text="Loading commits..." />;
 
   if (error && !data)
     return (
@@ -379,33 +543,50 @@ export function GitTree() {
   const { commits } = data;
   const { branchColors, currentBranch, commitColors, branchByHash, commitLane, nLanes } = graph;
 
+  const isExpanded = variant === "expanded";
   const canvasW = nLanes * LANE_W + 4;
 
   // ── render ─────────────────────────────────────────────────────────────────
   return (
-    <div ref={rootRef} className="flex flex-col px-3 select-text overflow-x-hidden overflow-y-auto" style={{ minHeight: 0, flex: "1 1 0%" }}>
-      <div className="relative" style={{ minWidth: 0 }}>
+    <div ref={rootRef} className={"flex flex-col select-text overflow-x-hidden overflow-y-auto" + (isExpanded && " font-mono text-xs")} style={{ minHeight: 0, flex: "1 1 0%" }}>
+      {isExpanded && (
+        <div
+          className="flex items-center gap-2 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider select-none sticky top-0 z-10 shrink-0"
+          style={{ color: "rgba(232,234,240,0.3)", background: "var(--surface-container-low, #12131a)" }}
+        >
+          <div className="flex items-center" style={{ width: canvasW, minWidth: canvasW }} />
+          <span className="flex-1 min-w-0">Message</span>
+          <span className="w-24 shrink-0 hidden md:inline">Author</span>
+          <span className="w-20 shrink-0">Hash</span>
+          <span className="w-16 shrink-0 text-right">Date</span>
+        </div>
+      )}
 
+      <div className={"relative" + (isExpanded ? " flex-1 min-h-0" : "")} style={{ minWidth: 0 }}>
         {/* canvas — absolute, behind rows */}
-        <div style={{ position: "absolute", left: 0, top: 0, width: canvasW, height: totalHeight, pointerEvents: "none" }}>
-          <GraphCanvas data={data} graph={graph} width={canvasW} commitCenters={commitCenters} totalHeight={totalHeight} />
+        <div style={{ position: "absolute", left: 8, top: 0, width: canvasW, height: totalHeight, pointerEvents: "none" }}>
+          <GraphCanvas data={data} graph={graph} width={canvasW} commitCenters={commitCenters} totalHeight={totalHeight} commitBounds={isExpanded ? commitBounds : undefined} />
         </div>
 
-        {/* ── commit rows ── */}
-        {commits.map((commit) => {
+        <ScrollLoader
+          loading={loadingMore}
+          hasMore={data?.has_more ?? false}
+          onLoadMore={fetchMore}
+          scrollContainerRef={rootRef}
+        >
+          {commits.map((commit) => {
             const color = commitColors[commit.hash] ?? "rgba(232,234,240,0.25)";
             const tags = branchByHash[commit.hash] ?? [];
             const isCurrent = tags.includes(currentBranch);
-            const isExpanded = expandedHash === commit.hash;
+            const isRowExpanded = expandedHash === commit.hash;
             const files = commitFiles[commit.hash];
             const isLoadingFiles = filesLoading[commit.hash];
 
             return (
               <div key={commit.hash}>
-
-                {/* row */}
+                {/* row header */}
                 <div
-                  className="flex items-center cursor-pointer"
+                  className={"flex items-center cursor-pointer" + (isExpanded ? " gap-2 px-3" : " px-2")}
                   style={{ height: ROW_H, background: isCurrent ? "rgba(79,140,255,0.04)" : "transparent" }}
                   onClick={() => handleToggleCommit(commit.hash)}
                   onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.04)"; }}
@@ -414,50 +595,92 @@ export function GitTree() {
                   {/* graph spacer */}
                   <div style={{ width: canvasW, flexShrink: 0 }} />
 
-                  {/* commit meta */}
-                  <div className="flex items-center gap-1 flex-1 min-w-0 pr-2">
-                    <span
-                      className="font-mono truncate flex-1 min-w-0"
-                      style={{ fontSize: 11, color }}
-                    >
-                      {commit.message.split("\n")[0]}
-                    </span>
-
-                    <span className="font-mono shrink-0 hidden sm:inline" style={{ fontSize: 9, color: "rgba(232,234,240,0.18)" }}>
-                      {commit.author}
-                    </span>
-
-                    {tags.length > 0 && (
-                      <span className="flex items-center gap-0.5 shrink-0">
-                        {tags.map(t => {
-                          const tc = branchColors[t] ?? "rgba(232,234,240,0.3)";
-                          return (
-                            <span key={t} className="font-mono px-1 rounded-sm" style={{
-                              fontSize: 9, lineHeight: "15px",
-                              background: `${tc}18`, color: tc, border: `1px solid ${tc}28`,
-                            }}>
-                              {isCurrent && t === currentBranch ? `★ ${t}` : t}
-                            </span>
-                          );
-                        })}
+                  {isExpanded ? (
+                    /* expanded row: message + tags + author + hash + date */
+                    <>
+                      <span className="truncate flex-1 min-w-0" style={{ fontSize: 11, color }}>
+                        {commit.message.split("\n")[0]}
                       </span>
-                    )}
 
-                    <span className="font-mono shrink-0" style={{ fontSize: 9, color: "rgba(232,234,240,0.2)" }}>
-                      {commit.hash.slice(0, 7)}
-                    </span>
-                    <span className="font-mono shrink-0" style={{ fontSize: 9, color: "rgba(232,234,240,0.22)" }}>
-                      {relativeDate(commit.date)}
-                    </span>
-                  </div>
+                      {tags.length > 0 && (
+                        <span className="flex items-center gap-0.5 shrink-0">
+                          {tags.map(t => {
+                            const tc = branchColors[t] ?? "rgba(232,234,240,0.3)";
+                            return (
+                              <span key={t} className="font-mono px-1 rounded-sm" style={{
+                                fontSize: 9, lineHeight: "15px",
+                                background: `${tc}18`, color: tc, border: `1px solid ${tc}28`,
+                              }}>
+                                {isCurrent && t === currentBranch ? `★ ${t}` : t}
+                              </span>
+                            );
+                          })}
+                        </span>
+                      )}
+
+                      <span className="w-24 shrink-0 truncate hidden md:inline" style={{ fontSize: 10, color: "rgba(232,234,240,0.35)" }}>
+                        {commit.author}
+                      </span>
+
+                      <span
+                        className="w-20 shrink-0 font-mono cursor-pointer flex items-center gap-1"
+                        style={{ fontSize: 9, color: "rgba(232,234,240,0.25)" }}
+                        title="Click to copy full hash"
+                        onClick={e => { e.stopPropagation(); copyHash(commit.hash); }}
+                      >
+                        {copiedHash === commit.hash ? (
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#50E3C2" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="20 6 9 17 4 12" />
+                          </svg>
+                        ) : (
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "rgba(232,234,240,0.2)" }}>
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                          </svg>
+                        )}
+                        <span>{commit.hash.slice(0, 7)}</span>
+                      </span>
+
+                      <span className="w-16 shrink-0 text-right" style={{ fontSize: 9, color: "rgba(232,234,240,0.22)" }}>
+                        {relativeDate(commit.date)}
+                      </span>
+                    </>
+                  ) : (
+                    /* compact row: message + tags + date */
+                    <div className="flex items-center gap-1 flex-1 min-w-0">
+                      <span className="font-mono truncate flex-1 min-w-0" style={{ fontSize: 11, color }}>
+                        {commit.message.split("\n")[0]}
+                      </span>
+
+                      {tags.length > 0 && (
+                        <span className="flex items-center gap-0.5 shrink-0 max-w-[40%] overflow-hidden">
+                          {tags.map(t => {
+                            const tc = branchColors[t] ?? "rgba(232,234,240,0.3)";
+                            return (
+                              <span key={t} className="font-mono truncate max-w-[100px] px-1 rounded-sm" style={{
+                                fontSize: 9, lineHeight: "15px",
+                                background: `${tc}18`, color: tc, border: `1px solid ${tc}28`,
+                              }}>
+                                {isCurrent && t === currentBranch ? `★ ${t}` : t}
+                              </span>
+                            );
+                          })}
+                        </span>
+                      )}
+
+                      <span className="font-mono shrink-0" style={{ fontSize: 9, color: "rgba(232,234,240,0.22)" }}>
+                        {relativeDate(commit.date)}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {/* expanded file list */}
-                {isExpanded && (
-                  <div>
+                {isRowExpanded && (
+                  <div className={`pl-4`}>
                     {isLoadingFiles ? (
-                      <div className="flex items-center gap-1.5 py-1" style={{ paddingLeft: canvasW + 6 }}>
-                        <RefreshCw size={9} className="animate-spin" style={{ color: "rgba(232,234,240,0.25)" }} />
+                      <div className="flex items-center gap-1.5 py-1" style={{ paddingLeft: canvasW + 12 }}>
+                        <LoadingSpinner size={9} inline />
                         <span style={{ fontSize: 10, color: "rgba(232,234,240,0.25)" }}>Loading…</span>
                       </div>
                     ) : files && files.length > 0 ? (
@@ -465,7 +688,7 @@ export function GitTree() {
                         <div
                           key={file.file_path}
                           className="flex items-center gap-1.5 cursor-pointer"
-                          style={{ paddingLeft: canvasW + 6, paddingRight: 8, paddingTop: 2, paddingBottom: 2 }}
+                          style={{ paddingLeft: canvasW + 12, paddingRight: 8, paddingTop: 2, paddingBottom: 2 }}
                           onClick={e => { e.stopPropagation(); handleOpenFileDiff(commit.hash, file.file_path); }}
                           onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.03)"; }}
                           onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
@@ -482,17 +705,16 @@ export function GitTree() {
                         </div>
                       ))
                     ) : (
-                      <div style={{ paddingLeft: canvasW + 6, paddingTop: 3, paddingBottom: 3, fontSize: 10, color: "rgba(232,234,240,0.18)" }}>
+                      <div style={{ paddingLeft: canvasW + (isExpanded ? 12 : 6), paddingTop: 3, paddingBottom: 3, fontSize: 10, color: "rgba(232,234,240,0.18)" }}>
                         No files changed
                       </div>
                     )}
                   </div>
                 )}
-
               </div>
             );
           })}
-
+        </ScrollLoader>
       </div>
     </div>
   );

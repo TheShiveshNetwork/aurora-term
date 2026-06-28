@@ -10,7 +10,7 @@ export type AppContextMenu = {
   filePath?: string;
 } | null;
 
-export type SideSection = "folders" | "outline" | "timeline" | "git";
+export type SideSection = "folders" | "open-tabs" | "outline" | "timeline" | "git";
 
 interface AppShellStore {
   sidebarCollapsed: boolean;
@@ -24,6 +24,8 @@ interface AppShellStore {
   pendingCloseTabId: string | null;
   lastActiveTerminalId: string | null;
   lastActiveFileId: string | null;
+  projectDir: string;
+  projectDirLabel: string;
   cwd: string;
   cwdAbsolute: string;
   sessionCwds: Record<string, string>;
@@ -31,6 +33,7 @@ interface AppShellStore {
   commandInputs: Record<string, string>;
   interactedSessions: Record<string, true>;
   isCwdLoading: boolean;
+  bootstrapReady: boolean;
   sectionVisibility: Record<SideSection, boolean>;
 
   setSidebarCollapsed: (collapsed: boolean) => void;
@@ -49,6 +52,7 @@ interface AppShellStore {
   setPendingCloseTabId: (tabId: string | null) => void;
   setLastActiveTerminalId: (tabId: string | null) => void;
   setLastActiveFileId: (tabId: string | null) => void;
+  setProjectDir: (path: string) => void;
   setCwd: (cwd: string) => void;
   setCwdAbsolute: (cwdAbsolute: string) => void;
   setWorkspaceCwd: (cwdAbsolute: string) => void;
@@ -60,6 +64,7 @@ interface AppShellStore {
   markSessionInteracted: (sessionId: string) => void;
   clearSessionInteracted: (sessionId: string) => void;
   setIsCwdLoading: (loading: boolean) => void;
+  setBootstrapReady: (ready: boolean) => void;
   toggleSection: (section: SideSection) => void;
   setSectionVisibility: (sections: Partial<Record<SideSection, boolean>>) => void;
 }
@@ -81,6 +86,8 @@ export const useAppShellStore = create<AppShellStore>((set) => ({
   pendingCloseTabId: null,
   lastActiveTerminalId: null,
   lastActiveFileId: null,
+  projectDir: "",
+  projectDirLabel: "",
   cwd: "~/workspace",
   cwdAbsolute: "",
   sessionCwds: {},
@@ -88,8 +95,10 @@ export const useAppShellStore = create<AppShellStore>((set) => ({
   commandInputs: {},
   interactedSessions: {},
   isCwdLoading: false,
+  bootstrapReady: false,
   sectionVisibility: {
     folders: true,
+    "open-tabs": true,
     outline: false,
     timeline: false,
     git: false,
@@ -111,6 +120,10 @@ export const useAppShellStore = create<AppShellStore>((set) => ({
   setPendingCloseTabId: (pendingCloseTabId) => set({ pendingCloseTabId }),
   setLastActiveTerminalId: (lastActiveTerminalId) => set({ lastActiveTerminalId }),
   setLastActiveFileId: (lastActiveFileId) => set({ lastActiveFileId }),
+  setProjectDir: (path) => set({
+    projectDir: path,
+    projectDirLabel: path ? workspaceLabel(path) : "",
+  }),
   setCwd: (cwd) => set({ cwd }),
   setCwdAbsolute: (cwdAbsolute) => set({ cwdAbsolute }),
   setWorkspaceCwd: (cwdAbsolute) =>
@@ -157,6 +170,7 @@ export const useAppShellStore = create<AppShellStore>((set) => ({
       return { interactedSessions: copy };
     }),
   setIsCwdLoading: (isCwdLoading) => set({ isCwdLoading }),
+  setBootstrapReady: (bootstrapReady) => set({ bootstrapReady }),
   toggleSection: (section) =>
     set((state) => ({
       sectionVisibility: {

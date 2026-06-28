@@ -224,7 +224,7 @@ export default function SettingsPage() {
       <style>{`.setting-flash { outline: 2px solid rgba(79,140,255,0.4); outline-offset: -2px; border-radius: 8px; transition: outline-color 0.15s; }`}</style>
       <header
         data-tauri-drag-region
-        className="flex items-center justify-between h-10 px-3 shrink-0"
+        className="flex items-center justify-between h-auto pl-3 shrink-0"
         style={{ background: "#0A0D14", borderBottom: "1px solid rgba(255,255,255,0.05)" }}
       >
         <span className="text-xs font-semibold tracking-wider uppercase select-none" style={{ color: "rgba(232,234,240,0.4)" }}>Settings</span>

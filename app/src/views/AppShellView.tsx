@@ -1,4 +1,5 @@
-import { type FormEvent, useEffect, useMemo } from "react";
+import { type FormEvent, lazy, Suspense, useEffect, useMemo } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { v4 as uuidv4 } from "uuid";
 import { Tab } from "@aurora/types";
@@ -21,27 +22,32 @@ import { AgentOverlay } from "../components/terminal/AgentOverlay";
 import { SaveChangesModal } from "../components/layout/SaveChangesModal";
 import { CommandInputBar } from "../components/layout/CommandInputBar";
 import { TerminalWorkspaceView } from "./TerminalWorkspaceView";
-import { FileWorkspaceView } from "./FileWorkspaceView";
-import { AgentView } from "./AgentView";
-import { DiffWorkspaceView } from "../components/editor/DiffWorkspaceView";
-import { CommitDiffView } from "../components/editor/CommitDiffView";
-import { GitView } from "../components/git/GitView";
+import { NewWindowView } from "./NewWindowView";
 import { getDefaultShellLaunch, isWindowsPlatform } from "../lib/shell";
 import { classifyInput, setAvailableCommands, type ShellType } from "../lib/nlClassifier";
 import { system } from "../lib/ipc";
 import { closeAllPopups, onClosePopups } from "../lib/popups";
 
+// Eagerly preload file editor chunk at module load time so opening a file
+// never waits for a network fetch — React.lazy reuses the cached module.
+import("./FileWorkspaceView");
+
+const FileWorkspaceView = lazy(() => import("./FileWorkspaceView").then(m => ({ default: m.FileWorkspaceView })));
+const AgentView = lazy(() => import("./AgentView").then(m => ({ default: m.AgentView })));
+const DiffWorkspaceView = lazy(() => import("../components/editor/DiffWorkspaceView").then(m => ({ default: m.DiffWorkspaceView })));
+const CommitDiffView = lazy(() => import("../components/editor/CommitDiffView").then(m => ({ default: m.CommitDiffView })));
+const GitView = lazy(() => import("../components/git/GitView").then(m => ({ default: m.GitView })));
+
 export function AppShellView() {
   const { tabs, activeTabId, spawnSession, killSession, openFile, setActiveTabId } = useAppBootstrap();
-  const { theme, setTheme } = useSettingsStore();
+  const theme = useSettingsStore((state) => state.theme);
+  const setTheme = useSettingsStore((state) => state.setTheme);
   usePersistUIState();
   useWindowClamp();
 
   useEffect(() => {
     system.getAvailableCommands().then(setAvailableCommands).catch(() => { });
   }, []);
-
-  const { blocks } = useBlockStore();
 
   const {
     sidebarCollapsed,
@@ -52,6 +58,8 @@ export function AppShellView() {
     pendingCloseTabId,
     lastActiveTerminalId,
     lastActiveFileId,
+    projectDir,
+    projectDirLabel,
     cwd,
     cwdAbsolute,
     shellHistory,
@@ -72,7 +80,40 @@ export function AppShellView() {
     setSessionCwd,
     appendCommandInput,
     clearSessionInteracted,
-  } = useAppShellStore();
+  } = useAppShellStore(
+    useShallow((s) => ({
+      sidebarCollapsed: s.sidebarCollapsed,
+      showMenuDropdown: s.showMenuDropdown,
+      tabBarVisible: s.tabBarVisible,
+      viewMode: s.viewMode,
+      contextMenu: s.contextMenu,
+      pendingCloseTabId: s.pendingCloseTabId,
+      lastActiveTerminalId: s.lastActiveTerminalId,
+      lastActiveFileId: s.lastActiveFileId,
+      projectDir: s.projectDir,
+      projectDirLabel: s.projectDirLabel,
+      cwd: s.cwd,
+      cwdAbsolute: s.cwdAbsolute,
+      shellHistory: s.shellHistory,
+      interactedSessions: s.interactedSessions,
+      isCwdLoading: s.isCwdLoading,
+      showAiBar: s.showAiBar,
+      chatInputOpen: s.chatInputOpen,
+      setShowAiBar: s.setShowAiBar,
+      setChatInputOpen: s.setChatInputOpen,
+      toggleChatInputOpen: s.toggleChatInputOpen,
+      setShowMenuDropdown: s.setShowMenuDropdown,
+      toggleSidebarCollapsed: s.toggleSidebarCollapsed,
+      toggleShowMenuDropdown: s.toggleShowMenuDropdown,
+      toggleTabBarVisible: s.toggleTabBarVisible,
+      setViewMode: s.setViewMode,
+      clearContextMenu: s.clearContextMenu,
+      setPendingCloseTabId: s.setPendingCloseTabId,
+      setSessionCwd: s.setSessionCwd,
+      appendCommandInput: s.appendCommandInput,
+      clearSessionInteracted: s.clearSessionInteracted,
+    }))
+  );
 
   useEffect(() => {
     if (viewMode === "file") {
@@ -135,13 +176,16 @@ export function AppShellView() {
   const isStandaloneView = activeTab?.type === "file" || activeTab?.type === "diff" || activeTab?.type === "git";
   const activeFilePath = (activeTab?.type === "file" || activeTab?.type === "diff") ? activeTab.filePath : undefined;
   const pendingTab = pendingCloseTabId ? tabs.find((tab) => tab.id === pendingCloseTabId) || null : null;
-  const currentTerminalBlocks = targetSessionId ? blocks[targetSessionId] || [] : [];
   const hasInteracted = activeTabId ? Boolean(interactedSessions[activeTabId]) : false;
 
   const handleSelectFolderDirectly = (path: string) => {
+    useAppShellStore.getState().setProjectDir(path);
     useAppShellStore.getState().setWorkspaceCwd(path);
     if (activeTabId) {
       setSessionCwd(activeTabId, path);
+    } else {
+      const { shell, args } = getDefaultShellLaunch();
+      spawnSession(shell, args, {}, path).catch(console.error);
     }
   };
 
@@ -162,7 +206,7 @@ export function AppShellView() {
     try {
       const selected = await system.selectFile();
       if (selected) {
-        openFile(selected, cwdAbsolute);
+        openFile(selected, projectDir || cwdAbsolute);
         setViewMode("file");
       }
     } catch (error) {
@@ -172,14 +216,15 @@ export function AppShellView() {
 
   const handleOpenRecentFile = (filePath: string) => {
     setShowMenuDropdown(false);
-    system.readDir(cwdAbsolute)
+    const baseCwd = projectDir || cwdAbsolute;
+    system.readDir(baseCwd)
       .then(() => {
-        const absolutePath = cwdAbsolute ? `${cwdAbsolute}/${filePath}`.replace(/\/\//g, "/") : filePath;
-        openFile(absolutePath, cwdAbsolute);
+        const absolutePath = baseCwd ? `${baseCwd}/${filePath}`.replace(/\/\//g, "/") : filePath;
+        openFile(absolutePath, baseCwd);
         setViewMode("file");
       })
       .catch(() => {
-        openFile(filePath, cwdAbsolute);
+        openFile(filePath, baseCwd);
         setViewMode("file");
       });
   };
@@ -221,9 +266,10 @@ export function AppShellView() {
   const handleNewTab = async () => {
     setShowMenuDropdown(false);
     const { shell, args } = getDefaultShellLaunch();
+    const spawnCwd = projectDir || cwdAbsolute;
     try {
-      const sessionId = await spawnSession(shell, args, {}, cwdAbsolute);
-      setSessionCwd(sessionId, cwdAbsolute);
+      const sessionId = await spawnSession(shell, args, {}, spawnCwd);
+      setSessionCwd(sessionId, spawnCwd);
     } catch (error) {
       console.error("Failed to spawn session:", error);
     }
@@ -279,9 +325,10 @@ export function AppShellView() {
 
     if (!hasTerminal) {
       const { shell, args } = getDefaultShellLaunch();
+      const spawnCwd = projectDir || cwdAbsolute;
       try {
-        const sessionId = await spawnSession(shell, args, {}, cwdAbsolute);
-        setSessionCwd(sessionId, cwdAbsolute);
+        const sessionId = await spawnSession(shell, args, {}, spawnCwd);
+        setSessionCwd(sessionId, spawnCwd);
       } catch (error) {
         console.error("Failed to spawn session:", error);
       }
@@ -305,12 +352,13 @@ export function AppShellView() {
 
     if (fileTabs.length === 0) {
       const welcomeTabId = uuidv4();
+      const fileCwd = projectDir || cwdAbsolute;
       const newTab: Tab = {
         id: welcomeTabId,
         name: "Workspace",
         type: "file",
         filePath: undefined,
-        cwd: cwdAbsolute,
+        cwd: fileCwd,
         created_at: Date.now(),
       };
 
@@ -347,7 +395,7 @@ export function AppShellView() {
       id,
       name: "Git",
       type: "git" as const,
-      cwd: cwdAbsolute,
+      cwd: projectDir || cwdAbsolute,
       created_at: Date.now(),
     });
     useSessionStore.getState().setActiveTabId(id);
@@ -357,8 +405,9 @@ export function AppShellView() {
   const handleDuplicateTab = (tab: Tab) => {
     if (tab.type === "terminal") {
       const { shell, args } = getDefaultShellLaunch();
-      spawnSession(shell, args, {}, tab.cwd || cwdAbsolute)
-        .then((sessionId) => setSessionCwd(sessionId, tab.cwd || cwdAbsolute))
+      const dupCwd = projectDir || cwdAbsolute;
+      spawnSession(shell, args, {}, dupCwd)
+        .then((sessionId) => setSessionCwd(sessionId, dupCwd))
         .catch(console.error);
       return;
     }
@@ -378,10 +427,10 @@ export function AppShellView() {
   };
 
   const isStandalone = useMemo(() => document.title.includes("Terminal"), []);
+  const gitViewActive = tabs.some(t => t.type === "git" && t.id === activeTabId);
 
   return (
     <div
-      data-tauri-drag-region
       className="bg-background text-on-surface font-body-base overflow-hidden h-screen flex flex-col select-none"
       onContextMenu={(event) => event.preventDefault()}
       onClick={() => {
@@ -420,121 +469,172 @@ export function AppShellView() {
         theme={theme}
         tabBarVisible={tabBarVisible}
         viewMode={viewMode}
-        projectName={cwd.replace(/^~\//, "")}
-        cwdAbsolute={cwdAbsolute}
-        onOpenFileAtPath={(path: string) => { openFile(path, cwdAbsolute); setViewMode("file"); }}
+        projectName={projectDirLabel.replace(/^~\//, "")}
+        cwdAbsolute={projectDir || cwdAbsolute}
+        onOpenFileAtPath={(path: string) => { openFile(path, projectDir || cwdAbsolute); setViewMode("file"); }}
         onOpenGitView={handleOpenGitView}
+        gitViewActive={gitViewActive}
+        noFolder={tabs.length === 0}
       />
 
-      <div className="flex flex-1 overflow-hidden">
-        <SidePanel collapsed={sidebarCollapsed} cwd={cwdAbsolute} activeFilePath={activeFilePath} />
+      {tabs.length === 0 ? (
+        <NewWindowView onOpenFolder={handleOpenFolder} />
+      ) : (
+        <div className="flex flex-1 overflow-hidden">
+          <SidePanel collapsed={sidebarCollapsed} cwd={projectDir || cwdAbsolute} activeFilePath={activeFilePath}
+            onKillTab={(id) => {
+              const tab = tabs.find((candidate) => candidate.id === id);
+              if (tab?.type === "file" && tab.dirty) {
+                setPendingCloseTabId(id);
+                return;
+              }
+              killSession(id);
+            }}
+            onAddTab={async (type: "terminal" | "file") => {
+              const baseCwd = projectDir || cwdAbsolute;
+              if (type === "terminal") {
+                const { shell, args } = getDefaultShellLaunch();
+                try {
+                  const sessionId = await spawnSession(shell, args, {}, baseCwd);
+                  setSessionCwd(sessionId, baseCwd);
+                } catch (error) {
+                  console.error("Failed to spawn session:", error);
+                }
+                return;
+              }
 
-        <main className="flex-1 flex flex-col min-w-0 bg-surface-container-low overflow-hidden relative">
-          {viewMode === "agent" ? (
-            <div className="flex-1 min-h-0 overflow-hidden">
-              <AgentView />
-            </div>
-          ) : (
-            <>
-              {!isStandalone && (
-                <div className={tabBarVisible ? "" : "hidden"}>
-                  <TabBar
-                    viewMode={viewMode}
-                    onSetViewMode={setViewMode}
-                    onAddTab={async (type: "terminal" | "file") => {
-                      if (type === "terminal") {
-                        const { shell, args } = getDefaultShellLaunch();
-                        try {
-                          const sessionId = await spawnSession(shell, args, {}, cwdAbsolute);
-                          setSessionCwd(sessionId, cwdAbsolute);
-                        } catch (error) {
-                          console.error("Failed to spawn session:", error);
+              const welcomeTabId = uuidv4();
+              const newTab: Tab = {
+                id: welcomeTabId,
+                name: "Workspace",
+                type: "file",
+                filePath: undefined,
+                cwd: baseCwd,
+                created_at: Date.now(),
+              };
+              useSessionStore.getState().addTab(newTab);
+              setActiveTabId(welcomeTabId);
+              setViewMode("file");
+            }}
+          />
+
+          <main className="flex-1 flex flex-col min-w-0 bg-surface-container-low overflow-hidden relative">
+            {viewMode === "agent" ? (
+              <div className="flex-1 min-h-0 overflow-hidden">
+                <Suspense fallback={<div className="flex-1 flex items-center justify-center h-full"><span className="text-sm text-on-surface-variant">Loading...</span></div>}>
+                  <AgentView />
+                </Suspense>
+              </div>
+            ) : (
+              <>
+                {!isStandalone && (
+                  <div className={tabBarVisible ? "" : "hidden"}>
+                    <TabBar
+                      viewMode={viewMode}
+                      onSetViewMode={setViewMode}
+                      onAddTab={async (type: "terminal" | "file") => {
+                        const baseCwd = projectDir || cwdAbsolute;
+                        if (type === "terminal") {
+                          const { shell, args } = getDefaultShellLaunch();
+                          try {
+                            const sessionId = await spawnSession(shell, args, {}, baseCwd);
+                            setSessionCwd(sessionId, baseCwd);
+                          } catch (error) {
+                            console.error("Failed to spawn session:", error);
+                          }
+                          return;
                         }
-                        return;
-                      }
 
-                      const welcomeTabId = uuidv4();
-                      const newTab: Tab = {
-                        id: welcomeTabId,
-                        name: "Workspace",
-                        type: "file",
-                        filePath: undefined,
-                        cwd: cwdAbsolute,
-                        created_at: Date.now(),
-                      };
-                      useSessionStore.getState().addTab(newTab);
-                      setActiveTabId(welcomeTabId);
-                      setViewMode("file");
-                    }}
-                    onKillTab={(id) => {
-                      const tab = tabs.find((candidate) => candidate.id === id);
-                      if (tab?.type === "file" && tab.dirty) {
-                        setPendingCloseTabId(id);
-                        return;
-                      }
+                        const welcomeTabId = uuidv4();
+                        const newTab: Tab = {
+                          id: welcomeTabId,
+                          name: "Workspace",
+                          type: "file",
+                          filePath: undefined,
+                          cwd: baseCwd,
+                          created_at: Date.now(),
+                        };
+                        useSessionStore.getState().addTab(newTab);
+                        setActiveTabId(welcomeTabId);
+                        setViewMode("file");
+                      }}
+                      onKillTab={(id) => {
+                        const tab = tabs.find((candidate) => candidate.id === id);
+                        if (tab?.type === "file" && tab.dirty) {
+                          setPendingCloseTabId(id);
+                          return;
+                        }
 
-                      killSession(id);
-                    }}
-                    onDuplicateTab={handleDuplicateTab}
-                  />
-                </div>
-              )}
+                        killSession(id);
+                      }}
+                      onDuplicateTab={handleDuplicateTab}
+                    />
+                  </div>
+                )}
 
-              <div
-                className={`flex-1 overflow-hidden w-full flex flex-col relative ${(isStandaloneView || isAlternateActive) ? "" : "px-3 pt-3"}`} onMouseDown={(event) => {
-                  const target = event.target as HTMLElement;
-                  if (target.closest(".xterm")) {
-                    return;
-                  }
+                <div
+                  className={`flex-1 overflow-hidden w-full flex flex-col relative ${(isStandaloneView || isAlternateActive) ? "" : "px-3 pt-3"}`} onMouseDown={(event) => {
+                    const target = event.target as HTMLElement;
+                    if (target.closest(".xterm")) {
+                      return;
+                    }
 
-                  if (activeTab?.type === "terminal" && !isCommandRunning && !isAlternateActive) {
-                    window.dispatchEvent(new CustomEvent("aurora-focus-terminal-input", { detail: { sessionId: activeTabId } }));
-                  }
-                }}
-              >
-                <div className="flex-1 min-h-0 w-full relative overflow-hidden">
-                  {tabs.map((tab) => {
-                    const isTabActive = tab.id === activeTabId;
+                    if (activeTab?.type === "terminal" && !isCommandRunning && !isAlternateActive) {
+                      window.dispatchEvent(new CustomEvent("aurora-focus-terminal-input", { detail: { sessionId: activeTabId } }));
+                    }
+                  }}
+                >
+                  <div className="flex-1 min-h-0 w-full relative overflow-hidden">
+                    {tabs.map((tab) => {
+                      const isTabActive = tab.id === activeTabId;
 
-                    return (
-                      <div
-                        key={tab.id}
-                        className="absolute inset-0"
-                        style={{
-                          visibility: isTabActive ? "visible" : "hidden",
-                          pointerEvents: isTabActive ? "auto" : "none",
-                          zIndex: isTabActive ? 10 : 0,
-                        }}
-                      >
-                        {tab.type === "file" ? (
-                          <FileWorkspaceView tab={tab} onOpenFile={handleOpenFile} onOpenFolder={handleOpenFolder} />
-                        ) : tab.type === "diff" && tab.diffContent ? (
-                          <CommitDiffView
-                            diff={tab.diffContent}
-                            commitHash={tab.diffCommitHash || ""}
-                          />
-                        ) : tab.type === "diff" ? (
-                          <DiffWorkspaceView
-                            filePath={tab.filePath || ""}
-                            oldContent={tab.diffOldContent || ""}
-                            newContent={tab.diffNewContent || ""}
-                            commitHash={tab.diffCommitHash || ""}
-                          />
-                        ) : tab.type === "git" ? (
-                          <GitView cwd={cwdAbsolute} tabId={tab.id} />
-                        ) : (
-                          <TerminalWorkspaceView
-                            tab={tab}
-                            isVisible={isTabActive}
-                            isCommandRunning={isTabActive ? isCommandRunning : undefined}
-                            isAlternateActive={isAlternateActive}
-                            hasInteracted={hasInteracted}
-                            activeBlocksCount={tab.id === targetSessionId ? currentTerminalBlocks.length : 0}
-                          />
-                        )}
-                      </div>
-                    );
-                  })}
+                      return (
+                        <div
+                          key={tab.id}
+                          className="absolute inset-0"
+                          style={{
+                            visibility: isTabActive ? "visible" : "hidden",
+                            pointerEvents: isTabActive ? "auto" : "none",
+                            zIndex: isTabActive ? 10 : 0,
+                          }}
+                        >
+                          {tab.type === "file" ? (
+                              <Suspense fallback={<div className="flex-1 flex items-center justify-center h-full"><span className="text-sm text-on-surface-variant">Loading editor...</span></div>}>
+                                <FileWorkspaceView tab={tab} onOpenFile={handleOpenFile} onOpenFolder={handleOpenFolder} />
+                              </Suspense>
+                            ) : tab.type === "diff" && tab.diffContent ? (
+                              <Suspense fallback={<div className="flex-1 flex items-center justify-center h-full"><span className="text-sm text-on-surface-variant">Loading diff...</span></div>}>
+                                <CommitDiffView
+                                  diff={tab.diffContent}
+                                  commitHash={tab.diffCommitHash || ""}
+                                  collapsible={true}
+                                />
+                              </Suspense>
+                            ) : tab.type === "diff" ? (
+                              <Suspense fallback={<div className="flex-1 flex items-center justify-center h-full"><span className="text-sm text-on-surface-variant">Loading diff...</span></div>}>
+                                <DiffWorkspaceView
+                                  filePath={tab.filePath || ""}
+                                  oldContent={tab.diffOldContent || ""}
+                                  newContent={tab.diffNewContent || ""}
+                                  commitHash={tab.diffCommitHash || ""}
+                                />
+                              </Suspense>
+                            ) : tab.type === "git" ? (
+                              <Suspense fallback={<div className="flex-1 flex items-center justify-center h-full"><span className="text-sm text-on-surface-variant">Loading git view...</span></div>}>
+                                <GitView cwd={projectDir || cwdAbsolute} tabId={tab.id} />
+                              </Suspense>
+                            ) : (
+                              <TerminalWorkspaceView
+                                tab={tab}
+                                isVisible={isTabActive}
+                                isCommandRunning={isTabActive ? isCommandRunning : undefined}
+                                isAlternateActive={isAlternateActive}
+                                hasInteracted={hasInteracted}
+                              />
+                            )}
+                        </div>
+                      );
+                    })}
                 </div>
               </div>
 
@@ -583,6 +683,7 @@ export function AppShellView() {
           <AgentOverlay sessionId={activeTabId} onClose={() => setShowAiBar(false)} />
         )}
       </div>
+      )}
 
       <SaveChangesModal
         tab={pendingTab}
@@ -687,7 +788,7 @@ export function AppShellView() {
         }}
       />
 
-      <StatusBar cwd={cwdAbsolute} />
+      <StatusBar noFolder={tabs.length === 0} />
     </div>
   );
 }

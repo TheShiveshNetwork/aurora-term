@@ -37,8 +37,7 @@ export function IconButton({
       disabled={disabled}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      className={`flex items-center justify-center rounded-lg transition-all cursor-pointer disabled:opacity-40 disabled:cursor-default ${SIZE_MAP[size]} ${className}`}
-      style={{ background: bgColor, color: textColor, ...style }}
+      className={`flex items-center justify-center rounded-lg transition-all cursor-pointer disabled:opacity-40 disabled:cursor-default bg-[${bgColor}] color-[${textColor}] ${SIZE_MAP[size]} ${className}`}
       title={tooltip}
     >
       <span style={{ fontSize: ICON_SIZE_MAP[size], display: "inline-flex" }}>{icon}</span>

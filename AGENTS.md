@@ -505,4 +505,41 @@ To perform automated visual and DOM tests on the built Tauri application using `
 
 ---
 
+## 16. projectDir vs currentDir Separation
+
+The app maintains two distinct directory concepts:
+
+### projectDir (trusted project root)
+- **What**: The root directory the user explicitly opened via "Open Folder". This is the trusted boundary — commands outside this directory are not auto-accepted.
+- **Storage**: Persisted in config as `ui.project_dir` (`UiStateConfig::project_dir` in Rust).
+- **Display**: Shown on the **app header** (project name derived from `projectDirLabel`).
+- **Set when**: User selects "Open Folder" → `useAppShellStore.setProjectDir(path)`.
+- **Restored**: From config on bootstrap in `useAppBootstrap.ts`.
+
+### currentDir (per-terminal working directory)
+- **What**: The real-time working directory of each terminal session, tracked from the shell prompt sentinel (`__AURORA_CWD__=<path>`). Each terminal tab has its own independent currentDir.
+- **Storage**: Runtime only — `useAppShellStore.sessionCwds[ sessionId ]`. Not persisted.
+- **Display**: Shown on the **status bar** and inside the **terminal session** (via xterm.js).
+- **Updated when**: User runs `cd` in any terminal → `cleanPtyData()` extracts `cwdValue` → `TerminalPane` dispatches `cwd-change` CustomEvent → `useAppBootstrap` handler updates `sessionCwds`.
+- **Inherited**: New file view tabs inherit from the active terminal's currentDir.
+
+### Key Rules
+- **Terminals spawn in projectDir**, not the active terminal's currentDir.
+- **File tree** (`SidePanel`) opens from projectDir, not the terminal's cwd.
+- **`cwd-change` events never update projectDir** — only `sessionCwds`.
+- **App header shows projectDir** — unaffected by terminal `cd`.
+- **Status bar shows the active terminal's currentDir** (falls back to projectDir).
+- **`noFolder`** = `tabs.length === 0` (no terminal/file tabs open), but projectDir can be set from config even when no tabs exist.
+
+### Store Fields (`useAppShellStore`)
+| Field | Type | Purpose |
+|---|---|---|
+| `projectDir` | `string` | Absolute path of the trusted project root |
+| `projectDirLabel` | `string` | Display label (`~/folder-name`) derived from projectDir |
+| `cwdAbsolute` | `string` | Active context directory (file ops, backward compat) |
+| `cwd` | `string` | Display label for cwdAbsolute |
+| `sessionCwds` | `Record<string, string>` | Per-terminal-session current directories |
+
+---
+
 *Last updated: 2026-06-23*

@@ -7,11 +7,24 @@ pub fn fuzzy_search_history(
     query: &str,
     limit: usize,
 ) -> Result<Vec<HistoryEntry>, AppError> {
-    let entries = db.get_recent(1000)?; // Pull last 1000 entries for fuzzy search context
-    
     if query.is_empty() {
-        return Ok(entries.into_iter().take(limit).collect());
+        return db.get_recent(limit);
     }
+
+    // Use prefix filter first — reduces fuzzy candidate set from 1000 to ~200
+    let prefix_entries = db.get_recent_by_prefix(query, 200)?;
+    // If prefix filter returns enough candidates, use it; otherwise fall back to a broader batch
+    let entries = if prefix_entries.len() >= limit {
+        prefix_entries
+    } else {
+        let batch_size = 200.max(limit * 2);
+        let fallback = db.get_recent(batch_size)?;
+        if prefix_entries.len() > fallback.len() / 4 {
+            prefix_entries
+        } else {
+            fallback
+        }
+    };
 
     let mut matcher = Matcher::default();
     let mut scored_entries: Vec<(u32, HistoryEntry)> = entries

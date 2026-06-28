@@ -150,6 +150,36 @@ impl HistoryDb {
         }
         Ok(entries)
     }
+
+    /// Prefix-filtered query: returns recent entries whose command starts with the given prefix.
+    /// Reduces the candidate set for fuzzy matching, avoiding a full 1000-row load.
+    pub fn get_recent_by_prefix(&self, prefix: &str, limit: usize) -> Result<Vec<HistoryEntry>, AppError> {
+        let pattern = format!("{}%", prefix);
+        let mut stmt = self.conn.prepare(
+            "SELECT id, session_id, command, cwd, exit_code, duration_ms, created_at
+             FROM command_history
+             WHERE command LIKE ?1
+             ORDER BY created_at DESC LIMIT ?2",
+        ).map_err(|e| AppError::Db(e.to_string()))?;
+
+        let rows = stmt.query_map(rusqlite::params![pattern, limit], |row| {
+            Ok(HistoryEntry {
+                id: Some(row.get(0)?),
+                session_id: row.get(1)?,
+                command: row.get(2)?,
+                cwd: row.get(3)?,
+                exit_code: row.get(4)?,
+                duration_ms: row.get(5)?,
+                created_at: Some(row.get(6)?),
+            })
+        }).map_err(|e| AppError::Db(e.to_string()))?;
+
+        let mut entries = Vec::new();
+        for r in rows {
+            entries.push(r.map_err(|e| AppError::Db(e.to_string()))?);
+        }
+        Ok(entries)
+    }
 }
 
 #[cfg(test)]

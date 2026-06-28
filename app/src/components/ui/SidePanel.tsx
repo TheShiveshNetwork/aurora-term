@@ -18,6 +18,7 @@ import type { FileNode } from "../../lib/ipc";
 import { FileOutline } from "./FileOutline";
 import { FileTimeline } from "./FileTimeline";
 import { GitTree } from "./GitTree";
+import { OpenTabs } from "./OpenTabs";
 
 // ── Normalize path for comparison ────────────────────────────────────────────
 function pathsEqual(a: string, b: string): boolean {
@@ -37,6 +38,8 @@ interface SidePanelProps {
   collapsed: boolean;
   cwd?: string;
   activeFilePath?: string;
+  onKillTab?: (id: string) => void;
+  onAddTab?: (type: "terminal" | "file") => void;
 }
 
 interface FileMenuState { x: number; y: number; node: FileNode }
@@ -167,6 +170,7 @@ function TreeNode({
         title={isRenaming ? undefined : node.name}
         data-path={node.path}
         data-is-dir={node.is_dir ? "true" : "false"}
+        data-active-file={isActive ? "true" : undefined}
         onPointerDown={(e) => { if (!node.is_dir) onPointerDown(e, node); }}
         className={`flex items-center gap-1.5 cursor-pointer transition-colors ${isBeingDragged ? "opacity-40" : ""}`}
         style={{
@@ -265,15 +269,17 @@ function TreeNode({
 
 // ── SectionToggle ─────────────────────────────────────────────────────────────
 const SECTION_LABELS: Record<SideSection, string> = {
-  folders: "Folders", outline: "Outline", timeline: "Timeline", git: "Git",
+  folders: "Folders", "open-tabs": "Open Tabs", outline: "Outline", timeline: "Timeline", git: "Git",
 };
 
 function SectionToggle() {
   const [open, setOpen] = useState(false);
   const sectionVisibility = useAppShellStore((s) => s.sectionVisibility);
   const toggleSection = useAppShellStore((s) => s.toggleSection);
-  const activeTab = useSessionStore((s) => s.tabs.find((t) => t.id === s.activeTabId));
-  const isTerminalView = activeTab?.type === "terminal";
+  const isTerminalView = useSessionStore((s) => {
+    const t = s.tabs.find((t) => t.id === s.activeTabId);
+    return t?.type === "terminal";
+  });
   const disabledInTerminal: SideSection[] = ["outline", "timeline"];
 
   return (
@@ -288,7 +294,7 @@ function SectionToggle() {
         <MoreHorizontal size={13} />
       </button>
       <MenuView variant="secondary" open={open} onClose={() => setOpen(false)} className="absolute right-0 top-full mt-1 w-40 z-[100]">
-        {(["folders", "outline", "timeline", "git"] as SideSection[]).map((section) => {
+        {SECTIONS.map((section) => {
           const disabled = isTerminalView && disabledInTerminal.includes(section);
           return (
             <MenuViewItem key={section} variant="secondary" checked={sectionVisibility[section]} disabled={disabled}
@@ -321,14 +327,14 @@ function SidebarIconBtn({ children, title, onClick }: { children: React.ReactNod
 const HEADER_H = 30;
 const RH = 4;
 const MIN_SECTION_H = 60;
-const SECTIONS: SideSection[] = ['folders', 'outline', 'timeline', 'git'];
+const SECTIONS: SideSection[] = ['folders', 'open-tabs', 'outline', 'timeline', 'git'];
 const DEFAULT_HEIGHTS: Record<SideSection, number> = {
-  folders: 400, outline: 200, timeline: 200, git: 200,
+  folders: 400, "open-tabs": 150, outline: 200, timeline: 200, git: 200,
 };
 
 // ── CollapsibleSection ────────────────────────────────────────────────────────
 // All sections use explicit pixel heights. No flex-grow special cases.
-function CollapsibleSection({
+const CollapsibleSection = React.memo(function CollapsibleSection({
   label, open, onToggle, bodyHeight, onResizeStart, showResizeHandle, controls, loading, children,
 }: {
   label: string;
@@ -341,13 +347,14 @@ function CollapsibleSection({
   loading?: boolean;
   children?: React.ReactNode;
 }) {
-  const totalHeight = open ? HEADER_H + bodyHeight : HEADER_H;
+  const outerH = open
+    ? HEADER_H + bodyHeight + (showResizeHandle ? RH : 0)
+    : HEADER_H;
   return (
     <div
-      className="flex flex-col min-h-0 group/section relative"
+      className="flex flex-col group/section relative shrink-0"
       style={{
-        flex: open ? "1 1 auto" : "0 0 auto",
-        minHeight: open ? HEADER_H + MIN_SECTION_H : HEADER_H,
+        height: outerH,
         borderTop: "1px solid rgba(255,255,255,0.05)",
         overflow: "hidden",
       }}
@@ -377,7 +384,7 @@ function CollapsibleSection({
 
       {/* Content */}
       {open && (
-        <div className="flex-1 min-h-0 overflow-x-hidden overflow-y-auto section-scroll" style={{ height: bodyHeight }}>
+        <div className="min-h-0 overflow-x-hidden overflow-y-auto section-scroll shrink-0" style={{ height: bodyHeight }}>
           {children}
         </div>
       )}
@@ -394,7 +401,7 @@ function CollapsibleSection({
       )}
     </div>
   );
-}
+});
 
 // ── Sidepanel layout hook (mirrors ide_side_panel_v2.html redistribution logic) ─
 // All sections get explicit pixel body heights. Container height tracked via
@@ -428,11 +435,11 @@ function useSidepanelLayout(
     const openList = visibleSections.filter(s => openState[s]);
     if (openList.length === 0) return 0;
     // All visible sections have a HEADER_H header (open or closed). Only count
-    // resize handles between pairs of adjacent open sections.
+    // resize handles between pairs where the top section is open.
     const headerChrome = visibleSections.length * HEADER_H;
     let handleChrome = 0;
     for (let i = 0; i < visibleSections.length - 1; i++) {
-      if (openState[visibleSections[i]] && openState[visibleSections[i + 1]]) {
+      if (openState[visibleSections[i]]) {
         handleChrome += RH;
       }
     }
@@ -573,7 +580,9 @@ const MAX_WIDTH = 520;
 const DEFAULT_WIDTH = 220;
 
 // ── SidePanel ─────────────────────────────────────────────────────────────────
-export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
+export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab, onAddTab }: SidePanelProps) {
+  const [showAddTabMenu, setShowAddTabMenu] = useState(false);
+  const addTabBtnRef = useRef<HTMLDivElement>(null);
   const [selectedFile, setSelectedFile] = useState("");
   const [activePath, setActivePath] = useState("");
   const [rootNodes, setRootNodes] = useState<FileNode[]>([]);
@@ -613,6 +622,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
   const dragSourcePathRef = useRef<string | null>(null);
 
   const sectionsRef = useRef<HTMLDivElement | null>(null);
+  const treeRef = useRef<HTMLDivElement | null>(null);
   const loadSeqRef = useRef(0);
   const hasDataRef = useRef(false);
   const serializedRootRef = useRef("");
@@ -638,6 +648,26 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
     if (activeFilePath) { setSelectedFile(activeFilePath); setActivePath(activeFilePath); }
     else { setSelectedFile(""); setActivePath(""); }
   }, [activeFilePath]);
+
+  // Scroll active file into view (poll until rendered after async directory loads)
+  useEffect(() => {
+    if (!activePath) return;
+    let count = 0;
+    const maxAttempts = 50;
+    let timer: ReturnType<typeof setTimeout>;
+    const tryScroll = () => {
+      const el = treeRef.current?.querySelector<HTMLElement>('[data-active-file="true"]');
+      if (el) {
+        el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        return;
+      }
+      if (count++ < maxAttempts) {
+        timer = setTimeout(tryScroll, 100);
+      }
+    };
+    timer = setTimeout(tryScroll, 100);
+    return () => clearTimeout(timer);
+  }, [activePath]);
 
   // Close menus on outside events
   useEffect(() => {
@@ -679,24 +709,8 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
   }, []);
 
   useEffect(() => {
-    system.getCwd().then((dir) => { setResolvedCwd(dir); loadTree(dir); }).catch(console.error);
-  }, [loadTree]);
-
-  useEffect(() => {
-    if (!cwd || pathsEqual(cwd, resolvedCwd)) return;
-    setResolvedCwd(cwd); loadTree(cwd);
-  }, [cwd, resolvedCwd, loadTree]);
-
-  const lastLoadedPathRef = useRef("");
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const { path } = (e as CustomEvent<{ path: string }>).detail;
-      if (!path || pathsEqual(path, resolvedCwd) || pathsEqual(path, lastLoadedPathRef.current)) return;
-      lastLoadedPathRef.current = path; setResolvedCwd(path); loadTree(path);
-    };
-    window.addEventListener("cwd-change", handler);
-    return () => window.removeEventListener("cwd-change", handler);
-  }, [resolvedCwd, loadTree]);
+    if (cwd) { setResolvedCwd(cwd); loadTree(cwd); }
+  }, [cwd, loadTree]);
 
   useEffect(() => {
     if (!resolvedCwd) return;
@@ -716,7 +730,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
           const serialized = JSON.stringify(sorted);
           if (serialized !== serializedRootRef.current) { serializedRootRef.current = serialized; setRootNodes(sorted); }
         } catch { /* silent */ }
-      }, 80);
+      }, 300);
     }).then((fn) => { unlisten = fn; });
     return () => { if (unlisten) unlisten(); if (debounceTimer) clearTimeout(debounceTimer); };
   }, [collapsed, resolvedCwd]);
@@ -954,8 +968,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
     const result: Record<string, boolean> = {};
     for (let i = 0; i < visibleSections.length - 1; i++) {
       const top = visibleSections[i];
-      const bot = visibleSections[i + 1];
-      result[top] = sectionsOpen[top] && sectionsOpen[bot];
+      result[top] = sectionsOpen[top];
     }
     return result;
   }, [visibleSections, sectionsOpen]);
@@ -1001,7 +1014,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
       </div>
 
       {/* Sections container — fills remaining height (tracked by ResizeObserver inside useSidepanelLayout) */}
-      <div ref={sectionsRef} className="flex flex-col flex-1 min-h-0">
+      <div ref={sectionsRef} className="flex flex-col flex-1 min-h-0 overflow-hidden">
 
         {/* FOLDERS */}
         {sectionVisibility.folders && (
@@ -1043,9 +1056,11 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
                 {filteredNodes.length === 0 && !isLoading && (
                   <div className="text-[11px] italic px-3 py-3" style={{ color: "rgba(232,234,240,0.2)" }}>No files</div>
                 )}
-                {filteredNodes.map((node) => (
-                  <TreeNode key={node.path} node={node} depth={0} {...treeNodeProps} />
-                ))}
+                <div ref={treeRef}>
+                  {filteredNodes.map((node) => (
+                    <TreeNode key={node.path} node={node} depth={0} {...treeNodeProps} />
+                  ))}
+                </div>
                 {creatingIn && creatingIn.parentPath === resolvedCwd && (
                   <div className="flex items-center gap-1.5" style={{ paddingLeft: "10px", paddingTop: "4px", paddingBottom: "4px", minHeight: "24px" }}>
                     <input
@@ -1064,6 +1079,59 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
                 )}
               </>
             )}
+          </CollapsibleSection>
+        )}
+
+        {/* OPEN TABS */}
+        {sectionVisibility["open-tabs"] && (
+          <CollapsibleSection
+            label="Open Tabs"
+            open={sectionsOpen["open-tabs"]}
+            onToggle={() => toggleSection("open-tabs")}
+            bodyHeight={sectionHeights["open-tabs"]}
+            showResizeHandle={!!sectionSeamOpen["open-tabs"]}
+            onResizeStart={(e) => startResize("open-tabs", e)}
+            controls={
+              <div ref={addTabBtnRef} className="relative">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (e.shiftKey) {
+                      setShowAddTabMenu(!showAddTabMenu);
+                    } else {
+                      onAddTab?.("terminal");
+                    }
+                  }}
+                  className="w-6 h-6 flex items-center justify-center rounded-md transition-all cursor-pointer"
+                  style={{ color: "rgba(232,234,240,0.35)" }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; e.currentTarget.style.color = "#E8EAF0"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "rgba(232,234,240,0.35)"; }}
+                  title="New Tab (click: terminal, shift+click: options)"
+                >
+                  <Plus size={14} />
+                </button>
+                {showAddTabMenu && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setShowAddTabMenu(false)} />
+                    <MenuView
+                      variant="primary"
+                      open={true}
+                      onClose={() => setShowAddTabMenu(false)}
+                      className="absolute left-0 top-[calc(100%+4px)] min-w-[132px] z-20"
+                    >
+                      <MenuViewItem icon={<Terminal size={12} />} onClick={() => { onAddTab?.("terminal"); setShowAddTabMenu(false); }}>
+                        Terminal Tab
+                      </MenuViewItem>
+                      <MenuViewItem icon={<FileText size={12} />} onClick={() => { onAddTab?.("file"); setShowAddTabMenu(false); }}>
+                        Workspace Tab
+                      </MenuViewItem>
+                    </MenuView>
+                  </>
+                )}
+              </div>
+            }
+          >
+            <OpenTabs onKillTab={onKillTab} />
           </CollapsibleSection>
         )}
 

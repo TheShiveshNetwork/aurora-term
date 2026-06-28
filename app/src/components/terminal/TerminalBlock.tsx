@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, memo } from "react";
 import { Block } from "@aurora/types";
 import { useBlockStore } from "../../stores/useBlockStore";
 import { Copy, Bookmark, ChevronUp, ChevronDown, Check, ShieldAlert, Sparkles } from "lucide-react";
@@ -10,7 +10,7 @@ interface TerminalBlockProps {
   block: Block;
 }
 
-export function TerminalBlock({ sessionId, block }: TerminalBlockProps) {
+export const TerminalBlock = memo(function TerminalBlock({ sessionId, block }: TerminalBlockProps) {
   const { copied, handleCopy } = useCopyWithFeedback();
   const [explaining, setExplaining] = useState(false);
 
@@ -138,4 +138,4 @@ export function TerminalBlock({ sessionId, block }: TerminalBlockProps) {
       )}
     </div>
   );
-}
+});

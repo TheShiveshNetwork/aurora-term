@@ -1,44 +1,53 @@
-//! Watches the sidecar child process for unexpected exit and restarts it.
+//! Watches the sidecar child process for unexpected exit using event-driven wait.
+//!
+//! Uses OS-native child-exit notification (`Child::wait()`) instead of polling
+//! `try_wait()` every 500ms. A `kill_signal` channel allows the manager to
+//! cancel the wait when intentionally terminating the sidecar.
 
-use std::sync::Arc;
-use tokio::sync::Mutex;
 use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::oneshot;
 
-/// Starts a background polling task to monitor the sidecar process liveness.
-/// If the process exits unexpectedly, it sends a message on the crashed channel.
+/// Starts a background task to monitor the sidecar process liveness using
+/// event-driven `Child::wait()`. Returns a `kill_sender` that the manager can
+/// use to signal intentional termination (cancels the wait and kills the child).
 pub fn start_monitor(
-    shared_child: Arc<Mutex<Option<tokio::process::Child>>>,
+    mut child: tokio::process::Child,
     crashed_sender: UnboundedSender<()>,
-) {
+) -> oneshot::Sender<()> {
+    let (kill_sender, mut kill_receiver) = oneshot::channel::<()>();
+
     tokio::spawn(async move {
-        loop {
-            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-            
-            let mut lock = shared_child.lock().await;
-            if lock.is_none() {
-                // Process was intentionally terminated/cleared
-                break;
+        tokio::select! {
+            // OS-native wait — no polling, zero CPU when idle
+            result = child.wait() => {
+                match result {
+                    Ok(status) => {
+                        tracing::warn!("aurora-agent sidecar exited with status: {:?}", status);
+                    }
+                    Err(e) => {
+                        tracing::error!("Error waiting for sidecar: {}", e);
+                    }
+                }
+                let _ = crashed_sender.send(());
             }
-            
-            let child = lock.as_mut().unwrap();
-            match child.try_wait() {
-                Ok(Some(status)) => {
-                    tracing::warn!("aurora-agent sidecar process exited unexpectedly with status: {:?}", status);
-                    // Clear the child process from state
-                    *lock = None;
-                    let _ = crashed_sender.send(());
-                    break;
+            // Intentional kill signal — manager called kill() or Drop
+            _ = &mut kill_receiver => {
+                tracing::info!("aurora-agent sidecar: kill signal received, terminating");
+                #[cfg(target_os = "windows")]
+                {
+                    if let Some(pid) = child.id() {
+                        let mut kill_cmd = tokio::process::Command::new("taskkill");
+                        kill_cmd.args(["/F", "/T", "/PID", &pid.to_string()]);
+                        kill_cmd.stdout(std::process::Stdio::null());
+                        kill_cmd.stderr(std::process::Stdio::null());
+                        let _ = kill_cmd.status().await;
+                    }
                 }
-                Ok(None) => {
-                    // Still running, continue checking
-                }
-                Err(e) => {
-                    tracing::error!("Error checking sidecar process status: {}", e);
-                    *lock = None;
-                    let _ = crashed_sender.send(());
-                    break;
-                }
+                let _ = child.kill().await;
+                let _ = child.wait().await;
             }
         }
     });
+
+    kill_sender
 }

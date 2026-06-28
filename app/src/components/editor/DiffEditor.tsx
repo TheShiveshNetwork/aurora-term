@@ -1,10 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { EditorView, basicSetup } from "codemirror";
-import { EditorState } from "@codemirror/state";
-import { MergeView } from "@codemirror/merge";
-import { EditorView as EditorViewClass } from "@codemirror/view";
+import type { EditorView } from "@codemirror/view";
+import type { MergeView } from "@codemirror/merge";
 import { useSettingsStore } from "../../stores/useSettingsStore";
-import { EDITOR_THEMES, READONLY_EDITOR_THEME } from "./editorThemes";
+import { getEditorTheme, READONLY_EDITOR_THEME } from "./editorThemes";
 import { createMinimapExtension } from "./minimapExtension";
 import { getLanguageExtension } from "../../lib/codeLang";
 import { PathBreadcrumb } from "./PathBreadcrumb";
@@ -115,103 +113,122 @@ export function DiffEditor({
     cleanupsRef.current.forEach((f) => f());
     cleanupsRef.current = [];
     mergeRef.current?.destroy();
+    mergeRef.current = null;
+    viewARef.current = null;
+    viewBRef.current = null;
 
-    const langExt = getLanguageExtension(filePath);
+    let cancelled = false;
 
-    const base = [
-      basicSetup,
-      EDITOR_THEMES[editorTheme],
-      createMinimapExtension(true),
-      EditorViewClass.editable.of(false),
-      EditorState.readOnly.of(true),
-      READONLY_EDITOR_THEME,
-      ...(langExt ? [langExt] : []),
-    ];
+    Promise.all([
+      import("codemirror"),
+      import("@codemirror/state"),
+      import("@codemirror/merge"),
+      import("@codemirror/view"),
+      getLanguageExtension(filePath),
+      getEditorTheme(editorTheme),
+    ]).then(([
+      { basicSetup },
+      { EditorState },
+      { MergeView },
+      { EditorView: EditorViewClass },
+      langExt,
+      theme,
+    ]) => {
+      if (cancelled) return;
 
-    const merge = new MergeView({
-      a: { doc: oldContent, extensions: base },
-      b: { doc: newContent, extensions: base },
-      parent: mount,
-      orientation: "a-b",
-      highlightChanges: true,
-      collapseUnchanged: { margin: 3, minSize: 4 },
+      const base = [
+        basicSetup,
+        theme,
+        createMinimapExtension(true),
+        EditorViewClass.editable.of(false),
+        EditorState.readOnly.of(true),
+        READONLY_EDITOR_THEME,
+        ...(langExt.length > 0 ? langExt : []),
+      ];
+
+      const merge = new MergeView({
+        a: { doc: oldContent, extensions: base },
+        b: { doc: newContent, extensions: base },
+        parent: mount,
+        orientation: "a-b",
+        highlightChanges: true,
+        collapseUnchanged: { margin: 3, minSize: 4 },
+      });
+
+      mergeRef.current = merge;
+      viewARef.current = merge.a;
+      viewBRef.current = merge.b;
+
+      // --- set explicit 50/50 widths on the actual pane elements ---
+      const panes = mount.querySelectorAll<HTMLElement>(".cm-merge-pane");
+      const paneA = panes[0];
+      const paneB = panes[1];
+
+      const applyWidths = (leftPx: number) => {
+        const totalW = mount.getBoundingClientRect().width;
+        const GAP = 2;
+        const rightPx = totalW - leftPx - GAP;
+        if (paneA) { paneA.style.width = `${leftPx}px`; paneA.style.flex = "none"; }
+        if (paneB) { paneB.style.width = `${Math.max(80, rightPx)}px`; paneB.style.flex = "none"; }
+        setResizerLeft(leftPx + GAP / 2);
+      };
+
+      const initRaf = requestAnimationFrame(() => {
+        const totalW = mount.getBoundingClientRect().width;
+        applyWidths(Math.floor((totalW - 2) / 2));
+      });
+
+      const cleanA = attachScrollSync(merge.a, () => viewBRef.current);
+      const cleanB = attachScrollSync(merge.b, () => viewARef.current);
+
+      const resizer = resizerRef.current;
+      let dragging = false;
+      let startX = 0;
+      let startLeftW = 0;
+
+      const onMouseMove = (e: MouseEvent) => {
+        if (!dragging) return;
+        const totalW = mount.getBoundingClientRect().width;
+        const newLeft = Math.max(80, Math.min(totalW - 82, startLeftW + (e.clientX - startX)));
+        applyWidths(newLeft);
+      };
+
+      const onMouseUp = () => {
+        dragging = false;
+        resizer?.classList.remove("dragging");
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        document.removeEventListener("mousemove", onMouseMove);
+        document.removeEventListener("mouseup", onMouseUp);
+      };
+
+      const onMouseDown = (e: MouseEvent) => {
+        e.preventDefault();
+        dragging = true;
+        startX = e.clientX;
+        startLeftW = paneA ? paneA.getBoundingClientRect().width : mount.getBoundingClientRect().width / 2;
+        resizer?.classList.add("dragging");
+        document.body.style.cursor = "col-resize";
+        document.body.style.userSelect = "none";
+        document.addEventListener("mousemove", onMouseMove);
+        document.addEventListener("mouseup", onMouseUp);
+      };
+
+      resizer?.addEventListener("mousedown", onMouseDown);
+
+      cleanupsRef.current = [
+        cleanA, cleanB,
+        () => cancelAnimationFrame(initRaf),
+        () => resizer?.removeEventListener("mousedown", onMouseDown),
+        () => onMouseUp(),
+      ];
     });
-
-    mergeRef.current = merge;
-    viewARef.current = merge.a;
-    viewBRef.current = merge.b;
-
-    // --- set explicit 50/50 widths on the actual pane elements ---
-    const panes = mount.querySelectorAll<HTMLElement>(".cm-merge-pane");
-    const paneA = panes[0];
-    const paneB = panes[1];
-
-    const applyWidths = (leftPx: number) => {
-      const totalW = mount.getBoundingClientRect().width;
-      const GAP = 2; // matches cm-merge-gap width in CSS
-      const rightPx = totalW - leftPx - GAP;
-      if (paneA) { paneA.style.width = `${leftPx}px`; paneA.style.flex = "none"; }
-      if (paneB) { paneB.style.width = `${Math.max(80, rightPx)}px`; paneB.style.flex = "none"; }
-      setResizerLeft(leftPx + GAP / 2);
-    };
-
-    // Initial 50/50 — use rAF so MergeView has painted and mount has a width
-    const initRaf = requestAnimationFrame(() => {
-      const totalW = mount.getBoundingClientRect().width;
-      applyWidths(Math.floor((totalW - 2) / 2));
-    });
-
-    // --- scroll sync ---
-    const cleanA = attachScrollSync(merge.a, () => viewBRef.current);
-    const cleanB = attachScrollSync(merge.b, () => viewARef.current);
-
-    // --- drag-to-resize ---
-    const resizer = resizerRef.current;
-    let dragging = false;
-    let startX = 0;
-    let startLeftW = 0;
-
-    const onMouseMove = (e: MouseEvent) => {
-      if (!dragging) return;
-      const totalW = mount.getBoundingClientRect().width;
-      const newLeft = Math.max(80, Math.min(totalW - 82, startLeftW + (e.clientX - startX)));
-      applyWidths(newLeft);
-    };
-
-    const onMouseUp = () => {
-      dragging = false;
-      resizer?.classList.remove("dragging");
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      document.removeEventListener("mousemove", onMouseMove);
-      document.removeEventListener("mouseup", onMouseUp);
-    };
-
-    const onMouseDown = (e: MouseEvent) => {
-      e.preventDefault();
-      dragging = true;
-      startX = e.clientX;
-      startLeftW = paneA ? paneA.getBoundingClientRect().width : mount.getBoundingClientRect().width / 2;
-      resizer?.classList.add("dragging");
-      document.body.style.cursor = "col-resize";
-      document.body.style.userSelect = "none";
-      document.addEventListener("mousemove", onMouseMove);
-      document.addEventListener("mouseup", onMouseUp);
-    };
-
-    resizer?.addEventListener("mousedown", onMouseDown);
-
-    cleanupsRef.current = [
-      cleanA, cleanB,
-      () => cancelAnimationFrame(initRaf),
-      () => resizer?.removeEventListener("mousedown", onMouseDown),
-      () => onMouseUp(),
-    ];
 
     return () => {
+      cancelled = true;
       cleanupsRef.current.forEach((f) => f());
       cleanupsRef.current = [];
-      merge.destroy();
+      mergeRef.current?.destroy();
       mergeRef.current = null;
       viewARef.current = null;
       viewBRef.current = null;

@@ -1,16 +1,11 @@
 import { useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { v4 as uuidv4 } from "uuid";
-import { pty } from "../lib/ipc";
+import { preloadFileContent, pty } from "../lib/ipc";
 import { useSessionStore } from "../stores/useSessionStore";
 import { useBlockStore } from "../stores/useBlockStore";
 import { Tab } from "@aurora/types";
-
-// Strip ANSI/VT100 escape sequences — keeps block output_summary clean for AI
-const stripAnsi = (s: string) =>
-  s.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, "")
-   .replace(/__AURORA_(?:CWD|BRANCH)__=[^\r\n]*/g, "") // strip sentinel lines
-   .replace(/\r/g, ""); // normalise carriage returns
+import { cleanPtyData, stripAnsi } from "../lib/terminal/cleanup";
 
 export function usePTY() {
   const store = useSessionStore();
@@ -33,7 +28,8 @@ export function usePTY() {
         const blockId = state.runningBlockId[session_id];
         state.setCommandOutputReceived(session_id, true);
         if (blockId) {
-          state.appendBlockOutput(session_id, blockId, stripAnsi(data));
+          const { cleanData } = cleanPtyData(data);
+          state.appendBlockOutput(session_id, blockId, stripAnsi(cleanData));
         }
 
         // Dispatch a synchronous per-session DOM event. OutputRenderer
@@ -78,7 +74,12 @@ export function usePTY() {
     existingSessionId?: string
   ) => {
     try {
-      const sessionId = await pty.spawn(shell, args, env, cwd, existingSessionId);
+      const isWin = window.navigator.userAgent.includes("Windows");
+      const mergedEnv = { ...env };
+      if (!isWin && shell.includes("bash")) {
+        mergedEnv["PROMPT_COMMAND"] = 'echo "__AURORA_CWD__=$(pwd);EXIT_CODE=$?"';
+      }
+      const sessionId = await pty.spawn(shell, args, mergedEnv, cwd, existingSessionId);
 
       const tab = tabs.find(t => t.id === sessionId);
       if (!tab) {
@@ -152,6 +153,10 @@ export function usePTY() {
 
     addTab(newTab);
     setActiveTabId(fileId);
+
+    // Start reading file content immediately, in parallel with React rendering.
+    // The FileViewer will pick up the in-flight or cached result.
+    preloadFileContent(filePath);
 
     return fileId;
   };

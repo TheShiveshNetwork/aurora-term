@@ -17,7 +17,6 @@ import {
 import { useAgentExecution } from "../../hooks/useAgentExecution";
 import type { ChainNode, ChatMessage } from "../../stores/useAgentStore";
 import { renderMarkdown, renderInline } from "../../lib/markdown";
-import { useDragResize } from "../../hooks/useDragResize";
 import { useCopyWithFeedback } from "../../hooks/useCopyWithFeedback";
 
 // ── Status helpers ────────────────────────────────────────────────────────
@@ -395,12 +394,34 @@ export function AgentOverlay({ sessionId, onClose }: AgentOverlayProps) {
 
   const MIN_PANEL_WIDTH = 240;
   const MAX_PANEL_WIDTH = 600;
-  const { size: width, onMouseDown: onDragHandleMouseDown } = useDragResize({
-    axis: "x",
-    min: MIN_PANEL_WIDTH,
-    max: MAX_PANEL_WIDTH,
-    initial: 380,
-  });
+  const [width, setWidth] = useState(380);
+  const panelDragRef = useRef<{ startX: number; startW: number } | null>(null);
+
+  const onDragHandleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    panelDragRef.current = { startX: e.clientX, startW: width };
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  }, [width]);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      const d = panelDragRef.current;
+      if (!d) return;
+      // Handle on left edge: drag left → delta negative → negate to expand panel
+      const delta = d.startX - e.clientX;
+      setWidth(Math.min(MAX_PANEL_WIDTH, Math.max(MIN_PANEL_WIDTH, d.startW + delta)));
+    };
+    const onUp = () => {
+      if (!panelDragRef.current) return;
+      panelDragRef.current = null;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+  }, []);
 
   // Auto-scroll ref — points to the bottom sentinel element
   const bottomRef = useRef<HTMLDivElement>(null);

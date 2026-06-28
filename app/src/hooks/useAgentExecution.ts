@@ -257,7 +257,7 @@ export function useAgentExecution(sessionId: string | null) {
           detail: { cmd: commandItem.command },
         })
       );
-      await pty.write(targetSessionId, `${commandItem.command}\r\n`);
+      await pty.write(targetSessionId, `${commandItem.command}\r`);
 
       const result = await waitForBlockCompletion(targetSessionId, blockId);
       const durationMs = Date.now() - startedAt;

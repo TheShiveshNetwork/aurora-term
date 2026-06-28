@@ -70,10 +70,10 @@ async function callApiStep(params: {
 
 const greetingInputStep = createStep({
   id: 'greeting-input',
-  inputSchema: z.object({ taskId: z.string() }),
+  inputSchema: z.object({ taskId: z.string().optional() }),
   outputSchema: z.object({ result: StepResultSchema, passed: z.boolean(), reason: z.string() }),
   execute: async ({ inputData }) => {
-    const result = await callApiStep({ task_id: inputData.taskId, goal: 'hello' });
+    const result = await callApiStep({ task_id: inputData.taskId ?? 'test-greeting', goal: 'hello' });
     const passed = result.status === 'completed' && !result.command;
     return {
       result,
@@ -87,7 +87,7 @@ const greetingInputStep = createStep({
 
 export const greetingTestFlow = createWorkflow({
   id: 'test-greeting',
-  inputSchema: z.object({ taskId: z.string().default('test-greeting') }),
+  inputSchema: z.object({ taskId: z.string().optional() }),
   outputSchema: z.object({ result: StepResultSchema, passed: z.boolean(), reason: z.string() }),
 }).then(greetingInputStep).commit();
 
@@ -99,7 +99,7 @@ export const greetingTestFlow = createWorkflow({
 
 const simpleCommandStep = createStep({
   id: 'simple-command-input',
-  inputSchema: z.object({ taskId: z.string() }),
+  inputSchema: z.object({ taskId: z.string().optional() }),
   outputSchema: z.object({
     step1: StepResultSchema,
     step2: StepResultSchema,
@@ -107,13 +107,14 @@ const simpleCommandStep = createStep({
     reason: z.string(),
   }),
   execute: async ({ inputData }) => {
-    const step1 = await callApiStep({ task_id: inputData.taskId, goal: 'list files in current directory' });
+    const tid = inputData.taskId ?? 'test-simple';
+    const step1 = await callApiStep({ task_id: tid, goal: 'list files in current directory' });
     
     let step2: StepResult = { status: 'completed', message: 'No second step needed' };
     if (step1.status === 'executing') {
       // Simulate successful command output
       step2 = await callApiStep({
-        task_id: inputData.taskId,
+        task_id: tid,
         last_output: 'file1.txt\nfile2.ts\npackage.json',
         exit_code: 0,
       });
@@ -133,7 +134,7 @@ const simpleCommandStep = createStep({
 
 export const simpleCommandTestFlow = createWorkflow({
   id: 'test-simple-command',
-  inputSchema: z.object({ taskId: z.string().default('test-simple') }),
+  inputSchema: z.object({ taskId: z.string().optional() }),
   outputSchema: z.object({
     step1: StepResultSchema,
     step2: StepResultSchema,
@@ -150,7 +151,7 @@ export const simpleCommandTestFlow = createWorkflow({
 
 const multiStepTestStep = createStep({
   id: 'multi-step-input',
-  inputSchema: z.object({ taskId: z.string() }),
+  inputSchema: z.object({ taskId: z.string().optional() }),
   outputSchema: z.object({
     steps: z.array(StepResultSchema),
     commandCount: z.number(),
@@ -158,18 +159,19 @@ const multiStepTestStep = createStep({
     reason: z.string(),
   }),
   execute: async ({ inputData }) => {
+    const tid = inputData.taskId ?? 'test-multistep';
     const steps: StepResult[] = [];
     const MAX = 5;
 
     let current = await callApiStep({
-      task_id: inputData.taskId,
+      task_id: tid,
       goal: 'check git status and show the last 3 commits',
     });
     steps.push(current);
 
     while (current.status === 'executing' && steps.length < MAX) {
       current = await callApiStep({
-        task_id: inputData.taskId,
+        task_id: tid,
         last_output: `Simulated output for: ${current.command}`,
         exit_code: 0,
       });
@@ -193,7 +195,7 @@ const multiStepTestStep = createStep({
 
 export const multiStepTestFlow = createWorkflow({
   id: 'test-multi-step',
-  inputSchema: z.object({ taskId: z.string().default('test-multistep') }),
+  inputSchema: z.object({ taskId: z.string().optional() }),
   outputSchema: z.object({
     steps: z.array(StepResultSchema),
     commandCount: z.number(),
@@ -209,7 +211,7 @@ export const multiStepTestFlow = createWorkflow({
 
 const errorRecoveryStep = createStep({
   id: 'error-recovery-input',
-  inputSchema: z.object({ taskId: z.string() }),
+  inputSchema: z.object({ taskId: z.string().optional() }),
   outputSchema: z.object({
     step1: StepResultSchema,
     step2: StepResultSchema,
@@ -217,14 +219,15 @@ const errorRecoveryStep = createStep({
     reason: z.string(),
   }),
   execute: async ({ inputData }) => {
+    const tid = inputData.taskId ?? 'test-error';
     const step1 = await callApiStep({
-      task_id: inputData.taskId,
+      task_id: tid,
       goal: 'run git status',
     });
 
     // Simulate a command failure
     const step2 = await callApiStep({
-      task_id: inputData.taskId,
+      task_id: tid,
       last_output: "fatal: not a git repository (or any of the parent directories): .git",
       exit_code: 128,
     });
@@ -244,7 +247,7 @@ const errorRecoveryStep = createStep({
 
 export const errorRecoveryTestFlow = createWorkflow({
   id: 'test-error-recovery',
-  inputSchema: z.object({ taskId: z.string().default('test-error') }),
+  inputSchema: z.object({ taskId: z.string().optional() }),
   outputSchema: z.object({
     step1: StepResultSchema,
     step2: StepResultSchema,
@@ -261,7 +264,7 @@ export const errorRecoveryTestFlow = createWorkflow({
 
 const sensitiveCommandStep = createStep({
   id: 'sensitive-command-input',
-  inputSchema: z.object({ taskId: z.string() }),
+  inputSchema: z.object({ taskId: z.string().optional() }),
   outputSchema: z.object({
     result: StepResultSchema,
     commandIsSensitive: z.boolean(),
@@ -270,7 +273,7 @@ const sensitiveCommandStep = createStep({
   }),
   execute: async ({ inputData }) => {
     const result = await callApiStep({
-      task_id: inputData.taskId,
+      task_id: inputData.taskId ?? 'test-sensitive',
       goal: 'delete the temporary files in C:\\Windows\\Temp',
     });
 
@@ -292,7 +295,7 @@ const sensitiveCommandStep = createStep({
 
 export const sensitiveCommandTestFlow = createWorkflow({
   id: 'test-sensitive-command',
-  inputSchema: z.object({ taskId: z.string().default('test-sensitive') }),
+  inputSchema: z.object({ taskId: z.string().optional() }),
   outputSchema: z.object({
     result: StepResultSchema,
     commandIsSensitive: z.boolean(),

@@ -1,6 +1,5 @@
 import { useEffect, useRef } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { v4 as uuidv4 } from "uuid";
 
 import { useAICompletion } from "./useAICompletion";
 import { usePTY } from "./usePTY";
@@ -8,18 +7,14 @@ import { pty, config, system } from "../lib/ipc";
 import { getDefaultShellLaunch } from "../lib/shell";
 import { closeAllPopups } from "../lib/popups";
 import { useAppShellStore } from "../stores/useAppShellStore";
-import { useBlockStore } from "../stores/useBlockStore";
 import { useSessionStore } from "../stores/useSessionStore";
 import { useSettingsStore } from "../stores/useSettingsStore";
-import { Block } from "@aurora/types";
 
 export function useAppBootstrap() {
   useAICompletion();
 
   const { tabs, activeTabId, spawnSession, killSession, openFile, setActiveTabId } = usePTY();
   const theme = useSettingsStore((state) => state.theme);
-  const cwdAbsolute = useAppShellStore((state) => state.cwdAbsolute);
-  const sessionCwds = useAppShellStore((state) => state.sessionCwds);
 
   const hasSpawnedRef = useRef(false);
   const hasHadTabsRef = useRef(false);
@@ -47,22 +42,16 @@ export function useAppBootstrap() {
     useAppShellStore.getState().setViewMode(activeTab.type === "terminal" ? "terminal" : "file");
   }, [activeTabId, tabs]);
 
-  useEffect(() => {
-    if (!activeTabId) return;
-
-    const activeTab = tabs.find((tab) => tab.id === activeTabId);
-    const currentPath = activeTab?.type === "file"
-      ? activeTab.cwd
-      : sessionCwds[activeTabId];
-
-    if (!currentPath) return;
-
-    useAppShellStore.getState().setWorkspaceCwd(currentPath);
-  }, [activeTabId, sessionCwds, tabs]);
+  // NOTE: Do NOT update projectDir from sessionCwds on tab switch.
+  // projectDir is the trusted root set by "Open Folder" and is never
+  // changed by terminal `cd` or tab switching. Only sessionCwds is updated.
 
   useEffect(() => {
     if (hasSpawnedRef.current) return;
     hasSpawnedRef.current = true;
+
+    // Signal the app shell is ready to render immediately
+    useAppShellStore.getState().setBootstrapReady(true);
 
     system.readShellHistory()
       .then((history) => useAppShellStore.getState().setShellHistory(history))
@@ -80,6 +69,11 @@ export function useAppBootstrap() {
               store.updateTab(tab.id, { pinned: true });
             }
           }
+          // Restore projectDir from config (the trusted project root)
+          if (cfg.ui.project_dir) {
+            useAppShellStore.getState().setProjectDir(cfg.ui.project_dir);
+          }
+          // Restore workspace_cwd for backward compat / active context
           if (cfg.ui.workspace_cwd) {
             initialCwd = cfg.ui.workspace_cwd;
           }
@@ -94,31 +88,6 @@ export function useAppBootstrap() {
         }
 
         useAppShellStore.getState().setWorkspaceCwd(initialCwd);
-
-        const { shell, args } = getDefaultShellLaunch();
-        spawnSession(shell, args, {}, initialCwd)
-          .then((sessionId) => {
-            setActiveTabId(sessionId);
-            useAppShellStore.getState().setSessionCwd(sessionId, initialCwd);
-
-            const initBlock: Block = {
-              id: uuidv4(),
-              session_id: sessionId,
-              command: "init-aurora",
-              started_at: Date.now(),
-              status: "success",
-              output_type: "plain",
-              collapsed: false,
-              bookmarked: false,
-              output_summary: "Welcome to Aurora Terminal. Interactive AI console active.",
-              anchor_row: 0,
-              output_row_end: 0,
-              anchor_y: 0,
-            };
-
-            useBlockStore.getState().addBlock(sessionId, initBlock);
-          })
-          .catch(console.error);
       })
       .catch(async () => {
         let initialCwd = "";
@@ -128,31 +97,6 @@ export function useAppBootstrap() {
           initialCwd = "";
         }
         useAppShellStore.getState().setWorkspaceCwd(initialCwd);
-
-        const { shell, args } = getDefaultShellLaunch();
-        spawnSession(shell, args, {}, initialCwd)
-          .then((sessionId) => {
-            setActiveTabId(sessionId);
-            useAppShellStore.getState().setSessionCwd(sessionId, initialCwd);
-
-            const initBlock: Block = {
-              id: uuidv4(),
-              session_id: sessionId,
-              command: "init-aurora",
-              started_at: Date.now(),
-              status: "success",
-              output_type: "plain",
-              collapsed: false,
-              bookmarked: false,
-              output_summary: "Welcome to Aurora Terminal. Interactive AI console active.",
-              anchor_row: 0,
-              output_row_end: 0,
-              anchor_y: 0,
-            };
-
-            useBlockStore.getState().addBlock(sessionId, initBlock);
-          })
-          .catch(console.error);
       });
 
     const handleToggleCommandPalette = () => {
@@ -171,7 +115,7 @@ export function useAppBootstrap() {
       window.removeEventListener("toggle-command-palette", handleToggleCommandPalette);
       window.removeEventListener("toggle-ai-bar", handleToggleAiBar);
     };
-  }, [setActiveTabId, spawnSession]);
+  }, []);
 
   useEffect(() => {
     const handleSessionRestart = (event: Event) => {
@@ -188,7 +132,9 @@ export function useAppBootstrap() {
       const { path } = (event as CustomEvent<{ path: string }>).detail;
       if (!path) return;
 
-      openFileRef.current(path, cwdAbsolute);
+      const projectDir = useAppShellStore.getState().projectDir;
+      const cwdAbsolute = useAppShellStore.getState().cwdAbsolute;
+      openFileRef.current(path, projectDir || cwdAbsolute);
       useAppShellStore.getState().setViewMode("file");
     };
 
@@ -199,7 +145,7 @@ export function useAppBootstrap() {
       window.removeEventListener("sidebar-open-file", handleOpenFile);
       window.removeEventListener("sidebar-open-file-current-tab", handleOpenFile);
     };
-  }, [cwdAbsolute]);
+  }, []);
 
   useEffect(() => {
     const handleContextMenu = (event: Event) => {
@@ -228,6 +174,8 @@ export function useAppBootstrap() {
 
       const activeShell = tabs.find((tab) => tab.id === activeTabId)?.shell || getDefaultShellLaunch().shell;
       const args = activeShell.includes("powershell") ? ["-NoLogo", "-NoExit"] : [];
+      // Spawn in the clicked directory (path) — this is deliberate: user clicked
+      // "Open terminal here" in the file tree, so cwd = that subdirectory.
       spawnSession(activeShell, args, {}, path).catch(console.error);
     };
 
@@ -243,7 +191,7 @@ export function useAppBootstrap() {
 
       const isWin = window.navigator.userAgent.includes("Windows");
       const cdCmd = isWin ? `Set-Location "${path}"` : `cd "${path}"`;
-      pty.write(tabId, `${cdCmd}\r\n`).catch(console.error);
+      pty.write(tabId, `${cdCmd}\r`).catch(console.error);
     };
 
     window.addEventListener("sidebar-open-in-terminal", handleOpenInTerminal);
