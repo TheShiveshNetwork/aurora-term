@@ -143,6 +143,7 @@ export interface GitLogResult {
   branches: GitRef[];
   tags: GitRef[];
   current_branch: string | null;
+  has_more: boolean;
 }
 
 export interface ChangedFile {
@@ -204,8 +205,8 @@ export const system = {
     invoke<void>("reveal_in_explorer", { path }),
   getGitBranch: (cwd: string) =>
     invoke<string | null>("get_git_branch", { cwd }),
-  getGitLog: (cwd: string) =>
-    invoke<GitLogResult>("get_git_log", { cwd }),
+  getGitLog: (cwd: string, maxCount?: number) =>
+    invoke<GitLogResult>("get_git_log", { cwd, maxCount }),
   getGitFileLog: (cwd: string, filePath: string) =>
     invoke<GitLogResult>("get_git_file_log", { cwd, filePath }),
   getGitGraph: (cwd: string) =>

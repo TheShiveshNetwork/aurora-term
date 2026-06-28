@@ -27,7 +27,7 @@ export function useDragResize({ axis, min, max, initial, onResize }: UseDragResi
     const handleMouseMove = (e: MouseEvent) => {
       if (!isDragging.current) return;
       const delta = axis === "x" ? e.clientX - startPos.current : e.clientY - startPos.current;
-      const newSize = Math.min(max, Math.max(min, startSize.current + (axis === "x" ? delta : delta)));
+      const newSize = Math.min(max, Math.max(min, startSize.current + delta));
       setSize(newSize);
       onResize?.(newSize);
     };

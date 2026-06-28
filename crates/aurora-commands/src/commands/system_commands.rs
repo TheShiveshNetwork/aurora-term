@@ -121,6 +121,7 @@ pub struct GitLogResult {
     pub branches: Vec<GitRef>,
     pub tags: Vec<GitRef>,
     pub current_branch: Option<String>,
+    pub has_more: bool,
 }
 
 fn run_git(args: &[&str], cwd: Option<&str>) -> Result<String, AppError> {
@@ -147,13 +148,16 @@ fn run_git(args: &[&str], cwd: Option<&str>) -> Result<String, AppError> {
 }
 
 #[command]
-pub async fn get_git_log(cwd: String) -> Result<GitLogResult, AppError> {
+pub async fn get_git_log(cwd: String, max_count: Option<u32>) -> Result<GitLogResult, AppError> {
+    let request_count = max_count.unwrap_or(500);
+    let fetch_count = request_count + 1;
+    let limit_str = fetch_count.to_string();
     let cwd_clone = cwd.clone();
     let log_output = tokio::task::spawn_blocking(move || {
         run_git(&[
             "log", "--all",
             "--format=%H|||%P|||%an|||%ai|||%s",
-            "--max-count=50"
+            "--max-count", &limit_str,
         ], Some(&cwd_clone))
     }).await.map_err(|e| AppError::Io(e.to_string()))??;
 
@@ -198,6 +202,11 @@ pub async fn get_git_log(cwd: String) -> Result<GitLogResult, AppError> {
         });
     }
 
+    let has_more = commits.len() > request_count as usize;
+    if has_more {
+        commits.truncate(request_count as usize);
+    }
+
     let mut branches = Vec::new();
     for line in branch_output.lines() {
         let trimmed = line.trim();
@@ -227,6 +236,7 @@ pub async fn get_git_log(cwd: String) -> Result<GitLogResult, AppError> {
         branches,
         tags,
         current_branch,
+        has_more,
     })
 }
 
@@ -291,6 +301,7 @@ pub async fn get_git_file_log(cwd: String, file_path: String) -> Result<GitLogRe
         branches,
         tags: Vec::new(),
         current_branch,
+        has_more: false,
     })
 }
 
@@ -398,11 +409,10 @@ pub async fn git_status(cwd: String) -> Result<Vec<GitStatusEntry>, AppError> {
         ], Some(&cwd))?;
         let mut entries = Vec::new();
         for line in output.lines() {
-            let trimmed = line.trim();
-            if trimmed.is_empty() || trimmed.len() < 3 { continue; }
-            let x = trimmed[..1].to_string();
-            let y = trimmed[1..2].to_string();
-            let path = trimmed[3..].trim().to_string();
+            if line.len() < 4 { continue; }
+            let x = line[..1].to_string();
+            let y = line[1..2].to_string();
+            let path = line[3..].to_string();
             entries.push(GitStatusEntry { path, x, y });
         }
         Ok(entries)
@@ -607,6 +617,20 @@ fn parse_track(track: &str, key: &str) -> i32 {
     }
 }
 
+fn strip_diff_headers(output: &str) -> String {
+    let lines: Vec<&str> = output.lines().collect();
+    let hunk_start = lines.iter().position(|l| l.starts_with("@@"));
+    match hunk_start {
+        Some(start) => lines[start..]
+            .iter()
+            .filter(|l| !l.starts_with("\\ "))
+            .copied()
+            .collect::<Vec<&str>>()
+            .join("\n"),
+        None => output.to_string(),
+    }
+}
+
 #[command]
 pub async fn git_diff_unstaged(cwd: String, path: Option<String>) -> Result<String, AppError> {
     tokio::task::spawn_blocking(move || {
@@ -616,7 +640,8 @@ pub async fn git_diff_unstaged(cwd: String, path: Option<String>) -> Result<Stri
             args.push(p);
         }
         let arg_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-        run_git_strict(&arg_refs, Some(&cwd))
+        let raw = run_git_strict(&arg_refs, Some(&cwd))?;
+        Ok(strip_diff_headers(&raw))
     }).await.map_err(|e| AppError::Io(e.to_string()))?
 }
 
@@ -629,7 +654,8 @@ pub async fn git_diff_staged(cwd: String, path: Option<String>) -> Result<String
             args.push(p);
         }
         let arg_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-        run_git_strict(&arg_refs, Some(&cwd))
+        let raw = run_git_strict(&arg_refs, Some(&cwd))?;
+        Ok(strip_diff_headers(&raw))
     }).await.map_err(|e| AppError::Io(e.to_string()))?
 }
 

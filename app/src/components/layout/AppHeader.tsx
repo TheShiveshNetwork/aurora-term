@@ -1,14 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Command, ExternalLink, FileText, FolderOpen, History, Menu, PanelLeft, PanelLeftClose, PanelRight, PanelRightClose, PanelBottom, PanelBottomClose, PinIcon, PinOff, Plus, Search, Settings, SplitSquareHorizontal, SquareTerminal, Terminal, User, ChevronRight, GitBranch, File, Sliders } from "lucide-react";
+import { Command, ExternalLink, FileText, FolderOpen, History, Menu, PanelLeft, PanelLeftClose, PanelRight, PanelRightClose, PanelBottom, PanelBottomClose, PinIcon, PinOff, Plus, Search, Settings, SplitSquareHorizontal, SquareTerminal, Terminal, User, GitBranch, File, Sliders } from "lucide-react";
 import type { AppViewMode } from "../../stores/useAppShellStore";
 import { WindowControls } from "../ui/WindowControls";
 import { MenuView, MenuViewItem, MenuViewSeparator } from "../ui/MenuView";
-import { IconButton } from "../ui/IconButton";
+
 import auroraIcon from "/static/aurora-icon.svg";
 import { SETTINGS_MANIFEST, categoryFor } from "../settings/settingsManifest";
-import type { SettingsManifestEntry } from "../settings/settingsManifest";
 import { system } from "../../lib/ipc";
-import type { FileNode } from "../../lib/ipc";
 
 interface AppHeaderProps {
   isStandalone?: boolean;
@@ -35,6 +33,7 @@ interface AppHeaderProps {
   onShowFileView: () => void;
   onShowAgentView: () => void;
   onOpenGitView: () => void;
+  gitViewActive: boolean;
   onExit: () => void;
   theme: "dark" | "light";
   tabBarVisible: boolean;
@@ -69,6 +68,7 @@ export function AppHeader({
   onShowFileView,
   onShowAgentView,
   onOpenGitView,
+  gitViewActive,
   onExit,
   theme,
   tabBarVisible,
@@ -103,14 +103,14 @@ export function AppHeader({
       id="aurora-tab-bar"
       ref={headerRef}
       data-tauri-drag-region
-      className="flex items-center w-full px-3 h-toolbar-height z-50 select-none gap-3"
+      className="flex items-center w-full pl-3 py-0 h-auto z-50 select-none gap-3 shrink-0"
       style={{
         background: "#0A0D14",
         borderBottom: "1px solid rgba(255,255,255,0.05)",
       }}
     >
       {/* ── Left: branding pill + view mode ── */}
-      <div id="header-left" data-tauri-no-drag className="flex items-center gap-1.5 shrink-0">
+      <div id="header-left" data-tauri-no-drag className="flex items-center gap-1.5 py-1 shrink-0">
         <img src={auroraIcon} alt="" className="w-8 h-8 rounded-[6px] shrink-0 object-cover" />
         <div className="relative">
           <button
@@ -172,7 +172,7 @@ export function AppHeader({
           </ViewButton>
         </div>
 
-        <IconBtn onClick={onOpenGitView} title={"Open Git View"}>
+        <IconBtn onClick={onOpenGitView} title={"Open Git View"} active={gitViewActive}>
           <GitBranch size={14} />
         </IconBtn>
       </div>
@@ -181,7 +181,7 @@ export function AppHeader({
       <SearchBar collapsed={searchCollapsed} cwdAbsolute={cwdAbsolute} onOpenFileAtPath={onOpenFileAtPath} />
 
       {/* ── Right: panel toggles + pin + settings + avatar + window controls ── */}
-      <div id="header-right" data-tauri-no-drag className="flex items-center gap-0.5 shrink-0">
+      <div id="header-right" data-tauri-no-drag className="flex items-center gap-0.5 py-1 shrink-0">
         {!isStandalone && (
           <>
             <IconBtn onClick={onToggleSidebar} title={sidebarCollapsed ? "Show Sidebar" : "Hide Sidebar"}>
@@ -233,8 +233,9 @@ export function AppHeader({
           </div>
         </button>
 
-        <WindowControls />
       </div>
+
+      <WindowControls />
     </header>
   );
 }
@@ -597,11 +598,29 @@ function IconBtn({
   active?: boolean;
 }) {
   return (
-    <IconButton
-      icon={children}
+    <button
+      type="button"
+      title={title}
       onClick={onClick}
-      tooltip={title}
-      active={active}
-    />
+      className="p-2 rounded-[10px] transition-colors cursor-pointer"
+      style={{
+        background: active ? "rgba(79,140,255,0.10)" : "transparent",
+        color: active ? "#4F8CFF" : "rgba(232,234,240,0.45)",
+      }}
+      onMouseEnter={(e) => {
+        if (!active) {
+          e.currentTarget.style.background = "rgba(255,255,255,0.05)";
+          e.currentTarget.style.color = "#E8EAF0";
+        }
+      }}
+      onMouseLeave={(e) => {
+        if (!active) {
+          e.currentTarget.style.background = "transparent";
+          e.currentTarget.style.color = "rgba(232,234,240,0.45)";
+        }
+      }}
+    >
+      {children}
+    </button>
   );
 }

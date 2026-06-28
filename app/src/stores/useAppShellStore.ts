@@ -10,7 +10,7 @@ export type AppContextMenu = {
   filePath?: string;
 } | null;
 
-export type SideSection = "folders" | "outline" | "timeline" | "git";
+export type SideSection = "folders" | "open-tabs" | "outline" | "timeline" | "git";
 
 interface AppShellStore {
   sidebarCollapsed: boolean;
@@ -90,6 +90,7 @@ export const useAppShellStore = create<AppShellStore>((set) => ({
   isCwdLoading: false,
   sectionVisibility: {
     folders: true,
+    "open-tabs": true,
     outline: false,
     timeline: false,
     git: false,

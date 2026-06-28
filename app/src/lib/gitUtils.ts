@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from "uuid";
 import { system } from "./ipc";
+import { useSessionStore } from "../stores/useSessionStore";
 
 export async function getFileDiffAtCommit(
   cwd: string,
@@ -21,6 +22,11 @@ export function openDiffTab(
   oldContent: string,
   newContent: string
 ): void {
+  const existing = useSessionStore.getState().tabs.find(
+    t => t.type === "diff" && t.filePath === filePath && t.diffCommitHash === hash
+  );
+  if (existing) { setActiveTabId(existing.id); return; }
+
   const fileName = filePath.split(/[\\/]/).pop() || filePath;
   const id = uuidv4();
   addTab({

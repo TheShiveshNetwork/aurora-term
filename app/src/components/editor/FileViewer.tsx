@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { EditorView, basicSetup } from "codemirror";
 import { EditorState, Prec } from "@codemirror/state";
 import { keymap, lineNumbers } from "@codemirror/view";
+import { autocompletion, completionKeymap } from "@codemirror/autocomplete";
 import { system } from "../../lib/ipc";
 import { getLanguageExtension } from "../../lib/codeLang";
 import { isImageFile } from "../../lib/fileUtils";
@@ -12,6 +13,24 @@ import { closeAllPopups } from "../../lib/popups";
 import { EDITOR_THEMES } from "./editorThemes";
 import { createMinimapExtension, toggleMinimap } from "./minimapExtension";
 import { SearchPanel } from "./SearchPanel";
+
+const STYLE_ID = "aurora-file-viewer-style";
+if (typeof document !== "undefined" && !document.getElementById(STYLE_ID)) {
+  const s = document.createElement("style");
+  s.id = STYLE_ID;
+  s.textContent = `
+    .cm-panel.cm-search { display: none !important; }
+    .cm-tooltip-autocomplete { background: rgba(15,18,25,0.92) !important; border: 1px solid rgba(232,234,240,0.1) !important; border-radius: 8px !important; backdrop-filter: blur(16px) !important; padding: 4px !important; }
+    .cm-tooltip-autocomplete ul { font-family: inherit !important; }
+    .cm-tooltip-autocomplete li { padding: 4px 8px !important; border-radius: 4px !important; }
+    .cm-tooltip-autocomplete li[aria-selected] { background: rgba(79,140,255,0.15) !important; }
+    .cm-completionLabel { font-size: 12px !important; color: rgba(232,234,240,0.85) !important; }
+    .cm-completionIcon { font-size: 11px !important; width: 1.2em !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; }
+    .cm-completionDetail { font-size: 10px !important; color: rgba(232,234,240,0.35) !important; margin-left: auto !important; padding-left: 12px !important; }
+    .cm-completionMatchedText { text-decoration: none !important; color: rgba(79,140,255,0.9) !important; }
+  `;
+  document.head.appendChild(s);
+}
 
 interface FileViewerProps {
   tabId: string;
@@ -163,6 +182,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
 
         const extensions: any[] = [
           basicSetup,
+          autocompletion({ activateOnTyping: true, maxRenderedOptions: 12 }),
           Prec.high(keymap.of([
             { key: "Mod-c", run: (view) => {
               if (!view.state.selection.main.empty) return false;
@@ -181,6 +201,10 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
               return true;
             }},
             { key: "Mod-f", run: () => { toggleSearchRef.current?.(); return true; } },
+            { key: "Mod-g", run: () => { toggleSearchRef.current?.(); return true; } },
+            { key: "Shift-Mod-g", run: () => { toggleSearchRef.current?.(); return true; } },
+            { key: "F3", run: () => { toggleSearchRef.current?.(); return true; } },
+            { key: "Shift-F3", run: () => { toggleSearchRef.current?.(); return true; } },
           ])),
           EDITOR_THEMES[editorTheme],
           lineNumbers(),
@@ -195,7 +219,11 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
         ];
 
         if (languageExt) {
-          extensions.push(languageExt);
+          if (Array.isArray(languageExt)) {
+            extensions.push(...languageExt);
+          } else {
+            extensions.push(languageExt);
+          }
         }
 
         const state = EditorState.create({

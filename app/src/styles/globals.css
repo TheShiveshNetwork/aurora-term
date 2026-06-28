@@ -334,6 +334,7 @@ body {
     transform: scaleY(0.1);
     opacity: 0;
   }
+
   to {
     transform: scaleY(0.85);
     opacity: 0.9;

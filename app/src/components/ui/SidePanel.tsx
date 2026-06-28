@@ -18,6 +18,7 @@ import type { FileNode } from "../../lib/ipc";
 import { FileOutline } from "./FileOutline";
 import { FileTimeline } from "./FileTimeline";
 import { GitTree } from "./GitTree";
+import { OpenTabs } from "./OpenTabs";
 
 // ── Normalize path for comparison ────────────────────────────────────────────
 function pathsEqual(a: string, b: string): boolean {
@@ -37,6 +38,7 @@ interface SidePanelProps {
   collapsed: boolean;
   cwd?: string;
   activeFilePath?: string;
+  onKillTab?: (id: string) => void;
 }
 
 interface FileMenuState { x: number; y: number; node: FileNode }
@@ -265,7 +267,7 @@ function TreeNode({
 
 // ── SectionToggle ─────────────────────────────────────────────────────────────
 const SECTION_LABELS: Record<SideSection, string> = {
-  folders: "Folders", outline: "Outline", timeline: "Timeline", git: "Git",
+  folders: "Folders", "open-tabs": "Open Tabs", outline: "Outline", timeline: "Timeline", git: "Git",
 };
 
 function SectionToggle() {
@@ -288,7 +290,7 @@ function SectionToggle() {
         <MoreHorizontal size={13} />
       </button>
       <MenuView variant="secondary" open={open} onClose={() => setOpen(false)} className="absolute right-0 top-full mt-1 w-40 z-[100]">
-        {(["folders", "outline", "timeline", "git"] as SideSection[]).map((section) => {
+        {SECTIONS.map((section) => {
           const disabled = isTerminalView && disabledInTerminal.includes(section);
           return (
             <MenuViewItem key={section} variant="secondary" checked={sectionVisibility[section]} disabled={disabled}
@@ -321,9 +323,9 @@ function SidebarIconBtn({ children, title, onClick }: { children: React.ReactNod
 const HEADER_H = 30;
 const RH = 4;
 const MIN_SECTION_H = 60;
-const SECTIONS: SideSection[] = ['folders', 'outline', 'timeline', 'git'];
+const SECTIONS: SideSection[] = ['folders', 'open-tabs', 'outline', 'timeline', 'git'];
 const DEFAULT_HEIGHTS: Record<SideSection, number> = {
-  folders: 400, outline: 200, timeline: 200, git: 200,
+  folders: 400, "open-tabs": 150, outline: 200, timeline: 200, git: 200,
 };
 
 // ── CollapsibleSection ────────────────────────────────────────────────────────
@@ -341,13 +343,14 @@ function CollapsibleSection({
   loading?: boolean;
   children?: React.ReactNode;
 }) {
-  const totalHeight = open ? HEADER_H + bodyHeight : HEADER_H;
+  const outerH = open
+    ? HEADER_H + bodyHeight + (showResizeHandle ? RH : 0)
+    : HEADER_H;
   return (
     <div
-      className="flex flex-col min-h-0 group/section relative"
+      className="flex flex-col group/section relative shrink-0"
       style={{
-        flex: open ? "1 1 auto" : "0 0 auto",
-        minHeight: open ? HEADER_H + MIN_SECTION_H : HEADER_H,
+        height: outerH,
         borderTop: "1px solid rgba(255,255,255,0.05)",
         overflow: "hidden",
       }}
@@ -377,7 +380,7 @@ function CollapsibleSection({
 
       {/* Content */}
       {open && (
-        <div className="flex-1 min-h-0 overflow-x-hidden overflow-y-auto section-scroll" style={{ height: bodyHeight }}>
+        <div className="min-h-0 overflow-x-hidden overflow-y-auto section-scroll shrink-0" style={{ height: bodyHeight }}>
           {children}
         </div>
       )}
@@ -428,11 +431,11 @@ function useSidepanelLayout(
     const openList = visibleSections.filter(s => openState[s]);
     if (openList.length === 0) return 0;
     // All visible sections have a HEADER_H header (open or closed). Only count
-    // resize handles between pairs of adjacent open sections.
+    // resize handles between pairs where the top section is open.
     const headerChrome = visibleSections.length * HEADER_H;
     let handleChrome = 0;
     for (let i = 0; i < visibleSections.length - 1; i++) {
-      if (openState[visibleSections[i]] && openState[visibleSections[i + 1]]) {
+      if (openState[visibleSections[i]]) {
         handleChrome += RH;
       }
     }
@@ -573,7 +576,7 @@ const MAX_WIDTH = 520;
 const DEFAULT_WIDTH = 220;
 
 // ── SidePanel ─────────────────────────────────────────────────────────────────
-export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
+export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab }: SidePanelProps) {
   const [selectedFile, setSelectedFile] = useState("");
   const [activePath, setActivePath] = useState("");
   const [rootNodes, setRootNodes] = useState<FileNode[]>([]);
@@ -954,8 +957,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
     const result: Record<string, boolean> = {};
     for (let i = 0; i < visibleSections.length - 1; i++) {
       const top = visibleSections[i];
-      const bot = visibleSections[i + 1];
-      result[top] = sectionsOpen[top] && sectionsOpen[bot];
+      result[top] = sectionsOpen[top];
     }
     return result;
   }, [visibleSections, sectionsOpen]);
@@ -1001,7 +1003,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
       </div>
 
       {/* Sections container — fills remaining height (tracked by ResizeObserver inside useSidepanelLayout) */}
-      <div ref={sectionsRef} className="flex flex-col flex-1 min-h-0">
+      <div ref={sectionsRef} className="flex flex-col flex-1 min-h-0 overflow-hidden">
 
         {/* FOLDERS */}
         {sectionVisibility.folders && (
@@ -1064,6 +1066,20 @@ export function SidePanel({ collapsed, cwd, activeFilePath }: SidePanelProps) {
                 )}
               </>
             )}
+          </CollapsibleSection>
+        )}
+
+        {/* OPEN TABS */}
+        {sectionVisibility["open-tabs"] && (
+          <CollapsibleSection
+            label="Open Tabs"
+            open={sectionsOpen["open-tabs"]}
+            onToggle={() => toggleSection("open-tabs")}
+            bodyHeight={sectionHeights["open-tabs"]}
+            showResizeHandle={!!sectionSeamOpen["open-tabs"]}
+            onResizeStart={(e) => startResize("open-tabs", e)}
+          >
+            <OpenTabs onKillTab={onKillTab} />
           </CollapsibleSection>
         )}
 

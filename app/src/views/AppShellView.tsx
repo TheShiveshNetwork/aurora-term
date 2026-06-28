@@ -378,6 +378,7 @@ export function AppShellView() {
   };
 
   const isStandalone = useMemo(() => document.title.includes("Terminal"), []);
+  const gitViewActive = tabs.some(t => t.type === "git" && t.id === activeTabId);
 
   return (
     <div
@@ -424,10 +425,18 @@ export function AppShellView() {
         cwdAbsolute={cwdAbsolute}
         onOpenFileAtPath={(path: string) => { openFile(path, cwdAbsolute); setViewMode("file"); }}
         onOpenGitView={handleOpenGitView}
+        gitViewActive={gitViewActive}
       />
 
       <div className="flex flex-1 overflow-hidden">
-        <SidePanel collapsed={sidebarCollapsed} cwd={cwdAbsolute} activeFilePath={activeFilePath} />
+        <SidePanel collapsed={sidebarCollapsed} cwd={cwdAbsolute} activeFilePath={activeFilePath} onKillTab={(id) => {
+          const tab = tabs.find((candidate) => candidate.id === id);
+          if (tab?.type === "file" && tab.dirty) {
+            setPendingCloseTabId(id);
+            return;
+          }
+          killSession(id);
+        }} />
 
         <main className="flex-1 flex flex-col min-w-0 bg-surface-container-low overflow-hidden relative">
           {viewMode === "agent" ? (
@@ -512,6 +521,7 @@ export function AppShellView() {
                           <CommitDiffView
                             diff={tab.diffContent}
                             commitHash={tab.diffCommitHash || ""}
+                            collapsible={true}
                           />
                         ) : tab.type === "diff" ? (
                           <DiffWorkspaceView
