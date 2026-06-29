@@ -54,6 +54,71 @@ function Tooltip({ children, show, className = "" }: { children: React.ReactNode
   ) : null;
 }
 
+function CollapsibleFilePath({ filePath, cwd }: { filePath: string; cwd: string }) {
+  const [isOverflowing, setIsOverflowing] = useState(false);
+  const fullPathRef = useRef<HTMLSpanElement>(null);
+
+  // Normalize paths
+  const normCwd = cwd.replace(/\\/g, "/");
+  const normFile = filePath.replace(/\\/g, "/");
+  
+  let relativePath = normFile;
+  if (normFile.startsWith(normCwd + "/")) {
+    relativePath = normFile.substring(normCwd.length + 1);
+  }
+
+  const parts = relativePath.split("/");
+  const filename = parts[parts.length - 1] || "";
+  const subfolders = parts.slice(0, -1).join("/");
+
+  useEffect(() => {
+    const el = document.getElementById("aurora-status-bar");
+    if (!el) return;
+
+    const checkSize = () => {
+      if (fullPathRef.current) {
+        const fullWidth = fullPathRef.current.getBoundingClientRect().width;
+        const shouldCollapse = fullWidth > 400 || window.innerWidth < 700;
+        setIsOverflowing(shouldCollapse);
+      }
+    };
+
+    const observer = new ResizeObserver(checkSize);
+    observer.observe(el);
+
+    checkSize(); // Initial check
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [filePath, cwd]);
+
+  return (
+    <div className="inline-flex items-center" style={{ maxWidth: "400px" }}>
+      {/* Hidden element to measure full path width */}
+      <span
+        ref={fullPathRef}
+        className="absolute pointer-events-none opacity-0"
+        style={{ whiteSpace: "nowrap", visibility: "hidden" }}
+      >
+        {relativePath}
+      </span>
+
+      {isOverflowing && subfolders ? (
+        <span className="truncate flex items-center">
+          <span className="opacity-40">...</span>
+          <span className="opacity-25 mx-0.5">/</span>
+          <span>{filename}</span>
+        </span>
+      ) : (
+        <span className="truncate">
+          {relativePath}
+        </span>
+      )}
+    </div>
+  );
+}
+
 export function StatusBar({ noFolder }: { noFolder?: boolean }) {
   const { activeProvider } = useAIStore();
   const { tabs, activeTabId } = useSessionStore();
@@ -208,7 +273,7 @@ export function StatusBar({ noFolder }: { noFolder?: boolean }) {
                 <>
                   <span className="mx-0.5 select-none" style={{ color: "rgba(255,255,255,0.2)" }}>/</span>
                   <div
-                    className="relative cursor-pointer hover:underline"
+                    className="relative cursor-pointer hover:underline flex items-center"
                     onMouseEnter={() => setShowPathTooltip(true)}
                     onMouseLeave={() => {
                       setShowPathTooltip(false);
@@ -222,7 +287,7 @@ export function StatusBar({ noFolder }: { noFolder?: boolean }) {
                       tooltipTimeoutRef.current = setTimeout(() => setTooltipCopied(false), 1500);
                     }}
                   >
-                    {activeFileTab.name}
+                    <CollapsibleFilePath filePath={activeFileTab.filePath || ""} cwd={cwd} />
 
                     <Tooltip show={showPathTooltip}>
                       <span className="text-[10px] max-w-[360px] truncate" style={{ color: "rgba(232,234,240,0.7)" }}>

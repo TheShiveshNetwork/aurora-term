@@ -29,3 +29,5 @@ target-tests
 # aurora-agent sidecar
 packages/aurora-agent/.env
 packages/aurora-agent/aura-memory.db*
+
+*.tsbuildinfo
