@@ -41,6 +41,8 @@ export interface SavedTab {
 export interface UiState {
   sidebar_collapsed: boolean;
   tab_bar_visible: boolean;
+  show_ai_bar: boolean;
+  chat_input_open: boolean;
   pinned_tabs: string[];
   section_visibility: Record<string, boolean>;
   open_tabs: SavedTab[];

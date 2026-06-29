@@ -53,6 +53,7 @@ export const DEFAULT_KEYBINDINGS: KeybindingDef[] = [
   { id: "run-file", command: "Run / Debug File", keys: "Ctrl+F5", when: "Editor" },
   { id: "terminal-search", command: "Search Terminal", keys: "Ctrl+Shift+F", when: "Terminal" },
   { id: "voice-input", command: "Toggle Voice Input", keys: "Ctrl+Alt+M", when: "Global" },
+  { id: "toggle-word-wrap", command: "Toggle Word Wrap", keys: "Alt+Z", when: "Editor" },
 ];
 
 interface SettingsStore {
@@ -71,6 +72,7 @@ interface SettingsStore {
   keybindingOverrides: Record<string, string>;
   gitGuiMode: "tab" | "window";
   restoreTabs: boolean;
+  wordWrap: boolean;
 
   setTheme: (theme: "dark" | "light") => void;
   setMode: (mode: EditorMode) => void;
@@ -87,6 +89,7 @@ interface SettingsStore {
   resetKeybindingOverride: (id: string) => void;
   setGitGuiMode: (mode: "tab" | "window") => void;
   setRestoreTabs: (restore: boolean) => void;
+  setWordWrap: (wrap: boolean) => void;
 }
 
 export const useSettingsStore = create<SettingsStore>((set) => ({
@@ -105,6 +108,7 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
   keybindingOverrides: {},
   gitGuiMode: "tab",
   restoreTabs: true,
+  wordWrap: true,
 
   setTheme: (theme) => {
     set({ theme });
@@ -122,6 +126,7 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
   setShowMinimap: (showMinimap) => set({ showMinimap }),
   setGitGuiMode: (gitGuiMode) => set({ gitGuiMode }),
   setRestoreTabs: (restoreTabs) => set({ restoreTabs }),
+  setWordWrap: (wordWrap) => set({ wordWrap }),
   setKeybindingOverride: (id, keys) => set((state) => ({ keybindingOverrides: { ...state.keybindingOverrides, [id]: keys } })),
   resetKeybindingOverride: (id) => set((state) => {
     const { [id]: _, ...rest } = state.keybindingOverrides;

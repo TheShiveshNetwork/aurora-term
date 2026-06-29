@@ -54,6 +54,7 @@ export interface EditorConfig {
   theme: string;
   show_minimap: boolean;
   git_gui_mode: string;
+  word_wrap: boolean;
 }
 
 export interface AppConfig {
@@ -109,14 +110,14 @@ export const config = {
 
 export const state = {
   get: () => invoke<UiState>("state_get"),
-  updateSidebar: (collapsed: boolean, visible: boolean) =>
-    invoke<void>("state_update_sidebar", { collapsed, visible }),
+  updateSidebar: (collapsed: boolean, visible: boolean, showAiBar: boolean, chatInputOpen: boolean) =>
+    invoke<void>("state_update_sidebar", { collapsed, visible, showAiBar, chatInputOpen }),
   updatePinnedTabs: (pinned: string[]) =>
     invoke<void>("state_update_pinned_tabs", { pinned }),
   updateSectionVisibility: (sections: Record<string, boolean>) =>
     invoke<void>("state_update_section_visibility", { sections }),
   updateTabs: (tabs: SavedTab[], activeId: string | null) =>
-    invoke<void>("state_update_tabs", { tabs, active_id: activeId }),
+    invoke<void>("state_update_tabs", { tabs, activeId }),
   setProjectDir: (path: string | null) =>
     invoke<void>("state_set_project_dir", { path }),
   setWorkspaceCwd: (path: string | null) =>

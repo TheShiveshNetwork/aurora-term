@@ -13,6 +13,7 @@
     "windows": [
       {
         "title": "Aurora",
+        "url": "index.html",
         "width": 1024,
         "height": 768,
         "minWidth": 670,

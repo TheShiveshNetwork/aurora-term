@@ -125,7 +125,7 @@ export default function KeybindingsSettingsView() {
           <div className="w-[72px] shrink-0 text-left">Source</div>
         </div>
 
-        <div className="max-h-[420px] overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
+        <div className="h-full overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
           {filtered.length === 0 ? (
             <div className="flex items-center justify-center py-8 text-[12px] text-on-surface/30">
               No keybindings match your search

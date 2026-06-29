@@ -25,6 +25,10 @@ pub struct UiState {
     #[serde(default = "default_true")]
     pub tab_bar_visible: bool,
     #[serde(default)]
+    pub show_ai_bar: bool,
+    #[serde(default)]
+    pub chat_input_open: bool,
+    #[serde(default)]
     pub pinned_tabs: Vec<String>,
     #[serde(default)]
     pub section_visibility: HashMap<String, bool>,
@@ -49,6 +53,8 @@ impl Default for UiState {
         Self {
             sidebar_collapsed: false,
             tab_bar_visible: true,
+            show_ai_bar: false,
+            chat_input_open: false,
             pinned_tabs: Vec::new(),
             section_visibility: HashMap::from([
                 ("folders".to_string(), true),
@@ -124,9 +130,17 @@ impl UiStateManager {
         Ok(())
     }
 
-    pub fn update_sidebar(&mut self, collapsed: bool, visible: bool) -> Result<(), AppError> {
+    pub fn update_sidebar(
+        &mut self,
+        collapsed: bool,
+        visible: bool,
+        show_ai_bar: bool,
+        chat_input_open: bool,
+    ) -> Result<(), AppError> {
         self.state.sidebar_collapsed = collapsed;
         self.state.tab_bar_visible = visible;
+        self.state.show_ai_bar = show_ai_bar;
+        self.state.chat_input_open = chat_input_open;
         self.save()
     }
 

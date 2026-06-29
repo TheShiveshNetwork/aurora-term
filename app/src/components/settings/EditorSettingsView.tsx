@@ -16,7 +16,7 @@ export default function EditorSettingsView() {
     <div className="space-y-5">
       <SectionTitle>Editor</SectionTitle>
 
-      <div id="setting-font-family">
+      {/* <div id="setting-font-family">
         <FieldRow label="Font Family">
           <input
             type="text"
@@ -60,6 +60,12 @@ export default function EditorSettingsView() {
       <div id="setting-cursor-blink">
         <FieldRow label="Cursor Blink">
           <ToggleSwitch checked={cursorBlink} onChange={(v) => updateDraft((d) => { d.config.terminal.cursor_blink = v; })} />
+        </FieldRow>
+      </div> */}
+
+      <div id="setting-word-wrap">
+        <FieldRow label="Word Wrap">
+          <ToggleSwitch checked={draft.config.editor.word_wrap} onChange={(v) => updateDraft((d) => { d.config.editor.word_wrap = v; })} />
         </FieldRow>
       </div>
     </div>

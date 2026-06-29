@@ -59,6 +59,10 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
   const toggleSearchRef = useRef(() => setShowSearch(s => !s));
   const showMinimap = useSettingsStore((s) => s.showMinimap);
   const setShowMinimap = useSettingsStore((s) => s.setShowMinimap);
+  const wordWrap = useSettingsStore((s) => s.wordWrap);
+  const [editorZoom, setEditorZoom] = useState(13);
+  const wordWrapCompartmentRef = useRef<any>(null);
+  const zoomCompartmentRef = useRef<any>(null);
 
 
   const [imageSrc, setImageSrc] = useState("");
@@ -295,7 +299,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
 
         const [
           { EditorView, keymap, lineNumbers },
-          { EditorState, Prec },
+          { EditorState, Prec, Compartment },
           { autocompletion },
           { basicSetup },
           content,
@@ -309,6 +313,13 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
           getLanguageExtension(filePath),
         ]);
         if (cancelled || !editorRef.current) { setLoading(false); return; }
+
+        if (!wordWrapCompartmentRef.current) {
+          wordWrapCompartmentRef.current = new Compartment();
+        }
+        if (!zoomCompartmentRef.current) {
+          zoomCompartmentRef.current = new Compartment();
+        }
 
         initialContentRef.current = content.replace(/\r\n/g, "\n");
 
@@ -344,8 +355,17 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
             { key: "F2", run: () => { handleRenameSymbol(); return true; } },
             { key: "Shift-Mod-i", run: () => { handleFormatDocument(); return true; } },
             { key: "Mod-F5", run: () => { handleRunFile(); return true; } },
+            { key: "Mod-=", run: () => { setEditorZoom((z) => Math.min(40, z + 1)); return true; } },
+            { key: "Mod-+", run: () => { setEditorZoom((z) => Math.min(40, z + 1)); return true; } },
+            { key: "Mod--", run: () => { setEditorZoom((z) => Math.max(8, z - 1)); return true; } },
           ])),
           themeCompartmentRef.current.of([]),
+          wordWrapCompartmentRef.current.of(wordWrap ? EditorView.lineWrapping : []),
+          zoomCompartmentRef.current.of(EditorView.theme({
+            ".cm-content": { fontSize: `${editorZoom}px` },
+            ".cm-gutters": { fontSize: `${editorZoom}px` },
+            ".cm-scroller": { fontSize: `${editorZoom}px` }
+          })),
           lineNumbers(),
           createMinimapExtension(showMinimap),
           EditorView.updateListener.of((update) => {
@@ -610,6 +630,60 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
     const tr = toggleMinimap(view.state, showMinimap);
     view.dispatch(tr);
   }, [showMinimap]);
+
+  // React to wordWrap change
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view || !wordWrapCompartmentRef.current) return;
+    import("@codemirror/view").then(({ EditorView }) => {
+      if (viewRef.current === view) {
+        view.dispatch({
+          effects: wordWrapCompartmentRef.current.reconfigure(wordWrap ? EditorView.lineWrapping : [])
+        });
+      }
+    });
+  }, [wordWrap]);
+
+  // React to editorZoom change
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view || !zoomCompartmentRef.current) return;
+    import("@codemirror/view").then(({ EditorView }) => {
+      if (viewRef.current === view) {
+        view.dispatch({
+          effects: zoomCompartmentRef.current.reconfigure(
+            EditorView.theme({
+              ".cm-content": { fontSize: `${editorZoom}px` },
+              ".cm-gutters": { fontSize: `${editorZoom}px` },
+              ".cm-scroller": { fontSize: `${editorZoom}px` },
+            })
+          )
+        });
+      }
+    });
+  }, [editorZoom]);
+
+  // Mouse wheel zoom handler (Ctrl + Wheel)
+  useEffect(() => {
+    const el = editorRef.current;
+    if (!el) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      if (e.ctrlKey) {
+        e.preventDefault();
+        if (e.deltaY < 0) {
+          setEditorZoom((z) => Math.min(40, z + 1));
+        } else {
+          setEditorZoom((z) => Math.max(8, z - 1));
+        }
+      }
+    };
+
+    el.addEventListener("wheel", handleWheel, { passive: false });
+    return () => {
+      el.removeEventListener("wheel", handleWheel);
+    };
+  }, [isImage]);
 
   // Store initial content ref so save functions can reset dirty after write
   // (fileContent is stored in the session store via updateListener above)

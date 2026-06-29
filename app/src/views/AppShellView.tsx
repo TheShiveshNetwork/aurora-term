@@ -28,15 +28,11 @@ import { classifyInput, setAvailableCommands, type ShellType } from "../lib/nlCl
 import { system } from "../lib/ipc";
 import { closeAllPopups, onClosePopups } from "../lib/popups";
 
-// Eagerly preload file editor chunk at module load time so opening a file
-// never waits for a network fetch — React.lazy reuses the cached module.
-import("./FileWorkspaceView");
-
-const FileWorkspaceView = lazy(() => import("./FileWorkspaceView").then(m => ({ default: m.FileWorkspaceView })));
-const AgentView = lazy(() => import("./AgentView").then(m => ({ default: m.AgentView })));
-const DiffWorkspaceView = lazy(() => import("../components/editor/DiffWorkspaceView").then(m => ({ default: m.DiffWorkspaceView })));
-const CommitDiffView = lazy(() => import("../components/editor/CommitDiffView").then(m => ({ default: m.CommitDiffView })));
-const GitView = lazy(() => import("../components/git/GitView").then(m => ({ default: m.GitView })));
+import { FileWorkspaceView } from "./FileWorkspaceView";
+import { AgentView } from "./AgentView";
+import { DiffWorkspaceView } from "../components/editor/DiffWorkspaceView";
+import { CommitDiffView } from "../components/editor/CommitDiffView";
+import { GitView } from "../components/git/GitView";
 
 export function AppShellView() {
   const { tabs, activeTabId, spawnSession, killSession, openFile, setActiveTabId } = useAppBootstrap();
@@ -224,6 +220,7 @@ export function AppShellView() {
       const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
       new WebviewWindow(`aurora_${Date.now()}`, {
         title: "Aurora Terminal",
+        url: "/",
         width: 1024,
         height: 768,
         minWidth: 800,
@@ -509,9 +506,7 @@ export function AppShellView() {
           <main className="flex-1 flex flex-col min-w-0 bg-surface-container-low overflow-hidden relative">
             {viewMode === "agent" ? (
               <div className="flex-1 min-h-0 overflow-hidden">
-                <Suspense fallback={null}>
-                  <AgentView />
-                </Suspense>
+                <AgentView />
               </div>
             ) : (
               <>
@@ -588,30 +583,22 @@ export function AppShellView() {
                           }}
                         >
                           {tab.type === "file" ? (
-                              <Suspense fallback={<div className="flex-1 flex items-center justify-center h-full"><span className="text-sm text-on-surface-variant">Loading editor...</span></div>}>
-                                <FileWorkspaceView tab={tab} onOpenFile={handleOpenFile} onOpenFolder={handleOpenFolder} />
-                              </Suspense>
+                              <FileWorkspaceView tab={tab} onOpenFile={handleOpenFile} onOpenFolder={handleOpenFolder} />
                             ) : tab.type === "diff" && tab.diffContent ? (
-                              <Suspense fallback={<div className="flex-1 flex items-center justify-center h-full"><span className="text-sm text-on-surface-variant">Loading diff...</span></div>}>
-                                <CommitDiffView
-                                  diff={tab.diffContent}
-                                  commitHash={tab.diffCommitHash || ""}
-                                  collapsible={true}
-                                />
-                              </Suspense>
+                              <CommitDiffView
+                                diff={tab.diffContent}
+                                commitHash={tab.diffCommitHash || ""}
+                                collapsible={true}
+                              />
                             ) : tab.type === "diff" ? (
-                              <Suspense fallback={<div className="flex-1 flex items-center justify-center h-full"><span className="text-sm text-on-surface-variant">Loading diff...</span></div>}>
-                                <DiffWorkspaceView
-                                  filePath={tab.filePath || ""}
-                                  oldContent={tab.diffOldContent || ""}
-                                  newContent={tab.diffNewContent || ""}
-                                  commitHash={tab.diffCommitHash || ""}
-                                />
-                              </Suspense>
+                              <DiffWorkspaceView
+                                filePath={tab.filePath || ""}
+                                oldContent={tab.diffOldContent || ""}
+                                newContent={tab.diffNewContent || ""}
+                                commitHash={tab.diffCommitHash || ""}
+                              />
                             ) : tab.type === "git" ? (
-                              <Suspense fallback={<div className="flex-1 flex items-center justify-center h-full"><span className="text-sm text-on-surface-variant">Loading git view...</span></div>}>
-                                <GitView cwd={projectDir || cwdAbsolute} tabId={tab.id} />
-                              </Suspense>
+                              <GitView cwd={projectDir || cwdAbsolute} tabId={tab.id} />
                             ) : (
                               <TerminalWorkspaceView
                                 tab={tab}

@@ -71,8 +71,8 @@ export async function getEditorTheme(name: EditorThemeName): Promise<Extension> 
       return xcodeDark;
     }
     default: {
-      const { dracula } = await import("@uiw/codemirror-theme-dracula");
-      return dracula;
+      const { githubDark } = await import("@uiw/codemirror-theme-github");
+      return githubDark;
     }
   }
 }

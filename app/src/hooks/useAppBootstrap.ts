@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { listen } from "@tauri-apps/api/event";
 
 import { useAICompletion } from "./useAICompletion";
 import { usePTY } from "./usePTY";
@@ -37,6 +38,7 @@ export function applyAppConfig(cfg: AppConfig) {
   settings.setEditorTheme(cfg.editor.theme as any);
   settings.setShowMinimap(cfg.editor.show_minimap);
   settings.setGitGuiMode(cfg.editor.git_gui_mode as "tab" | "window");
+  settings.setWordWrap(cfg.editor.word_wrap !== false);
 
   // Keybindings
   const overrides: Record<string, string> = {};
@@ -152,6 +154,8 @@ export function useAppBootstrap() {
         if (uiState) {
           useAppShellStore.getState().setSidebarCollapsed(uiState.sidebar_collapsed);
           useAppShellStore.getState().setTabBarVisible(uiState.tab_bar_visible);
+          useAppShellStore.getState().setShowAiBar(uiState.show_ai_bar);
+          useAppShellStore.getState().setChatInputOpen(uiState.chat_input_open);
 
           if (uiState.section_visibility) {
             useAppShellStore.getState().setSectionVisibility(uiState.section_visibility as any);
@@ -256,14 +260,14 @@ export function useAppBootstrap() {
     window.addEventListener("toggle-ai-bar", handleToggleAiBar);
 
     let unlistenConfig: (() => void) | null = null;
-    getCurrentWindow().listen<AppConfig>("config_changed", (event) => {
+    listen<AppConfig>("config_changed", (event) => {
       applyAppConfig(event.payload);
     }).then((u) => {
       unlistenConfig = u;
     });
 
     let unlistenUiState: (() => void) | null = null;
-    getCurrentWindow().listen<{
+    listen<{
       sidebarCollapsed: boolean;
       showAiBar: boolean;
       chatInputOpen: boolean;

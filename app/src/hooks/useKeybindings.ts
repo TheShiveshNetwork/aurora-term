@@ -138,6 +138,7 @@ export function useKeybindings() {
           try {
             new WebviewWindow(`aurora_${Date.now()}`, {
               title: "Aurora Terminal",
+              url: "/",
               width: 1024,
               height: 768,
               minWidth: 800,
@@ -197,6 +198,12 @@ export function useKeybindings() {
             window.dispatchEvent(new CustomEvent("file-format-document", { detail: { tabId: activeTabId } }));
           }
           break;
+
+        case "toggle-word-wrap": {
+          const current = useSettingsStore.getState().wordWrap;
+          useSettingsStore.getState().setWordWrap(!current);
+          break;
+        }
 
         case "go-to-definition":
           if (activeTabId) {

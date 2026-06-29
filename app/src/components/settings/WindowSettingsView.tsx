@@ -11,7 +11,7 @@ export default function WindowSettingsView() {
   const showAiBar = draft.showAiBar;
   const chatInputOpen = draft.chatInputOpen;
   const tabBarVisible = draft.tabBarVisible;
-  const blurSidebar = draft.config.appearance.blur_sidebar;
+  // const blurSidebar = draft.config.appearance.blur_sidebar;
   const showStatusbar = draft.config.appearance.show_statusbar;
 
   return (
@@ -42,11 +42,11 @@ export default function WindowSettingsView() {
         </FieldRow>
       </div>
 
-      <div id="setting-blur-sidebar">
+      {/* <div id="setting-blur-sidebar">
         <FieldRow label="Blur Sidebar">
           <ToggleSwitch checked={blurSidebar} onChange={(v) => updateDraft(d => { d.config.appearance.blur_sidebar = v; })} />
         </FieldRow>
-      </div>
+      </div> */}
 
       <div id="setting-show-status-bar">
         <FieldRow label="Show Status Bar">

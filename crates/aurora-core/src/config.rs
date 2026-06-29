@@ -95,6 +95,8 @@ pub struct EditorConfig {
     pub show_minimap: bool,
     #[serde(default = "default_git_gui_mode")]
     pub git_gui_mode: String,
+    #[serde(default = "default_enabled")]
+    pub word_wrap: bool,
 }
 
 impl Default for AppConfig {
@@ -180,6 +182,7 @@ impl Default for AppConfig {
                 theme: "dracula".to_string(),
                 show_minimap: true,
                 git_gui_mode: "tab".to_string(),
+                word_wrap: true,
             },
         }
     }

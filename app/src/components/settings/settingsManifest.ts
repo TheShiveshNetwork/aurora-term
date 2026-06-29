@@ -26,7 +26,7 @@ export const SETTINGS_MANIFEST: SettingsManifestEntry[] = [
   { id: "right-panel", label: "Show Right Panel", description: "Toggle right panel visibility", elementId: "setting-right-panel", section: "general", subPage: "window" },
   { id: "command-input", label: "Show Command Input", description: "Toggle command input visibility", elementId: "setting-command-input", section: "general", subPage: "window" },
   { id: "tab-bar", label: "Show Tab Bar", description: "Toggle tab bar visibility", elementId: "setting-tab-bar", section: "general", subPage: "window" },
-  { id: "blur-sidebar", label: "Blur Sidebar", description: "Toggle sidebar blur effect", elementId: "setting-blur-sidebar", section: "general", subPage: "window" },
+  // { id: "blur-sidebar", label: "Blur Sidebar", description: "Toggle sidebar blur effect", elementId: "setting-blur-sidebar", section: "general", subPage: "window" },
   // ── Workspace ──
   { id: "git-gui", label: "Open Git GUI In", description: "Open Git GUI in a new tab or window", elementId: "setting-git-gui", section: "general", subPage: "workspace" },
   { id: "restore-tabs", label: "Keep Opened Tabs On Startup", description: "Keep and restore opened tabs when launching the app", elementId: "setting-restore-tabs", section: "general", subPage: "workspace" },
@@ -35,6 +35,7 @@ export const SETTINGS_MANIFEST: SettingsManifestEntry[] = [
   { id: "fontSize", label: "Font Size", description: "Terminal font size", elementId: "setting-font-size", section: "general", subPage: "editor" },
   { id: "cursorStyle", label: "Cursor Style", description: "Terminal cursor appearance", elementId: "setting-cursor-style", section: "general", subPage: "editor" },
   { id: "cursorBlink", label: "Cursor Blink", description: "Toggle cursor blinking in terminal", elementId: "setting-cursor-blink", section: "general", subPage: "editor" },
+  { id: "wordWrap", label: "Word Wrap", description: "Toggle editor word wrapping", elementId: "setting-word-wrap", section: "general", subPage: "editor" },
   // ── Appearance ──
   { id: "theme", label: "Theme", description: "Dark/Light theme", elementId: "setting-theme", section: "general", subPage: "appearance" },
   { id: "editorTheme", label: "Editor Theme", description: "CodeMirror editor color theme", elementId: "setting-editor-theme", section: "general", subPage: "appearance" },

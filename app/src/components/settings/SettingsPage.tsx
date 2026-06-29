@@ -10,10 +10,11 @@ import { Breadcrumbs, SettingsContext, DraftSettings } from "./SettingsShared";
 import { useSettingsStore } from "../../stores/useSettingsStore";
 import { useAppShellStore } from "../../stores/useAppShellStore";
 import { useAIStore } from "../../stores/useAIStore";
-import { config } from "../../lib/ipc";
+import { AppConfig, config, state } from "../../lib/ipc";
 import { WindowControls } from "../ui/WindowControls";
-import { emit } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 import { Button } from "../ui/Button";
+import { useAppBootstrap } from "../../hooks/useAppBootstrap";
 
 interface SettingsTarget {
   section: string;
@@ -65,6 +66,7 @@ const SECTIONS: Section[] = [
 ];
 
 export default function SettingsPage() {
+  useAppBootstrap();
   const [nav, setNav] = useState<{ section: SectionId; sub: SubPageId }>({
     section: "general",
     sub: "window",
@@ -72,11 +74,10 @@ export default function SettingsPage() {
   const [scrollTarget, setScrollTarget] = useState<string | null>(null);
   const [draft, setDraft] = useState<DraftSettings | null>(null);
   const [initial, setInitial] = useState<DraftSettings | null>(null);
+  const [applied, setApplied] = useState<DraftSettings | null>(null);
   const [saving, setSaving] = useState(false);
   const [applying, setApplying] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
-
-  const bootstrapReady = useAppShellStore((s) => s.bootstrapReady);
 
   const { section, sub } = nav;
   const activeSection = SECTIONS.find((s) => s.id === section)!;
@@ -84,73 +85,98 @@ export default function SettingsPage() {
   const breadcrumbItems = ["Settings", activeSection.label, activePage.label];
 
   useEffect(() => {
-    if (!bootstrapReady) return;
+    Promise.all([
+      config.get(),
+      state.get(),
+    ]).then(([cfg, uiState]) => {
+      const initialVal: DraftSettings = {
+        config: cfg,
+        sidebarCollapsed: uiState.sidebar_collapsed,
+        showAiBar: uiState.show_ai_bar,
+        chatInputOpen: uiState.chat_input_open,
+        tabBarVisible: uiState.tab_bar_visible,
+      };
+      setDraft(JSON.parse(JSON.stringify(initialVal)));
+      setInitial(JSON.parse(JSON.stringify(initialVal)));
+      setApplied(JSON.parse(JSON.stringify(initialVal)));
+    }).catch(console.error);
+  }, []);
 
-    const s = useSettingsStore.getState();
-    const a = useAIStore.getState();
-    const shell = useAppShellStore.getState();
-
-    const buildProvider = (p: any) => ({
-      enabled: p.enabled ?? true,
-      fast_model: p.fastModel || "",
-      balanced_model: p.balancedModel || "",
-      powerful_model: p.powerfulModel || "",
-      base_url: p.baseUrl ?? null,
+  useEffect(() => {
+    let unlistenConfig: (() => void) | null = null;
+    listen<AppConfig>("config_changed", (event) => {
+      setDraft((prev) => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          config: event.payload,
+        };
+      });
+      setInitial((prev) => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          config: event.payload,
+        };
+      });
+      setApplied((prev) => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          config: event.payload,
+        };
+      });
+    }).then((u) => {
+      unlistenConfig = u;
     });
 
-    const initialVal: DraftSettings = {
-      config: {
-        terminal: {
-          shell: "",
-          font_family: s.fontFamily,
-          font_size: s.fontSize,
-          scrollback: 10000,
-          theme: s.theme === "light" ? "light" : "dark",
-          cursor_style: s.cursorStyle,
-          cursor_blink: s.cursorBlink,
-          restore_tabs: s.restoreTabs,
-        },
-        ai: {
-          active_provider: a.activeProvider,
-          auto_explain: true,
-          context_lines: 50,
-          anthropic: buildProvider(a.providers.anthropic),
-          openai: buildProvider(a.providers.openai),
-          gemini: buildProvider(a.providers.gemini),
-          nvidia: buildProvider(a.providers.nvidia),
-          ollama: buildProvider(a.providers.ollama),
-          groq: buildProvider(a.providers.groq),
-        },
-        keybindings: {
-          mode: "vim",
-          open_palette: s.keybindingOverrides["command-palette"] || "ctrl+p",
-          open_ai_bar: s.keybindingOverrides["toggle-ai-bar"] || "ctrl+k",
-          new_tab: s.keybindingOverrides["new-tab"] || "ctrl+t",
-          close_tab: s.keybindingOverrides["close-tab"] || "ctrl+w",
-          split_h: s.keybindingOverrides["split-horizontal"] || "ctrl+shift+d",
-          split_v: s.keybindingOverrides["split-vertical"] || "ctrl+shift+e",
-          overrides: { ...s.keybindingOverrides },
-        },
-        appearance: {
-          compact_ui: s.compactUi,
-          show_statusbar: s.showStatusbar,
-          blur_sidebar: s.blurSidebar,
-        },
-        editor: {
-          theme: s.editorTheme,
-          show_minimap: s.showMinimap,
-          git_gui_mode: s.gitGuiMode,
-        },
-      },
-      sidebarCollapsed: shell.sidebarCollapsed,
-      showAiBar: shell.showAiBar,
-      chatInputOpen: shell.chatInputOpen,
-      tabBarVisible: shell.tabBarVisible,
-    };
+    let unlistenUiState: (() => void) | null = null;
+    listen<{
+      sidebarCollapsed: boolean;
+      showAiBar: boolean;
+      chatInputOpen: boolean;
+      tabBarVisible: boolean;
+    }>("ui_state_changed", (event) => {
+      const { sidebarCollapsed, showAiBar, chatInputOpen, tabBarVisible } = event.payload;
+      setDraft((prev) => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          sidebarCollapsed,
+          showAiBar,
+          chatInputOpen,
+          tabBarVisible,
+        };
+      });
+      setInitial((prev) => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          sidebarCollapsed,
+          showAiBar,
+          chatInputOpen,
+          tabBarVisible,
+        };
+      });
+      setApplied((prev) => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          sidebarCollapsed,
+          showAiBar,
+          chatInputOpen,
+          tabBarVisible,
+        };
+      });
+    }).then((u) => {
+      unlistenUiState = u;
+    });
 
-    setDraft(JSON.parse(JSON.stringify(initialVal)));
-    setInitial(initialVal);
-  }, [bootstrapReady]);
+    return () => {
+      if (unlistenConfig) unlistenConfig();
+      if (unlistenUiState) unlistenUiState();
+    };
+  }, []);
 
   useEffect(() => {
     if (draft?.config.terminal.theme) {
@@ -205,14 +231,20 @@ export default function SettingsPage() {
     if (!draft) return;
     setApplying(true);
     try {
-      await config.saveGlobal(draft.config);
+      await emit("config_changed", draft.config);
+      await state.updateSidebar(
+        draft.sidebarCollapsed,
+        draft.tabBarVisible,
+        draft.showAiBar,
+        draft.chatInputOpen
+      );
       await emit("ui_state_changed", {
         sidebarCollapsed: draft.sidebarCollapsed,
         showAiBar: draft.showAiBar,
         chatInputOpen: draft.chatInputOpen,
         tabBarVisible: draft.tabBarVisible,
       });
-      setInitial(JSON.parse(JSON.stringify(draft)));
+      setApplied(JSON.parse(JSON.stringify(draft)));
     } catch (e) {
       console.error("Apply failed", e);
     }
@@ -224,6 +256,12 @@ export default function SettingsPage() {
     setSaving(true);
     try {
       await config.saveGlobal(draft.config);
+      await state.updateSidebar(
+        draft.sidebarCollapsed,
+        draft.tabBarVisible,
+        draft.showAiBar,
+        draft.chatInputOpen
+      );
       await emit("ui_state_changed", {
         sidebarCollapsed: draft.sidebarCollapsed,
         showAiBar: draft.showAiBar,
@@ -240,13 +278,14 @@ export default function SettingsPage() {
 
   if (!draft || !initial) {
     return (
-      <div className="h-screen flex items-center justify-center" style={{ background: "#0A0D14", color: "#E8EAF0" }}>
-        <div className="text-xs opacity-50">Loading settings...</div>
-      </div>
+      <div className="h-screen flex items-center justify-center" style={{ background: "#0A0D14", color: "#E8EAF0" }} />
     );
   }
 
-  const dirty = JSON.stringify(draft) !== JSON.stringify(initial);
+  const isDirty = !!(draft && initial && JSON.stringify(draft) !== JSON.stringify(initial));
+  const saveDisabled = saving || applying || !draft || !initial || !isDirty;
+  const applyDisabled = saving || applying || !draft || !applied || JSON.stringify(draft) === JSON.stringify(applied);
+  const hasChanges = isDirty || !!(draft && applied && JSON.stringify(draft) !== JSON.stringify(applied));
 
   return (
     <SettingsContext.Provider value={{ draft, updateDraft }}>
@@ -258,7 +297,7 @@ export default function SettingsPage() {
           style={{ background: "#0A0D14", borderBottom: "1px solid rgba(255,255,255,0.05)" }}
         >
           <div className="flex items-center gap-3">
-            <span className="text-xs font-semibold tracking-wider uppercase select-none" style={{ color: "rgba(232,234,240,0.4)" }}>Settings</span>
+            <span className="text-xs font-semibold tracking-wider select-none" style={{ color: "rgba(232,234,240,0.4)" }}>Aurora Settings</span>
           </div>
           <WindowControls />
         </header>
@@ -307,32 +346,34 @@ export default function SettingsPage() {
             </div>
 
             {/* Footer Bar */}
-            <div className="shrink-0 px-6 py-3 flex items-center justify-end gap-3 border-t"
-              style={{ background: "#0A0D14", borderColor: "rgba(255,255,255,0.06)" }}>
-              {dirty && (
-                <span className="text-[11px]" style={{ color: "rgba(232,234,240,0.35)" }}>
-                  Unsaved changes
-                </span>
-              )}
-              <div className="flex items-center gap-2">
-                <Button
-                  onClick={handleApply}
-                  disabled={saving || applying || !dirty}
-                  variant="secondary"
-                  size="md"
-                >
-                  {applying ? "Applying..." : "Apply"}
-                </Button>
-                <Button
-                  onClick={handleSave}
-                  disabled={saving || applying || !dirty}
-                  variant="primary"
-                  size="md"
-                >
-                  {saving ? "Saving..." : "Save"}
-                </Button>
+            {hasChanges && (
+              <div className="shrink-0 px-6 py-3 flex items-center justify-end gap-3 border-t"
+                style={{ background: "#0A0D14", borderColor: "rgba(255,255,255,0.06)" }}>
+                {isDirty && (
+                  <span className="text-[11px]" style={{ color: "rgba(232,234,240,0.35)" }}>
+                    Unsaved changes
+                  </span>
+                )}
+                <div className="flex items-center gap-2">
+                  <Button
+                    onClick={handleApply}
+                    disabled={applyDisabled}
+                    variant="secondary"
+                    size="md"
+                  >
+                    {applying ? "Applying..." : "Apply"}
+                  </Button>
+                  <Button
+                    onClick={handleSave}
+                    disabled={saveDisabled}
+                    variant="primary"
+                    size="md"
+                  >
+                    {saving ? "Saving..." : "Save"}
+                  </Button>
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
       </div>
