@@ -90,14 +90,14 @@ export function StatusBar({ noFolder }: { noFolder?: boolean }) {
       try {
         const info = await system.getSystemInfo(cwdRef.current, false);
         setSysInfo((prev) => ({ ...prev, ram_used_mb: info.ram_used_mb, ram_total_mb: info.ram_total_mb }));
-      } catch (_) {}
+      } catch (_) { }
     }
 
     async function fetchGitBranch(cwd: string) {
       try {
         const info = await system.getCwdInfo(cwd);
         setSysInfo((prev) => ({ ...prev, git_branch: info.git_branch }));
-      } catch (_) {}
+      } catch (_) { }
     }
 
     if (cwdRef.current) {
@@ -153,6 +153,10 @@ export function StatusBar({ noFolder }: { noFolder?: boolean }) {
             style={{ color: "#3DDC84" }}
             onMouseEnter={() => setShowGitTooltip(true)}
             onMouseLeave={() => setShowGitTooltip(false)}
+            onClick={() => {
+              navigator.clipboard.writeText(sysInfo.git_branch || "");
+              if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current);
+            }}
           >
             <GitBranch size={11} style={{ color: "rgba(61,220,132,0.7)" }} />
             <span>{sysInfo.git_branch}</span>

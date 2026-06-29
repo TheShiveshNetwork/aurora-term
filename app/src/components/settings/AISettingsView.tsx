@@ -1,25 +1,31 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useContext } from "react";
 import { ChevronRight, Sparkles } from "lucide-react";
 import { ai } from "../../lib/ipc";
-import { useAIStore } from "../../stores/useAIStore";
+import { SettingsContext } from "./SettingsShared";
 import { ProviderName } from "@aurora/types";
 import { ProviderSelector } from "./ProviderSelector";
 import { ProviderDetailView } from "./ProviderDetailView";
 import { ProviderIcon, DISPLAY_NAMES } from "./ProviderIcon";
 
 export default function AISettingsView() {
-  const { activeProvider, providers, setActiveProvider } = useAIStore();
+  const context = useContext(SettingsContext);
+  if (!context) return null;
+  const { draft, updateDraft } = context;
+
+  const activeProvider = draft.config.ai.active_provider as ProviderName;
   const [keyringStatus, setKeyringStatus] = useState<Record<string, boolean>>({});
   const [selectedProvider, setSelectedProvider] = useState<ProviderName | null>(null);
 
-  const providerNames = Object.keys(providers) as ProviderName[];
+  const providerNames: ProviderName[] = ["groq", "anthropic", "openai", "gemini", "nvidia", "ollama"];
 
   useEffect(() => {
     ai.getProviderStatus().then(setKeyringStatus).catch(console.error);
   }, []);
 
   const handleSetSelected = (name: ProviderName) => {
-    setActiveProvider(name);
+    updateDraft((d) => {
+      d.config.ai.active_provider = name;
+    });
   };
 
   return (
@@ -42,10 +48,11 @@ export default function AISettingsView() {
         <h3 className="text-xs font-semibold text-white/40 uppercase tracking-wider">All Providers</h3>
         <div className="space-y-2">
           {providerNames.map((name) => {
-            const config = providers[name];
+            const config = (draft.config.ai as any)[name];
             const isSelected = name === activeProvider;
             const isExpanded = selectedProvider === name;
             const hasKey = keyringStatus[name];
+            const balancedModel = config?.balanced_model || "";
 
             return (
               <div key={name}>
@@ -74,7 +81,7 @@ export default function AISettingsView() {
                           </span>
                         )}
                       </div>
-                      <span className="text-[11px] text-[#E8EAF0]/40">{config.balancedModel}</span>
+                      <span className="text-[11px] text-[#E8EAF0]/40">{balancedModel}</span>
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
@@ -94,7 +101,6 @@ export default function AISettingsView() {
                   <div className="mt-2">
                     <ProviderDetailView
                       name={name}
-                      config={config}
                       isSelected={isSelected}
                       keyringHasKey={!!hasKey}
                       onSetSelected={() => handleSetSelected(name)}

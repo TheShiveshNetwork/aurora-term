@@ -7,6 +7,9 @@ use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::oneshot;
 use aurora_core::AppError;
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
 pub struct SidecarManager {
     kill_sender: Arc<Mutex<Option<oneshot::Sender<()>>>>,
     port: Option<u16>,
@@ -49,11 +52,15 @@ impl SidecarManager {
         let port = self.find_free_port()?;
         let _ = std::fs::write("d:/builds/aurora/sidecar_status.log", format!("SidecarManager::spawn: found port {}", port));
 
-        let mut cmd = if cfg!(target_os = "windows") {
+        #[cfg(target_os = "windows")]
+        let mut cmd = {
             let mut c = tokio::process::Command::new("cmd");
             c.args(["/c", "pnpm", "--dir", "packages/aurora-agent", "dev", "--port", &port.to_string()]);
+            c.as_std_mut().creation_flags(0x08000000); // CREATE_NO_WINDOW
             c
-        } else {
+        };
+        #[cfg(not(target_os = "windows"))]
+        let mut cmd = {
             let mut c = tokio::process::Command::new("pnpm");
             c.args(["--dir", "packages/aurora-agent", "dev", "--port", &port.to_string()]);
             c

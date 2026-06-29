@@ -23,8 +23,14 @@ export default defineConfig(async () => ({
         }
       : undefined,
     watch: {
-      // tell Vite to ignore watching `src-tauri`
-      ignored: ["**/src-tauri/**"],
+      ignored: (path: string) => {
+        const normalized = path.replace(/\\/g, "/");
+        if (normalized.includes("/app/src/")) return false;
+        if (normalized.includes("/packages/")) {
+          if (normalized.includes("/src/")) return false;
+        }
+        return true;
+      },
     },
   },
 

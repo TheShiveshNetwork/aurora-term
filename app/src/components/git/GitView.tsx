@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { IconButton } from "../ui/IconButton";
+import { Button } from "../ui/Button";
 import { v4 as uuidv4 } from "uuid";
 import {
   GitBranch, ArrowUp, ArrowDown, RefreshCw, Plus, X, ChevronDown,
@@ -560,10 +561,10 @@ export function GitView({ cwd, tabId }: GitViewProps) {
       {/* ── Main content: resizable left/right panels ──────────────── */}
       <div className="flex flex-1 min-h-0">
         {/* ── Left panel ──────────────────────────────────────────── */}
-        <div ref={leftPanelRef} style={{ width: leftWidth, minWidth: 0, borderColor: "rgba(255,255,255,0.05)" }} className="flex flex-col shrink-0 border-r relative overflow-hidden">
+        <div ref={leftPanelRef} style={{ width: leftWidth, minWidth: 0, borderColor: "rgba(255,255,255,0.05)" }} className="flex flex-col shrink-0 border-r relative">
 
           {/* Branches */}
-          <div className="shrink-0 flex flex-col overflow-hidden" style={{ height: sectionHeights.branches }}>
+          <div className="shrink-0 flex flex-col" style={{ height: sectionHeights.branches }}>
             <SectionHeader label="Branches" count={branches.length} loading={branchesLoading}
               action={
                 <div className="relative">
@@ -702,20 +703,14 @@ export function GitView({ cwd, tabId }: GitViewProps) {
               placeholder={stagedForCommit ? "Commit message…" : "Stage changes to commit…"}
               className="flex-1 bg-transparent outline-none text-[13px] text-on-surface placeholder:text-white/25"
             />
-            <button
+            <Button
               onClick={handleCommit}
               disabled={!commitMessage.trim() || !stagedForCommit}
-              className="px-3 py-1.5 text-[11px] font-medium rounded-lg transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-default"
-              style={{
-                background: "rgba(79,140,255,1)",
-                color: "#FFFFFF",
-                border: "none",
-              }}
-              onMouseEnter={e => { if (!e.currentTarget.disabled) e.currentTarget.style.background = "rgba(59,120,235,1)"; }}
-              onMouseLeave={e => { if (!e.currentTarget.disabled) e.currentTarget.style.background = "rgba(79,140,255,1)"; }}
+              variant="primary"
+              size="sm"
             >
               Commit to {currentBranch}
-            </button>
+            </Button>
           </div>
 
           {/* Diff view (only when a file is selected) */}

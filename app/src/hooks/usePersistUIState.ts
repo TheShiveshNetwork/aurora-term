@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useAppShellStore } from "../stores/useAppShellStore";
 import { useSessionStore } from "../stores/useSessionStore";
-import { config } from "../lib/ipc";
+import { state } from "../lib/ipc";
 
 export function usePersistUIState() {
   const dirtyRef = useRef(false);
@@ -9,8 +9,19 @@ export function usePersistUIState() {
     sidebarCollapsed: useAppShellStore.getState().sidebarCollapsed,
     tabBarVisible: useAppShellStore.getState().tabBarVisible,
     pinnedTabs: useSessionStore.getState().tabs.filter((t) => t.pinned).map((t) => t.id),
-    workspaceCwd: useAppShellStore.getState().cwdAbsolute,
+    sectionVisibility: { ...useAppShellStore.getState().sectionVisibility },
     projectDir: useAppShellStore.getState().projectDir,
+    workspaceCwd: useAppShellStore.getState().cwdAbsolute,
+    openTabs: useSessionStore.getState().tabs.map((t) => ({
+      id: t.id,
+      tab_type: t.type,
+      title: t.name || "",
+      cwd: t.cwd || "",
+      pinned: !!t.pinned,
+      file_path: t.filePath || null,
+      shell: t.shell || null,
+    })),
+    activeTabId: useSessionStore.getState().activeTabId,
   });
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -18,68 +29,61 @@ export function usePersistUIState() {
   const flush = useRef(() => {
     if (!dirtyRef.current) return;
     dirtyRef.current = false;
-    const { sidebarCollapsed, tabBarVisible, pinnedTabs, workspaceCwd, projectDir } = latestRef.current;
-    config.get()
-      .then((cfg) => {
-        cfg.ui.sidebar_collapsed = sidebarCollapsed;
-        cfg.ui.tab_bar_visible = tabBarVisible;
-        cfg.ui.pinned_tabs = pinnedTabs;
-        cfg.ui.workspace_cwd = workspaceCwd || undefined;
-        cfg.ui.project_dir = projectDir || undefined;
-        return config.set(cfg);
-      })
-      .catch(() => {});
+    const {
+      sidebarCollapsed, tabBarVisible, pinnedTabs, sectionVisibility,
+      projectDir, workspaceCwd, openTabs, activeTabId,
+    } = latestRef.current;
+
+    // Save UI toggles to state.json
+    state.updateSidebar(sidebarCollapsed, tabBarVisible).catch(() => {});
+    state.updatePinnedTabs(pinnedTabs).catch(() => {});
+    if (sectionVisibility) {
+      state.updateSectionVisibility(sectionVisibility).catch(() => {});
+    }
+    if (projectDir) {
+      state.setProjectDir(projectDir).catch(() => {});
+    }
+    if (workspaceCwd) {
+      state.setWorkspaceCwd(workspaceCwd).catch(() => {});
+    }
+    state.updateTabs(openTabs, activeTabId).catch(() => {});
   });
 
   useEffect(() => {
     const scheduleWrite = () => {
       dirtyRef.current = true;
       if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(flush.current, 5000);
+      timerRef.current = setTimeout(flush.current, 1000);
     };
 
-    let prevSidebarCollapsed = latestRef.current.sidebarCollapsed;
-    let prevTabBarVisible = latestRef.current.tabBarVisible;
-    let prevWorkspaceCwd = latestRef.current.workspaceCwd;
-    let prevProjectDir = latestRef.current.projectDir;
-
-    const unsub1 = useAppShellStore.subscribe((state) => {
-      if (
-        state.sidebarCollapsed === prevSidebarCollapsed &&
-        state.tabBarVisible === prevTabBarVisible &&
-        state.cwdAbsolute === prevWorkspaceCwd &&
-        state.projectDir === prevProjectDir
-      ) {
-        return;
-      }
-      prevSidebarCollapsed = state.sidebarCollapsed;
-      prevTabBarVisible = state.tabBarVisible;
-      prevWorkspaceCwd = state.cwdAbsolute;
-      prevProjectDir = state.projectDir;
-
-      latestRef.current.sidebarCollapsed = state.sidebarCollapsed;
-      latestRef.current.tabBarVisible = state.tabBarVisible;
-      latestRef.current.workspaceCwd = state.cwdAbsolute;
-      latestRef.current.projectDir = state.projectDir;
+    const unsub1 = useAppShellStore.subscribe((s) => {
+      const { sidebarCollapsed, tabBarVisible, sectionVisibility, projectDir, cwdAbsolute } = s;
+      const l = latestRef.current;
+      l.sidebarCollapsed = sidebarCollapsed;
+      l.tabBarVisible = tabBarVisible;
+      l.sectionVisibility = { ...sectionVisibility };
+      l.projectDir = projectDir;
+      l.workspaceCwd = cwdAbsolute;
       scheduleWrite();
     });
 
-    let prevPinned = JSON.stringify(latestRef.current.pinnedTabs);
-
-    const unsub2 = useSessionStore.subscribe((state) => {
-      const pinned = state.tabs.filter((t) => t.pinned).map((t) => t.id);
-      const pinnedStr = JSON.stringify(pinned);
-      if (pinnedStr === prevPinned) {
-        return;
-      }
-      prevPinned = pinnedStr;
-
+    const unsub2 = useSessionStore.subscribe((s) => {
+      const pinned = s.tabs.filter((t) => t.pinned).map((t) => t.id);
       latestRef.current.pinnedTabs = pinned;
+      latestRef.current.openTabs = s.tabs.map((t) => ({
+        id: t.id,
+        tab_type: t.type,
+        title: t.name || "",
+        cwd: t.cwd || "",
+        pinned: !!t.pinned,
+        file_path: t.filePath || null,
+        shell: t.shell || null,
+      }));
+      latestRef.current.activeTabId = s.activeTabId;
       scheduleWrite();
     });
 
     const onUnload = () => flush.current();
-
     window.addEventListener("beforeunload", onUnload);
 
     return () => {

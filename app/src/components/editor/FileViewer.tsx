@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { EditorView } from "@codemirror/view";
+import type { Compartment } from "@codemirror/state";
 import { system } from "../../lib/ipc";
 import { getLanguageExtension } from "../../lib/codeLang";
 import { isImageFile } from "../../lib/fileUtils";
@@ -7,9 +8,12 @@ import { AlertCircle, Loader, Maximize2, Minimize2, Minus, Plus, RotateCcw } fro
 import { useSessionStore } from "../../stores/useSessionStore";
 import { useSettingsStore } from "../../stores/useSettingsStore";
 import { closeAllPopups } from "../../lib/popups";
-import { getEditorTheme } from "./editorThemes";
+import { getEditorTheme, createThemeCompartment } from "./editorThemes";
 import { createMinimapExtension, toggleMinimap } from "./minimapExtension";
 import { SearchPanel } from "./SearchPanel";
+import { usePTY } from "../../hooks/usePTY";
+import { getDefaultShellLaunch } from "../../lib/shell";
+import { useAppShellStore } from "../../stores/useAppShellStore";
 
 const STYLE_ID = "aurora-file-viewer-style";
 if (typeof document !== "undefined" && !document.getElementById(STYLE_ID)) {
@@ -42,11 +46,13 @@ const ZOOM_STEP = 0.25;
 export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
   const editorRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
+  const themeCompartmentRef = useRef<Compartment>(createThemeCompartment());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const initialContentRef = useRef<string>("");
   const updateTab = useSessionStore((s) => s.updateTab);
   const editorTheme = useSettingsStore((s) => s.editorTheme);
+  const { spawnSession } = usePTY();
 
   const isImage = isImageFile(filePath);
   const [showSearch, setShowSearch] = useState(false);
@@ -157,6 +163,118 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
     }
   }, [filePath]);
 
+  const handleSaveActiveFile = async () => {
+    if (viewRef.current) {
+      const content = viewRef.current.state.doc.toString();
+      try {
+        await system.writeFileContent(filePath, content);
+        initialContentRef.current = content.replace(/\r\n/g, "\n");
+        updateTab(tabId, { dirty: false, fileContent: content });
+      } catch (err) {
+        console.error("Failed to save file:", err);
+      }
+    }
+  };
+
+  const handleGoToDefinition = () => {
+    if (viewRef.current) {
+      const sel = viewRef.current.state.selection.main;
+      const word = viewRef.current.state.wordAt(sel.head);
+      if (word) {
+        const text = viewRef.current.state.sliceDoc(word.from, word.to);
+        console.log(`LSP: Go to Definition for "${text}"`);
+        window.dispatchEvent(new CustomEvent("focus-search-bar"));
+      }
+    }
+  };
+
+  const handlePeekDefinition = () => {
+    if (viewRef.current) {
+      const sel = viewRef.current.state.selection.main;
+      const word = viewRef.current.state.wordAt(sel.head);
+      if (word) {
+        const text = viewRef.current.state.sliceDoc(word.from, word.to);
+        console.log(`LSP: Peek Definition for "${text}"`);
+      }
+    }
+  };
+
+  const handleFindReferences = () => {
+    if (viewRef.current) {
+      const sel = viewRef.current.state.selection.main;
+      const word = viewRef.current.state.wordAt(sel.head);
+      if (word) {
+        const text = viewRef.current.state.sliceDoc(word.from, word.to);
+        console.log(`LSP: Find References for "${text}"`);
+      }
+    }
+  };
+
+  const handleRenameSymbol = () => {
+    if (viewRef.current) {
+      const sel = viewRef.current.state.selection.main;
+      const word = viewRef.current.state.wordAt(sel.head);
+      if (word) {
+        const text = viewRef.current.state.sliceDoc(word.from, word.to);
+        const newName = prompt(`Rename symbol "${text}" to:`, text);
+        if (newName && newName !== text) {
+          const fullText = viewRef.current.state.doc.toString();
+          const replaced = fullText.split(text).join(newName);
+          viewRef.current.dispatch({
+            changes: { from: 0, to: viewRef.current.state.doc.length, insert: replaced }
+          });
+        }
+      }
+    }
+  };
+
+  const handleFormatDocument = () => {
+    if (viewRef.current) {
+      const text = viewRef.current.state.doc.toString();
+      let formatted = text;
+      try {
+        if (filePath.endsWith(".json")) {
+          formatted = JSON.stringify(JSON.parse(text), null, 2);
+        } else {
+          formatted = text.split("\n").map(line => line.trimEnd()).join("\n");
+        }
+        viewRef.current.dispatch({
+          changes: { from: 0, to: viewRef.current.state.doc.length, insert: formatted }
+        });
+      } catch (err) {
+        console.error("Format error:", err);
+      }
+    }
+  };
+
+  const handleRunFile = () => {
+    let command = "";
+    if (filePath.endsWith(".py")) {
+      command = `python "${filePath}"`;
+    } else if (filePath.endsWith(".js")) {
+      command = `node "${filePath}"`;
+    } else if (filePath.endsWith(".ts")) {
+      command = `ts-node "${filePath}"`;
+    } else if (filePath.endsWith(".rs")) {
+      command = `cargo run`;
+    } else if (filePath.endsWith(".sh")) {
+      command = `bash "${filePath}"`;
+    } else if (filePath.endsWith(".bat") || filePath.endsWith(".ps1")) {
+      command = `powershell "${filePath}"`;
+    } else {
+      command = `echo "Cannot run file type of ${filePath}"`;
+    }
+
+    const { shell, args } = getDefaultShellLaunch();
+    const appShellStore = useAppShellStore.getState();
+    const spawnCwd = appShellStore.projectDir || appShellStore.cwdAbsolute;
+    spawnSession(shell, args, {}, spawnCwd).then((sessionId) => {
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent(`pty-command-run:${sessionId}`, { detail: { cmd: command } }));
+      }, 200);
+    }).catch(console.error);
+  };
+
   useEffect(() => {
     let cancelled = false;
 
@@ -182,7 +300,6 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
           { basicSetup },
           content,
           languageExt,
-          theme,
         ] = await Promise.all([
           import("@codemirror/view"),
           import("@codemirror/state"),
@@ -190,11 +307,10 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
           import("codemirror"),
           system.readFileContent(filePath),
           getLanguageExtension(filePath),
-          getEditorTheme(editorTheme),
         ]);
         if (cancelled || !editorRef.current) { setLoading(false); return; }
 
-        initialContentRef.current = content;
+        initialContentRef.current = content.replace(/\r\n/g, "\n");
 
         const extensions: any[] = [
           basicSetup,
@@ -221,15 +337,22 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
             { key: "Shift-Mod-g", run: () => { toggleSearchRef.current?.(); return true; } },
             { key: "F3", run: () => { toggleSearchRef.current?.(); return true; } },
             { key: "Shift-F3", run: () => { toggleSearchRef.current?.(); return true; } },
+            { key: "Mod-s", run: () => { handleSaveActiveFile(); return true; } },
+            { key: "F12", run: () => { handleGoToDefinition(); return true; } },
+            { key: "Alt-F12", run: () => { handlePeekDefinition(); return true; } },
+            { key: "Shift-F12", run: () => { handleFindReferences(); return true; } },
+            { key: "F2", run: () => { handleRenameSymbol(); return true; } },
+            { key: "Shift-Mod-i", run: () => { handleFormatDocument(); return true; } },
+            { key: "Mod-F5", run: () => { handleRunFile(); return true; } },
           ])),
-          theme,
+          themeCompartmentRef.current.of([]),
           lineNumbers(),
           createMinimapExtension(showMinimap),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
               const currentContent = update.state.doc.toString();
               const isDirty = currentContent !== initialContentRef.current;
-              updateTab(tabId, { dirty: isDirty, fileContent: currentContent });
+              updateTab(tabId, { dirty: isDirty, fileContent: currentContent, everChanged: true });
             }
           }),
         ];
@@ -249,6 +372,13 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
         });
 
         viewRef.current = view;
+
+        getEditorTheme(editorTheme).then(theme => {
+          if (viewRef.current === view) {
+            view.dispatch({ effects: themeCompartmentRef.current.reconfigure(theme) });
+          }
+        });
+
         setLoading(false);
       } catch (err) {
         if (!cancelled) {
@@ -269,7 +399,16 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
       }
       updateTab(tabId, { dirty: false });
     };
-  }, [filePath, tabId, updateTab, isImage, imageMimeType, editorTheme]);
+  }, [filePath, tabId, updateTab, isImage, imageMimeType]);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    getEditorTheme(editorTheme).then(theme => {
+      if (viewRef.current !== view) return;
+      view.dispatch({ effects: themeCompartmentRef.current.reconfigure(theme) });
+    });
+  }, [editorTheme]);
 
   useEffect(() => {
     const handler = () => {
@@ -316,19 +455,154 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
         });
       }
     };
+    const handleSaveFile = async (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail && detail.tabId !== tabId) return;
+
+      if (viewRef.current) {
+        const content = viewRef.current.state.doc.toString();
+        try {
+          await system.writeFileContent(filePath, content);
+          initialContentRef.current = content.replace(/\r\n/g, "\n");
+          updateTab(tabId, { dirty: false, fileContent: content });
+        } catch (err) {
+          console.error("Failed to save file:", err);
+        }
+      }
+    };
+    const handleGoToDefinition = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail && detail.tabId !== tabId) return;
+      if (viewRef.current) {
+        const sel = viewRef.current.state.selection.main;
+        const word = viewRef.current.state.wordAt(sel.head);
+        if (word) {
+          const text = viewRef.current.state.sliceDoc(word.from, word.to);
+          console.log(`LSP: Go to Definition for "${text}"`);
+          window.dispatchEvent(new CustomEvent("focus-search-bar"));
+        }
+      }
+    };
+    const handlePeekDefinition = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail && detail.tabId !== tabId) return;
+      if (viewRef.current) {
+        const sel = viewRef.current.state.selection.main;
+        const word = viewRef.current.state.wordAt(sel.head);
+        if (word) {
+          const text = viewRef.current.state.sliceDoc(word.from, word.to);
+          console.log(`LSP: Peek Definition for "${text}"`);
+        }
+      }
+    };
+    const handleFindReferences = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail && detail.tabId !== tabId) return;
+      if (viewRef.current) {
+        const sel = viewRef.current.state.selection.main;
+        const word = viewRef.current.state.wordAt(sel.head);
+        if (word) {
+          const text = viewRef.current.state.sliceDoc(word.from, word.to);
+          console.log(`LSP: Find References for "${text}"`);
+        }
+      }
+    };
+    const handleRenameSymbol = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail && detail.tabId !== tabId) return;
+      if (viewRef.current) {
+        const sel = viewRef.current.state.selection.main;
+        const word = viewRef.current.state.wordAt(sel.head);
+        if (word) {
+          const text = viewRef.current.state.sliceDoc(word.from, word.to);
+          const newName = prompt(`Rename symbol "${text}" to:`, text);
+          if (newName && newName !== text) {
+            const fullText = viewRef.current.state.doc.toString();
+            const replaced = fullText.split(text).join(newName);
+            viewRef.current.dispatch({
+              changes: { from: 0, to: viewRef.current.state.doc.length, insert: replaced }
+            });
+          }
+        }
+      }
+    };
+    const handleFormatDocument = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail && detail.tabId !== tabId) return;
+      if (viewRef.current) {
+        const text = viewRef.current.state.doc.toString();
+        let formatted = text;
+        try {
+          if (filePath.endsWith(".json")) {
+            formatted = JSON.stringify(JSON.parse(text), null, 2);
+          } else {
+            formatted = text.split("\n").map(line => line.trimEnd()).join("\n");
+          }
+          viewRef.current.dispatch({
+            changes: { from: 0, to: viewRef.current.state.doc.length, insert: formatted }
+          });
+        } catch (err) {
+          console.error("Format error:", err);
+        }
+      }
+    };
+    const handleRunFile = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail && detail.tabId !== tabId) return;
+      let command = "";
+      if (filePath.endsWith(".py")) {
+        command = `python "${filePath}"`;
+      } else if (filePath.endsWith(".js")) {
+        command = `node "${filePath}"`;
+      } else if (filePath.endsWith(".ts")) {
+        command = `ts-node "${filePath}"`;
+      } else if (filePath.endsWith(".rs")) {
+        command = `cargo run`;
+      } else if (filePath.endsWith(".sh")) {
+        command = `bash "${filePath}"`;
+      } else if (filePath.endsWith(".bat") || filePath.endsWith(".ps1")) {
+        command = `powershell "${filePath}"`;
+      } else {
+        command = `echo "Cannot run file type of ${filePath}"`;
+      }
+
+      const { shell, args } = getDefaultShellLaunch();
+      const appShellStore = useAppShellStore.getState();
+      const spawnCwd = appShellStore.projectDir || appShellStore.cwdAbsolute;
+      spawnSession(shell, args, {}, spawnCwd).then((sessionId) => {
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent(`pty-command-run:${sessionId}`, { detail: { cmd: command } }));
+        }, 200);
+      }).catch(console.error);
+    };
+
     window.addEventListener("file-select-all", handler);
     window.addEventListener("file-paste", handlePaste);
     window.addEventListener("file-copy-line", handleCopyLine);
     window.addEventListener("file-cut-line", handleCutLine);
     window.addEventListener("file-cut-selection", handleCutSelection);
+    window.addEventListener("file-save", handleSaveFile);
+    window.addEventListener("file-go-to-definition", handleGoToDefinition);
+    window.addEventListener("file-peek-definition", handlePeekDefinition);
+    window.addEventListener("file-find-references", handleFindReferences);
+    window.addEventListener("file-rename-symbol", handleRenameSymbol);
+    window.addEventListener("file-format-document", handleFormatDocument);
+    window.addEventListener("file-run", handleRunFile);
     return () => {
       window.removeEventListener("file-select-all", handler);
       window.removeEventListener("file-paste", handlePaste);
       window.removeEventListener("file-cut-line", handleCutLine);
       window.removeEventListener("file-copy-line", handleCopyLine);
       window.removeEventListener("file-cut-selection", handleCutSelection);
+      window.removeEventListener("file-save", handleSaveFile);
+      window.removeEventListener("file-go-to-definition", handleGoToDefinition);
+      window.removeEventListener("file-peek-definition", handlePeekDefinition);
+      window.removeEventListener("file-find-references", handleFindReferences);
+      window.removeEventListener("file-rename-symbol", handleRenameSymbol);
+      window.removeEventListener("file-format-document", handleFormatDocument);
+      window.removeEventListener("file-run", handleRunFile);
     };
-  }, []);
+  }, [tabId, filePath, updateTab]);
 
   useEffect(() => {
     const view = viewRef.current;

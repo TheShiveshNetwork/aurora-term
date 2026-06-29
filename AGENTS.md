@@ -98,7 +98,7 @@ Below is a short crate summary to help route logic quickly.
 | `aurora-core` | Shared types, errors, and config schema (no I/O). |
 | `aurora-pty` | PTY lifecycle, sessions, readers, and platform quirks. |
 | `aurora-db` | SQLite history storage and fuzzy search helpers. |
-| `aurora-config` | Config schema loader and OS keychain helpers. |
+| `aurora-config` | Three-tier persistence: JSON config manager (global + project merge), UI state manager, OS keychain helpers. |
 | `aurora-sidecar` | Manages the local aurora-agent sidecar process lifecycle. |
 | `aurora-ai` | AI provider adapters, SSE parsing, and router logic. |
 | `aurora-commands` | Thin orchestration layer that maps tauri commands to crate APIs. |
@@ -111,7 +111,7 @@ Below is a short crate summary to help route logic quickly.
 ### `crates/aurora-core`
 Pure library. Zero Tauri, zero I/O, zero async. Everything else depends on this.
 - `error.rs` — `AppError` enum with `thiserror` + `serde::Serialize`. One variant per domain (Pty, Ai, Db, Config, Io). All other crates convert their errors into `AppError`.
-- `config.rs` — `AppConfig` struct, fully `serde` + `toml`. Nested structs for `[terminal]`, `[ai]`, `[keybindings]`, `[appearance]`. No file I/O here — only the schema.
+- `config.rs` — `AppConfig` struct, fully `serde` + `serde_json`. Nested structs for `terminal`, `ai`, `keybindings`, `appearance`, `editor`. No file I/O here — only the schema.
 - `types/block.rs` — `Block`, `BlockStatus`, `OutputType`.
 - `types/session.rs` — `PaneType`, `EditorSession`, `TermSession`.
 - `types/ai.rs` — `TaskTier`, `ProviderName`, `AiMessage`. No provider logic.
@@ -130,7 +130,8 @@ Depends on `aurora-core`. No Tauri.
 
 ### `crates/aurora-config`
 Depends on `aurora-core`. No Tauri.
-- `loader.rs` — `load(path) -> AppConfig` and `save(path, config)`. Uses `toml` crate. Path comes from caller. Config file never contains API keys.
+- `manager.rs` — `ConfigManager`. Two-tier JSON persistence: `load_merged()` deep-merges global + project overrides via `serde_json::Value`, `save_global()`/`save_project()` write to respective files. Auto-backup (`<file>.bak`) before every write. Legacy `config.toml` → `aurora.json` migration on first load. `new()` takes `PathBuf` (never `&impl Manager`). Uses `serde_json` for runtime, keeps `toml` only for migration path.
+- `state.rs` — `UiStateManager` + `UiState`. Separate `state.json` for transient UI state: sidebar collapse, tab bar visibility, section visibility, pinned tabs, tab list, last project dir, last workspace CWD. Loaded on startup, saved via debounced IPC commands. Never overlaps with settings in `aurora.json`.
 - `keychain.rs` — thin wrappers over `keyring` crate. `set_key(service, account, secret)`, `get_key`, `delete_key`. Service name is always `"aurora-term"`. Account names are `"{provider}_api_key"`.
 
 ### `crates/aurora-sidecar`
@@ -141,7 +142,7 @@ Depends on `aurora-core`. No Tauri.
 ### `crates/aurora-app`
 Depends on all other crates + `tauri`. This is the only crate that touches Tauri APIs.
 - `lib.rs` — exports `pub fn run()`. Builds the Tauri app: registers plugins, calls `.manage(AppState{...})`, registers all `#[tauri::command]` handlers via `invoke_handler!`.
-- `state.rs` — `AppState { pty_manager: Arc<Mutex<PtyManager>>, history_db: Arc<Mutex<HistoryDb>>, config: Arc<Mutex<AppConfig>>, sidecar: Arc<Mutex<SidecarManager>>, ai_router: Arc<AiRouter> }`. Always `tokio::sync::Mutex`, never `std::sync::Mutex`.
+- `state.rs` — `AppState { pty_manager: Arc<Mutex<PtyManager>>, history_db: Arc<Mutex<HistoryDb>>, config_manager: Arc<Mutex<ConfigManager>>, ui_state: Arc<Mutex<UiStateManager>>, sidecar: Arc<Mutex<SidecarManager>>, ai_router: Arc<AiRouter> }`. Always `tokio::sync::Mutex`, never `std::sync::Mutex`.
 - `commands/*.rs` — each file owns one domain. Every command returns `Result<T, AppError>`. No business logic — delegate entirely to the relevant crate. Commands are thin IPC adapters.
 - `ai/providers/mod.rs` — `AiProvider` trait (see Section 7). Router calls through the trait; commands never call a provider directly.
 
@@ -229,9 +230,22 @@ ai_set_provider(provider)                 → void
 history_search(query, limit)    → HistoryEntry[]
 history_add(entry)              → void
 
-// Config
-config_get()                    → AppConfig
-config_set(partial)             → void
+// Config — two-tier JSON (global + project level overrides, deep-merged)
+config_get()                    → AppConfig (deep-merged global + project)
+config_get_global()             → AppConfig (global only)
+config_get_project()            → AppConfig (project overrides only, empty if no project file)
+config_save_global(cfg)         → void
+config_save_project(cfg)        → void
+config_has_project()            → boolean
+
+// UI State — separate state.json for transient UI (never overlaps with aurora.json)
+state_get()                     → UiState
+state_update_sidebar(collapsed) → void
+state_update_pinned_tabs(tabs)  → void
+state_update_section_visibility(visibility) → void
+state_update_tabs(tabs)         → void
+state_set_project_dir(path)     → void
+state_set_workspace_cwd(cwd)    → void
 
 // Sidecar (controlled internally on startup)
 ```
@@ -390,7 +404,7 @@ DB path resolved by the Tauri layer via `app.path().app_data_dir()` — never ha
 
 **Never:**
 - `unwrap()` or `expect()` in production paths — use `?` with `AppError`
-- Store API keys in `config.toml`, `localStorage`, or any log
+- Store API keys in `aurora.json`, `state.json`, `localStorage`, or any log
 - Send an API key to the frontend — only `hasApiKey: bool`
 - Hardcode model strings in Rust — always read from `AppConfig`
 - Call a provider struct directly from a command — always go through `AiRouter`
@@ -401,6 +415,10 @@ DB path resolved by the Tauri layer via `app.path().app_data_dir()` — never ha
 - Create `tailwind.config.ts` or add `postcss`/`autoprefixer`
 - Use the old unscoped `xterm` package — use `@xterm/xterm`
 - Add Tauri APIs to any crate except `aurora-app`
+- Mix UI state into `aurora.json` — use `state.json` for transient UI (sidebar, tabs, project-dir)
+- Use TOML for config — use JSON (`aurora.json`), `toml` crate is only for legacy migration
+- Add Tauri deps to `aurora-config` — `ConfigManager::new()` takes `PathBuf`, never `&impl Manager`
+- Write config files without backup — always create `.bak` before overwriting
 
 **Always:**
 - Mirror every Rust IPC struct in `desktop/src/types/ipc.ts`
@@ -511,7 +529,7 @@ The app maintains two distinct directory concepts:
 
 ### projectDir (trusted project root)
 - **What**: The root directory the user explicitly opened via "Open Folder". This is the trusted boundary — commands outside this directory are not auto-accepted.
-- **Storage**: Persisted in config as `ui.project_dir` (`UiStateConfig::project_dir` in Rust).
+- **Storage**: Persisted in `state.json` as `last_project_dir` via `UiStateManager`. No longer part of `AppConfig` or `aurora.json`.
 - **Display**: Shown on the **app header** (project name derived from `projectDirLabel`).
 - **Set when**: User selects "Open Folder" → `useAppShellStore.setProjectDir(path)`.
 - **Restored**: From config on bootstrap in `useAppBootstrap.ts`.
@@ -529,7 +547,7 @@ The app maintains two distinct directory concepts:
 - **`cwd-change` events never update projectDir** — only `sessionCwds`.
 - **App header shows projectDir** — unaffected by terminal `cd`.
 - **Status bar shows the active terminal's currentDir** (falls back to projectDir).
-- **`noFolder`** = `tabs.length === 0` (no terminal/file tabs open), but projectDir can be set from config even when no tabs exist.
+- **`noFolder`** = `tabs.length === 0` (no terminal/file tabs open), but projectDir can be restored from `state.json` even when no tabs exist.
 
 ### Store Fields (`useAppShellStore`)
 | Field | Type | Purpose |
@@ -542,4 +560,68 @@ The app maintains two distinct directory concepts:
 
 ---
 
-*Last updated: 2026-06-23*
+## 17. Persistence Architecture — Three-Tier Storage
+
+The app uses three separate storage layers, each with a distinct file, format, and change frequency:
+
+| Tier | File | Format | Managed By | Change Frequency |
+|---|---|---|---|---|
+| **Settings** (preferences) | `aurora.json` | JSON | `ConfigManager` | Rare (explicit save button) |
+| **UI State** (layout, tabs, project-dir) | `state.json` | JSON | `UiStateManager` | Frequent (auto-save, 1s debounce) |
+| **Secrets** (API keys) | OS Keychain | — | `keyring` via `KeychainManager` | Rare (add/delete key) |
+
+All paths are resolved by the Tauri layer (`app.path().app_data_dir()`) — never hardcoded in `aurora-config`.
+
+### 17.1 Settings — Two-Tier Deep Merge
+
+**Global config**: `~/.config/aurora/aurora.json` — the base layer containing all `AppConfig` fields.
+
+**Project config**: `<projectRoot>/.aurora/aurora.json` — sparse overrides that deep-merge over global at individual field granularity using `serde_json::Value::merge()`. (Note: Specific workspace-level settings overrides are not yet implemented on the frontend/agent side. All settings changes are applied globally).
+
+**Merge order**: Load global → if project file exists, deep-merge into global → deserialize merged `Value` into `AppConfig`.
+
+**Save paths**: `config_save_global(cfg)` writes to global file. `config_save_project(cfg)` writes to project file (creates `.aurora/` dir if missing).
+
+**Auto-backup**: Every write creates `<filename>.bak` of the previous content before overwriting.
+
+**Legacy migration**: On first load, if `aurora.json` doesn't exist but `config.toml` does, read TOML → write JSON → delete TOML.
+
+### 17.2 UI State — Transient Layout & Session Data
+
+**Schema** (`UiState`): `last_project_dir`, `last_workspace_cwd`, `sidebar_collapsed`, `tab_bar_visible`, `section_visibility: HashMap<String, bool>`, `pinned_tabs: Vec<SavedTab>`, `tabs: Vec<SavedTab>`.
+
+**Restore flow**: `useAppBootstrap` calls `state.get()` on mount → hydrates `useAppShellStore` (projectDir, sidebar, tab bar, section visibility) and `useSessionStore` (tab metadata).
+
+**Save flow**: `usePersistUIState` subscribes to Zustand stores → 1s debounce → flushes via `state.*` IPC commands directly (no read-modify-write race).
+
+### 17.3 Secrets — OS Keychain Only
+
+```rust
+keyring::Entry::new("aurora-term", "anthropic_api_key")?.set_password(&key)?;
+```
+
+Service name is always `"aurora-term"`. Account names follow `"{provider}_api_key"`. Frontend only receives `hasApiKey: bool` — never the key value.
+
+### 17.4 IPC Command Map
+
+All config IPC in `app/src/lib/ipc.ts` → `config.*`:
+- `config.get()` — merged (global + project), `config.getGlobal()`, `config.getProject()`
+- `config.saveGlobal(cfg)`, `config.saveProject(cfg)`
+- `config.hasProject()` — whether project overrides file exists
+
+All UI state IPC in `app/src/lib/ipc.ts` → `state.*`:
+- `state.get()` — full `UiState`
+- `state.setProjectDir(path)`, `state.setWorkspaceCwd(cwd)`
+- `state.updateSidebar(collapsed)`, `state.updateTabs(tabs)`, `state.updatePinnedTabs(tabs)`, `state.updateSectionVisibility(visibility)`
+
+### 17.5 Key Rules
+
+- `aurora-config` crate never depends on Tauri — `ConfigManager::new()` and `UiStateManager::new()` take `PathBuf`, never `&impl tauri::Manager`.
+- `state.json` is for transient UI only — never duplicate settings from `aurora.json`.
+- `.bak` file created before every config write — never write in place.
+- API keys never appear in any JSON file, logs, or frontend.
+- `toml` crate is a dependency only for legacy migration — all runtime config is JSON.
+
+---
+
+*Last updated: 2026-06-29*

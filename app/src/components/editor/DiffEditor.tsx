@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { EditorView } from "@codemirror/view";
+import type { Compartment } from "@codemirror/state";
 import type { MergeView } from "@codemirror/merge";
 import { useSettingsStore } from "../../stores/useSettingsStore";
-import { getEditorTheme, READONLY_EDITOR_THEME } from "./editorThemes";
+import { getEditorTheme, createThemeCompartment, READONLY_EDITOR_THEME } from "./editorThemes";
 import { createMinimapExtension } from "./minimapExtension";
 import { getLanguageExtension } from "../../lib/codeLang";
 import { PathBreadcrumb } from "./PathBreadcrumb";
@@ -101,6 +102,8 @@ export function DiffEditor({
   const mergeRef = useRef<MergeView | null>(null);
   const viewARef = useRef<EditorView | null>(null);
   const viewBRef = useRef<EditorView | null>(null);
+  const themeCompartmentARef = useRef<Compartment>(createThemeCompartment());
+  const themeCompartmentBRef = useRef<Compartment>(createThemeCompartment());
   const cleanupsRef = useRef<(() => void)[]>([]);
 
   const editorTheme = useSettingsStore((s) => s.editorTheme);
@@ -125,20 +128,17 @@ export function DiffEditor({
       import("@codemirror/merge"),
       import("@codemirror/view"),
       getLanguageExtension(filePath),
-      getEditorTheme(editorTheme),
     ]).then(([
       { basicSetup },
       { EditorState },
       { MergeView },
       { EditorView: EditorViewClass },
       langExt,
-      theme,
     ]) => {
       if (cancelled) return;
 
       const base = [
         basicSetup,
-        theme,
         createMinimapExtension(true),
         EditorViewClass.editable.of(false),
         EditorState.readOnly.of(true),
@@ -146,9 +146,12 @@ export function DiffEditor({
         ...(langExt.length > 0 ? langExt : []),
       ];
 
+      const baseA = [...base, themeCompartmentARef.current.of([])];
+      const baseB = [...base, themeCompartmentBRef.current.of([])];
+
       const merge = new MergeView({
-        a: { doc: oldContent, extensions: base },
-        b: { doc: newContent, extensions: base },
+        a: { doc: oldContent, extensions: baseA },
+        b: { doc: newContent, extensions: baseB },
         parent: mount,
         orientation: "a-b",
         highlightChanges: true,
@@ -158,6 +161,16 @@ export function DiffEditor({
       mergeRef.current = merge;
       viewARef.current = merge.a;
       viewBRef.current = merge.b;
+
+      // Apply initial theme to both panes
+      getEditorTheme(editorTheme).then(theme => {
+        const viewA = viewARef.current;
+        const viewB = viewBRef.current;
+        if (viewA && viewB) {
+          viewA.dispatch({ effects: themeCompartmentARef.current.reconfigure(theme) });
+          viewB.dispatch({ effects: themeCompartmentBRef.current.reconfigure(theme) });
+        }
+      });
 
       // --- set explicit 50/50 widths on the actual pane elements ---
       const panes = mount.querySelectorAll<HTMLElement>(".cm-merge-pane");
@@ -233,7 +246,18 @@ export function DiffEditor({
       viewARef.current = null;
       viewBRef.current = null;
     };
-  }, [filePath, oldContent, newContent, editorTheme]);
+  }, [filePath, oldContent, newContent]);
+
+  useEffect(() => {
+    const viewA = viewARef.current;
+    const viewB = viewBRef.current;
+    if (!viewA || !viewB) return;
+    getEditorTheme(editorTheme).then(theme => {
+      if (viewARef.current !== viewA || viewBRef.current !== viewB) return;
+      viewA.dispatch({ effects: themeCompartmentARef.current.reconfigure(theme) });
+      viewB.dispatch({ effects: themeCompartmentBRef.current.reconfigure(theme) });
+    });
+  }, [editorTheme]);
 
   return (
     <div

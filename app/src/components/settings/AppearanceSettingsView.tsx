@@ -1,9 +1,14 @@
-import React from "react";
-import { useSettingsStore, EditorThemeName } from "../../stores/useSettingsStore";
-import { SectionTitle, FieldRow, THEME_OPTIONS } from "./SettingsShared";
+import React, { useContext } from "react";
+import { SettingsContext, SectionTitle, FieldRow, THEME_OPTIONS } from "./SettingsShared";
+import { EditorThemeName } from "../../stores/useSettingsStore";
 
 export default function AppearanceSettingsView() {
-  const { theme, setTheme, editorTheme, setEditorTheme } = useSettingsStore();
+  const context = useContext(SettingsContext);
+  if (!context) return null;
+  const { draft, updateDraft } = context;
+
+  const theme = draft.config.terminal.theme;
+  const editorTheme = draft.config.editor.theme as EditorThemeName;
 
   return (
     <div className="space-y-5">
@@ -13,7 +18,7 @@ export default function AppearanceSettingsView() {
         <FieldRow label="Theme">
           <div className="flex gap-2">
             <button
-              onClick={() => setTheme("dark")}
+              onClick={() => updateDraft((d) => { d.config.terminal.theme = "dark"; })}
               className="px-3 py-1.5 text-[11px] font-semibold rounded-lg transition-all cursor-pointer"
               style={{
                 background: theme === "dark" ? "#4F8CFF" : "rgba(255,255,255,0.06)",
@@ -24,7 +29,7 @@ export default function AppearanceSettingsView() {
               Dark
             </button>
             <button
-              onClick={() => setTheme("light")}
+              onClick={() => updateDraft((d) => { d.config.terminal.theme = "light"; })}
               className="px-3 py-1.5 text-[11px] font-semibold rounded-lg transition-all cursor-pointer"
               style={{
                 background: theme === "light" ? "#4F8CFF" : "rgba(255,255,255,0.06)",
@@ -42,7 +47,7 @@ export default function AppearanceSettingsView() {
         <FieldRow label="Editor Theme">
           <select
             value={editorTheme}
-            onChange={(e) => setEditorTheme(e.target.value as EditorThemeName)}
+            onChange={(e) => updateDraft((d) => { d.config.editor.theme = e.target.value; })}
             className="bg-surface-container-lowest border border-outline-variant/10 rounded-lg px-3 py-1.5 text-[12px] outline-none cursor-pointer select-none"
             style={{ color: "#E8EAF0", minWidth: "160px" }}
           >

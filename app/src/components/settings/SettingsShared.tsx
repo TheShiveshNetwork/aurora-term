@@ -1,5 +1,22 @@
-import React from "react";
+import React, { createContext } from "react";
 import { EditorThemeName } from "../../stores/useSettingsStore";
+import type { AppConfig } from "../../lib/ipc";
+
+export interface DraftSettings {
+  config: AppConfig;
+  sidebarCollapsed: boolean;
+  showAiBar: boolean;
+  chatInputOpen: boolean;
+  tabBarVisible: boolean;
+}
+
+export interface SettingsContextType {
+  draft: DraftSettings;
+  updateDraft: (updater: (prev: DraftSettings) => void) => void;
+}
+
+export const SettingsContext = createContext<SettingsContextType | null>(null);
+
 
 export function SectionTitle({ children }: { children: React.ReactNode }) {
   return (

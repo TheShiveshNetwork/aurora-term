@@ -81,7 +81,7 @@ export function usePTY() {
       }
       const sessionId = await pty.spawn(shell, args, mergedEnv, cwd, existingSessionId);
 
-      const tab = tabs.find(t => t.id === sessionId);
+      const tab = useSessionStore.getState().tabs.find(t => t.id === sessionId);
       if (!tab) {
         const currentTabs = useSessionStore.getState().tabs;
         let maxNum = 0;
@@ -139,9 +139,25 @@ export function usePTY() {
       return existing.id;
     }
 
-    const fileId = uuidv4();
     const fileName = filePath.split(/[/\\]/).pop() || filePath;
 
+    // Look for an unchanged, unpinned file tab to reuse
+    const reuseTab = tabs.find(t => t.type === "file" && t.everChanged === false && !t.pinned);
+    if (reuseTab) {
+      updateTab(reuseTab.id, {
+        name: fileName,
+        filePath,
+        cwd,
+        dirty: false,
+        everChanged: false,
+        fileContent: undefined,
+      });
+      setActiveTabId(reuseTab.id);
+      preloadFileContent(filePath);
+      return reuseTab.id;
+    }
+
+    const fileId = uuidv4();
     const newTab: Tab = {
       id: fileId,
       name: fileName,
@@ -149,6 +165,7 @@ export function usePTY() {
       filePath,
       cwd,
       created_at: Date.now(),
+      everChanged: false,
     };
 
     addTab(newTab);

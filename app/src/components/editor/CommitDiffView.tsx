@@ -1,9 +1,9 @@
 import { useMemo, useEffect, useRef, useState } from "react";
 import type { EditorView } from "@codemirror/view";
-import type { Extension, Range } from "@codemirror/state";
+import type { Extension, Range, Compartment } from "@codemirror/state";
 import type { Decoration, DecorationSet, ViewUpdate } from "@codemirror/view";
 import { useSettingsStore } from "../../stores/useSettingsStore";
-import { getEditorTheme, READONLY_EDITOR_THEME } from "./editorThemes";
+import { getEditorTheme, createThemeCompartment, READONLY_EDITOR_THEME } from "./editorThemes";
 import { createMinimapExtension } from "./minimapExtension";
 import { PathBreadcrumb } from "./PathBreadcrumb";
 
@@ -156,6 +156,7 @@ export function CommitDiffView({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
+  const themeCompartmentRef = useRef<Compartment>(createThemeCompartment());
   const editorTheme = useSettingsStore((s) => s.editorTheme);
   const lineToBlockRef = useRef<number[]>([]);
   const fileLineNumsRef = useRef<number[]>([]);
@@ -193,12 +194,10 @@ export function CommitDiffView({
       import("codemirror"),
       import("@codemirror/state"),
       import("@codemirror/view"),
-      getEditorTheme(editorTheme),
     ]).then(([
       { EditorView, basicSetup },
       { EditorState },
       { EditorView: EditorViewClass, ViewPlugin, Decoration, lineNumbers },
-      theme,
     ]) => {
       if (cancelled) return;
 
@@ -287,12 +286,18 @@ export function CommitDiffView({
             READONLY_EDITOR_THEME,
             customLineNumbers,
             collapsedClickHandler,
-            theme,
+            themeCompartmentRef.current.of([]),
           ],
         }),
         parent: el,
       });
       viewRef.current = view;
+
+      getEditorTheme(editorTheme).then(theme => {
+        if (viewRef.current === view) {
+          view.dispatch({ effects: themeCompartmentRef.current.reconfigure(theme) });
+        }
+      });
     });
 
     return () => {
@@ -300,7 +305,16 @@ export function CommitDiffView({
       viewRef.current?.destroy();
       viewRef.current = null;
     };
-  }, [collapsedText, editorTheme]);
+  }, [collapsedText]);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    getEditorTheme(editorTheme).then(theme => {
+      if (viewRef.current !== view) return;
+      view.dispatch({ effects: themeCompartmentRef.current.reconfigure(theme) });
+    });
+  }, [editorTheme]);
 
   return (
     <div className="h-full w-full flex flex-col" style={{ background: "var(--surface-container-low, #12131a)", minHeight: 0 }}>

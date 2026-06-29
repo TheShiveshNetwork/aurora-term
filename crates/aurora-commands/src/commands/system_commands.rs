@@ -229,7 +229,7 @@ pub async fn get_git_log(cwd: String, max_count: Option<u32>, skip: Option<u32>)
         commits.truncate(request_count as usize);
     }
 
-    let (branches, tags, current_branch) = if is_initial {
+    let (mut branches, tags, current_branch) = if is_initial {
         let branch_output = branch_h.unwrap().await.map_err(|e| AppError::Io(e.to_string()))??;
         let tag_output = tag_h.unwrap().await.map_err(|e| AppError::Io(e.to_string()))??;
         let cb = branch_current_h.unwrap().await.map_err(|e| AppError::Io(e.to_string()))?;
@@ -262,6 +262,22 @@ pub async fn get_git_log(cwd: String, max_count: Option<u32>, skip: Option<u32>)
     } else {
         (Vec::new(), Vec::new(), None)
     };
+
+    // Include origin/main as tracked ref for main graph tracking
+    if is_initial {
+        let cc = cwd.clone();
+        if let Ok(Ok(output)) = tokio::task::spawn_blocking(move || {
+            run_git(&["rev-parse", "--verify", "origin/main"], Some(&cc))
+        }).await {
+            let trimmed = output.trim().to_string();
+            if !trimmed.is_empty() && !branches.iter().any(|b| b.name == "origin/main") {
+                branches.push(GitRef {
+                    name: "origin/main".to_string(),
+                    commit_hash: trimmed,
+                });
+            }
+        }
+    }
 
     Ok(GitLogResult {
         commits,
@@ -600,26 +616,53 @@ pub async fn git_branch_list(cwd: String) -> Result<Vec<GitBranchInfo>, AppError
 
             let is_current = current.as_deref() == Some(&name);
 
-            let (remote, ahead, behind) = if parts.len() >= 4 && !parts[2].is_empty() {
-                let upstream = if parts[2] == "." { None } else { Some(parts[2].to_string()) };
-                let track = parts[3];
-                // Parse track string like "[ahead 1, behind 2]" or "[gone]" or ""
-                let a = parse_track(track, "ahead");
-                let b = parse_track(track, "behind");
-                (upstream, a, b)
+            let remote = if parts.len() >= 4 && !parts[2].is_empty() {
+                if parts[2] == "." { None } else { Some(parts[2].to_string()) }
             } else {
-                (None, 0, 0)
+                None
             };
 
             branches.push(GitBranchInfo {
                 name,
                 current: is_current,
                 remote,
-                ahead,
-                behind,
+                ahead: 0,
+                behind: 0,
                 commit_hash,
             });
         }
+
+        // Compute ahead/behind against origin/main (fallback to main)
+        let base_ref = if run_git(&["rev-parse", "--verify", "origin/main"], Some(&cwd))
+            .ok()
+            .is_some_and(|s| !s.trim().is_empty())
+        {
+            "origin/main"
+        } else if run_git(&["rev-parse", "--verify", "main"], Some(&cwd))
+            .ok()
+            .is_some_and(|s| !s.trim().is_empty())
+        {
+            "main"
+        } else {
+            ""
+        };
+
+        if !base_ref.is_empty() {
+            for branch in &mut branches {
+                let range = format!("{}...{}", base_ref, branch.name);
+                if let Ok(output) = run_git(&["rev-list", "--count", "--left-right", &range], Some(&cwd)) {
+                    let trimmed = output.trim();
+                    if !trimmed.is_empty() {
+                        let counts: Vec<&str> = trimmed.split_whitespace().collect();
+                        if counts.len() >= 2 {
+                            branch.behind = counts[0].parse().unwrap_or(0);
+                            branch.ahead = counts[1].parse().unwrap_or(0);
+                        }
+                    }
+                }
+            }
+        }
+
         // If no branches listed (detached HEAD), add current branch manually
         if branches.is_empty() {
             if let Some(ref cur) = current {
@@ -635,17 +678,6 @@ pub async fn git_branch_list(cwd: String) -> Result<Vec<GitBranchInfo>, AppError
         }
         Ok(branches)
     }).await.map_err(|e| AppError::Io(e.to_string()))?
-}
-
-fn parse_track(track: &str, key: &str) -> i32 {
-    let pattern = format!("{} ", key);
-    if let Some(idx) = track.find(&pattern) {
-        let rest = &track[idx + pattern.len()..];
-        let num_str: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
-        num_str.parse::<i32>().unwrap_or(0)
-    } else {
-        0
-    }
 }
 
 fn strip_diff_headers(output: &str) -> String {

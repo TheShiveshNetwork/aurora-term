@@ -1,6 +1,11 @@
 import { EditorView } from "@codemirror/view";
+import { Compartment } from "@codemirror/state";
 import type { Extension } from "@codemirror/state";
 import type { EditorThemeName } from "../../stores/useSettingsStore";
+
+export function createThemeCompartment(): Compartment {
+  return new Compartment();
+}
 
 export const READONLY_EDITOR_THEME = EditorView.theme({
   "&": { backgroundColor: "transparent", height: "100%" },
@@ -64,6 +69,10 @@ export async function getEditorTheme(name: EditorThemeName): Promise<Extension> 
     case "xcode": {
       const { xcodeDark } = await import("@uiw/codemirror-theme-xcode");
       return xcodeDark;
+    }
+    default: {
+      const { dracula } = await import("@uiw/codemirror-theme-dracula");
+      return dracula;
     }
   }
 }

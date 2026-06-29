@@ -111,7 +111,7 @@ export function AppHeader({
       }}
     >
       {/* ── Left: branding pill + view mode ── */}
-      <div id="header-left" data-tauri-no-drag className="flex items-center gap-1.5 py-1 shrink-0">
+      <div id="header-left" data-tauri-drag-region className="flex items-center gap-1.5 py-1 shrink-0">
         {noFolder ? (
           <div className="relative">
             <button
@@ -206,6 +206,7 @@ export function AppHeader({
           <>
             {/* View mode toggle */}
             <div
+              data-tauri-no-drag
               className="flex items-center gap-0.5 ml-1 p-0.5 rounded-[12px]"
               style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.05)" }}
             >
@@ -228,13 +229,13 @@ export function AppHeader({
       </div>
 
       {/* ── Center: search bar ── */}
-      <div className="flex justify-center min-w-0">
+      <div data-tauri-drag-region className="flex justify-center min-w-0">
         <SearchBar collapsed={searchCollapsed} cwdAbsolute={cwdAbsolute} onOpenFileAtPath={onOpenFileAtPath} />
       </div>
 
       {/* ── Right: panel toggles + pin + settings + avatar + window controls ── */}
-      <div className="flex items-center justify-end gap-0.5 shrink-0">
-        <div id="header-right" data-tauri-no-drag className="flex items-center gap-0.5 py-1">
+      <div data-tauri-drag-region className="flex items-center justify-end gap-0.5 shrink-0">
+        <div id="header-right" data-tauri-drag-region className="flex items-center gap-0.5 py-1">
           {!noFolder && !isStandalone && (
             <>
               <IconBtn onClick={onToggleSidebar} title={sidebarCollapsed ? "Show Sidebar" : "Hide Sidebar"}>
@@ -245,9 +246,11 @@ export function AppHeader({
                 {agentOverlayOpen ? <PanelRightClose size={14} /> : <PanelRight size={14} />}
               </IconBtn>
 
-              <IconBtn onClick={onToggleChatInput} title={chatInputOpen ? "Hide Chat Input" : "Show Chat Input"}>
-                {chatInputOpen ? <PanelBottomClose size={14} /> : <PanelBottom size={14} />}
-              </IconBtn>
+              {viewMode !== "agent" && (
+                <IconBtn onClick={onToggleChatInput} title={chatInputOpen ? "Hide Chat Input" : "Show Chat Input"}>
+                  {chatInputOpen ? <PanelBottomClose size={14} /> : <PanelBottom size={14} />}
+                </IconBtn>
+              )}
             </>
           )}
 
@@ -286,7 +289,7 @@ export function AppHeader({
             </div>
           </button>
         </div>
-        <div id="window-controls" className="flex h-full items-center shrink-0">
+        <div id="window-controls" data-tauri-no-drag className="flex h-full items-center shrink-0">
           <WindowControls />
         </div>
       </div>
@@ -484,7 +487,7 @@ function SearchBar({ collapsed, cwdAbsolute, onOpenFileAtPath }: { collapsed?: b
 
   if (collapsed && !iconOpen) {
     return (
-      <div data-search-bar className="flex-1 flex justify-center min-w-0">
+      <div data-search-bar data-tauri-no-drag className="flex-1 flex justify-center min-w-0">
         <button
           onClick={() => setIconOpen(true)}
           className="p-2 rounded-[10px] transition-colors cursor-pointer"
@@ -620,7 +623,7 @@ function SearchBar({ collapsed, cwdAbsolute, onOpenFileAtPath }: { collapsed?: b
   }
 
   return (
-    <div data-search-bar className="flex-1 flex justify-center min-w-0">
+    <div data-search-bar data-tauri-no-drag className="flex-1 flex justify-center min-w-0">
       <div className="relative w-full" style={{ maxWidth: "400px" }}>
         <div
           className="flex items-center h-9 py-1 px-2 gap-3 transition-all duration-200 warp-input-glow rounded-md w-full"
@@ -792,6 +795,7 @@ function IconBtn({
   return (
     <button
       type="button"
+      data-tauri-no-drag
       title={title}
       onClick={onClick}
       className="p-2 rounded-[10px] transition-colors cursor-pointer"

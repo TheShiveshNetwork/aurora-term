@@ -3,6 +3,7 @@ import { Terminal, FileText, Plus, X, Copy, Pin, Edit3, XCircle, Trash2, ArrowLe
 import { useOpenTabs, EDITOR_LIKE_TYPES } from "../../hooks/useOpenTabs";
 import { Tab } from "@aurora/types";
 import { MenuView, MenuViewItem, MenuViewSeparator } from "./MenuView";
+import { Button } from "./Button";
 import { closeAllPopups, onClosePopups } from "../../lib/popups";
 import { system } from "../../lib/ipc";
 
@@ -336,7 +337,7 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
                 closeAllPopups();
                 setContextTab({ x: e.clientX, y: e.clientY, tab });
               }}
-              className={`safari-tab select-none ${isActive ? "active" : ""} ${isOver ? "drag-over" : ""} ${isDragging ? "opacity-40" : ""} ${isExpanded ? "" : "!justify-center !p-0 !gap-0"
+              className={`safari-tab select-none group ${isActive ? "active" : ""} ${isOver ? "drag-over" : ""} ${isDragging ? "opacity-40" : ""} ${isExpanded ? "" : "!justify-center !p-0 !gap-0"
                 }`}
               style={{
                 flex: isExpanded ? "1 1 150px" : "0 0 40px",
@@ -371,9 +372,17 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
                   onKillTab(tab.id);
                 }}
                 className={`absolute right-1.5 shrink-0 transition-all duration-200 hover:bg-surface-variant/40 rounded p-0.5 text-on-surface-variant/40 hover:text-on-surface-variant ${isExpanded ? "opacity-100" : "opacity-0 pointer-events-none"
-                  }`}
+                  } flex items-center justify-center`}
+                style={{ width: "20px", height: "20px" }}
               >
-                <X size={14} />
+                {tab.dirty ? (
+                  <>
+                    <span className="w-2 h-2 rounded-full bg-[#4F8CFF] group-hover:hidden inline-block" />
+                    <X size={14} className="hidden group-hover:block" />
+                  </>
+                ) : (
+                  <X size={14} />
+                )}
               </button>
             </div>
           );
@@ -640,28 +649,18 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
             />
 
             <div className="flex justify-end gap-2">
-              <button
-                className="px-4 py-2 rounded-[10px] text-[12px] font-medium transition-all cursor-pointer"
-                style={{ color: "rgba(232,234,240,0.55)" }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; e.currentTarget.style.color = "#E8EAF0"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "rgba(232,234,240,0.55)"; }}
+              <Button
+                variant="outline"
                 onClick={() => setRenameTabId(null)}
               >
                 Cancel
-              </button>
-              <button
-                className="px-4 py-2 rounded-[10px] text-[12px] font-semibold transition-all cursor-pointer"
-                style={{
-                  background: "rgba(79,140,255,0.15)",
-                  border: "1px solid rgba(79,140,255,0.25)",
-                  color: "#4F8CFF",
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(79,140,255,0.22)"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(79,140,255,0.15)"; }}
+              </Button>
+              <Button
+                variant="primary"
                 onClick={handleRenameSubmit}
               >
                 Rename
-              </button>
+              </Button>
             </div>
           </div>
         </div>

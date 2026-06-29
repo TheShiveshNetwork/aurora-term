@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 use aurora_commands::state::AppState;
-use aurora_config::ConfigLoader;
-use aurora_core::config::AppConfig;
+use aurora_config::{ConfigManager, UiStateManager};
 use aurora_pty::{PtyManager, PtyEvent};
+use aurora_db::HistoryDb;
 use tauri::{Manager, Emitter};
 use tauri_plugin_prevent_default::Flags;
 
@@ -76,23 +76,43 @@ pub fn run() {
             .with_denylist(&["settings"])
             .build())
         .setup(|app| {
-            let config_loader = ConfigLoader::new(app)?;
-            let config = config_loader.load().unwrap_or_else(|_| AppConfig::default());
-            
-            let db_dir: Option<PathBuf> = app.path()
-                .app_data_dir()
-                .map_err(|e| anyhow::anyhow!("Failed to get app data dir: {}", e))
-                .ok();
-            
+            // Resolve platform-specific config directory (single source of truth for persistence)
+            let config_dir = app.path()
+                .app_config_dir()
+                .map_err(|e| anyhow::anyhow!("Failed to get app config dir: {}", e))?;
+
+            // Load UI state first so we can get the last project dir
+            let mut ui_state_manager = UiStateManager::new(config_dir.clone());
+            let ui_state = ui_state_manager.load();
+
+            // Determine project directory from state
+            let project_dir: Option<PathBuf> = ui_state.last_project_dir.clone().map(PathBuf::from);
+
+            // Initialize config manager (global + project tier)
+            let mut config_manager = ConfigManager::new(config_dir.clone(), project_dir);
+            let _ = config_manager.load()
+                .unwrap_or_else(|e| {
+                    tracing::error!("Failed to load config, using defaults: {}", e);
+                    aurora_core::config::AppConfig::default()
+                });
+
+            // Initialize History Database on startup
+            let history_db = HistoryDb::new(Some(config_dir))?;
+
             let pty_manager = PtyManager::new();
             let (pty_sender, pty_receiver) = tokio::sync::mpsc::unbounded_channel::<PtyEvent>();
-            
+
             start_pty_event_bridge(app.handle().clone(), pty_receiver);
-            
-            // DB is lazily initialised on first history_search / history_add call
-            let state = AppState::new(pty_manager, config, pty_sender, db_dir);
-            app.manage(state);
-            
+
+            let app_state = AppState::new(
+                pty_manager,
+                config_manager,
+                ui_state_manager,
+                history_db,
+                pty_sender,
+            );
+            app.manage(app_state);
+
             // Spawn aurora-agent sidecar asynchronously on startup
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -117,8 +137,22 @@ pub fn run() {
             aurora_commands::write_file_content,
             aurora_commands::history_search,
             aurora_commands::history_add,
+            // Config commands
             aurora_commands::config_get,
-            aurora_commands::config_set,
+            aurora_commands::config_get_global,
+            aurora_commands::config_get_project,
+            aurora_commands::config_save_global,
+            aurora_commands::config_save_project,
+            aurora_commands::config_has_project,
+            // State commands
+            aurora_commands::state_get,
+            aurora_commands::state_update_sidebar,
+            aurora_commands::state_update_pinned_tabs,
+            aurora_commands::state_update_section_visibility,
+            aurora_commands::state_update_tabs,
+            aurora_commands::state_set_project_dir,
+            aurora_commands::state_set_workspace_cwd,
+            // AI commands
             aurora_commands::ai_save_api_key,
             aurora_commands::ai_delete_api_key,
             aurora_commands::ai_provider_status,
