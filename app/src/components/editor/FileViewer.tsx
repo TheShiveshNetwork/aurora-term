@@ -61,8 +61,8 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
   const setShowMinimap = useSettingsStore((s) => s.setShowMinimap);
   const wordWrap = useSettingsStore((s) => s.wordWrap);
   const [editorZoom, setEditorZoom] = useState(13);
-  const wordWrapCompartmentRef = useRef<any>(null);
-  const zoomCompartmentRef = useRef<any>(null);
+  const wordWrapCompartmentRef = useRef<Compartment | null>(null);
+  const zoomCompartmentRef = useRef<Compartment | null>(null);
 
 
   const [imageSrc, setImageSrc] = useState("");
@@ -300,7 +300,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
         const [
           { EditorView, keymap, lineNumbers },
           { EditorState, Prec, Compartment },
-          { autocompletion },
+          { autocompletion, completeAnyWord },
           { basicSetup },
           content,
           languageExt,
@@ -326,6 +326,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
         const extensions: any[] = [
           basicSetup,
           autocompletion({ activateOnTyping: true, maxRenderedOptions: 12 }),
+          EditorState.languageData.of(() => [{ autocomplete: completeAnyWord }]),
           Prec.high(keymap.of([
             { key: "Mod-c", run: (view) => {
               if (!view.state.selection.main.empty) return false;
@@ -360,8 +361,8 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
             { key: "Mod--", run: () => { setEditorZoom((z) => Math.max(8, z - 1)); return true; } },
           ])),
           themeCompartmentRef.current.of([]),
-          wordWrapCompartmentRef.current.of(wordWrap ? EditorView.lineWrapping : []),
-          zoomCompartmentRef.current.of(EditorView.theme({
+          wordWrapCompartmentRef.current!.of(wordWrap ? EditorView.lineWrapping : []),
+          zoomCompartmentRef.current!.of(EditorView.theme({
             ".cm-content": { fontSize: `${editorZoom}px` },
             ".cm-gutters": { fontSize: `${editorZoom}px` },
             ".cm-scroller": { fontSize: `${editorZoom}px` }
@@ -638,7 +639,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
     import("@codemirror/view").then(({ EditorView }) => {
       if (viewRef.current === view) {
         view.dispatch({
-          effects: wordWrapCompartmentRef.current.reconfigure(wordWrap ? EditorView.lineWrapping : [])
+          effects: wordWrapCompartmentRef.current!.reconfigure(wordWrap ? EditorView.lineWrapping : [])
         });
       }
     });
@@ -651,7 +652,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
     import("@codemirror/view").then(({ EditorView }) => {
       if (viewRef.current === view) {
         view.dispatch({
-          effects: zoomCompartmentRef.current.reconfigure(
+          effects: zoomCompartmentRef.current!.reconfigure(
             EditorView.theme({
               ".cm-content": { fontSize: `${editorZoom}px` },
               ".cm-gutters": { fontSize: `${editorZoom}px` },
@@ -668,7 +669,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
     const el = editorRef.current;
     if (!el) return;
 
-    const handleWheel = (e: WheelEvent) => {
+    const handleWheel = (e: globalThis.WheelEvent) => {
       if (e.ctrlKey) {
         e.preventDefault();
         if (e.deltaY < 0) {

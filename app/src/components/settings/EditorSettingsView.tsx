@@ -68,6 +68,12 @@ export default function EditorSettingsView() {
           <ToggleSwitch checked={draft.config.editor.word_wrap} onChange={(v) => updateDraft((d) => { d.config.editor.word_wrap = v; })} />
         </FieldRow>
       </div>
+
+      <div id="setting-show-minimap">
+        <FieldRow label="Show Minimap">
+          <ToggleSwitch checked={draft.config.editor.show_minimap} onChange={(v) => updateDraft((d) => { d.config.editor.show_minimap = v; })} />
+        </FieldRow>
+      </div>
     </div>
   );
 }

@@ -625,4 +625,26 @@ All UI state IPC in `app/src/lib/ipc.ts` → `state.*`:
 
 ---
 
-*Last updated: 2026-06-29*
+## 18. Sidecar Compilation & Packaging (Bun & Tauri)
+
+The `aurora-agent` sidecar is built from TypeScript source (`packages/aurora-agent`) into a native, standalone, single-file executable using Bun's compiler during the Cargo build process.
+
+### 18.1 Build-Time Compilation (`build.rs`)
+- **Trigger:** Cargo automatically runs `tauri/build.rs` during compile/build commands (`cargo build`, `pnpm tauri dev`, `pnpm tauri build`).
+- **Tooling:** Bun compiler (`bun build --compile --minify`) compiles the entrypoint `packages/aurora-agent/src/index.ts`.
+- **Target Triples:** The output is written to `tauri/binaries/aurora-agent-<target-triple>` (e.g. `aurora-agent-x86_64-pc-windows-msvc.exe` on Windows). Target triples are resolved dynamically from Cargo's `TARGET` environment variable.
+- **Rerun Trigger:** Cargo monitors `packages/aurora-agent/src` for changes with `cargo:rerun-if-changed`.
+- **Debug Fallback:** If `bun` is missing on the build system during dev/debug builds, `build.rs` generates a placeholder file to prevent build failures. For release builds, it triggers a compile-time panic.
+
+### 18.2 Packaging (`tauri.conf.json`)
+- Native sidecar binaries are registered under `bundle.externalBin` inside `tauri/tauri.conf.json` as `binaries/aurora-agent`.
+- To prevent `tauri dev` from triggering infinite rebuild loops when `build.rs` writes compilation output to `tauri/binaries`, the `tauri/binaries` directory is ignored in `tauri/.taurignore`.
+- Compiled sidecars are added to `.gitignore` via `tauri/binaries/aurora-agent-*` to prevent binary files from being checked into version control.
+
+### 18.3 Sidecar Lifecycle (`crates/aurora-sidecar`)
+- **Dev Mode:** Spawns `pnpm --dir packages/aurora-agent dev --port <port>` from the workspace directory (retaining developer hot-reloading).
+- **Production Mode:** Resolves the packaged native executable (`aurora-agent-<target-triple>`) next to the main application executable and spawns it directly.
+
+---
+
+*Last updated: 2026-06-30*

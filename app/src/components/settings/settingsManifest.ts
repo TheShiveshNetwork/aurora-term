@@ -36,6 +36,7 @@ export const SETTINGS_MANIFEST: SettingsManifestEntry[] = [
   { id: "cursorStyle", label: "Cursor Style", description: "Terminal cursor appearance", elementId: "setting-cursor-style", section: "general", subPage: "editor" },
   { id: "cursorBlink", label: "Cursor Blink", description: "Toggle cursor blinking in terminal", elementId: "setting-cursor-blink", section: "general", subPage: "editor" },
   { id: "wordWrap", label: "Word Wrap", description: "Toggle editor word wrapping", elementId: "setting-word-wrap", section: "general", subPage: "editor" },
+  { id: "showMinimap", label: "Show Minimap", description: "Toggle editor code minimap", elementId: "setting-show-minimap", section: "general", subPage: "editor" },
   // ── Appearance ──
   { id: "theme", label: "Theme", description: "Dark/Light theme", elementId: "setting-theme", section: "general", subPage: "appearance" },
   { id: "editorTheme", label: "Editor Theme", description: "CodeMirror editor color theme", elementId: "setting-editor-theme", section: "general", subPage: "appearance" },
