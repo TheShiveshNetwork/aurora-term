@@ -52,26 +52,70 @@ impl SidecarManager {
         let port = self.find_free_port()?;
         let _ = std::fs::write("d:/builds/aurora/sidecar_status.log", format!("SidecarManager::spawn: found port {}", port));
 
-        #[cfg(target_os = "windows")]
-        let mut cmd = {
-            let mut c = tokio::process::Command::new("cmd");
-            c.args(["/c", "pnpm", "--dir", "packages/aurora-agent", "dev", "--port", &port.to_string()]);
+        #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+        const TARGET_TRIPLE: &str = "x86_64-pc-windows-msvc";
+        #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+        const TARGET_TRIPLE: &str = "x86_64-apple-darwin";
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        const TARGET_TRIPLE: &str = "aarch64-apple-darwin";
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        const TARGET_TRIPLE: &str = "x86_64-unknown-linux-gnu";
+        #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+        const TARGET_TRIPLE: &str = "aarch64-unknown-linux-gnu";
+        #[cfg(not(any(
+            all(target_os = "windows", target_arch = "x86_64"),
+            all(target_os = "macos", target_arch = "x86_64"),
+            all(target_os = "macos", target_arch = "aarch64"),
+            all(target_os = "linux", target_arch = "x86_64"),
+            all(target_os = "linux", target_arch = "aarch64")
+        )))]
+        const TARGET_TRIPLE: &str = "unknown";
+
+        let is_dev = cfg!(debug_assertions);
+        let workspace_root = find_workspace_root();
+        
+        let mut cmd = if is_dev && workspace_root.is_some() {
+            let root = workspace_root.unwrap();
+            let _ = std::fs::write("d:/builds/aurora/sidecar_status.log", format!("SidecarManager::spawn: using workspace root {:?}", root));
+            
+            #[cfg(target_os = "windows")]
+            {
+                let mut c = tokio::process::Command::new("cmd");
+                c.args(["/c", "pnpm", "--dir", "packages/aurora-agent", "dev", "--port", &port.to_string()]);
+                c.current_dir(root);
+                c.as_std_mut().creation_flags(0x08000000); // CREATE_NO_WINDOW
+                c
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                let mut c = tokio::process::Command::new("pnpm");
+                c.args(["--dir", "packages/aurora-agent", "dev", "--port", &port.to_string()]);
+                c.current_dir(root);
+                c
+            }
+        } else {
+            let _ = std::fs::write("d:/builds/aurora/sidecar_status.log", "SidecarManager::spawn: using compiled production binary");
+            let mut exe_path = std::env::current_exe().map_err(|e| AppError::Sidecar(format!("Failed to get current executable path: {}", e)))?;
+            exe_path.pop(); // get directory containing the executable
+            
+            let binary_name = format!("aurora-agent-{}", TARGET_TRIPLE);
+            #[cfg(target_os = "windows")]
+            let binary_name = format!("{}.exe", binary_name);
+            let sidecar_path = exe_path.join(binary_name);
+            
+            if !sidecar_path.exists() {
+                return Err(AppError::Sidecar(format!(
+                    "Compiled sidecar binary not found at {:?}",
+                    sidecar_path
+                )));
+            }
+            
+            let mut c = tokio::process::Command::new(sidecar_path);
+            c.args(["--port", &port.to_string()]);
+            #[cfg(target_os = "windows")]
             c.as_std_mut().creation_flags(0x08000000); // CREATE_NO_WINDOW
             c
         };
-        #[cfg(not(target_os = "windows"))]
-        let mut cmd = {
-            let mut c = tokio::process::Command::new("pnpm");
-            c.args(["--dir", "packages/aurora-agent", "dev", "--port", &port.to_string()]);
-            c
-        };
-
-        if let Some(root) = find_workspace_root() {
-            let _ = std::fs::write("d:/builds/aurora/sidecar_status.log", format!("SidecarManager::spawn: using workspace root {:?}", root));
-            cmd.current_dir(root);
-        } else {
-            let _ = std::fs::write("d:/builds/aurora/sidecar_status.log", "SidecarManager::spawn: workspace root not found!");
-        }
 
         for (k, v) in envs {
             cmd.env(k, v);

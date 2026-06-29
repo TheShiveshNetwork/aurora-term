@@ -136,7 +136,7 @@ Depends on `aurora-core`. No Tauri.
 
 ### `crates/aurora-sidecar`
 Depends on `aurora-core`. No Tauri.
-- `manager.rs` — `SidecarManager`: spawn the aurora-agent sidecar process, track its `Child`, expose `port()` after health check. Kill on drop.
+- `manager.rs` — `SidecarManager`: spawn the aurora-agent sidecar process, track its `Child`, expose `port()` after health check. Kill on drop. Spawns `pnpm dev --port <port>` in dev builds if a workspace root is present, and runs the native compiled standalone executable (`aurora-agent-<target-triple>`) next to the main app executable in release/production.
 - `monitor.rs` — poll child exit status on a background task. Send on a `oneshot` or `watch` channel so the Tauri layer can emit an `agent_crashed` event.
 
 ### `crates/aurora-app`
@@ -147,10 +147,11 @@ Depends on all other crates + `tauri`. This is the only crate that touches Tauri
 - `ai/providers/mod.rs` — `AiProvider` trait (see Section 7). Router calls through the trait; commands never call a provider directly.
 
 ### `tauri/`
-No logic whatsoever. Three responsibilities only:
+No runtime logic whatsoever. Four build and config responsibilities only:
 1. `main.rs` — `fn main() { aurora_app::run(); }`
-2. `tauri.conf.json` — `frontendDist: "../desktop/dist"`, `devUrl: "http://localhost:5173"`
+2. `tauri.conf.json` — `frontendDist: "../desktop/dist"`, `devUrl: "http://localhost:5173"`. Configured to package `binaries/aurora-agent` in the `bundle.externalBin` array.
 3. `capabilities/default.json` — grant only what the app uses. Read https://v2.tauri.app/security/capabilities/ before adding any permission.
+4. `build.rs` — automatically compiles `packages/aurora-agent/src/index.ts` to `tauri/binaries/aurora-agent-<target-triple>` using Bun's compiler on Cargo build.
 
 ---
 

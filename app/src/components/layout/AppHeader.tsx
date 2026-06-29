@@ -101,17 +101,17 @@ export function AppHeader({
 
   return (
     <header
-      id="aurora-tab-bar"
+      id="aurora-app-header"
       ref={headerRef}
       data-tauri-drag-region
-      className="grid grid-cols-[1fr_minmax(0,400px)_1fr] items-center w-full pl-3 py-0 h-auto z-50 select-none gap-3 shrink-0"
+      className="grid grid-cols-[1fr_minmax(0,400px)_1fr] w-full pl-3 h-auto z-50 select-none gap-3 shrink-0"
       style={{
         background: "#0A0D14",
         borderBottom: "1px solid rgba(255,255,255,0.05)",
       }}
     >
       {/* ── Left: branding pill + view mode ── */}
-      <div id="header-left" data-tauri-drag-region className="flex items-center gap-1.5 py-1 shrink-0">
+      <div id="header-left" data-tauri-drag-region className="flex items-center gap-1.5 py-1 shrink-0 self-center">
         {noFolder ? (
           <div className="relative">
             <button
@@ -229,13 +229,13 @@ export function AppHeader({
       </div>
 
       {/* ── Center: search bar ── */}
-      <div data-tauri-drag-region className="flex justify-center min-w-0">
+      <div data-tauri-drag-region className="flex justify-center min-w-0 self-center">
         <SearchBar collapsed={searchCollapsed} cwdAbsolute={cwdAbsolute} onOpenFileAtPath={onOpenFileAtPath} />
       </div>
 
       {/* ── Right: panel toggles + pin + settings + avatar + window controls ── */}
-      <div data-tauri-drag-region className="flex items-center justify-end gap-0.5 shrink-0">
-        <div id="header-right" data-tauri-drag-region className="flex items-center gap-0.5 py-1">
+      <div data-tauri-drag-region className="flex items-stretch justify-end gap-0.5 shrink-0 self-stretch">
+        <div id="header-right" data-tauri-drag-region className="flex items-center py-1 gap-0.5">
           {!noFolder && !isStandalone && (
             <>
               <IconBtn onClick={onToggleSidebar} title={sidebarCollapsed ? "Show Sidebar" : "Hide Sidebar"}>
