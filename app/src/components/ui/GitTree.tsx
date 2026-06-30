@@ -68,8 +68,9 @@ function buildGraphData(data: GitLogResult): GraphData {
     (branchByHash[b.commit_hash] ??= []).push(b.name);
   }
 
-  // colour per branch — main/master gets amber, current branch gets purple
-  const mainBranchName = branches.find(b => /^main$|^master$/.test(b.name))?.name;
+  // colour per branch — origin/main gets amber, then main/master
+  const mainBranchName = branches.find(b => b.name === "origin/main")?.name
+    ?? branches.find(b => /^main$|^master$/.test(b.name))?.name;
   const upstreamName = mainBranchName || currentBranch;
   const branchColors: Record<string, string> = {};
   branchColors[upstreamName] = BRANCH_COLORS[0];

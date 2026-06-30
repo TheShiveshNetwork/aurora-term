@@ -1,6 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { ProviderName } from "@aurora/types";
+import { ProviderName, UiState, SavedTab } from "@aurora/types";
 
 // ─── Config types mirrored from Rust side ────────────────────────────────
 export interface TerminalConfig {
@@ -11,6 +10,7 @@ export interface TerminalConfig {
   theme: string;
   cursor_style: string;
   cursor_blink: boolean;
+  restore_tabs: boolean;
 }
 
 export interface AiConfig {
@@ -26,6 +26,7 @@ export interface AiConfig {
 }
 
 export interface ProviderConfig {
+  enabled: boolean;
   fast_model: string;
   balanced_model: string;
   powerful_model: string;
@@ -40,6 +41,7 @@ export interface KeybindingsConfig {
   close_tab: string;
   split_h: string;
   split_v: string;
+  overrides: Record<string, string>;
 }
 
 export interface AppearanceConfig {
@@ -48,12 +50,11 @@ export interface AppearanceConfig {
   blur_sidebar: boolean;
 }
 
-export interface UiStateConfig {
-  sidebar_collapsed: boolean;
-  tab_bar_visible: boolean;
-  pinned_tabs: string[];
-  workspace_cwd?: string;
-  project_dir?: string;
+export interface EditorConfig {
+  theme: string;
+  show_minimap: boolean;
+  git_gui_mode: string;
+  word_wrap: boolean;
 }
 
 export interface AppConfig {
@@ -61,7 +62,7 @@ export interface AppConfig {
   ai: AiConfig;
   keybindings: KeybindingsConfig;
   appearance: AppearanceConfig;
-  ui: UiStateConfig;
+  editor: EditorConfig;
 }
 
 export const pty = {
@@ -100,7 +101,27 @@ export const ai = {
 
 export const config = {
   get: () => invoke<AppConfig>("config_get"),
-  set: (appConfig: AppConfig) => invoke<void>("config_set", { config: appConfig }),
+  getGlobal: () => invoke<AppConfig>("config_get_global"),
+  getProject: () => invoke<AppConfig | null>("config_get_project"),
+  saveGlobal: (appConfig: AppConfig) => invoke<void>("config_save_global", { config: appConfig }),
+  saveProject: (appConfig: AppConfig) => invoke<void>("config_save_project", { config: appConfig }),
+  hasProject: () => invoke<boolean>("config_has_project"),
+};
+
+export const state = {
+  get: () => invoke<UiState>("state_get"),
+  updateSidebar: (collapsed: boolean, visible: boolean, showAiBar: boolean, chatInputOpen: boolean) =>
+    invoke<void>("state_update_sidebar", { collapsed, visible, showAiBar, chatInputOpen }),
+  updatePinnedTabs: (pinned: string[]) =>
+    invoke<void>("state_update_pinned_tabs", { pinned }),
+  updateSectionVisibility: (sections: Record<string, boolean>) =>
+    invoke<void>("state_update_section_visibility", { sections }),
+  updateTabs: (tabs: SavedTab[], activeId: string | null) =>
+    invoke<void>("state_update_tabs", { tabs, activeId }),
+  setProjectDir: (path: string | null) =>
+    invoke<void>("state_set_project_dir", { path }),
+  setWorkspaceCwd: (path: string | null) =>
+    invoke<void>("state_set_workspace_cwd", { path }),
 };
 
 export interface FileNode {
@@ -167,8 +188,6 @@ export interface GitBranchInfo {
   commit_hash: string;
 }
 
-// Deduplicate concurrent file reads — when openFile starts reading a file
-// before the FileViewer mounts, both calls share the same in-flight promise.
 const pendingFileReads = new Map<string, Promise<string>>();
 
 export function preloadFileContent(path: string): void {
@@ -216,6 +235,8 @@ export const system = {
     invoke<string>("create_path", { parentDir, name, isDir }),
   watchDirectory: (path: string) =>
     invoke<void>("watch_directory", { path }),
+  watchFiles: (paths: string[]) =>
+    invoke<void>("watch_files", { paths }),
   watchGit: (cwd: string) =>
     invoke<void>("watch_git", { cwd }),
   readShellHistory: () =>
@@ -252,6 +273,8 @@ export const system = {
     invoke<void>("git_reset", { cwd, paths }),
   gitRestore: (cwd: string, paths: string[]) =>
     invoke<void>("git_restore", { cwd, paths }),
+  gitClean: (cwd: string, paths: string[]) =>
+    invoke<void>("git_clean", { cwd, paths }),
   gitCommit: (cwd: string, message: string) =>
     invoke<string>("git_commit", { cwd, message }),
   gitPush: (cwd: string, remote: string, branch: string) =>

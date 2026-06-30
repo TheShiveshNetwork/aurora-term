@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { IconButton } from "../ui/IconButton";
+import { Button } from "../ui/Button";
 import { v4 as uuidv4 } from "uuid";
 import {
   GitBranch, ArrowUp, ArrowDown, RefreshCw, Plus, X, ChevronDown,
@@ -17,6 +18,7 @@ import { CommitDiffView } from "../editor/CommitDiffView";
 import { GitTree } from "../ui/GitTree";
 import { LoadingSpinner } from "../ui/LoadingSpinner";
 import { MenuView, MenuViewItem, MenuViewSeparator } from "../ui/MenuView";
+import { ChangesDiffView } from "./ChangesDiffView";
 
 const STATUS_COLOR: Record<string, string> = {
   M: "rgba(255,179,0,0.75)",
@@ -54,6 +56,7 @@ export function GitView({ cwd, tabId }: GitViewProps) {
   const [error, setError] = useState<string | null>(null);
   const [branchesMenuOpen, setBranchesMenuOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; branch?: string; entry?: GitStatusEntry } | null>(null);
+  const [showChangesView, setShowChangesView] = useState(false);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [selectedDiff, setSelectedDiff] = useState<string | null>(null);
   const [diffLoading, setDiffLoading] = useState(false);
@@ -157,6 +160,15 @@ export function GitView({ cwd, tabId }: GitViewProps) {
   const handleRestore = useCallback(async (paths: string[]) => {
     try {
       await system.gitRestore(cwd, paths);
+      clearDiffCache();
+      useGitStore.getState().invalidateStatus(cwd);
+      await refreshStatus();
+    } catch (e) { console.error(e); }
+  }, [cwd, refreshStatus, clearDiffCache]);
+
+  const handleClean = useCallback(async (paths: string[]) => {
+    try {
+      await system.gitClean(cwd, paths);
       clearDiffCache();
       useGitStore.getState().invalidateStatus(cwd);
       await refreshStatus();
@@ -560,10 +572,10 @@ export function GitView({ cwd, tabId }: GitViewProps) {
       {/* ── Main content: resizable left/right panels ──────────────── */}
       <div className="flex flex-1 min-h-0">
         {/* ── Left panel ──────────────────────────────────────────── */}
-        <div ref={leftPanelRef} style={{ width: leftWidth, minWidth: 0, borderColor: "rgba(255,255,255,0.05)" }} className="flex flex-col shrink-0 border-r relative overflow-hidden">
+        <div ref={leftPanelRef} style={{ width: leftWidth, minWidth: 0, borderColor: "rgba(255,255,255,0.05)" }} className="flex flex-col shrink-0 border-r relative">
 
           {/* Branches */}
-          <div className="shrink-0 flex flex-col overflow-hidden" style={{ height: sectionHeights.branches }}>
+          <div className="shrink-0 flex flex-col" style={{ height: sectionHeights.branches }}>
             <SectionHeader label="Branches" count={branches.length} loading={branchesLoading}
               action={
                 <div className="relative">
@@ -649,10 +661,12 @@ export function GitView({ cwd, tabId }: GitViewProps) {
           <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
             <SectionHeader label="Changes" count={unstagedFiles.length + untrackedFiles.length} loading={statusLoading}>
               {(unstagedFiles.length + untrackedFiles.length) > 0 && <>
-                <IconButton icon={<FileDiff />} tooltip="Open Changes" onClick={() => handleOpenDiff(system.gitDiffUnstaged, "Unstaged changes")} size="sm" className="w-5 h-5 [&_svg]:w-3 [&_svg]:h-3" />
+                <IconButton icon={<FileDiff />} tooltip="Open Changes" onClick={() => { setShowChangesView(true); setSelectedFile(null); setSelectedDiff(null); }} size="sm" className="w-5 h-5 [&_svg]:w-3 [&_svg]:h-3" />
                 <IconButton icon={<Undo2 />} tooltip="Discard All Changes" onClick={() => {
-                  const all = [...unstagedFiles, ...untrackedFiles];
-                  if (all.length > 0) handleRestore(all.map(e => e.path));
+                  const tracked = unstagedFiles.map(e => e.path);
+                  const untracked = untrackedFiles.map(e => e.path);
+                  if (tracked.length > 0) handleRestore(tracked);
+                  if (untracked.length > 0) handleClean(untracked);
                 }} size="sm" className="w-5 h-5 [&_svg]:w-3 [&_svg]:h-3" />
                 <IconButton icon={<Plus />} tooltip="Stage All Changes" onClick={() => {
                   const all = [...unstagedFiles, ...untrackedFiles];
@@ -671,7 +685,8 @@ export function GitView({ cwd, tabId }: GitViewProps) {
                 [...unstagedFiles, ...untrackedFiles].map(e => (
                   <ChangesFileRow key={`change-${e.path}`} entry={e}
                     onStage={() => handleStage([e.path])}
-                    onRestore={() => { if (e.x === " " && e.y !== " ") handleRestore([e.path]); }}
+                    onRestore={e.y !== " " && e.y !== "?" ? () => handleRestore([e.path]) : undefined}
+                    onDelete={e.x === "?" ? () => handleClean([e.path]) : undefined}
                     onOpenFile={() => handleOpenFile(e.path)}
                     onSelect={() => handleSelectFile(e, false)}
                     onContextMenu={ev => { ev.preventDefault(); setContextMenu({ x: ev.clientX, y: ev.clientY, entry: e }); }} />
@@ -702,24 +717,30 @@ export function GitView({ cwd, tabId }: GitViewProps) {
               placeholder={stagedForCommit ? "Commit message…" : "Stage changes to commit…"}
               className="flex-1 bg-transparent outline-none text-[13px] text-on-surface placeholder:text-white/25"
             />
-            <button
+            <Button
               onClick={handleCommit}
               disabled={!commitMessage.trim() || !stagedForCommit}
-              className="px-3 py-1.5 text-[11px] font-medium rounded-lg transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-default"
-              style={{
-                background: "rgba(79,140,255,1)",
-                color: "#FFFFFF",
-                border: "none",
-              }}
-              onMouseEnter={e => { if (!e.currentTarget.disabled) e.currentTarget.style.background = "rgba(59,120,235,1)"; }}
-              onMouseLeave={e => { if (!e.currentTarget.disabled) e.currentTarget.style.background = "rgba(79,140,255,1)"; }}
+              variant="primary"
+              size="sm"
             >
               Commit to {currentBranch}
-            </button>
+            </Button>
           </div>
 
-          {/* Diff view (only when a file is selected) */}
-          {selectedFile && (
+          {/* Changes overview (multi-file diff) */}
+          {showChangesView && (
+            <div className="flex-1 min-h-0 overflow-hidden flex flex-col" style={{ background: "var(--surface-container-low, #12131a)" }}>
+              <ChangesDiffView
+                files={[...unstagedFiles, ...untrackedFiles]}
+                cwd={cwd}
+                onClose={() => setShowChangesView(false)}
+                onOpenFile={(path) => handleOpenOrFocusFile(path)}
+              />
+            </div>
+          )}
+
+          {/* Single file diff view */}
+          {!showChangesView && selectedFile && (
             <div className="flex-1 min-h-0 overflow-hidden flex flex-col select-text" style={{ background: "var(--surface-container-low, #12131a)" }}>
               <div className="flex items-center justify-between px-3 py-1 shrink-0 border-b gap-1" style={{ borderColor: "rgba(255,255,255,0.05)", minHeight: 28 }}>
                 <span
@@ -758,7 +779,7 @@ export function GitView({ cwd, tabId }: GitViewProps) {
           )}
 
           {/* Drag handle for commit history — only when diff is open */}
-          {selectedFile && (
+          {!showChangesView && selectedFile && (
             <div
               onMouseDown={startCommitHistoryResize}
               className="shrink-0 h-[4px] cursor-row-resize transition-colors hover:bg-primary/30 relative z-10"
@@ -816,8 +837,13 @@ export function GitView({ cwd, tabId }: GitViewProps) {
             </MenuViewItem>
           )}
           {contextMenu.entry.x === " " && contextMenu.entry.y !== " " && (
-            <MenuViewItem variant="rightclick" danger onClick={() => { setContextMenu(null); handleRestore([contextMenu.entry!.path]); }} icon={<Trash2 size={12} />}>
+            <MenuViewItem variant="rightclick" danger onClick={() => { setContextMenu(null); handleRestore([contextMenu.entry!.path]); }} icon={<Undo2 size={12} />}>
               Discard changes
+            </MenuViewItem>
+          )}
+          {contextMenu.entry.x === "?" && (
+            <MenuViewItem variant="rightclick" danger onClick={() => { setContextMenu(null); handleClean([contextMenu.entry!.path]); }} icon={<Trash2 size={12} />}>
+              Delete file
             </MenuViewItem>
           )}
           <MenuViewSeparator />
@@ -904,10 +930,11 @@ function StagedFileRow({ entry, onUnstage, onOpenFile, onSelect, onContextMenu }
   );
 }
 
-function ChangesFileRow({ entry, onStage, onRestore, onOpenFile, onSelect, onContextMenu }: {
+function ChangesFileRow({ entry, onStage, onRestore, onDelete, onOpenFile, onSelect, onContextMenu }: {
   entry: GitStatusEntry;
   onStage: () => void;
   onRestore?: () => void;
+  onDelete?: () => void;
   onOpenFile: () => void;
   onSelect: () => void;
   onContextMenu?: (e: React.MouseEvent) => void;
@@ -937,6 +964,7 @@ function ChangesFileRow({ entry, onStage, onRestore, onOpenFile, onSelect, onCon
         <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 group-hover:bg-primary rounded" style={{ pointerEvents: "auto" }}>
           <IconButton icon={<FileSymlink />} tooltip="Open File" onClick={onOpenFile} size="sm" className="w-5 h-5 [&_svg]:w-[11px] [&_svg]:h-[11px] text-white" />
           {onRestore && <IconButton icon={<Undo2 />} tooltip="Discard Changes" onClick={onRestore} size="sm" className="w-5 h-5 [&_svg]:w-[11px] [&_svg]:h-[11px] text-white" />}
+          {onDelete && <IconButton icon={<Trash2 />} tooltip="Delete File" onClick={onDelete} size="sm" className="w-5 h-5 [&_svg]:w-[11px] [&_svg]:h-[11px] text-red-400" />}
           <IconButton icon={<Plus />} tooltip="Stage" onClick={onStage} size="sm" className="w-5 h-5 [&_svg]:w-[11px] [&_svg]:h-[11px] text-white" />
         </div>
       )}

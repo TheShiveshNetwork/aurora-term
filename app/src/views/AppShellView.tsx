@@ -1,5 +1,4 @@
-import { type FormEvent, lazy, Suspense, useEffect, useMemo } from "react";
-import { useShallow } from "zustand/react/shallow";
+import { type FormEvent, lazy, Suspense, useEffect, useMemo, useRef } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { v4 as uuidv4 } from "uuid";
 import { Tab } from "@aurora/types";
@@ -9,6 +8,7 @@ import { useCommandExecution } from "../hooks/useCommandExecution";
 import { useAgentExecution } from "../hooks/useAgentExecution";
 import { usePersistUIState } from "../hooks/usePersistUIState";
 import { useWindowClamp } from "../hooks/useWindowClamp";
+import { useKeybindings } from "../hooks/useKeybindings";
 import { useAppShellStore } from "../stores/useAppShellStore";
 import { useBlockStore } from "../stores/useBlockStore";
 import { useSessionStore } from "../stores/useSessionStore";
@@ -28,22 +28,20 @@ import { classifyInput, setAvailableCommands, type ShellType } from "../lib/nlCl
 import { system } from "../lib/ipc";
 import { closeAllPopups, onClosePopups } from "../lib/popups";
 
-// Eagerly preload file editor chunk at module load time so opening a file
-// never waits for a network fetch — React.lazy reuses the cached module.
-import("./FileWorkspaceView");
-
-const FileWorkspaceView = lazy(() => import("./FileWorkspaceView").then(m => ({ default: m.FileWorkspaceView })));
-const AgentView = lazy(() => import("./AgentView").then(m => ({ default: m.AgentView })));
-const DiffWorkspaceView = lazy(() => import("../components/editor/DiffWorkspaceView").then(m => ({ default: m.DiffWorkspaceView })));
-const CommitDiffView = lazy(() => import("../components/editor/CommitDiffView").then(m => ({ default: m.CommitDiffView })));
-const GitView = lazy(() => import("../components/git/GitView").then(m => ({ default: m.GitView })));
+import { FileWorkspaceView } from "./FileWorkspaceView";
+import { AgentView } from "./AgentView";
+import { DiffWorkspaceView } from "../components/editor/DiffWorkspaceView";
+import { CommitDiffView } from "../components/editor/CommitDiffView";
+import { GitView } from "../components/git/GitView";
 
 export function AppShellView() {
   const { tabs, activeTabId, spawnSession, killSession, openFile, setActiveTabId } = useAppBootstrap();
   const theme = useSettingsStore((state) => state.theme);
   const setTheme = useSettingsStore((state) => state.setTheme);
+  const bootstrapReady = useAppShellStore((s) => s.bootstrapReady);
   usePersistUIState();
   useWindowClamp();
+  useKeybindings();
 
   useEffect(() => {
     system.getAvailableCommands().then(setAvailableCommands).catch(() => { });
@@ -80,51 +78,37 @@ export function AppShellView() {
     setSessionCwd,
     appendCommandInput,
     clearSessionInteracted,
-  } = useAppShellStore(
-    useShallow((s) => ({
-      sidebarCollapsed: s.sidebarCollapsed,
-      showMenuDropdown: s.showMenuDropdown,
-      tabBarVisible: s.tabBarVisible,
-      viewMode: s.viewMode,
-      contextMenu: s.contextMenu,
-      pendingCloseTabId: s.pendingCloseTabId,
-      lastActiveTerminalId: s.lastActiveTerminalId,
-      lastActiveFileId: s.lastActiveFileId,
-      projectDir: s.projectDir,
-      projectDirLabel: s.projectDirLabel,
-      cwd: s.cwd,
-      cwdAbsolute: s.cwdAbsolute,
-      shellHistory: s.shellHistory,
-      interactedSessions: s.interactedSessions,
-      isCwdLoading: s.isCwdLoading,
-      showAiBar: s.showAiBar,
-      chatInputOpen: s.chatInputOpen,
-      setShowAiBar: s.setShowAiBar,
-      setChatInputOpen: s.setChatInputOpen,
-      toggleChatInputOpen: s.toggleChatInputOpen,
-      setShowMenuDropdown: s.setShowMenuDropdown,
-      toggleSidebarCollapsed: s.toggleSidebarCollapsed,
-      toggleShowMenuDropdown: s.toggleShowMenuDropdown,
-      toggleTabBarVisible: s.toggleTabBarVisible,
-      setViewMode: s.setViewMode,
-      clearContextMenu: s.clearContextMenu,
-      setPendingCloseTabId: s.setPendingCloseTabId,
-      setSessionCwd: s.setSessionCwd,
-      appendCommandInput: s.appendCommandInput,
-      clearSessionInteracted: s.clearSessionInteracted,
-    }))
-  );
+  } = useAppShellStore();
+
+  const layoutBackupRef = useRef<{
+    sidebarCollapsed: boolean;
+    chatInputOpen: boolean;
+    showAiBar: boolean;
+  } | null>(null);
 
   useEffect(() => {
-    if (viewMode === "file") {
-      useAppShellStore.getState().setSectionVisibility({
-        folders: true,
-        outline: true,
-        timeline: true,
-        git: true,
-      });
+    const store = useAppShellStore.getState();
+    if (viewMode === "agent") {
+      if (!layoutBackupRef.current) {
+        layoutBackupRef.current = {
+          sidebarCollapsed: store.sidebarCollapsed,
+          chatInputOpen: store.chatInputOpen,
+          showAiBar: store.showAiBar,
+        };
+      }
+      store.setSidebarCollapsed(true);
+      store.setChatInputOpen(false);
+      store.setShowAiBar(false);
+    } else {
+      if (layoutBackupRef.current) {
+        store.setSidebarCollapsed(layoutBackupRef.current.sidebarCollapsed);
+        store.setChatInputOpen(layoutBackupRef.current.chatInputOpen);
+        store.setShowAiBar(layoutBackupRef.current.showAiBar);
+        layoutBackupRef.current = null;
+      }
     }
   }, [viewMode]);
+
 
   const {
     activeCommandInput,
@@ -177,6 +161,7 @@ export function AppShellView() {
   const activeFilePath = (activeTab?.type === "file" || activeTab?.type === "diff") ? activeTab.filePath : undefined;
   const pendingTab = pendingCloseTabId ? tabs.find((tab) => tab.id === pendingCloseTabId) || null : null;
   const hasInteracted = activeTabId ? Boolean(interactedSessions[activeTabId]) : false;
+
 
   const handleSelectFolderDirectly = (path: string) => {
     useAppShellStore.getState().setProjectDir(path);
@@ -235,6 +220,7 @@ export function AppShellView() {
       const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
       new WebviewWindow(`aurora_${Date.now()}`, {
         title: "Aurora Terminal",
+        url: "/",
         width: 1024,
         height: 768,
         minWidth: 800,
@@ -319,10 +305,8 @@ export function AppShellView() {
 
   const handleShowTerminalView = async () => {
     setViewMode("terminal");
-    useAppShellStore.getState().setSidebarCollapsed(false);
-    useAppShellStore.getState().setChatInputOpen(true);
     const hasTerminal = tabs.some((tab) => tab.type === "terminal");
-
+ 
     if (!hasTerminal) {
       const { shell, args } = getDefaultShellLaunch();
       const spawnCwd = projectDir || cwdAbsolute;
@@ -334,22 +318,20 @@ export function AppShellView() {
       }
       return;
     }
-
+ 
     const targetId = lastActiveTerminalId && tabs.some((tab) => tab.id === lastActiveTerminalId)
       ? lastActiveTerminalId
       : tabs.find((tab) => tab.type === "terminal")?.id;
-
+ 
     if (targetId) {
       setActiveTabId(targetId);
     }
   };
-
+ 
   const handleShowFileView = async () => {
     setViewMode("file");
-    useAppShellStore.getState().setSidebarCollapsed(false);
-    useAppShellStore.getState().setChatInputOpen(true);
     const fileTabs = tabs.filter((tab) => tab.type === "file");
-
+ 
     if (fileTabs.length === 0) {
       const welcomeTabId = uuidv4();
       const fileCwd = projectDir || cwdAbsolute;
@@ -360,27 +342,25 @@ export function AppShellView() {
         filePath: undefined,
         cwd: fileCwd,
         created_at: Date.now(),
+        everChanged: false,
       };
-
+ 
       useSessionStore.getState().addTab(newTab);
       setActiveTabId(welcomeTabId);
       return;
     }
-
+ 
     const targetId = lastActiveFileId && tabs.some((tab) => tab.id === lastActiveFileId)
       ? lastActiveFileId
       : tabs.find((tab) => tab.type === "file")?.id;
-
+ 
     if (targetId) {
       setActiveTabId(targetId);
     }
   };
-
+ 
   const handleShowAgentView = () => {
     setViewMode("agent");
-    useAppShellStore.getState().setSidebarCollapsed(true);
-    useAppShellStore.getState().setShowAiBar(false);
-    useAppShellStore.getState().setChatInputOpen(false);
   };
 
   const handleOpenGitView = () => {
@@ -428,6 +408,10 @@ export function AppShellView() {
 
   const isStandalone = useMemo(() => document.title.includes("Terminal"), []);
   const gitViewActive = tabs.some(t => t.type === "git" && t.id === activeTabId);
+
+  if (!bootstrapReady) {
+    return <div className="h-screen w-screen" style={{ background: "#0A0D14" }} />;
+  }
 
   return (
     <div
@@ -511,6 +495,7 @@ export function AppShellView() {
                 filePath: undefined,
                 cwd: baseCwd,
                 created_at: Date.now(),
+                everChanged: false,
               };
               useSessionStore.getState().addTab(newTab);
               setActiveTabId(welcomeTabId);
@@ -521,9 +506,7 @@ export function AppShellView() {
           <main className="flex-1 flex flex-col min-w-0 bg-surface-container-low overflow-hidden relative">
             {viewMode === "agent" ? (
               <div className="flex-1 min-h-0 overflow-hidden">
-                <Suspense fallback={<div className="flex-1 flex items-center justify-center h-full"><span className="text-sm text-on-surface-variant">Loading...</span></div>}>
-                  <AgentView />
-                </Suspense>
+                <AgentView />
               </div>
             ) : (
               <>
@@ -553,6 +536,7 @@ export function AppShellView() {
                           filePath: undefined,
                           cwd: baseCwd,
                           created_at: Date.now(),
+                          everChanged: false,
                         };
                         useSessionStore.getState().addTab(newTab);
                         setActiveTabId(welcomeTabId);
@@ -599,30 +583,22 @@ export function AppShellView() {
                           }}
                         >
                           {tab.type === "file" ? (
-                              <Suspense fallback={<div className="flex-1 flex items-center justify-center h-full"><span className="text-sm text-on-surface-variant">Loading editor...</span></div>}>
-                                <FileWorkspaceView tab={tab} onOpenFile={handleOpenFile} onOpenFolder={handleOpenFolder} />
-                              </Suspense>
+                              <FileWorkspaceView tab={tab} onOpenFile={handleOpenFile} onOpenFolder={handleOpenFolder} />
                             ) : tab.type === "diff" && tab.diffContent ? (
-                              <Suspense fallback={<div className="flex-1 flex items-center justify-center h-full"><span className="text-sm text-on-surface-variant">Loading diff...</span></div>}>
-                                <CommitDiffView
-                                  diff={tab.diffContent}
-                                  commitHash={tab.diffCommitHash || ""}
-                                  collapsible={true}
-                                />
-                              </Suspense>
+                              <CommitDiffView
+                                diff={tab.diffContent}
+                                commitHash={tab.diffCommitHash || ""}
+                                collapsible={true}
+                              />
                             ) : tab.type === "diff" ? (
-                              <Suspense fallback={<div className="flex-1 flex items-center justify-center h-full"><span className="text-sm text-on-surface-variant">Loading diff...</span></div>}>
-                                <DiffWorkspaceView
-                                  filePath={tab.filePath || ""}
-                                  oldContent={tab.diffOldContent || ""}
-                                  newContent={tab.diffNewContent || ""}
-                                  commitHash={tab.diffCommitHash || ""}
-                                />
-                              </Suspense>
+                              <DiffWorkspaceView
+                                filePath={tab.filePath || ""}
+                                oldContent={tab.diffOldContent || ""}
+                                newContent={tab.diffNewContent || ""}
+                                commitHash={tab.diffCommitHash || ""}
+                              />
                             ) : tab.type === "git" ? (
-                              <Suspense fallback={<div className="flex-1 flex items-center justify-center h-full"><span className="text-sm text-on-surface-variant">Loading git view...</span></div>}>
-                                <GitView cwd={projectDir || cwdAbsolute} tabId={tab.id} />
-                              </Suspense>
+                              <GitView cwd={projectDir || cwdAbsolute} tabId={tab.id} />
                             ) : (
                               <TerminalWorkspaceView
                                 tab={tab}

@@ -1,52 +1,26 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { SectionTitle } from "./SettingsShared";
+import React, { useCallback, useEffect, useMemo, useRef, useState, useContext } from "react";
+import { SettingsContext, SectionTitle } from "./SettingsShared";
 import { Pencil, RotateCcw, Search, X } from "lucide-react";
-import { useSettingsStore } from "../../stores/useSettingsStore";
-
-interface KeybindingDef {
-  id: string;
-  command: string;
-  keys: string;
-  when: string;
-}
-
-const DEFAULT_KEYBINDINGS: KeybindingDef[] = [
-  { id: "command-palette", command: "Command Palette", keys: "Ctrl+P", when: "Global" },
-  { id: "toggle-ai-bar", command: "Toggle AI Bar", keys: "Ctrl+K", when: "Global" },
-  { id: "new-tab", command: "New Tab", keys: "Ctrl+T", when: "Global" },
-  { id: "close-tab", command: "Close Tab", keys: "Ctrl+W", when: "Global" },
-  { id: "split-horizontal", command: "Split Horizontal", keys: "Ctrl+Shift+D", when: "Global" },
-  { id: "split-vertical", command: "Split Vertical", keys: "Ctrl+Shift+E", when: "Global" },
-  { id: "new-window", command: "New Window", keys: "Ctrl+Shift+N", when: "Global" },
-  { id: "open-folder", command: "Open Folder", keys: "Ctrl+O", when: "Global" },
-  { id: "open-file", command: "Open File", keys: "Ctrl+Shift+O", when: "Global" },
-  { id: "toggle-sidebar", command: "Toggle Sidebar", keys: "Ctrl+B", when: "Global" },
-  { id: "focus-search", command: "Focus Search Bar", keys: "Ctrl+Shift+F", when: "Global" },
-  { id: "open-settings", command: "Open Settings", keys: "Ctrl+,", when: "Global" },
-  { id: "toggle-menu", command: "Toggle Menu", keys: "Alt", when: "Global" },
-  { id: "toggle-tab-bar", command: "Toggle Tab Bar", keys: "Ctrl+Shift+P", when: "Global" },
-  { id: "save-file", command: "Save File", keys: "Ctrl+S", when: "Editor" },
-  { id: "find", command: "Find", keys: "Ctrl+F", when: "Editor" },
-  { id: "select-all", command: "Select All", keys: "Ctrl+A", when: "Editor" },
-  { id: "copy", command: "Copy Line", keys: "Ctrl+C", when: "Editor / Terminal" },
-  { id: "cut", command: "Cut Line", keys: "Ctrl+X", when: "Editor" },
-  { id: "paste-clipboard", command: "Paste", keys: "Ctrl+V", when: "Editor / Terminal" },
-  { id: "toggle-comment", command: "Toggle Comment", keys: "Ctrl+/", when: "Editor" },
-  { id: "format-doc", command: "Format Document", keys: "Ctrl+Shift+I", when: "Editor" },
-  { id: "go-to-definition", command: "Go to Definition", keys: "F12", when: "Editor" },
-  { id: "peek-definition", command: "Peek Definition", keys: "Alt+F12", when: "Editor" },
-  { id: "find-references", command: "Find References", keys: "Shift+F12", when: "Editor" },
-  { id: "rename-symbol", command: "Rename Symbol", keys: "F2", when: "Editor" },
-  { id: "run-file", command: "Run / Debug File", keys: "Ctrl+F5", when: "Editor" },
-  { id: "terminal-clear", command: "Clear Terminal", keys: "Ctrl+L", when: "Terminal" },
-  { id: "terminal-search", command: "Search Terminal", keys: "Ctrl+Shift+F", when: "Terminal" },
-  { id: "terminal-new", command: "New Terminal", keys: "Ctrl+Shift+`", when: "Terminal" },
-];
+import { DEFAULT_KEYBINDINGS, KeybindingDef } from "../../stores/useSettingsStore";
 
 export default function KeybindingsSettingsView() {
-  const keybindingOverrides = useSettingsStore((s) => s.keybindingOverrides);
-  const setKeybindingOverride = useSettingsStore((s) => s.setKeybindingOverride);
-  const resetKeybindingOverride = useSettingsStore((s) => s.resetKeybindingOverride);
+  const context = useContext(SettingsContext);
+  if (!context) return null;
+  const { draft, updateDraft } = context;
+
+  const keybindingOverrides = draft.config.keybindings.overrides;
+
+  const setKeybindingOverride = (id: string, keys: string) => {
+    updateDraft((d) => {
+      d.config.keybindings.overrides[id] = keys;
+    });
+  };
+
+  const resetKeybindingOverride = (id: string) => {
+    updateDraft((d) => {
+      delete d.config.keybindings.overrides[id];
+    });
+  };
 
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -151,7 +125,7 @@ export default function KeybindingsSettingsView() {
           <div className="w-[72px] shrink-0 text-left">Source</div>
         </div>
 
-        <div className="max-h-[420px] overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
+        <div className="h-full overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
           {filtered.length === 0 ? (
             <div className="flex items-center justify-center py-8 text-[12px] text-on-surface/30">
               No keybindings match your search

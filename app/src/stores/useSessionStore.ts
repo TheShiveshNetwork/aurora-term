@@ -12,12 +12,14 @@ interface SessionStore {
   updateTab: (id: string, partial: Partial<Tab>) => void;
   reorderTabs: (fromIndex: number, toIndex: number) => void;
   setAlternateBufferActive: (id: string, active: boolean) => void;
+  setTabs: (tabs: Tab[]) => void;
 }
 
 export const useSessionStore = create<SessionStore>((set) => ({
   tabs: [],
   activeTabId: null,
   alternateBufferActive: {},
+  setTabs: (tabs) => set({ tabs }),
   addTab: (tab) =>
     set((state) => ({
       tabs: [...state.tabs, tab],

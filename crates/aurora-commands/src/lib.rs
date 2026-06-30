@@ -3,5 +3,5 @@ pub mod watcher;
 pub mod commands;
 
 pub use state::AppState;
-pub use watcher::FileWatcher;
+pub use watcher::{FileWatcher, FileContentWatcher};
 pub use commands::*;

@@ -1,4 +1,5 @@
 import React, { ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 export type MenuVariant = "primary" | "secondary" | "rightclick";
 
@@ -117,7 +118,7 @@ export function MenuView({
 
   const isRightClick = variant === "rightclick";
 
-  return (
+  const content = (
     <div
       ref={panelRef}
       onMouseDown={(e) => e.stopPropagation()}
@@ -143,6 +144,12 @@ export function MenuView({
       {children}
     </div>
   );
+
+  if (isRightClick) {
+    return createPortal(content, document.body);
+  }
+
+  return content;
 }
 
 // ── MenuViewItem ─────────────────────────────────────────────────────
@@ -246,7 +253,7 @@ function getVariantStyles(variant: MenuVariant) {
   switch (variant) {
     case "primary":
       return {
-        containerClass: `${base} p-1 z-[500]`,
+        containerClass: `${base} p-1.5 z-[99999]`,
         background: "#0F131A",
         border: "1px solid rgba(255,255,255,0.08)",
         borderRadius: "14px",
@@ -254,7 +261,7 @@ function getVariantStyles(variant: MenuVariant) {
       };
     case "secondary":
       return {
-        containerClass: `${base} p-1 z-[500]`,
+        containerClass: `${base} p-1 z-[99999]`,
         background: "#0F131A",
         border: "1px solid rgba(255,255,255,0.08)",
         borderRadius: "8px",
@@ -262,7 +269,7 @@ function getVariantStyles(variant: MenuVariant) {
       };
     case "rightclick":
       return {
-        containerClass: `fixed glass-panel z-[500] min-w-[200px] py-1 px-1`,
+        containerClass: `fixed glass-panel z-[99999] min-w-[200px] py-1 px-1`,
         background: "#0F131A",
         border: "1px solid rgba(255,255,255,0.08)",
         borderRadius: "12px",

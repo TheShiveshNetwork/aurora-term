@@ -12,6 +12,7 @@ import { useAppShellStore } from "../../stores/useAppShellStore";
 import { MenuView, MenuViewItem, MenuViewSeparator } from "./MenuView";
 import { closeAllPopups, onClosePopups } from "../../lib/popups";
 import type { SideSection } from "../../stores/useAppShellStore";
+import { Button } from "./Button";
 import { useCopyWithFeedback } from "../../hooks/useCopyWithFeedback";
 import { system } from "../../lib/ipc";
 import type { FileNode } from "../../lib/ipc";
@@ -335,7 +336,7 @@ const DEFAULT_HEIGHTS: Record<SideSection, number> = {
 // ── CollapsibleSection ────────────────────────────────────────────────────────
 // All sections use explicit pixel heights. No flex-grow special cases.
 const CollapsibleSection = React.memo(function CollapsibleSection({
-  label, open, onToggle, bodyHeight, onResizeStart, showResizeHandle, controls, loading, children,
+  label, open, onToggle, bodyHeight, onResizeStart, showResizeHandle, controls, loading, children, isOnlyOpen,
 }: {
   label: string;
   open: boolean;
@@ -346,14 +347,19 @@ const CollapsibleSection = React.memo(function CollapsibleSection({
   controls?: React.ReactNode;
   loading?: boolean;
   children?: React.ReactNode;
+  isOnlyOpen?: boolean;
 }) {
   const outerH = open
     ? HEADER_H + bodyHeight + (showResizeHandle ? RH : 0)
     : HEADER_H;
   return (
     <div
-      className="flex flex-col group/section relative shrink-0"
-      style={{
+      className={`flex flex-col group/section relative ${isOnlyOpen ? "" : "shrink-0"}`}
+      style={isOnlyOpen ? {
+        flex: "1 1 0%",
+        borderTop: "1px solid rgba(255,255,255,0.05)",
+        overflow: "hidden",
+      } : {
         height: outerH,
         borderTop: "1px solid rgba(255,255,255,0.05)",
         overflow: "hidden",
@@ -384,7 +390,10 @@ const CollapsibleSection = React.memo(function CollapsibleSection({
 
       {/* Content */}
       {open && (
-        <div className="min-h-0 overflow-x-hidden overflow-y-auto section-scroll shrink-0" style={{ height: bodyHeight }}>
+        <div
+          className={`min-h-0 overflow-x-hidden overflow-y-auto section-scroll ${isOnlyOpen ? "flex-1" : "shrink-0"}`}
+          style={isOnlyOpen ? undefined : { height: bodyHeight }}
+        >
           {children}
         </div>
       )}
@@ -419,6 +428,8 @@ function useSidepanelLayout(
   const [containerH, setContainerH] = useState(0);
   const heightsRef = useRef(heights);
   heightsRef.current = heights;
+  const openRef = useRef(open);
+  openRef.current = open;
 
   // Track container height
   useEffect(() => {
@@ -479,9 +490,13 @@ function useSidepanelLayout(
   // Redistribute heights whenever container height changes
   useEffect(() => {
     if (containerH > 100) {
-      setHeights(h => redistribute(open, h));
+      setHeights(h => {
+        const next = redistribute(openRef.current, h);
+        const changed = Object.keys(next).some(k => next[k] !== h[k]);
+        return changed ? next : h;
+      });
     }
-  }, [containerH, open, redistribute]);
+  }, [containerH, redistribute]);
 
   // Sync visibility changes (view mode switch) — close new sections, redistribute
   const prevVisibleRef = useRef(visibleSections);
@@ -964,6 +979,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab, onAddTab 
   );
 
   const openSections = getOpenList();
+  const lastOpenSection = openSections.length > 0 ? openSections[openSections.length - 1] : null;
   const sectionSeamOpen = useMemo(() => {
     const result: Record<string, boolean> = {};
     for (let i = 0; i < visibleSections.length - 1; i++) {
@@ -1026,6 +1042,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab, onAddTab 
             showResizeHandle={!!sectionSeamOpen.folders}
             onResizeStart={(e) => startResize("folders", e)}
             loading={isLoading}
+            isOnlyOpen={lastOpenSection === "folders"}
             controls={
               <>
                 <SidebarIconBtn title="New File" onClick={handleCreateFile}>
@@ -1091,6 +1108,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab, onAddTab 
             bodyHeight={sectionHeights["open-tabs"]}
             showResizeHandle={!!sectionSeamOpen["open-tabs"]}
             onResizeStart={(e) => startResize("open-tabs", e)}
+            isOnlyOpen={lastOpenSection === "open-tabs"}
             controls={
               <div ref={addTabBtnRef} className="relative">
                 <button
@@ -1144,6 +1162,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab, onAddTab 
             bodyHeight={sectionHeights.outline}
             showResizeHandle={!!sectionSeamOpen.outline}
             onResizeStart={(e) => startResize("outline", e)}
+            isOnlyOpen={lastOpenSection === "outline"}
             controls={
               <SidebarIconBtn title="Refresh" onClick={() => setOutlineRefreshKey((k) => k + 1)}>
                 <RefreshCw size={12} />
@@ -1163,6 +1182,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab, onAddTab 
             bodyHeight={sectionHeights.timeline}
             showResizeHandle={!!sectionSeamOpen.timeline}
             onResizeStart={(e) => startResize("timeline", e)}
+            isOnlyOpen={lastOpenSection === "timeline"}
             controls={
               <SidebarIconBtn title="Refresh" onClick={() => setTimelineRefreshKey((k) => k + 1)}>
                 <RefreshCw size={12} />
@@ -1182,6 +1202,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab, onAddTab 
             bodyHeight={sectionHeights.git}
             showResizeHandle={false}
             onResizeStart={(e) => e.preventDefault()}
+            isOnlyOpen={lastOpenSection === "git"}
             controls={
               <SidebarIconBtn title="Refresh" onClick={() => setGitRefreshKey((k) => k + 1)}>
                 <RefreshCw size={12} />
@@ -1269,18 +1290,22 @@ export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab, onAddTab 
               {deleteError && <p className="text-[11px] mt-2" style={{ color: "#FF6B6B" }}>{deleteError}</p>}
             </div>
             <div className="flex justify-end gap-2 px-5 pb-4 pt-1">
-              <button className="px-3 py-1.5 text-[11px] rounded-[10px] transition-colors cursor-pointer"
-                style={{ border: "1px solid rgba(255,255,255,0.08)", color: "rgba(232,234,240,0.55)" }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-                onClick={() => setDeleteConfirm(null)} disabled={isDeleting}
-              >Cancel</button>
-              <button className="px-3 py-1.5 text-[11px] rounded-[10px] font-semibold transition-colors cursor-pointer disabled:opacity-50"
-                style={{ background: "rgba(255,107,107,0.15)", border: "1px solid rgba(255,107,107,0.25)", color: "#FF6B6B" }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,107,107,0.22)"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,107,107,0.15)"; }}
-                onClick={confirmDelete} disabled={isDeleting}
-              >{isDeleting ? "Deleting…" : "Delete"}</button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setDeleteConfirm(null)}
+                disabled={isDeleting}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={confirmDelete}
+                disabled={isDeleting}
+              >
+                {isDeleting ? "Deleting…" : "Delete"}
+              </Button>
             </div>
           </div>
         </div>

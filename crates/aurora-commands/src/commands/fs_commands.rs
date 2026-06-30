@@ -403,6 +403,16 @@ pub fn select_file() -> Result<Option<String>, AppError> {
 }
 
 #[command]
+pub fn watch_files(
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    paths: Vec<String>,
+) -> Result<(), String> {
+    state.file_content_watcher.set_watched_files(paths, app_handle);
+    Ok(())
+}
+
+#[command]
 pub fn watch_directory(
     app_handle: tauri::AppHandle,
     state: tauri::State<'_, AppState>,

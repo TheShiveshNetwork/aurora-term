@@ -15,6 +15,7 @@ export interface Tab {
   diffCommitHash?: string;
   created_at: number;
   pinned?: boolean;
+  everChanged?: boolean;
 }
 
 export interface SessionState {

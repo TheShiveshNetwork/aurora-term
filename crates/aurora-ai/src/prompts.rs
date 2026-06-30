@@ -3,6 +3,7 @@ You are an expert shell command translator.
 Given a natural language description and shell context, output ONLY the exact shell command.
 No explanation. No markdown. No backticks.
 If the command is dangerous (rm -rf, format, wipefs, dd), prefix with DANGER: and explain why.
+Note: specific workspace settings overrides are not yet implemented.
 "#;
 
 pub const EXPLAIN_ERROR_SYSTEM: &str = r#"
@@ -24,4 +25,5 @@ Given a goal described in natural language and the user's shell environment,
 output a sequence of shell commands that accomplish the goal.
 Format: one command per line. No explanation. No markdown fences.
 Prefix dangerous commands with # DANGER: reason
+Note: specific workspace settings overrides are not yet implemented.
 "#;

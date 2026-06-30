@@ -1,57 +1,61 @@
-import React, { useState, useEffect } from "react";
-import { ProviderName, ProviderConfig } from "@aurora/types";
+import React, { useState, useContext } from "react";
+import { ProviderName } from "@aurora/types";
 import { ProviderIcon, DISPLAY_NAMES } from "./ProviderIcon";
 import { ai } from "../../lib/ipc";
+import { SettingsContext } from "./SettingsShared";
 
 interface ProviderDetailViewProps {
   name: ProviderName;
-  config: ProviderConfig;
   isSelected: boolean;
   keyringHasKey: boolean;
   onSetSelected: () => void;
   onClose: () => void;
+  onApiKeyChange?: () => void;
+  onApiKeyError?: (msg: string) => void;
 }
 
 export function ProviderDetailView({
   name,
-  config,
   isSelected,
   keyringHasKey,
   onSetSelected,
   onClose,
+  onApiKeyChange,
+  onApiKeyError,
 }: ProviderDetailViewProps) {
+  const context = useContext(SettingsContext);
+  if (!context) return null;
+  const { draft, updateDraft } = context;
+
+  const config = (draft.config.ai as any)[name];
+  if (!config) return null;
+
   const [apiKey, setApiKey] = useState("");
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<"idle" | "success" | "error">("idle");
-  const [fastModel, setFastModel] = useState(config.fastModel);
-  const [balancedModel, setBalancedModel] = useState(config.balancedModel);
-  const [powerfulModel, setPowerfulModel] = useState(config.powerfulModel);
-  const [baseUrl, setBaseUrl] = useState(config.baseUrl || "");
 
-  useEffect(() => {
-    setFastModel(config.fastModel);
-    setBalancedModel(config.balancedModel);
-    setPowerfulModel(config.powerfulModel);
-    setBaseUrl(config.baseUrl || "");
-  }, [config]);
-
-  if (!config) return null;
+  const fastModel = config.fast_model || "";
+  const balancedModel = config.balanced_model || "";
+  const powerfulModel = config.powerful_model || "";
+  const baseUrl = config.base_url || "";
 
   const handleSaveKey = async () => {
     if (!apiKey) return;
     try {
       await ai.saveApiKey(name, apiKey);
       setApiKey("");
+      onApiKeyChange?.();
     } catch (err) {
-      console.error(err);
+      onApiKeyError?.(`Failed to save API key: ${err instanceof Error ? err.message : "Unknown error"}`);
     }
   };
 
   const handleDeleteKey = async () => {
     try {
       await ai.deleteApiKey(name);
+      onApiKeyChange?.();
     } catch (err) {
-      console.error(err);
+      onApiKeyError?.(`Failed to remove API key: ${err instanceof Error ? err.message : "Unknown error"}`);
     }
   };
 
@@ -154,7 +158,10 @@ export function ProviderDetailView({
           <input
             type="text"
             value={baseUrl}
-            onChange={(e) => setBaseUrl(e.target.value)}
+            onChange={(e) => updateDraft((d) => {
+              const p = (d.config.ai as any)[name];
+              if (p) p.base_url = e.target.value || null;
+            })}
             placeholder={
               name === "ollama"
                 ? "http://localhost:11434"
@@ -178,7 +185,10 @@ export function ProviderDetailView({
               <input
                 type="text"
                 value={fastModel}
-                onChange={(e) => setFastModel(e.target.value)}
+                onChange={(e) => updateDraft((d) => {
+                  const p = (d.config.ai as any)[name];
+                  if (p) p.fast_model = e.target.value;
+                })}
                 className="w-full bg-surface-container-lowest border border-outline-variant/10 rounded-lg px-2.5 py-1.5 text-[11px] outline-none cursor-text select-text font-mono"
                 style={{ color: "#E8EAF0" }}
               />
@@ -188,7 +198,10 @@ export function ProviderDetailView({
               <input
                 type="text"
                 value={balancedModel}
-                onChange={(e) => setBalancedModel(e.target.value)}
+                onChange={(e) => updateDraft((d) => {
+                  const p = (d.config.ai as any)[name];
+                  if (p) p.balanced_model = e.target.value;
+                })}
                 className="w-full bg-surface-container-lowest border border-outline-variant/10 rounded-lg px-2.5 py-1.5 text-[11px] outline-none cursor-text select-text font-mono"
                 style={{ color: "#E8EAF0" }}
               />
@@ -198,7 +211,10 @@ export function ProviderDetailView({
               <input
                 type="text"
                 value={powerfulModel}
-                onChange={(e) => setPowerfulModel(e.target.value)}
+                onChange={(e) => updateDraft((d) => {
+                  const p = (d.config.ai as any)[name];
+                  if (p) p.powerful_model = e.target.value;
+                })}
                 className="w-full bg-surface-container-lowest border border-outline-variant/10 rounded-lg px-2.5 py-1.5 text-[11px] outline-none cursor-text select-text font-mono"
                 style={{ color: "#E8EAF0" }}
               />

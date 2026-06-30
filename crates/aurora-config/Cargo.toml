@@ -1,9 +1,8 @@
 # ══════════════════════════════════════════════════════════
 # crates/aurora-config/Cargo.toml
-# Load/save config.toml + OS keychain access.
-# Uses Tauri for resolving app_config_dir() at runtime.
-# All config structs live in aurora-core — this crate
-# only handles the I/O layer.
+# Load/save aurora.json + OS keychain access.
+# Paths resolved by the caller — no Tauri dependency here.
+# Config structs live in aurora-core; this crate does I/O.
 # ══════════════════════════════════════════════════════════
 [package]
 name    = "aurora-config"
@@ -12,6 +11,8 @@ edition = "2021"
 
 [dependencies]
 aurora-core = { workspace = true }
-tauri   = { workspace = true }
-toml    = { workspace = true }
-keyring = { workspace = true }
+serde_json  = { workspace = true }
+serde       = { workspace = true }
+toml        = { workspace = true }
+keyring     = { workspace = true }
+tracing     = { workspace = true }

@@ -25,12 +25,13 @@ impl KeychainManager {
         Ok(())
     }
 
-    /// Get an API key from the OS keychain. Returns empty string if not found.
+    /// Get an API key from the OS keychain.
     pub fn get_api_key(provider: &str) -> Result<String, AppError> {
         let key_name = format!("{}_api_key", provider);
         let entry = Entry::new(SERVICE_NAME, &key_name)
-            .map_err(|e| AppError::Config(format!("Keyring error: {}", e)))?;
-        Ok(entry.get_password().unwrap_or_default())
+            .map_err(|e| AppError::Config(format!("Keychain access error: {}", e)))?;
+        entry.get_password()
+            .map_err(|e| AppError::Config(format!("Keychain read error: {}", e)))
     }
 
     /// Check if an API key exists in the keychain.
