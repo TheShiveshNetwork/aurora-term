@@ -7,63 +7,58 @@ import { useBlockStore } from "../stores/useBlockStore";
 import { Tab } from "@aurora/types";
 import { cleanPtyData, stripAnsi } from "../lib/terminal/cleanup";
 
+let listenersRegistered = false;
+let unregisterData: (() => void) | null = null;
+let unregisterExit: (() => void) | null = null;
+
+function registerPtyListeners() {
+  if (listenersRegistered) return;
+  listenersRegistered = true;
+
+  getCurrentWindow().listen<{ session_id: string; data: string }>(
+    "pty_data",
+    (event) => {
+      const { session_id, data } = event.payload;
+
+      const state = useBlockStore.getState();
+      const blockId = state.runningBlockId[session_id];
+      state.setCommandOutputReceived(session_id, true);
+      if (blockId) {
+        const { cleanData } = cleanPtyData(data);
+        state.appendBlockOutput(session_id, blockId, stripAnsi(cleanData));
+      }
+
+      window.dispatchEvent(
+        new CustomEvent(`pty-session-data:${session_id}`, { detail: data })
+      );
+    }
+  ).then((unsub) => { unregisterData = unsub; });
+
+  getCurrentWindow().listen<{ session_id: string; exit_code: number }>(
+    "pty_exit",
+    (event) => {
+      const { session_id, exit_code } = event.payload;
+
+      const state = useBlockStore.getState();
+      const blockId = state.runningBlockId[session_id];
+      if (blockId) {
+        state.finalizeBlock(session_id, blockId, exit_code);
+        state.setCommandOutputReceived(session_id, false);
+      }
+
+      window.dispatchEvent(
+        new CustomEvent(`pty-session-exit:${session_id}`, { detail: exit_code })
+      );
+    }
+  ).then((unsub) => { unregisterExit = unsub; });
+}
+
 export function usePTY() {
   const store = useSessionStore();
   const { tabs, activeTabId, addTab, removeTab, setActiveTabId, updateTab } = store;
 
   useEffect(() => {
-    // ── Single global pty_data listener ──────────────────────────────────────
-    // This is the ONLY place we call listen("pty_data"). It dispatches a
-    // per-session synchronous DOM CustomEvent so that each TerminalPane can
-    // subscribe with a regular addEventListener (no async, no cleanup races).
-    const unsubscribeData = getCurrentWindow().listen<{ session_id: string; data: string }>(
-      "pty_data",
-      (event) => {
-        const { session_id, data } = event.payload;
-
-        // Update block store for the running block in this session.
-        // Strip ANSI escape codes before storing so output_summary is
-        // clean plain text (used by AI features and copy operations).
-        const state = useBlockStore.getState();
-        const blockId = state.runningBlockId[session_id];
-        state.setCommandOutputReceived(session_id, true);
-        if (blockId) {
-          const { cleanData } = cleanPtyData(data);
-          state.appendBlockOutput(session_id, blockId, stripAnsi(cleanData));
-        }
-
-        // Dispatch a synchronous per-session DOM event. OutputRenderer
-        // subscribes to this and processes the raw ANSI stream for display.
-        window.dispatchEvent(
-          new CustomEvent(`pty-session-data:${session_id}`, { detail: data })
-        );
-      }
-    );
-
-    // ── Single global pty_exit listener ──────────────────────────────────────
-    const unsubscribeExit = getCurrentWindow().listen<{ session_id: string; exit_code: number }>(
-      "pty_exit",
-      (event) => {
-        const { session_id, exit_code } = event.payload;
-
-        const state = useBlockStore.getState();
-        const blockId = state.runningBlockId[session_id];
-        if (blockId) {
-          state.finalizeBlock(session_id, blockId, exit_code);
-          state.setCommandOutputReceived(session_id, false);
-        }
-
-        // Notify the TerminalPane for this session
-        window.dispatchEvent(
-          new CustomEvent(`pty-session-exit:${session_id}`, { detail: exit_code })
-        );
-      }
-    );
-
-    return () => {
-      unsubscribeData.then((unsub) => unsub());
-      unsubscribeExit.then((unsub) => unsub());
-    };
+    registerPtyListeners();
   }, []);
 
   const spawnSession = async (

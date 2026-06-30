@@ -56,7 +56,13 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
 
   const isImage = isImageFile(filePath);
   const [showSearch, setShowSearch] = useState(false);
-  const toggleSearchRef = useRef(() => setShowSearch(s => !s));
+  const [initialFindText, setInitialFindText] = useState("");
+  const toggleSearchRef = useRef(() => {
+    const sel = viewRef.current?.state.selection.main;
+    const text = sel && !sel.empty ? viewRef.current.state.sliceDoc(sel.from, sel.to) : "";
+    setInitialFindText(text);
+    setShowSearch(s => !s);
+  });
   const showMinimap = useSettingsStore((s) => s.showMinimap);
   const setShowMinimap = useSettingsStore((s) => s.setShowMinimap);
   const wordWrap = useSettingsStore((s) => s.wordWrap);
@@ -298,17 +304,21 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
         if (!editorRef.current) { setLoading(false); return; }
 
         const [
-          { EditorView, keymap, lineNumbers },
+          { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightSpecialChars, drawSelection, dropCursor, rectangularSelection, crosshairCursor, highlightActiveLine },
           { EditorState, Prec, Compartment },
-          { autocompletion, completeAnyWord },
-          { basicSetup },
+          { autocompletion, completeAnyWord, closeBrackets, closeBracketsKeymap, completionKeymap },
+          { history, defaultKeymap, historyKeymap, indentWithTab },
+          { foldGutter, indentOnInput, syntaxHighlighting, defaultHighlightStyle, bracketMatching, foldKeymap },
+          { highlightSelectionMatches, searchKeymap },
           content,
           languageExt,
         ] = await Promise.all([
           import("@codemirror/view"),
           import("@codemirror/state"),
           import("@codemirror/autocomplete"),
-          import("codemirror"),
+          import("@codemirror/commands"),
+          import("@codemirror/language"),
+          import("@codemirror/search"),
           system.readFileContent(filePath),
           getLanguageExtension(filePath),
         ]);
@@ -324,9 +334,32 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
         initialContentRef.current = content.replace(/\r\n/g, "\n");
 
         const extensions: any[] = [
-          basicSetup,
+          highlightActiveLineGutter(),
+          highlightSpecialChars(),
+          history(),
+          foldGutter(),
+          drawSelection(),
+          dropCursor(),
+          EditorState.allowMultipleSelections.of(true),
+          indentOnInput(),
+          syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+          bracketMatching(),
+          closeBrackets(),
+          rectangularSelection(),
+          crosshairCursor(),
+          highlightActiveLine(),
+          highlightSelectionMatches(),
           autocompletion({ activateOnTyping: true, maxRenderedOptions: 12 }),
           EditorState.languageData.of(() => [{ autocomplete: completeAnyWord }]),
+          keymap.of([
+            ...closeBracketsKeymap,
+            ...defaultKeymap,
+            ...searchKeymap,
+            ...historyKeymap,
+            ...foldKeymap,
+            ...completionKeymap,
+            indentWithTab,
+          ]),
           Prec.high(keymap.of([
             { key: "Mod-c", run: (view) => {
               if (!view.state.selection.main.empty) return false;
@@ -793,7 +826,8 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
             {showSearch && viewRef.current && (
               <SearchPanel
                 view={viewRef.current}
-                onClose={() => setShowSearch(false)}
+                onClose={() => { setShowSearch(false); setInitialFindText(""); }}
+                initialFindText={initialFindText}
               />
             )}
             <button

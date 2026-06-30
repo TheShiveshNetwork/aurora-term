@@ -6,6 +6,7 @@ import { X, ChevronDown, ArrowUp, ArrowDown, Combine } from "lucide-react";
 interface SearchPanelProps {
   view: EditorView;
   onClose: () => void;
+  initialFindText?: string;
 }
 
 function countMatches(view: EditorView, query: SearchQuery): number {
@@ -30,8 +31,8 @@ function currentMatchIndex(view: EditorView, query: SearchQuery): number {
   return closest === -1 && idx > 0 ? 1 : closest;
 }
 
-export function SearchPanel({ view, onClose }: SearchPanelProps) {
-  const [findText, setFindText] = useState("");
+export function SearchPanel({ view, onClose, initialFindText = "" }: SearchPanelProps) {
+  const [findText, setFindText] = useState(initialFindText);
   const [replaceText, setReplaceText] = useState("");
   const [showReplace, setShowReplace] = useState(false);
   const [matchIdx, setMatchIdx] = useState(0);
@@ -40,9 +41,15 @@ export function SearchPanel({ view, onClose }: SearchPanelProps) {
 
   useEffect(() => {
     openSearchPanel(view);
+    if (initialFindText) {
+      const query = new SearchQuery({ search: initialFindText, caseSensitive: false });
+      view.dispatch({ effects: setSearchQuery.of(query) });
+      setMatchTotal(countMatches(view, query));
+      setMatchIdx(currentMatchIndex(view, query));
+    }
     findRef.current?.focus();
     findRef.current?.select();
-  }, [view]);
+  }, [view, initialFindText]);
 
   const doSearch = useCallback((text: string) => {
     if (text) {
