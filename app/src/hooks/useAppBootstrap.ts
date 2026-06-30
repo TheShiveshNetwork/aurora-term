@@ -83,8 +83,12 @@ export function applyAppConfig(cfg: AppConfig) {
     }
   }
 
-  // Refresh provider API key status
-  aiIpc.getProviderStatus().catch(() => {});
+  // Refresh provider API key status and propagate into store
+  aiIpc.getProviderStatus().then((status) => {
+    for (const [provider, hasKey] of Object.entries(status)) {
+      useAIStore.getState().updateProviderConfig(provider as ProviderName, { hasApiKey: hasKey });
+    }
+  }).catch(() => {});
 }
 
 export function useAppBootstrap() {
@@ -401,6 +405,13 @@ export function useAppBootstrap() {
     window.addEventListener("cwd-change", handleCwdChange);
     return () => window.removeEventListener("cwd-change", handleCwdChange);
   }, [activeTabId]);
+
+  useEffect(() => {
+    const filePaths = tabs
+      .filter((t) => t.type === "file" && t.filePath)
+      .map((t) => t.filePath!);
+    system.watchFiles(filePaths).catch(() => {});
+  }, [tabs]);
 
   useEffect(() => {
     window.dispatchEvent(new CustomEvent("aurora-focus-terminal-input"));

@@ -122,15 +122,16 @@ function CollapsibleFilePath({ filePath, cwd }: { filePath: string; cwd: string 
 export function StatusBar({ noFolder }: { noFolder?: boolean }) {
   const { activeProvider } = useAIStore();
   const { tabs, activeTabId } = useSessionStore();
-  const { sessionCwds, projectDir, cwdAbsolute } = useAppShellStore(
+  const { sessionCwds, projectDir, cwdAbsolute, viewMode } = useAppShellStore(
     useShallow((s) => ({
       sessionCwds: s.sessionCwds,
       projectDir: s.projectDir,
       cwdAbsolute: s.cwdAbsolute,
+      viewMode: s.viewMode,
     }))
   );
   const cwd = activeTabId ? (sessionCwds[activeTabId] || projectDir || cwdAbsolute) : (projectDir || cwdAbsolute);
-  const activeFileTab = tabs.find(t => t.id === activeTabId && t.type === "file");
+  const activeFileTab = viewMode === "file" ? tabs.find(t => t.id === activeTabId && t.type === "file") : undefined;
   const [showPathTooltip, setShowPathTooltip] = useState(false);
   const [tooltipCopied, setTooltipCopied] = useState(false);
   const tooltipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);

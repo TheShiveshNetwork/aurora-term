@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Terminal, Mic, Paperclip, Plus, ChevronDown } from "lucide-react";
+import { useHasApiKeyConfigured, ProviderSetupPrompt } from "./ProviderSetupPrompt";
 
 // ── Phrases ───────────────────────────────────────────────────────────────
 const PHRASES = [
@@ -86,6 +87,7 @@ function ChipIcon({ type }: { type: string }) {
 }
 
 export function AgentHeroView({ onSend }: { onSend?: (text: string) => void }) {
+  const hasApiKey = useHasApiKeyConfigured();
   const outerRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const sendBtnRef = useRef<HTMLButtonElement>(null);
@@ -199,6 +201,10 @@ export function AgentHeroView({ onSend }: { onSend?: (text: string) => void }) {
       }
     }, 0);
   }, []);
+
+  if (!hasApiKey) {
+    return <ProviderSetupPrompt />;
+  }
 
   return (
     <>

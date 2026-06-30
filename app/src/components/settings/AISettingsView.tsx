@@ -15,11 +15,17 @@ export default function AISettingsView() {
   const activeProvider = draft.config.ai.active_provider as ProviderName;
   const [keyringStatus, setKeyringStatus] = useState<Record<string, boolean>>({});
   const [selectedProvider, setSelectedProvider] = useState<ProviderName | null>(null);
+  const [apiKeyError, setApiKeyError] = useState<string | null>(null);
 
   const providerNames: ProviderName[] = ["groq", "anthropic", "openai", "gemini", "nvidia", "ollama"];
 
+  const refreshKeyringStatus = () => {
+    ai.getProviderStatus().then(setKeyringStatus).catch(() => {});
+    setApiKeyError(null);
+  };
+
   useEffect(() => {
-    ai.getProviderStatus().then(setKeyringStatus).catch(console.error);
+    refreshKeyringStatus();
   }, []);
 
   const handleSetSelected = (name: ProviderName) => {
@@ -105,6 +111,8 @@ export default function AISettingsView() {
                       keyringHasKey={!!hasKey}
                       onSetSelected={() => handleSetSelected(name)}
                       onClose={() => setSelectedProvider(null)}
+                      onApiKeyChange={refreshKeyringStatus}
+                      onApiKeyError={setApiKeyError}
                     />
                   </div>
                 )}
@@ -113,6 +121,12 @@ export default function AISettingsView() {
           })}
         </div>
       </div>
+
+      {apiKeyError && (
+        <div className="p-3 rounded-xl text-xs text-red-400/90 bg-red-500/5 border border-red-500/10">
+          {apiKeyError}
+        </div>
+      )}
 
       <div className="flex items-center gap-2 pt-2 text-xs text-white/40">
         <Sparkles size={14} className="text-white/30" />

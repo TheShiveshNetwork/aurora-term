@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
-use tauri::{command, State, Emitter};
+use tauri::{command, State};
 use crate::state::AppState;
 use aurora_config::state::{UiState, SavedTab};
 use aurora_core::AppError;
@@ -55,7 +55,6 @@ pub async fn state_update_tabs(
 
 #[command]
 pub async fn state_set_project_dir(
-    app: tauri::AppHandle,
     state: State<'_, AppState>,
     path: Option<String>,
 ) -> Result<(), AppError> {
@@ -73,7 +72,6 @@ pub async fn state_set_project_dir(
         *config = new_merged.clone();
     }
 
-    let _ = app.emit("config_changed", new_merged);
     Ok(())
 }
 

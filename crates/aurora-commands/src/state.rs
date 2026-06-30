@@ -4,7 +4,7 @@ use aurora_pty::{PtyManager, PtyEvent};
 use aurora_db::HistoryDb;
 use aurora_config::{ConfigManager, UiStateManager};
 use aurora_core::config::AppConfig;
-use crate::watcher::{FileWatcher, GitWatcher};
+use crate::watcher::{FileWatcher, GitWatcher, FileContentWatcher};
 
 pub struct AppState {
     pub pty_manager: Arc<Mutex<PtyManager>>,
@@ -13,6 +13,7 @@ pub struct AppState {
     pub config_manager: Arc<Mutex<ConfigManager>>,
     pub ui_state: Arc<Mutex<UiStateManager>>,
     pub file_watcher: FileWatcher,
+    pub file_content_watcher: FileContentWatcher,
     pub git_watcher: GitWatcher,
     pub sidecar: Arc<Mutex<aurora_sidecar::manager::SidecarManager>>,
     pub pty_event_sender: tokio::sync::mpsc::UnboundedSender<PtyEvent>,
@@ -34,6 +35,7 @@ impl AppState {
             config_manager: Arc::new(Mutex::new(config_manager)),
             ui_state: Arc::new(Mutex::new(ui_state_manager)),
             file_watcher: FileWatcher::new(),
+            file_content_watcher: FileContentWatcher::new(),
             git_watcher: GitWatcher::new(),
             sidecar: Arc::new(Mutex::new(aurora_sidecar::manager::SidecarManager::new())),
             pty_event_sender,

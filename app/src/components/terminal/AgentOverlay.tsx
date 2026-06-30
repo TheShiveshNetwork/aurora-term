@@ -18,6 +18,7 @@ import { useAgentExecution } from "../../hooks/useAgentExecution";
 import type { ChainNode, ChatMessage } from "../../stores/useAgentStore";
 import { renderMarkdown, renderInline } from "../../lib/markdown";
 import { useCopyWithFeedback } from "../../hooks/useCopyWithFeedback";
+import { useHasApiKeyConfigured, ProviderSetupPrompt } from "./ProviderSetupPrompt";
 
 // ── Status helpers ────────────────────────────────────────────────────────
 
@@ -364,6 +365,22 @@ function ConversationTurn({
   );
 }
 
+// ── No API Keys / Empty State ──────────────────────────────────────────────
+function NoApiKeysOrEmpty() {
+  const hasApiKey = useHasApiKeyConfigured();
+  if (!hasApiKey) {
+    return <ProviderSetupPrompt compact />;
+  }
+  return (
+    <div className="flex flex-col items-center justify-center h-full py-12 gap-3 text-center">
+      <div>
+        <p className="text-xs font-semibold" style={{ color: "rgba(232,234,240,0.5)" }}>Nothing to show yet</p>
+        <p className="text-xs mt-0.5" style={{ color: "rgba(232,234,240,0.25)" }}>Run a command or describe a goal</p>
+      </div>
+    </div>
+  );
+}
+
 // ── Main AgentOverlay Component ────────────────────────────────────────────
 interface AgentOverlayProps {
   sessionId: string;
@@ -575,13 +592,7 @@ export function AgentOverlay({ sessionId, onClose }: AgentOverlayProps) {
         style={{ scrollbarGutter: "stable" }}
       >
         {turns.length === 0 && (
-          /* Empty state */
-          <div className="flex flex-col items-center justify-center h-full py-12 gap-3 text-center">
-            <div>
-              <p className="text-xs font-semibold" style={{ color: "rgba(232,234,240,0.5)" }}>Nothing to show yet</p>
-              <p className="text-xs mt-0.5" style={{ color: "rgba(232,234,240,0.25)" }}>Run a command or describe a goal</p>
-            </div>
-          </div>
+          <NoApiKeysOrEmpty />
         )}
 
         {turns.map((turn, idx) => {

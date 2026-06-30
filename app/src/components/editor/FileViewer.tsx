@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { EditorView } from "@codemirror/view";
 import type { Compartment } from "@codemirror/state";
+import { listen } from "@tauri-apps/api/event";
 import { system } from "../../lib/ipc";
 import { getLanguageExtension } from "../../lib/codeLang";
 import { isImageFile } from "../../lib/fileUtils";
@@ -454,6 +455,30 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
       updateTab(tabId, { dirty: false });
     };
   }, [filePath, tabId, updateTab, isImage, imageMimeType]);
+
+  // Reload file content when external changes are detected (git checkout, external editor, etc.)
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    listen<string>("file-content-changed", async (event) => {
+      if (event.payload !== filePath) return;
+      const view = viewRef.current;
+      if (!view) return;
+      // Only reload if the file has no unsaved changes
+      const currentContent = view.state.doc.toString();
+      if (currentContent !== initialContentRef.current) return;
+      try {
+        const newContent = await system.readFileContent(filePath);
+        const normalized = newContent.replace(/\r\n/g, "\n");
+        if (normalized === initialContentRef.current) return;
+        initialContentRef.current = normalized;
+        view.dispatch({
+          changes: { from: 0, to: view.state.doc.length, insert: normalized },
+        });
+        updateTab(tabId, { dirty: false, fileContent: normalized });
+      } catch { /* file may be temporarily unavailable */ }
+    }).then((u) => { unlisten = u; });
+    return () => { if (unlisten) unlisten(); };
+  }, [filePath, tabId, updateTab]);
 
   useEffect(() => {
     const view = viewRef.current;

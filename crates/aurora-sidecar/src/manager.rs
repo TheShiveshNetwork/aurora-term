@@ -71,11 +71,9 @@ impl SidecarManager {
         )))]
         const TARGET_TRIPLE: &str = "unknown";
 
-        let is_dev = cfg!(debug_assertions);
         let workspace_root = find_workspace_root();
         
-        let mut cmd = if is_dev && workspace_root.is_some() {
-            let root = workspace_root.unwrap();
+        let mut cmd = if let Some(root) = workspace_root.filter(|_| cfg!(debug_assertions)) {
             let _ = std::fs::write("d:/builds/aurora/sidecar_status.log", format!("SidecarManager::spawn: using workspace root {:?}", root));
             
             #[cfg(target_os = "windows")]

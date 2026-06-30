@@ -235,6 +235,8 @@ export const system = {
     invoke<string>("create_path", { parentDir, name, isDir }),
   watchDirectory: (path: string) =>
     invoke<void>("watch_directory", { path }),
+  watchFiles: (paths: string[]) =>
+    invoke<void>("watch_files", { paths }),
   watchGit: (cwd: string) =>
     invoke<void>("watch_git", { cwd }),
   readShellHistory: () =>
@@ -271,6 +273,8 @@ export const system = {
     invoke<void>("git_reset", { cwd, paths }),
   gitRestore: (cwd: string, paths: string[]) =>
     invoke<void>("git_restore", { cwd, paths }),
+  gitClean: (cwd: string, paths: string[]) =>
+    invoke<void>("git_clean", { cwd, paths }),
   gitCommit: (cwd: string, message: string) =>
     invoke<string>("git_commit", { cwd, message }),
   gitPush: (cwd: string, remote: string, branch: string) =>

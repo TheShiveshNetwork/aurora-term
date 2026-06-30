@@ -10,6 +10,8 @@ interface ProviderDetailViewProps {
   keyringHasKey: boolean;
   onSetSelected: () => void;
   onClose: () => void;
+  onApiKeyChange?: () => void;
+  onApiKeyError?: (msg: string) => void;
 }
 
 export function ProviderDetailView({
@@ -18,6 +20,8 @@ export function ProviderDetailView({
   keyringHasKey,
   onSetSelected,
   onClose,
+  onApiKeyChange,
+  onApiKeyError,
 }: ProviderDetailViewProps) {
   const context = useContext(SettingsContext);
   if (!context) return null;
@@ -40,16 +44,18 @@ export function ProviderDetailView({
     try {
       await ai.saveApiKey(name, apiKey);
       setApiKey("");
+      onApiKeyChange?.();
     } catch (err) {
-      console.error(err);
+      onApiKeyError?.(`Failed to save API key: ${err instanceof Error ? err.message : "Unknown error"}`);
     }
   };
 
   const handleDeleteKey = async () => {
     try {
       await ai.deleteApiKey(name);
+      onApiKeyChange?.();
     } catch (err) {
-      console.error(err);
+      onApiKeyError?.(`Failed to remove API key: ${err instanceof Error ? err.message : "Unknown error"}`);
     }
   };
 

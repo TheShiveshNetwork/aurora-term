@@ -205,9 +205,10 @@ All types in `desktop/src/types/ipc.ts` must mirror Rust structs exactly (field 
 
 **Events — Rust → Frontend**
 ```typescript
-PtyDataEvent    = { session_id: string; data: string }
-PtyExitEvent    = { session_id: string; exit_code: number }
-AIStreamChunk   = { request_id: string; chunk: string; done: boolean }
+PtyDataEvent       = { session_id: string; data: string }
+PtyExitEvent       = { session_id: string; exit_code: number }
+AIStreamChunk      = { request_id: string; chunk: string; done: boolean }
+FileContentChanged = string  // file path — emitted when a watched file changes on disk
 ```
 
 **Commands — Frontend → Rust** (all live in `desktop/src/lib/ipc.ts`, the only file that calls `invoke()`)
@@ -247,6 +248,9 @@ state_update_section_visibility(visibility) → void
 state_update_tabs(tabs)         → void
 state_set_project_dir(path)     → void
 state_set_workspace_cwd(cwd)    → void
+
+// File watching
+system_watch_files(paths)       → void    // sync open file paths for live content sync
 
 // Sidecar (controlled internally on startup)
 ```

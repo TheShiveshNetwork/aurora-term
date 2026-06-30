@@ -500,6 +500,17 @@ pub async fn git_restore(cwd: String, paths: Vec<String>) -> Result<(), AppError
 }
 
 #[command]
+pub async fn git_clean(cwd: String, paths: Vec<String>) -> Result<(), AppError> {
+    tokio::task::spawn_blocking(move || {
+        for path in &paths {
+            run_git_strict(&["clean", "-fd", "--", path], Some(&cwd))
+                .map_err(|e| AppError::Io(format!("Failed to clean {}: {}", path, e)))?;
+        }
+        Ok(())
+    }).await.map_err(|e| AppError::Io(e.to_string()))?
+}
+
+#[command]
 pub async fn git_commit(cwd: String, message: String) -> Result<String, AppError> {
     tokio::task::spawn_blocking(move || {
         run_git_strict(&[
