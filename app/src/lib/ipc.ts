@@ -17,6 +17,8 @@ export interface AiConfig {
   active_provider: string;
   auto_explain: boolean;
   context_lines: number;
+  require_review_for_commands: boolean;
+  require_review_for_writes: boolean;
   anthropic: ProviderConfig;
   openai: ProviderConfig;
   gemini: ProviderConfig;
@@ -145,6 +147,10 @@ export interface AgentStepResult {
   explanation?: string;
   subagent?: string;
   message?: string;
+  run_id?: string;
+  tool_call_id?: string;
+  tool_name?: string;
+  args?: any;
 }
 
 export interface GitCommit {
@@ -241,8 +247,56 @@ export const system = {
     invoke<void>("watch_git", { cwd }),
   readShellHistory: () =>
     invoke<string[]>("read_shell_history"),
-  agentPlanStep: (taskId: string, sessionId: string | null, goal: string | null, lastOutput: string | null, exitCode: number | null) =>
-    invoke<AgentStepResult>("agent_plan_step", { taskId, sessionId, goal, lastOutput, exitCode }),
+  agentPlanStep: (
+    taskId: string,
+    sessionId: string | null,
+    goal: string | null,
+    lastOutput: string | null,
+    exitCode: number | null,
+    agentType?: string,
+    mode?: string,
+    requireReviewForCommands?: boolean,
+    requireReviewForWrites?: boolean
+  ) =>
+    invoke<AgentStepResult>("agent_plan_step", {
+      taskId,
+      sessionId,
+      goal,
+      lastOutput,
+      exitCode,
+      agentType,
+      mode,
+      requireReviewForCommands,
+      requireReviewForWrites,
+    }),
+  agentApproveTool: (
+    agentType: string | undefined,
+    mode: string | undefined,
+    runId: string,
+    toolCallId: string | undefined,
+    resumeData?: any
+  ) =>
+    invoke<AgentStepResult>("agent_approve_tool", {
+      agentType,
+      mode,
+      runId,
+      toolCallId,
+      resumeData,
+    }),
+  agentDeclineTool: (
+    agentType: string | undefined,
+    mode: string | undefined,
+    runId: string,
+    toolCallId: string | undefined
+  ) =>
+    invoke<AgentStepResult>("agent_decline_tool", {
+      agentType,
+      mode,
+      runId,
+      toolCallId,
+    }),
+  agentGetLogs: () =>
+    invoke<{ status: string; logs: Array<{ timestamp: number; type: string; content: string }> }>("agent_get_logs"),
   revealInExplorer: (path: string) =>
     invoke<void>("reveal_in_explorer", { path }),
   getCwdInfo: (cwd: string) =>

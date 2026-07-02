@@ -1,0 +1,1 @@
+Search for filenames containing a query or matching a query fragment in the workspace directory tree.

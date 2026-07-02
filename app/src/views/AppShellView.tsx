@@ -43,9 +43,6 @@ export function AppShellView() {
   useWindowClamp();
   useKeybindings();
 
-  useEffect(() => {
-    system.getAvailableCommands().then(setAvailableCommands).catch(() => { });
-  }, []);
 
   const {
     sidebarCollapsed,
@@ -126,6 +123,10 @@ export function AppShellView() {
   const shellType: ShellType = useMemo(() => isWindowsPlatform() ? "powershell" : "bash", []);
   const inputMode = useMemo(() => classifyInput(activeCommandInput, shellType), [activeCommandInput, shellType]);
 
+  useEffect(() => {
+    system.getAvailableCommands().then(setAvailableCommands).catch(() => { });
+  }, []);
+
   const handleInterceptedSubmit = (event: FormEvent, defaultSubmit: (e: FormEvent) => void, isFilePrompt = false) => {
     event.preventDefault();
     const input = activeCommandInput.trim();
@@ -133,7 +134,8 @@ export function AppShellView() {
 
     // Explicit prefix overrides take priority over the classifier
     const hasExplicitNL = input.startsWith("? ") || input.startsWith("/ai ");
-    const isNlQuery = hasExplicitNL || inputMode === "natural-language" || isFilePrompt;
+    // Route to agent if explicitly prefixed, or if classified as natural language
+    const isNlQuery = hasExplicitNL || isFilePrompt || (inputMode === "natural-language");
 
     if (isNlQuery) {
       const cleanGoal = hasExplicitNL
@@ -614,6 +616,7 @@ export function AppShellView() {
                 </div>
               </div>
 
+
               {/* Terminal view: command variant (default) */}
               {chatInputOpen && activeTab?.type === "terminal" && !isAlternateActive && (
                 <CommandInputBar
@@ -629,23 +632,6 @@ export function AppShellView() {
                   onChange={setCommandInput}
                   onSubmit={(e) => handleInterceptedSubmit(e, handleExecuteCommand, false)}
                   onStop={handleStopCurrentCommand}
-                  onOpenAiBar={() => setShowAiBar(true)}
-                  inputMode={inputMode}
-                />
-              )}
-
-              {/* File view: prompt variant (absolute, glassmorphism, independent state) */}
-              {chatInputOpen && activeTab?.type === "file" && (
-                <CommandInputBar
-                  variant="prompt"
-                  sessionId={null}
-                  cwd={cwd}
-                  isLoading={false}
-                  isRunning={false}
-                  value={activeCommandInput}
-                  history={[]}
-                  onChange={setCommandInput}
-                  onSubmit={(e) => handleInterceptedSubmit(e, handleFileCommandSubmit, true)}
                   onOpenAiBar={() => setShowAiBar(true)}
                   inputMode={inputMode}
                 />

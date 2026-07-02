@@ -53,6 +53,41 @@ export interface SessionAgentState {
   lastMessage: string | null;
   activeSubagent: string | null;
   chatHistory: ChatMessage[];
+  agentType: "terminal" | "developer";
+  agentMode: "plan" | "build";
+  activeDrawerTab: "files" | "terminals" | "artifacts" | "browsers" | "questions" | null;
+  filesChanged: Array<{
+    path: string;
+    oldContent?: string;
+    newContent: string;
+    status: "pending" | "approved" | "rejected";
+    type?: "write" | "patch";
+    search?: string;
+    replace?: string;
+  }>;
+  activeTerminals: Array<{
+    id: string;
+    command: string;
+    explanation: string;
+    status: "pending" | "running" | "success" | "error" | "cancelled" | "requires_action";
+  }>;
+  artifactsCreated: Array<{
+    id: string;
+    title: string;
+    type: "document" | "image";
+    path: string;
+  }>;
+  browserSessions: Array<{
+    id: string;
+    url: string;
+    status: "active" | "closed";
+  }>;
+  pendingToolCall: {
+    runId: string;
+    toolCallId: string;
+    name: string;
+    args: any;
+  } | null;
 }
 
 export const CONST_DEFAULT_SESSION_STATE: SessionAgentState = {
@@ -69,6 +104,14 @@ export const CONST_DEFAULT_SESSION_STATE: SessionAgentState = {
   lastMessage: null,
   activeSubagent: null,
   chatHistory: [],
+  agentType: "terminal",
+  agentMode: "build",
+  activeDrawerTab: null,
+  filesChanged: [],
+  activeTerminals: [],
+  artifactsCreated: [],
+  browserSessions: [],
+  pendingToolCall: null,
 };
 
 export const defaultSessionState = (): SessionAgentState => ({
@@ -77,6 +120,10 @@ export const defaultSessionState = (): SessionAgentState => ({
   logs: [],
   agentLogs: [],
   chainNodes: [],
+  filesChanged: [],
+  activeTerminals: [],
+  artifactsCreated: [],
+  browserSessions: [],
 });
 
 interface AgentStore {
@@ -96,6 +143,7 @@ interface AgentStore {
 
   addLog: (sessionId: string, log: string) => void;
   addAgentLog: (sessionId: string, type: AgentLog["type"], content: string, subagent?: string) => void;
+  setAgentLogs: (sessionId: string, logs: AgentLog[]) => void;
 
   addChainNode: (sessionId: string, node: Omit<ChainNode, "id">) => string;
   updateChainNode: (sessionId: string, id: string, updates: Partial<ChainNode>) => void;
@@ -104,6 +152,14 @@ interface AgentStore {
 
   setActiveSubagent: (sessionId: string, subagent: string | null) => void;
   incrementStep: (sessionId: string) => void;
+
+  setAgentType: (sessionId: string, type: "terminal" | "developer") => void;
+  setAgentMode: (sessionId: string, mode: "plan" | "build") => void;
+  setActiveDrawerTab: (sessionId: string, tab: "files" | "terminals" | "artifacts" | "browsers" | "questions" | null) => void;
+  addFileChange: (sessionId: string, change: Omit<SessionAgentState["filesChanged"][0], "status">) => void;
+  updateFileChangeStatus: (sessionId: string, path: string, status: "pending" | "approved" | "rejected") => void;
+  setPendingToolCall: (sessionId: string, toolCall: SessionAgentState["pendingToolCall"]) => void;
+  clearFileChanges: (sessionId: string) => void;
 }
 
 // ── sanitizeMessage ───────────────────────────────────────────────────────
@@ -282,6 +338,9 @@ export const useAgentStore = create<AgentStore>((set) => ({
       ],
     })),
 
+  setAgentLogs: (sessionId, logs) =>
+    updateSession(set, sessionId, { agentLogs: logs }),
+
   addChainNode: (sessionId, node) => {
     const id = genId();
     updateSession(set, sessionId, (prev) => ({
@@ -317,4 +376,35 @@ export const useAgentStore = create<AgentStore>((set) => ({
         : prev.chainNodes;
       return { stepCount: prev.stepCount + 1, chainNodes: nodes };
     }),
+
+  setAgentType: (sessionId, type) =>
+    updateSession(set, sessionId, { agentType: type }),
+
+  setAgentMode: (sessionId, mode) =>
+    updateSession(set, sessionId, { agentMode: mode }),
+
+  setActiveDrawerTab: (sessionId, tab) =>
+    updateSession(set, sessionId, { activeDrawerTab: tab }),
+
+  addFileChange: (sessionId, change) =>
+    updateSession(set, sessionId, (prev) => {
+      // Avoid duplicate path changes in the drawer
+      const filtered = prev.filesChanged.filter((f) => f.path !== change.path);
+      return {
+        filesChanged: [...filtered, { ...change, status: "pending" }],
+      };
+    }),
+
+  updateFileChangeStatus: (sessionId, path, status) =>
+    updateSession(set, sessionId, (prev) => ({
+      filesChanged: prev.filesChanged.map((f) =>
+        f.path === path ? { ...f, status } : f
+      ),
+    })),
+
+  setPendingToolCall: (sessionId, toolCall) =>
+    updateSession(set, sessionId, { pendingToolCall: toolCall }),
+
+  clearFileChanges: (sessionId) =>
+    updateSession(set, sessionId, { filesChanged: [], pendingToolCall: null, activeDrawerTab: null }),
 }));

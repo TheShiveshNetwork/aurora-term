@@ -1,0 +1,1 @@
+List the files and subdirectories of a given directory in the workspace with details on entry sizes.

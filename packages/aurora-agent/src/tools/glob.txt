@@ -1,0 +1,1 @@
+Find files in the workspace matching a wildcard glob pattern (e.g. "src/**/*.ts"). Excludes node_modules and version control folders.

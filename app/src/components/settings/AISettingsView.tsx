@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useContext } from "react";
 import { ChevronRight, Sparkles } from "lucide-react";
 import { ai } from "../../lib/ipc";
-import { SettingsContext } from "./SettingsShared";
+import { SettingsContext, FieldRow } from "./SettingsShared";
+import { ToggleSwitch } from "../ui/ToggleSwitch";
 import { ProviderName } from "@aurora/types";
 import { ProviderSelector } from "./ProviderSelector";
 import { ProviderDetailView } from "./ProviderDetailView";
@@ -48,6 +49,30 @@ export default function AISettingsView() {
           activeProvider={activeProvider}
           onChange={handleSetSelected}
         />
+      </div>
+
+      <div className="space-y-3 pt-2">
+        <h3 className="text-xs font-semibold text-white/40 uppercase tracking-wider">Safety & Reviews</h3>
+        
+        <FieldRow 
+          label="Require review for terminal commands"
+          description="Prompt for approval before executing any command planned by the agent."
+        >
+          <ToggleSwitch 
+            checked={!!draft.config.ai.require_review_for_commands} 
+            onChange={(v) => updateDraft((d) => { d.config.ai.require_review_for_commands = v; })} 
+          />
+        </FieldRow>
+
+        <FieldRow 
+          label="Require review for file changes"
+          description="Prompt for approval before writing or modifying any files in the workspace."
+        >
+          <ToggleSwitch 
+            checked={!!draft.config.ai.require_review_for_writes} 
+            onChange={(v) => updateDraft((d) => { d.config.ai.require_review_for_writes = v; })} 
+          />
+        </FieldRow>
       </div>
 
       <div className="space-y-2">

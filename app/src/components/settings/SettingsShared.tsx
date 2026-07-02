@@ -26,10 +26,15 @@ export function SectionTitle({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function FieldRow({ label, children }: { label: string; children: React.ReactNode }) {
+export function FieldRow({ label, description, children }: { label: string; description?: string; children: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between">
-      <span className="text-[12px]" style={{ color: "rgba(232,234,240,0.65)" }}>{label}</span>
+      <div className="flex flex-col gap-0.5">
+        <span className="text-[12px]" style={{ color: "rgba(232,234,240,0.65)" }}>{label}</span>
+        {description && (
+          <span className="text-[10px]" style={{ color: "rgba(232,234,240,0.35)" }}>{description}</span>
+        )}
+      </div>
       <div className="flex items-center gap-2">
         {children}
       </div>

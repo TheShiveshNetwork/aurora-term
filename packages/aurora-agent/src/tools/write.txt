@@ -1,0 +1,1 @@
+Write new content to a file in the workspace. Overwrites existing files or creates new ones. Requires user approval.

@@ -204,6 +204,9 @@ pub fn run() {
             aurora_commands::git_remote_list,
             aurora_commands::git_exec,
             aurora_commands::agent_plan_step,
+            aurora_commands::agent_approve_tool,
+            aurora_commands::agent_decline_tool,
+            aurora_commands::agent_get_logs,
             aurora_commands::get_available_commands,
         ])
         .build(tauri::generate_context!())

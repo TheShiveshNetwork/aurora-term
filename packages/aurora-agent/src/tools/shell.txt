@@ -1,0 +1,4 @@
+Execute a shell command sequentially in the client terminal session.
+- Pre-approved for operations like git, build, tests, package installs, and system diagnostics.
+- Avoid using this tool for file reading, writing, or searching if specialized tools are available.
+- When running commands that require specific directories, specify the optional workdir parameter instead of chaining 'cd' commands.

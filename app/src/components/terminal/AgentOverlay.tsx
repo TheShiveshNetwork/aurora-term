@@ -124,13 +124,9 @@ function ConversationTurn({
   assistantMsg,
   isThinking,
   isLastTurn,
-  detailsOpen,
-  logsOpen,
   chainNodes,
   agentLogs,
   durationSecs,
-  onToggleDetails,
-  onToggleLogs,
   approveAndRunPending,
   clearTask,
   pendingApprovalCmd,
@@ -138,8 +134,17 @@ function ConversationTurn({
   retryTask,
   stepCount,
   maxSteps,
-}: TurnProps) {
+}: Omit<TurnProps, "detailsOpen" | "logsOpen" | "onToggleDetails" | "onToggleLogs">) {
   const { copied, handleCopy } = useCopyWithFeedback();
+
+  const [detailsOpen, setDetailsOpen] = useState(isThinking);
+  const [logsOpen, setLogsOpen] = useState(false);
+
+  useEffect(() => {
+    if (isThinking) {
+      setDetailsOpen(true);
+    }
+  }, [isThinking]);
 
   return (
     <div className="flex flex-col">
@@ -166,7 +171,7 @@ function ConversationTurn({
         {(isThinking || chainNodes.length > 0 || (assistantMsg?.durationMs !== undefined && assistantMsg.durationMs > 0)) && (
           <div className="space-y-1.5 mt-1">
             <div
-              onClick={onToggleDetails}
+              onClick={() => setDetailsOpen((v) => !v)}
               className="flex items-center gap-2 cursor-pointer select-none group"
             >
               <div className="flex items-center gap-2 text-[11px] text-on-surface-variant/50 group-hover:text-on-surface-variant/70 transition-colors">
@@ -228,22 +233,7 @@ function ConversationTurn({
                             </code>
                           )}
 
-                          {isNodePendingApproval && (
-                            <div className="pl-3 mt-1 flex gap-2">
-                              <button
-                                onClick={approveAndRunPending}
-                                className="text-[10px] font-semibold text-primary underline cursor-pointer"
-                              >
-                                Approve
-                              </button>
-                              <button
-                                onClick={clearTask}
-                                className="text-[10px] font-semibold text-on-surface-variant underline cursor-pointer"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          )}
+
                         </div>
                       );
                     })}
@@ -262,62 +252,7 @@ function ConversationTurn({
           </div>
         )}
 
-        {/* Sensitive command approval gate */}
-        {isLastTurn && isPaused && pendingApprovalCmd && (
-          <div
-            className="p-3.5 rounded-[14px] flex flex-col gap-2.5 mt-1"
-            style={{
-              background: "rgba(255,180,84,0.05)",
-              border: "1px solid rgba(255,180,84,0.18)",
-            }}
-          >
-            <div className="flex items-start gap-2">
-              <ShieldCheck className="shrink-0 mt-0.5" size={14} style={{ color: "rgba(255,180,84,0.80)" }} />
-              <div className="flex-1 min-w-0">
-                <span className="text-[9px] font-bold uppercase tracking-wider block" style={{ color: "rgba(255,180,84,0.80)" }}>
-                  Aura approval required
-                </span>
-                <code
-                  className="text-[11px] font-mono break-all block mt-1.5 p-2 rounded-[10px] select-text"
-                  style={{
-                    color: "rgba(232,234,240,0.95)",
-                    background: "rgba(255,255,255,0.05)",
-                    border: "1px solid rgba(255,255,255,0.07)",
-                  }}
-                >
-                  {pendingApprovalCmd.command}
-                </code>
-                <span className="text-[10px] block mt-1.5 leading-normal select-text" style={{ color: "rgba(232,234,240,0.45)" }}>
-                  {pendingApprovalCmd.explanation}
-                </span>
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={approveAndRunPending}
-                className="flex-1 flex items-center justify-center gap-1.5 text-[10px] font-bold py-1.5 px-3 rounded-[10px] transition-all cursor-pointer"
-                style={{ background: "rgba(255,180,84,0.90)", color: "#000", boxShadow: "0 2px 8px rgba(255,180,84,0.15)" }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,180,84,1)")}
-                onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,180,84,0.90)")}
-              >
-                Approve
-              </button>
-              <button
-                onClick={clearTask}
-                className="flex-1 flex items-center justify-center gap-1.5 text-[10px] font-semibold py-1.5 px-3 rounded-[10px] transition-all cursor-pointer"
-                style={{
-                  background: "rgba(255,255,255,0.04)",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  color: "rgba(232,234,240,0.70)",
-                }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.08)")}
-                onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
+
 
 
 
@@ -389,6 +324,7 @@ interface AgentOverlayProps {
 
 export function AgentOverlay({ sessionId, onClose }: AgentOverlayProps) {
   const {
+    startTask,
     status,
     queue,
     lastMessage,
@@ -404,8 +340,6 @@ export function AgentOverlay({ sessionId, onClose }: AgentOverlayProps) {
     chatHistory,
   } = useAgentExecution(sessionId);
 
-  const [detailsOpen, setDetailsOpen] = useState(false);
-  const [logsOpen, setLogsOpen] = useState(false);
   const [durationSecs, setDurationSecs] = useState<number>(0);
   const timerRef = useRef<any>(null);
 
@@ -604,13 +538,9 @@ export function AgentOverlay({ sessionId, onClose }: AgentOverlayProps) {
               assistantMsg={turn.assistant}
               isThinking={isLastTurn && isThinking}
               isLastTurn={isLastTurn}
-              detailsOpen={detailsOpen}
-              logsOpen={logsOpen}
               chainNodes={turn.assistant?.chainNodes || (isLastTurn ? chainNodes : [])}
               agentLogs={turn.assistant?.agentLogs || (isLastTurn ? agentLogs : [])}
               durationSecs={durationSecs}
-              onToggleDetails={() => setDetailsOpen((v) => !v)}
-              onToggleLogs={() => setLogsOpen((v) => !v)}
               approveAndRunPending={approveAndRunPending}
               clearTask={clearTask}
               pendingApprovalCmd={pendingApprovalCmd}
@@ -629,7 +559,7 @@ export function AgentOverlay({ sessionId, onClose }: AgentOverlayProps) {
       {/* ── Footer with clear/retry actions ── */}
       {turns.length > 0 && (
         <div
-          className="shrink-0 flex items-center justify-between px-4 py-2.5"
+          className="shrink-0 flex items-center justify-between px-4 py-2"
           style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}
         >
           <span className="text-[10px]" style={{ color: "rgba(232,234,240,0.25)" }}>

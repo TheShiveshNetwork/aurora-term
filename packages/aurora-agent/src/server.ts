@@ -1,35 +1,51 @@
 import fastify from 'fastify';
-import { mastra } from './mastra';
+import { mastra, memoryLogs } from './mastra';
 import { auraMemory } from './agents/aura';
+import { reviewSettings } from './tools';
 
 const server = fastify();
 
 // ── Constants ─────────────────────────────────────────────────────────────
-// All sessions share the same resource ID so working memory (user profile,
-// preferences) persists globally across all terminal tabs.
 const RESOURCE_ID = 'aurora-user';
-
 
 // ── Health routes ─────────────────────────────────────────────────────────
 server.get('/health', async () => ({ status: 'ok' }));
 server.get('/global/health', async () => ({ status: 'ok' }));
+server.get('/api/logs', async () => {
+  return { status: 'ok', logs: memoryLogs };
+});
 
 // ── /api/step — single planning step in the agentic feedback loop ─────────
-// `session_id`: the terminal tab's UUID — used as the memory thread ID so all
-// tasks within the same tab share conversation history.
-// `task_id`: a per-task UUID for internal bookkeeping (not used for memory).
 server.post('/api/step', async (request, _reply) => {
-  const { task_id, session_id, goal, last_output, exit_code } = request.body as any;
+  const {
+    task_id,
+    session_id,
+    goal,
+    last_output,
+    exit_code,
+    agent_type,
+    mode,
+    require_review_for_commands,
+    require_review_for_writes,
+  } = request.body as any;
 
-  const agent = mastra.getAgent('aura');
+  // Dynamically update gating review settings from frontend preferences
+  if (require_review_for_commands !== undefined) {
+    reviewSettings.requireReviewForCommands = require_review_for_commands;
+  }
+  if (require_review_for_writes !== undefined) {
+    reviewSettings.requireReviewForWrites = require_review_for_writes;
+  }
 
-  // Use session_id as thread when available; fall back to task_id for backwards
-  // compatibility with older frontend versions that don't send session_id yet.
+  // Select the specialized agent based on request
+  let agent: any = mastra.getAgent('aura');
+  if (agent_type === 'terminal') {
+    agent = mastra.getAgent('terminalAgent');
+  } else if (agent_type === 'developer') {
+    agent = mode === 'plan' ? mastra.getAgent('developerPlanAgent') : mastra.getAgent('developerBuildAgent');
+  }
+
   const threadId = session_id || task_id;
-
-  // Build the prompt — first call uses the goal; subsequent calls use command output feedback.
-  // Unescape any double-backslashes in last_output (they arise from Tauri IPC JSON serialization
-  // of Windows paths like D:\builds\aurora, which become D:\\builds\\aurora in the raw string).
   const cleanOutput = (last_output ?? '(no output)').replace(/\\\\/g, '\\');
   const prompt = goal
     ? `Goal: ${goal}`
@@ -41,28 +57,121 @@ server.post('/api/step', async (request, _reply) => {
         thread: threadId,
         resource: RESOURCE_ID,
       },
+      requireToolApproval: true,
     });
 
+    if (response.finishReason === 'suspended') {
+      return {
+        status: 'requires_approval',
+        runId: response.runId,
+        toolCallId: response.suspendPayload?.toolCallId,
+        toolName: response.suspendPayload?.toolName,
+        args: response.suspendPayload?.args,
+      };
+    }
+
+    // For backwards compatibility or direct completions, parse response
     return parseAuraResponse(response.text);
   } catch (error: any) {
-    const keyInfo = process.env.GROQ_API_KEY
-      ? `(key prefix: ${process.env.GROQ_API_KEY.substring(0, 5)}...)`
-      : '(no GROQ_API_KEY set)';
     return {
       status: 'error',
-      message: `Agent error ${keyInfo}: ${error.message || 'Unknown error'}`,
+      message: `Agent error: ${error.message || 'Unknown error'}`,
+    };
+  }
+});
+
+// ── Tool approval endpoints ──────────────────────────────────────────────
+
+server.post('/api/tool/approve', async (request, _reply) => {
+  const { agent_type, mode, runId, toolCallId, resumeData } = request.body as any;
+
+  let agent: any = mastra.getAgent('aura');
+  if (agent_type === 'terminal') {
+    agent = mastra.getAgent('terminalAgent');
+  } else if (agent_type === 'developer') {
+    agent = mode === 'plan' ? mastra.getAgent('developerPlanAgent') : mastra.getAgent('developerBuildAgent');
+  }
+
+  try {
+    const response = await agent.resumeGenerate(
+      { approved: true, ...resumeData },
+      { runId, toolCallId }
+    );
+
+    if (response.finishReason === 'suspended') {
+      return {
+        status: 'requires_approval',
+        runId: response.runId,
+        toolCallId: response.suspendPayload?.toolCallId,
+        toolName: response.suspendPayload?.toolName,
+        args: response.suspendPayload?.args,
+      };
+    }
+
+    return {
+      status: 'completed',
+      message: response.text,
+    };
+  } catch (error: any) {
+    return {
+      status: 'error',
+      message: `Failed to approve and resume tool call: ${error.message || 'Unknown error'}`,
+    };
+  }
+});
+
+server.post('/api/tool/decline', async (request, _reply) => {
+  const { agent_type, mode, runId, toolCallId } = request.body as any;
+
+  let agent: any = mastra.getAgent('aura');
+  if (agent_type === 'terminal') {
+    agent = mastra.getAgent('terminalAgent');
+  } else if (agent_type === 'developer') {
+    agent = mode === 'plan' ? mastra.getAgent('developerPlanAgent') : mastra.getAgent('developerBuildAgent');
+  }
+
+  try {
+    const response = await agent.resumeGenerate(
+      { approved: false },
+      { runId, toolCallId }
+    );
+
+    if (response.finishReason === 'suspended') {
+      return {
+        status: 'requires_approval',
+        runId: response.runId,
+        toolCallId: response.suspendPayload?.toolCallId,
+        toolName: response.suspendPayload?.toolName,
+        args: response.suspendPayload?.args,
+      };
+    }
+
+    return {
+      status: 'completed',
+      message: response.text,
+    };
+  } catch (error: any) {
+    return {
+      status: 'error',
+      message: `Failed to decline and resume tool call: ${error.message || 'Unknown error'}`,
     };
   }
 });
 
 // ── /api/chat — conversational, no command planning ───────────────────────
 server.post('/api/chat', async (request, _reply) => {
-  const { session_id, task_id, message } = request.body as any;
+  const { session_id, task_id, message, agent_type, mode } = request.body as any;
   if (!message?.trim()) {
     return { status: 'error', message: 'No message provided' };
   }
 
-  const agent = mastra.getAgent('aura');
+  let agent: any = mastra.getAgent('aura');
+  if (agent_type === 'terminal') {
+    agent = mastra.getAgent('terminalAgent');
+  } else if (agent_type === 'developer') {
+    agent = mode === 'plan' ? mastra.getAgent('developerPlanAgent') : mastra.getAgent('developerBuildAgent');
+  }
+
   const threadId = session_id || task_id || 'chat-default';
 
   try {
@@ -83,7 +192,7 @@ server.get('/api/memory/threads', async (_request, _reply) => {
   try {
     const result = await auraMemory.listThreads({
       filter: { resourceId: RESOURCE_ID },
-      perPage: false, // return all threads
+      perPage: false,
     });
     return { status: 'ok', threads: result.threads };
   } catch (error: any) {
@@ -103,7 +212,6 @@ server.delete('/api/memory/thread/:threadId', async (request, _reply) => {
 });
 
 // ── /api/memory/working — get current working memory (user profile) ────────
-// Query: ?threadId=<session-id>  (required — working memory is tied to a thread)
 server.get('/api/memory/working', async (request, _reply) => {
   const { threadId } = (request.query as any) || {};
   if (!threadId) {
@@ -121,11 +229,7 @@ server.get('/api/memory/working', async (request, _reply) => {
 });
 
 // ── Response parser ───────────────────────────────────────────────────────
-// When working memory tools are active, Mastra may concatenate the tool-call
-// exchange with the final response, producing multiple JSON objects in the text.
-// We find ALL balanced JSON objects and pick the last valid one (the final answer).
 function parseAuraResponse(text: string) {
-  // Strip markdown code fences if present
   let src = text.trim();
   if (src.startsWith('```')) {
     const lines = src.split('\n');
@@ -134,13 +238,11 @@ function parseAuraResponse(text: string) {
     if (end > start) src = lines.slice(start, end).join('\n');
   }
 
-  // Collect all balanced JSON objects from the text
   const candidates: any[] = [];
   let i = 0;
   while (i < src.length) {
     const start = src.indexOf('{', i);
     if (start === -1) break;
-    // Walk forward tracking brace depth to find the matching '}'
     let depth = 0;
     let j = start;
     while (j < src.length) {
@@ -161,20 +263,17 @@ function parseAuraResponse(text: string) {
     i = j + 1;
   }
 
-  // Use the LAST valid candidate — it's the agent's final answer after any tool calls
   const result = candidates[candidates.length - 1];
   if (result) {
     if (!['executing', 'completed', 'error'].includes(result.status)) {
       result.status = 'completed';
     }
-    // Ensure message is plain text, not another JSON blob
     if (typeof result.message === 'object') {
       result.message = JSON.stringify(result.message);
     }
     return result;
   }
 
-  // No valid JSON found — treat the whole text as a completion message
   return {
     status: 'completed',
     message: src || text,

@@ -7,12 +7,14 @@ use serde::{Serialize, Deserialize};
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AgentStepRequest {
     pub task_id: String,
-    /// Terminal session (tab) UUID — used as the Mastra memory thread ID.
-    /// All tasks within the same tab share conversation history via this ID.
     pub session_id: Option<String>,
     pub goal: Option<String>,
     pub last_output: Option<String>,
     pub exit_code: Option<i32>,
+    pub agent_type: Option<String>,
+    pub mode: Option<String>,
+    pub require_review_for_commands: Option<bool>,
+    pub require_review_for_writes: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -21,10 +23,32 @@ pub struct AgentStepResponse {
     pub command: Option<String>,
     pub explanation: Option<String>,
     pub message: Option<String>,
+    pub run_id: Option<String>,
+    pub tool_call_id: Option<String>,
+    pub tool_name: Option<String>,
+    pub args: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AgentApproveRequest {
+    pub agent_type: Option<String>,
+    pub mode: Option<String>,
+    pub run_id: String,
+    pub tool_call_id: Option<String>,
+    pub resume_data: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AgentDeclineRequest {
+    pub agent_type: Option<String>,
+    pub mode: Option<String>,
+    pub run_id: String,
+    pub tool_call_id: Option<String>,
 }
 
 /// Calls the local aurora-agent sidecar and returns a structured step response.
 #[command]
+#[allow(clippy::too_many_arguments)]
 pub async fn agent_plan_step(
     state: State<'_, AppState>,
     task_id: String,
@@ -32,6 +56,10 @@ pub async fn agent_plan_step(
     goal: Option<String>,
     last_output: Option<String>,
     exit_code: Option<i32>,
+    agent_type: Option<String>,
+    mode: Option<String>,
+    require_review_for_commands: Option<bool>,
+    require_review_for_writes: Option<bool>,
 ) -> Result<AgentStepResponse, AppError> {
     let port = {
         let sidecar = state.sidecar.lock().await;
@@ -47,6 +75,10 @@ pub async fn agent_plan_step(
         goal,
         last_output,
         exit_code,
+        agent_type,
+        mode,
+        require_review_for_commands,
+        require_review_for_writes,
     };
 
     let response = client.post(&url)
@@ -60,6 +92,116 @@ pub async fn agent_plan_step(
     }
 
     let response_data = response.json::<AgentStepResponse>()
+        .await
+        .map_err(|e| AppError::Sidecar(format!("Failed to parse aurora-agent response: {}", e)))?;
+
+    Ok(response_data)
+}
+
+#[command]
+pub async fn agent_approve_tool(
+    state: State<'_, AppState>,
+    agent_type: Option<String>,
+    mode: Option<String>,
+    run_id: String,
+    tool_call_id: Option<String>,
+    resume_data: Option<serde_json::Value>,
+) -> Result<AgentStepResponse, AppError> {
+    let port = {
+        let sidecar = state.sidecar.lock().await;
+        sidecar.port().ok_or_else(|| AppError::Sidecar("aurora-agent is not running".to_string()))?
+    };
+
+    let client = reqwest::Client::new();
+    let url = format!("http://127.0.0.1:{}/api/tool/approve", port);
+
+    let request_payload = AgentApproveRequest {
+        agent_type,
+        mode,
+        run_id,
+        tool_call_id,
+        resume_data,
+    };
+
+    let response = client.post(&url)
+        .json(&request_payload)
+        .send()
+        .await
+        .map_err(|e| AppError::Sidecar(format!("Failed to contact aurora-agent: {}", e)))?;
+
+    if !response.status().is_success() {
+        return Err(AppError::Sidecar(format!("aurora-agent API returned error status: {}", response.status())));
+    }
+
+    let response_data = response.json::<AgentStepResponse>()
+        .await
+        .map_err(|e| AppError::Sidecar(format!("Failed to parse aurora-agent response: {}", e)))?;
+
+    Ok(response_data)
+}
+
+#[command]
+pub async fn agent_decline_tool(
+    state: State<'_, AppState>,
+    agent_type: Option<String>,
+    mode: Option<String>,
+    run_id: String,
+    tool_call_id: Option<String>,
+) -> Result<AgentStepResponse, AppError> {
+    let port = {
+        let sidecar = state.sidecar.lock().await;
+        sidecar.port().ok_or_else(|| AppError::Sidecar("aurora-agent is not running".to_string()))?
+    };
+
+    let client = reqwest::Client::new();
+    let url = format!("http://127.0.0.1:{}/api/tool/decline", port);
+
+    let request_payload = AgentDeclineRequest {
+        agent_type,
+        mode,
+        run_id,
+        tool_call_id,
+    };
+
+    let response = client.post(&url)
+        .json(&request_payload)
+        .send()
+        .await
+        .map_err(|e| AppError::Sidecar(format!("Failed to contact aurora-agent: {}", e)))?;
+
+    if !response.status().is_success() {
+        return Err(AppError::Sidecar(format!("aurora-agent API returned error status: {}", response.status())));
+    }
+
+    let response_data = response.json::<AgentStepResponse>()
+        .await
+        .map_err(|e| AppError::Sidecar(format!("Failed to parse aurora-agent response: {}", e)))?;
+
+    Ok(response_data)
+}
+
+#[command]
+pub async fn agent_get_logs(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, AppError> {
+    let port = {
+        let sidecar = state.sidecar.lock().await;
+        sidecar.port().ok_or_else(|| AppError::Sidecar("aurora-agent is not running".to_string()))?
+    };
+
+    let client = reqwest::Client::new();
+    let url = format!("http://127.0.0.1:{}/api/logs", port);
+
+    let response = client.get(&url)
+        .send()
+        .await
+        .map_err(|e| AppError::Sidecar(format!("Failed to contact aurora-agent: {}", e)))?;
+
+    if !response.status().is_success() {
+        return Err(AppError::Sidecar(format!("aurora-agent API returned error status: {}", response.status())));
+    }
+
+    let response_data = response.json::<serde_json::Value>()
         .await
         .map_err(|e| AppError::Sidecar(format!("Failed to parse aurora-agent response: {}", e)))?;
 

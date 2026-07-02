@@ -83,54 +83,49 @@ export function CommandInputBar({
         )}
 
         {/* Body */}
-        {isRunning ? (
-          <div className="flex items-center justify-between px-4 py-3">
-            <div className="flex items-center gap-2.5 text-sm" style={{ color: "#4F8CFF" }}>
-              <RefreshCw size={13} className="animate-spin shrink-0" />
-              <span className="text-[13px] font-medium">Executing…</span>
-              <span className="text-[11px]" style={{ color: "rgba(232,234,240,0.3)" }}>Ctrl+C to cancel</span>
-            </div>
-            <button
-              onClick={onStop}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold rounded-[10px] transition-all cursor-pointer"
-              style={{
-                background: "rgba(255,107,107,0.08)",
-                border: "1px solid rgba(255,107,107,0.20)",
-                color: "#FF6B6B",
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,107,107,0.14)")}
-              onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,107,107,0.08)")}
-              title="Stop Command (Ctrl+C)"
-            >
-              <Square size={10} />
-              Stop
-            </button>
+        <div className="flex items-start">
+          <GhostInput
+            sessionId={sessionId}
+            value={value}
+            onChange={onChange}
+            onSubmit={onSubmit}
+            history={history}
+            placeholder="Type a command or describe a goal…"
+            className="flex-1"
+            inputMode={inputMode}
+          />
+          <div className="flex items-center gap-1.5 pr-3 py-3 self-end">
+            {isRunning ? (
+              <button
+                onClick={onStop}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold rounded-[10px] transition-all cursor-pointer"
+                style={{
+                  background: "rgba(255,107,107,0.08)",
+                  border: "1px solid rgba(255,107,107,0.20)",
+                  color: "#FF6B6B",
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,107,107,0.14)")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,107,107,0.08)")}
+                title="Stop Command (Ctrl+C)"
+              >
+                <Square size={10} />
+                Stop
+              </button>
+            ) : (
+              <>
+                <IconButton title="Attach File">
+                  <Plus size={14} />
+                </IconButton>
+                <IconButton onClick={onOpenAiBar} title="Agent (⌘K)">
+                  <Command size={14} />
+                </IconButton>
+                <IconButton title="Voice Input">
+                  <Mic size={14} />
+                </IconButton>
+              </>
+            )}
           </div>
-        ) : (
-          <div className="flex items-start">
-            <GhostInput
-              sessionId={sessionId}
-              value={value}
-              onChange={onChange}
-              onSubmit={onSubmit}
-              history={history}
-              placeholder="Type a command or describe a goal…"
-              className="flex-1"
-              inputMode={inputMode}
-            />
-            <div className="flex items-center gap-0.5 pr-3 py-3 self-end">
-              <IconButton title="Attach File">
-                <Plus size={14} />
-              </IconButton>
-              <IconButton onClick={onOpenAiBar} title="Agent (⌘K)">
-                <Command size={14} />
-              </IconButton>
-              <IconButton title="Voice Input">
-                <Mic size={14} />
-              </IconButton>
-            </div>
-          </div>
-        )}
+        </div>
       </div>
     </div>
   );

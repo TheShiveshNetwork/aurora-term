@@ -1,8 +1,11 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useRef, useEffect } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { useAgentStore, AgentCommand, defaultSessionState, CONST_DEFAULT_SESSION_STATE } from "../stores/useAgentStore";
 import { useBlockStore } from "../stores/useBlockStore";
-import { pty, system } from "../lib/ipc";
+import { useSettingsStore } from "../stores/useSettingsStore";
+import { useSessionStore } from "../stores/useSessionStore";
+import { useAppShellStore } from "../stores/useAppShellStore";
+import { pty, system, config } from "../lib/ipc";
 import { Block } from "@aurora/types";
 
 // ── Sensitive command detection ───────────────────────────────────────────
@@ -54,7 +57,6 @@ function waitForBlockCompletion(
     unsubscribe = useBlockStore.subscribe((state) => {
       const block = (state.blocks[sessionId] || []).find((b) => b.id === blockId);
 
-      // Block was never set to running (e.g. write failed instantly) — bail out
       if (!block) {
         settled(0, "");
         return;
@@ -83,6 +85,126 @@ export function useAgentExecution(sessionId: string | null) {
   const sessionRef = useRef<string | null>(null);
   sessionRef.current = sessionId;
 
+  // ── handleStepResult ─────────────────────────────────────────────────────
+  const handleStepResult = useCallback(async (
+    targetSessionId: string,
+    taskId: string,
+    step: any
+  ) => {
+    const state = useAgentStore.getState();
+
+    // 1. Gated Tool Approval Suspension
+    if (step.status === "requires_approval") {
+      state.setPendingToolCall(targetSessionId, {
+        runId: step.run_id,
+        toolCallId: step.tool_call_id,
+        name: step.tool_name,
+        args: step.args,
+      });
+      state.pauseTask(targetSessionId);
+
+      if (step.tool_name === "exec_command") {
+        const cmd = step.args.command;
+        const explanation = step.args.explanation || "Executing planned command";
+        state.addCommandToQueue(targetSessionId, cmd, explanation, "requires_action");
+        state.setActiveDrawerTab(targetSessionId, "terminals");
+
+        // Add chain node
+        state.addChainNode(targetSessionId, {
+          type: "command",
+          label: cmd.length > 35 ? cmd.slice(0, 35) + "…" : cmd,
+          subLabel: explanation,
+          status: "pending",
+          command: cmd,
+        });
+      } else if (step.tool_name === "write_file" || step.tool_name === "patch_file") {
+        state.addFileChange(targetSessionId, {
+          path: step.args.path,
+          newContent: step.args.content || step.args.replace || "",
+          oldContent: step.args.search || undefined,
+          type: step.tool_name === "write_file" ? "write" : "patch",
+          search: step.args.search,
+          replace: step.args.replace,
+        });
+      } else if (step.tool_name === "ask_user") {
+        state.setActiveDrawerTab(targetSessionId, "questions");
+      }
+      return;
+    }
+
+    // 2. Completed
+    if (step.status === "completed") {
+      const msg = step.message || "Task completed successfully";
+      state.completeTask(targetSessionId, msg);
+      const totalMs = useAgentStore.getState().sessions[targetSessionId]?.queue
+        .reduce((acc, cmd) => acc + (cmd.durationMs || 0), 0) || 0;
+      const snap = useAgentStore.getState().sessions[targetSessionId] || defaultSessionState();
+      state.addChatMessage(targetSessionId, {
+        role: "assistant", content: msg, durationMs: totalMs,
+        chainNodes: snap.chainNodes, agentLogs: snap.agentLogs, subagent: snap.activeSubagent,
+      });
+      return;
+    }
+
+    // 3. Error
+    if (step.status === "error") {
+      const errMsg = step.message || "An error occurred during agent planning";
+      state.failTask(targetSessionId, errMsg);
+      const snap = useAgentStore.getState().sessions[targetSessionId] || defaultSessionState();
+      state.addChatMessage(targetSessionId, {
+        role: "assistant", content: errMsg, isError: true,
+        chainNodes: snap.chainNodes, agentLogs: snap.agentLogs, subagent: snap.activeSubagent,
+      });
+      return;
+    }
+
+    // 4. Executing (legacy or direct command path)
+    if (step.status === "executing" && step.command) {
+      const cmd = step.command;
+      const explanation = step.explanation || "Executing planned command";
+      const subagent = (step.subagent as AgentCommand["subagent"]) || "none";
+      const isSensitive = isSensitiveCommand(cmd);
+
+      if (subagent && subagent !== "none") {
+        state.setActiveSubagent(targetSessionId, subagent);
+        state.addAgentLog(targetSessionId, "subagent", `Routing to ${subagent} agent`, subagent);
+      }
+
+      const freshSession = useAgentStore.getState().sessions[targetSessionId] || defaultSessionState();
+      const currentQueue = freshSession.queue;
+      const newIndex = currentQueue.length;
+
+      state.addCommandToQueue(
+        targetSessionId,
+        cmd,
+        explanation,
+        isSensitive ? "requires_action" : "pending",
+        subagent
+      );
+
+      const nodeId = state.addChainNode(targetSessionId, {
+        type: "command",
+        label: cmd.length > 35 ? cmd.slice(0, 35) + "…" : cmd,
+        subLabel: explanation,
+        status: "pending",
+        command: cmd,
+        subagent: subagent !== "none" ? subagent : undefined,
+      });
+
+      state.addLog(targetSessionId, `Agent planned step ${newIndex + 1}: ${cmd}`);
+      state.addAgentLog(targetSessionId, "execute", `Planned: ${cmd}`, subagent !== "none" ? subagent : undefined);
+
+      if (isSensitive) {
+        state.pauseTask(targetSessionId);
+        state.addLog(targetSessionId, "Command execution paused. Awaiting user approval...");
+        state.updateChainNode(targetSessionId, nodeId, { status: "pending" });
+      } else {
+        state.updateChainNode(targetSessionId, nodeId, { status: "active" });
+        await runCommandIndex(taskId, newIndex, nodeId);
+      }
+    }
+  }, []);
+
   // ── executeNextStep ──────────────────────────────────────────────────────
   const executeNextStep = useCallback(async (
     taskId: string,
@@ -90,14 +212,12 @@ export function useAgentExecution(sessionId: string | null) {
     exitCode?: number
   ) => {
     const targetSessionId = sessionRef.current;
-    if (!targetSessionId) {
-      return;
-    }
+    if (!targetSessionId) return;
 
-    // ── Max steps guard ──────────────────────────────────────────────────
     const state = useAgentStore.getState();
     const currentSession = state.sessions[targetSessionId] || defaultSessionState();
-    const { stepCount, maxSteps, originalGoal } = currentSession;
+    const { stepCount, maxSteps, originalGoal, agentType, agentMode } = currentSession;
+
     if (stepCount >= maxSteps) {
       state.completeTask(
         targetSessionId,
@@ -108,6 +228,11 @@ export function useAgentExecution(sessionId: string | null) {
 
     state.incrementStep(targetSessionId);
 
+    // Fetch gating review settings from the config IPC
+    const cfg = await config.get();
+    const requireReviewForCommands = cfg.ai.require_review_for_commands;
+    const requireReviewForWrites = cfg.ai.require_review_for_writes;
+
     try {
       const step = await system.agentPlanStep(
         taskId,
@@ -115,82 +240,13 @@ export function useAgentExecution(sessionId: string | null) {
         lastOutput === undefined ? originalGoal : null,
         lastOutput || null,
         exitCode !== undefined ? exitCode : null,
+        agentType,
+        agentMode,
+        requireReviewForCommands,
+        requireReviewForWrites
       );
 
-      // ── Completed ──────────────────────────────────────────────────────
-      if (step.status === "completed") {
-        const msg = step.message || "Task completed successfully";
-        state.completeTask(targetSessionId, msg);
-        const totalMs = useAgentStore.getState().sessions[targetSessionId]?.queue
-          .reduce((acc, cmd) => acc + (cmd.durationMs || 0), 0) || 0;
-        const snap = useAgentStore.getState().sessions[targetSessionId] || defaultSessionState();
-        state.addChatMessage(targetSessionId, {
-          role: "assistant", content: msg, durationMs: totalMs,
-          chainNodes: snap.chainNodes, agentLogs: snap.agentLogs, subagent: snap.activeSubagent,
-        });
-        return;
-      }
-
-      // ── Error ──────────────────────────────────────────────────────────
-      if (step.status === "error") {
-        const errMsg = step.message || "An error occurred during agent planning";
-        state.failTask(targetSessionId, errMsg);
-        const snap = useAgentStore.getState().sessions[targetSessionId] || defaultSessionState();
-        state.addChatMessage(targetSessionId, {
-          role: "assistant", content: errMsg, isError: true,
-          chainNodes: snap.chainNodes, agentLogs: snap.agentLogs, subagent: snap.activeSubagent,
-        });
-        return;
-      }
-
-      // ── Executing ─────────────────────────────────────────────────────
-      if (step.status === "executing" && step.command) {
-        const cmd = step.command;
-        const explanation = step.explanation || "Executing planned command";
-        const subagent = (step.subagent as AgentCommand["subagent"]) || "none";
-        const isSensitive = isSensitiveCommand(cmd);
-
-        // Update active subagent indicator
-        if (subagent && subagent !== "none") {
-          state.setActiveSubagent(targetSessionId, subagent);
-          state.addAgentLog(targetSessionId, "subagent", `Routing to ${subagent} agent`, subagent);
-        }
-
-        const freshSession = useAgentStore.getState().sessions[targetSessionId] || defaultSessionState();
-        const currentQueue = freshSession.queue;
-        const newIndex = currentQueue.length;
-
-        // Add command to the queue with subagent info
-        state.addCommandToQueue(
-          targetSessionId,
-          cmd,
-          explanation,
-          isSensitive ? "requires_action" : "pending",
-          subagent
-        );
-
-        // Add chain node for this command
-        const nodeId = state.addChainNode(targetSessionId, {
-          type: "command",
-          label: cmd.length > 35 ? cmd.slice(0, 35) + "…" : cmd,
-          subLabel: explanation,
-          status: "pending",
-          command: cmd,
-          subagent: subagent !== "none" ? subagent : undefined,
-        });
-
-        state.addLog(targetSessionId, `Agent planned step ${newIndex + 1}: ${cmd}`);
-        state.addAgentLog(targetSessionId, "execute", `Planned: ${cmd}`, subagent !== "none" ? subagent : undefined);
-
-        if (isSensitive) {
-          state.pauseTask(targetSessionId);
-          state.addLog(targetSessionId, "Command execution paused. Awaiting user approval...");
-          state.updateChainNode(targetSessionId, nodeId, { status: "pending" });
-        } else {
-          state.updateChainNode(targetSessionId, nodeId, { status: "active" });
-          await runCommandIndex(taskId, newIndex, nodeId);
-        }
-      }
+      await handleStepResult(targetSessionId, taskId, step);
     } catch (err: any) {
       console.error("Agent plan step failed:", err);
       const errMsg = typeof err === "string" ? err : err?.message || err?.toString?.() || JSON.stringify(err);
@@ -208,7 +264,7 @@ export function useAgentExecution(sessionId: string | null) {
         chainNodes: snap.chainNodes, agentLogs: snap.agentLogs, subagent: snap.activeSubagent,
       });
     }
-  }, []);
+  }, [handleStepResult]);
 
   // ── runCommandIndex ──────────────────────────────────────────────────────
   const runCommandIndex = useCallback(async (taskId: string, index: number, chainNodeId?: string) => {
@@ -280,10 +336,7 @@ export function useAgentExecution(sessionId: string | null) {
 
       state.setActiveSubagent(targetSessionId, null);
 
-      const postRunSession = useAgentStore.getState().sessions[targetSessionId] || defaultSessionState();
-      if (postRunSession.status !== "paused") {
-        await executeNextStep(taskId, result.output, result.exitCode);
-      }
+      return result; // return output and exitCode
     } catch (err: any) {
       console.error("Command execution failed:", err);
       state.updateCommandStatus(targetSessionId, index, "error");
@@ -294,8 +347,9 @@ export function useAgentExecution(sessionId: string | null) {
 
       const errMsg = typeof err === "string" ? err : err?.message || err?.toString?.() || JSON.stringify(err);
       state.failTask(targetSessionId, errMsg);
+      throw err;
     }
-  }, [executeNextStep]);
+  }, []);
 
   // ── startTask ────────────────────────────────────────────────────────────
   const startTask = useCallback((goal: string) => {
@@ -304,10 +358,20 @@ export function useAgentExecution(sessionId: string | null) {
 
     const taskId = uuidv4();
     const state = useAgentStore.getState();
-    // Add user message to chat history BEFORE starting
+    
+    // Determine agent type based on active tab type or viewMode
+    const tab = useSessionStore.getState().tabs.find((t) => t.id === targetSessionId);
+    const isTerminal = tab?.type === "terminal";
+    const viewMode = useAppShellStore.getState().viewMode;
+    const type = (viewMode === "agent" || !isTerminal) ? "developer" : "terminal";
+    const mode = type === "terminal" ? "build" : (state.sessions[targetSessionId]?.agentMode || "build");
+
     state.addChatMessage(targetSessionId, { role: "user", content: goal });
     state.startTask(targetSessionId, taskId, goal);
+    state.setAgentType(targetSessionId, type);
+    state.setAgentMode(targetSessionId, mode);
     state.resumeTask(targetSessionId);
+    
     executeNextStep(taskId);
   }, [executeNextStep]);
 
@@ -318,6 +382,62 @@ export function useAgentExecution(sessionId: string | null) {
 
     const state = useAgentStore.getState();
     const freshSession = state.sessions[targetSessionId] || defaultSessionState();
+    
+    // 1. Handle tool approval resume
+    if (freshSession.pendingToolCall) {
+      const { runId, toolCallId, name } = freshSession.pendingToolCall;
+      state.resumeTask(targetSessionId);
+      
+      try {
+        let stepResult: any;
+        if (name === "exec_command") {
+          // Find the queued command matching
+          const currentIndex = freshSession.queue.findIndex((cmd) => cmd.status === "requires_action");
+          if (currentIndex === -1) return;
+          
+          const cmd = freshSession.queue[currentIndex];
+          const chainNode = freshSession.chainNodes.find(
+            (n) => n.type === "command" && n.command === cmd.command && n.status === "pending"
+          );
+
+          // Run it in the PTY first!
+          const result = await runCommandIndex(freshSession.taskId!, currentIndex, chainNode?.id);
+          
+          // Submit PTY outputs back to resume tool execution
+          stepResult = await system.agentApproveTool(
+            freshSession.agentType,
+            freshSession.agentMode,
+            runId,
+            toolCallId,
+            { approved: true, stdout: result?.output || "", stderr: "", exitCode: result?.exitCode ?? 0 }
+          );
+        } else {
+          // File write / patch approved
+          stepResult = await system.agentApproveTool(
+            freshSession.agentType,
+            freshSession.agentMode,
+            runId,
+            toolCallId,
+            { approved: true }
+          );
+          
+          // Approve file changes status
+          if (freshSession.filesChanged.length > 0) {
+            const lastFile = freshSession.filesChanged[freshSession.filesChanged.length - 1];
+            state.updateFileChangeStatus(targetSessionId, lastFile.path, "approved");
+          }
+        }
+        
+        state.setPendingToolCall(targetSessionId, null);
+        await handleStepResult(targetSessionId, freshSession.taskId!, stepResult);
+      } catch (e) {
+        console.error("Failed tool approval resume:", e);
+        state.failTask(targetSessionId, e);
+      }
+      return;
+    }
+
+    // 2. Legacy pending command queue path
     const currentIndex = freshSession.queue.findIndex((cmd) => cmd.status === "requires_action");
     if (currentIndex === -1 || !freshSession.taskId) return;
 
@@ -326,8 +446,122 @@ export function useAgentExecution(sessionId: string | null) {
       (n) => n.type === "command" && n.command === cmd.command && n.status === "pending"
     );
 
-    await runCommandIndex(freshSession.taskId, currentIndex, chainNode?.id);
-  }, [runCommandIndex]);
+    const result = await runCommandIndex(freshSession.taskId, currentIndex, chainNode?.id);
+    await executeNextStep(freshSession.taskId, result?.output, result?.exitCode);
+  }, [runCommandIndex, handleStepResult, executeNextStep]);
+
+  // ── declinePending ───────────────────────────────────────────────────────
+  const declinePending = useCallback(async () => {
+    const targetSessionId = sessionRef.current;
+    if (!targetSessionId) return;
+
+    const state = useAgentStore.getState();
+    const freshSession = state.sessions[targetSessionId] || defaultSessionState();
+
+    if (freshSession.pendingToolCall) {
+      const { runId, toolCallId, name } = freshSession.pendingToolCall;
+      
+      try {
+        state.resumeTask(targetSessionId);
+        if (name !== "exec_command" && freshSession.filesChanged.length > 0) {
+          const lastFile = freshSession.filesChanged[freshSession.filesChanged.length - 1];
+          state.updateFileChangeStatus(targetSessionId, lastFile.path, "rejected");
+        }
+        
+        const stepResult = await system.agentDeclineTool(
+          freshSession.agentType,
+          freshSession.agentMode,
+          runId,
+          toolCallId
+        );
+        state.setPendingToolCall(targetSessionId, null);
+        await handleStepResult(targetSessionId, freshSession.taskId!, stepResult);
+      } catch (e) {
+        console.error("Failed tool decline resume:", e);
+        state.failTask(targetSessionId, e);
+      }
+      return;
+    }
+
+    // Legacy reject path
+    const currentIndex = freshSession.queue.findIndex((cmd) => cmd.status === "requires_action");
+    if (currentIndex !== -1) {
+      state.updateCommandStatus(targetSessionId, currentIndex, "cancelled");
+      state.completeTask(targetSessionId, "Task cancelled by user.");
+    }
+  }, [handleStepResult]);
+
+  // ── skipPending ──────────────────────────────────────────────────────────
+  const skipPending = useCallback(() => {
+    const targetSessionId = sessionRef.current;
+    if (!targetSessionId) return;
+    
+    // Skip clears the tool call/changes state and resumes execution loop
+    const state = useAgentStore.getState();
+    state.clearFileChanges(targetSessionId);
+    state.resumeTask(targetSessionId);
+  }, []);
+
+  // ── submitAnswer ─────────────────────────────────────────────────────────
+  const submitAnswer = useCallback(async (answer: string) => {
+    const targetSessionId = sessionRef.current;
+    if (!targetSessionId) return;
+
+    const state = useAgentStore.getState();
+    const freshSession = state.sessions[targetSessionId] || defaultSessionState();
+    if (!freshSession.pendingToolCall) return;
+
+    const { runId, toolCallId } = freshSession.pendingToolCall;
+    state.resumeTask(targetSessionId);
+    state.setPendingToolCall(targetSessionId, null);
+
+    try {
+      const stepResult = await system.agentApproveTool(
+        freshSession.agentType,
+        freshSession.agentMode,
+        runId,
+        toolCallId,
+        { approved: true, answer }
+      );
+      await handleStepResult(targetSessionId, freshSession.taskId!, stepResult);
+    } catch (e) {
+      console.error("Failed to submit question answer:", e);
+      state.failTask(targetSessionId, e);
+    }
+  }, [handleStepResult]);
+
+  useEffect(() => {
+    if (!sessionId) return;
+    const isThinking = sessionState.status === "planning" || sessionState.status === "executing";
+    if (!isThinking) return;
+
+    // Immediately fetch once
+    system.agentGetLogs().then((res) => {
+      if (res && res.status === "ok" && Array.isArray(res.logs)) {
+        const mapped = res.logs.map((log: any) => ({
+          timestamp: log.timestamp,
+          type: log.type as any || "info",
+          content: log.content,
+        }));
+        useAgentStore.getState().setAgentLogs(sessionId, mapped);
+      }
+    }).catch(() => {});
+
+    const intervalId = setInterval(() => {
+      system.agentGetLogs().then((res) => {
+        if (res && res.status === "ok" && Array.isArray(res.logs)) {
+          const mapped = res.logs.map((log: any) => ({
+            timestamp: log.timestamp,
+            type: log.type as any || "info",
+            content: log.content,
+          }));
+          useAgentStore.getState().setAgentLogs(sessionId, mapped);
+        }
+      }).catch(() => {});
+    }, 1500);
+
+    return () => clearInterval(intervalId);
+  }, [sessionId, sessionState.status]);
 
   // ── retryTask ────────────────────────────────────────────────────────────
   const retryTask = useCallback(() => {
@@ -348,7 +582,10 @@ export function useAgentExecution(sessionId: string | null) {
     startTask,
     retryTask,
     approveAndRunPending,
+    declinePending,
+    skipPending,
     clearTask,
+    submitAnswer,
     status: sessionState.status,
     queue: sessionState.queue,
     originalGoal: sessionState.originalGoal,
@@ -360,5 +597,8 @@ export function useAgentExecution(sessionId: string | null) {
     agentLogs: sessionState.agentLogs,
     activeSubagent: sessionState.activeSubagent,
     chatHistory: sessionState.chatHistory,
+    pendingToolCall: sessionState.pendingToolCall,
+    filesChanged: sessionState.filesChanged,
+    activeDrawerTab: sessionState.activeDrawerTab,
   };
 }

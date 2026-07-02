@@ -1,0 +1,1 @@
+Fetch raw content from a public URL and convert it to clean markdown, text, or HTML. Useful for looking up docs or APIs.
