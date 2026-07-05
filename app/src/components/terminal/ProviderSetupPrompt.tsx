@@ -1,9 +1,9 @@
 import { useAIStore } from "../../stores/useAIStore";
-import { ProviderName } from "@aurora/types";
-import { ProviderIcon, DISPLAY_NAMES } from "../settings/ProviderIcon";
+import { ProviderRegistry } from "../../lib/providers";
+import { ProviderIcon } from "../settings/ProviderIcon";
 import { openSettingsWindow } from "../../lib/settings";
 
-const API_PROVIDERS: ProviderName[] = ["anthropic", "openai", "gemini", "groq", "nvidia"];
+const API_PROVIDERS = ProviderRegistry.getApiKeyProviderIds();
 
 export function useHasApiKeyConfigured() {
   const providers = useAIStore((s) => s.providers);
@@ -58,7 +58,7 @@ export function ProviderSetupPrompt({ compact }: { compact?: boolean }) {
               }}
             >
               <ProviderIcon name={name} size={10} />
-              {DISPLAY_NAMES[name]}
+              {ProviderRegistry.get(name).displayName}
             </span>
           ))}
         </div>

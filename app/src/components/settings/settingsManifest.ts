@@ -15,7 +15,7 @@ const CATEGORY: Record<string, Record<string, string>> = {
     appearance: "Appearance",
     keybindings: "Keybindings",
   },
-  agent: { ai: "AI" },
+  agent: { ai: "AI", permissions: "Permissions" },
   about: { about: "About" },
 };
 
@@ -46,6 +46,8 @@ export const SETTINGS_MANIFEST: SettingsManifestEntry[] = [
   { id: "ai-providers", label: "AI Providers", description: "Select and configure AI providers", elementId: "setting-ai-providers", section: "agent", subPage: "ai" },
   { id: "default-provider", label: "Default Provider", description: "Set default AI provider", elementId: "setting-default-provider", section: "agent", subPage: "ai" },
   { id: "api-key", label: "API Key", description: "Manage AI provider API keys", elementId: "setting-api-key", section: "agent", subPage: "ai" },
+  // ── Permissions ──
+  { id: "permissions", label: "Permissions", description: "Agent approval and safety settings", elementId: "setting-permissions", section: "agent", subPage: "permissions" },
   // ── About ──
   { id: "about", label: "About Aurora", description: "Version, credits, and system info", elementId: "setting-about", section: "about", subPage: "about" },
 ];

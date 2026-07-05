@@ -60,7 +60,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
   const [initialFindText, setInitialFindText] = useState("");
   const toggleSearchRef = useRef(() => {
     const sel = viewRef.current?.state.selection.main;
-    const text = sel && !sel.empty ? viewRef.current.state.sliceDoc(sel.from, sel.to) : "";
+    const text = sel && !sel.empty ? viewRef.current!.state.sliceDoc(sel.from, sel.to) : "";
     setInitialFindText(text);
     setShowSearch(s => !s);
   });

@@ -1,8 +1,6 @@
 //! SidecarManager: spawn, health check, and kill the aurora-agent sidecar process.
 
 use std::path::PathBuf;
-use std::sync::Arc;
-use tokio::sync::Mutex;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::oneshot;
 use aurora_core::AppError;
@@ -11,7 +9,7 @@ use aurora_core::AppError;
 use std::os::windows::process::CommandExt;
 
 pub struct SidecarManager {
-    kill_sender: Arc<Mutex<Option<oneshot::Sender<()>>>>,
+    kill_sender: tokio::sync::Mutex<Option<oneshot::Sender<()>>>,
     port: Option<u16>,
     config_path: Option<PathBuf>,
     child_pid: Option<u32>,
@@ -26,7 +24,7 @@ impl Default for SidecarManager {
 impl SidecarManager {
     pub fn new() -> Self {
         Self {
-            kill_sender: Arc::new(Mutex::new(None)),
+            kill_sender: tokio::sync::Mutex::new(None),
             port: None,
             config_path: None,
             child_pid: None,
@@ -44,13 +42,10 @@ impl SidecarManager {
         crashed_sender: UnboundedSender<()>,
         envs: Vec<(String, String)>,
     ) -> Result<u16, AppError> {
-        let _ = std::fs::write("d:/builds/aurora/sidecar_status.log", "SidecarManager::spawn: entered");
         // Signal any previous monitor and terminate existing process
         self.kill().await?;
-        let _ = std::fs::write("d:/builds/aurora/sidecar_status.log", "SidecarManager::spawn: killed old child");
 
         let port = self.find_free_port()?;
-        let _ = std::fs::write("d:/builds/aurora/sidecar_status.log", format!("SidecarManager::spawn: found port {}", port));
 
         #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
         const TARGET_TRIPLE: &str = "x86_64-pc-windows-msvc";
@@ -74,8 +69,6 @@ impl SidecarManager {
         let workspace_root = find_workspace_root();
         
         let mut cmd = if let Some(root) = workspace_root.filter(|_| cfg!(debug_assertions)) {
-            let _ = std::fs::write("d:/builds/aurora/sidecar_status.log", format!("SidecarManager::spawn: using workspace root {:?}", root));
-            
             #[cfg(target_os = "windows")]
             {
                 let mut c = tokio::process::Command::new("cmd");
@@ -92,7 +85,6 @@ impl SidecarManager {
                 c
             }
         } else {
-            let _ = std::fs::write("d:/builds/aurora/sidecar_status.log", "SidecarManager::spawn: using compiled production binary");
             let mut exe_path = std::env::current_exe().map_err(|e| AppError::Sidecar(format!("Failed to get current executable path: {}", e)))?;
             exe_path.pop(); // get directory containing the executable
             
@@ -115,26 +107,23 @@ impl SidecarManager {
             c
         };
 
-        for (k, v) in envs {
+        for (k, v) in &envs {
             cmd.env(k, v);
         }
-        if let Ok(log_file) = std::fs::File::create("d:/builds/aurora/sidecar_output.log") {
-            if let Ok(err_file) = log_file.try_clone() {
-                cmd.stdout(log_file);
-                cmd.stderr(err_file);
-            } else {
-                cmd.stdout(std::process::Stdio::piped());
-                cmd.stderr(std::process::Stdio::piped());
-            }
+
+        // Route stdout/stderr based on build profile:
+        //   dev  → inherit (logs reach the parent terminal with colors via LOG_PRETTY=1)
+        //   prod → null    (sidecar manages its own file via LOG_FILE_PATH env var)
+        if cfg!(debug_assertions) {
+            cmd.stdout(std::process::Stdio::inherit());
+            cmd.stderr(std::process::Stdio::inherit());
         } else {
-            cmd.stdout(std::process::Stdio::piped());
-            cmd.stderr(std::process::Stdio::piped());
+            cmd.stdout(std::process::Stdio::null());
+            cmd.stderr(std::process::Stdio::null());
         }
 
-        let _ = std::fs::write("d:/builds/aurora/sidecar_status.log", "SidecarManager::spawn: spawning command");
         let child = cmd.spawn()
             .map_err(|e| AppError::Sidecar(format!("Failed to spawn aurora-agent serve: {}", e)))?;
-        let _ = std::fs::write("d:/builds/aurora/sidecar_status.log", "SidecarManager::spawn: command spawned successfully");
 
         self.child_pid = child.id();
         self.port = Some(port);
@@ -152,29 +141,22 @@ impl SidecarManager {
         let health_url = format!("http://127.0.0.1:{}/global/health", port);
         let mut healthy = false;
 
-        for i in 0..30 {
-            let _ = std::fs::write("d:/builds/aurora/sidecar_status.log", format!("SidecarManager::spawn: health check iteration {}, url: {}", i, health_url));
+        for _ in 0..30 {
             tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-            // set a 1-second timeout on the request to prevent hanging forever
             let req = client.get(&health_url).timeout(tokio::time::Duration::from_secs(1));
             if let Ok(resp) = req.send().await {
-                let _ = std::fs::write("d:/builds/aurora/sidecar_status.log", format!("SidecarManager::spawn: health check got response status: {}", resp.status()));
                 if resp.status().is_success() {
                     healthy = true;
                     break;
                 }
-            } else {
-                let _ = std::fs::write("d:/builds/aurora/sidecar_status.log", "SidecarManager::spawn: health check request failed");
             }
         }
 
         if !healthy {
-            let _ = std::fs::write("d:/builds/aurora/sidecar_status.log", "SidecarManager::spawn: health check timed out, killing sidecar");
             self.kill().await?;
             return Err(AppError::Sidecar("aurora-agent server health check timed out".to_string()));
         }
 
-        let _ = std::fs::write("d:/builds/aurora/sidecar_status.log", "SidecarManager::spawn: sidecar is healthy and running!");
         Ok(port)
     }
 

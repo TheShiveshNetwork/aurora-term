@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { ProviderName, UiState, SavedTab } from "@aurora/types";
+import { ProviderName, UiState, SavedTab, ModelInfo } from "@aurora/types";
 
 // ─── Config types mirrored from Rust side ────────────────────────────────
 export interface TerminalConfig {
@@ -17,6 +17,8 @@ export interface AiConfig {
   active_provider: string;
   auto_explain: boolean;
   context_lines: number;
+  require_review_for_commands: boolean;
+  require_review_for_writes: boolean;
   anthropic: ProviderConfig;
   openai: ProviderConfig;
   gemini: ProviderConfig;
@@ -89,6 +91,9 @@ export const ai = {
   saveApiKey: (provider: ProviderName, key: string) =>
     invoke<void>("ai_save_api_key", { provider, key }),
 
+  getApiKey: (provider: ProviderName) =>
+    invoke<string>("ai_get_api_key", { provider }),
+
   deleteApiKey: (provider: ProviderName) =>
     invoke<void>("ai_delete_api_key", { provider }),
 
@@ -97,6 +102,9 @@ export const ai = {
 
   getProviderStatus: () =>
     invoke<Record<ProviderName, boolean>>("ai_provider_status"),
+
+  fetchModels: (provider: ProviderName) =>
+    invoke<ModelInfo[]>("ai_fetch_models", { provider }),
 };
 
 export const config = {
@@ -144,6 +152,15 @@ export interface AgentStepResult {
   command?: string;
   explanation?: string;
   subagent?: string;
+  message?: string;
+  run_id?: string;
+  tool_call_id?: string;
+  tool_name?: string;
+  args?: any;
+}
+
+export interface AgentChatResult {
+  status: string;
   message?: string;
 }
 
@@ -241,8 +258,70 @@ export const system = {
     invoke<void>("watch_git", { cwd }),
   readShellHistory: () =>
     invoke<string[]>("read_shell_history"),
-  agentPlanStep: (taskId: string, sessionId: string | null, goal: string | null, lastOutput: string | null, exitCode: number | null) =>
-    invoke<AgentStepResult>("agent_plan_step", { taskId, sessionId, goal, lastOutput, exitCode }),
+  agentPlanStep: (
+    taskId: string,
+    sessionId: string | null,
+    goal: string | null,
+    lastOutput: string | null,
+    exitCode: number | null,
+    agentType?: string,
+    mode?: string,
+    requireReviewForCommands?: boolean,
+    requireReviewForWrites?: boolean
+  ) =>
+    invoke<AgentStepResult>("agent_plan_step", {
+      taskId,
+      sessionId,
+      goal,
+      lastOutput,
+      exitCode,
+      agentType,
+      mode,
+      requireReviewForCommands,
+      requireReviewForWrites,
+    }),
+  agentApproveTool: (
+    agentType: string | undefined,
+    mode: string | undefined,
+    runId: string,
+    toolCallId: string | undefined,
+    resumeData?: any
+  ) =>
+    invoke<AgentStepResult>("agent_approve_tool", {
+      agentType,
+      mode,
+      runId,
+      toolCallId,
+      resumeData,
+    }),
+  agentDeclineTool: (
+    agentType: string | undefined,
+    mode: string | undefined,
+    runId: string,
+    toolCallId: string | undefined
+  ) =>
+    invoke<AgentStepResult>("agent_decline_tool", {
+      agentType,
+      mode,
+      runId,
+      toolCallId,
+    }),
+  agentGetLogs: () =>
+    invoke<{ status: string; logs: Array<{ timestamp: number; type: string; content: string }> }>("agent_get_logs"),
+  agentChat: (
+    message: string,
+    sessionId?: string,
+    taskId?: string,
+    agentType?: string,
+    mode?: string,
+  ) =>
+    invoke<AgentChatResult>("agent_chat", {
+      sessionId,
+      taskId,
+      message,
+      agentType,
+      mode,
+    }),
   revealInExplorer: (path: string) =>
     invoke<void>("reveal_in_explorer", { path }),
   getCwdInfo: (cwd: string) =>

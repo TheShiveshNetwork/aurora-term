@@ -651,4 +651,68 @@ The `aurora-agent` sidecar is built from TypeScript source (`packages/aurora-age
 
 ---
 
-*Last updated: 2026-06-30*
+## 19. Agent Output Architecture — Smart Truncation & Self-Correction
+
+Raw terminal output is never sent verbatim to the LLM. Large outputs are replaced with a structured metadata summary, saving context and enabling the LLM to self-correct.
+
+### 19.1 Why: Context Flooding Root Cause
+
+When a command like `Get-ChildItem -Recurse` produces 150K+ characters, the LLM's context window fills with raw text. The LLM can no longer see:
+- The original user goal
+- What commands it already ran
+- The fact that the command succeeded
+
+It repeats the same command because it literally doesn't know what happened. This is not a model failure — it's an architecture failure.
+
+### 19.2 Truncation Strategy — Head + Tail + Directive
+
+`truncateOutput()` in `app/src/hooks/useAgentExecution.ts` replaces raw output with:
+
+```
+[Output truncated: 150,000 characters total]
+
+First 200 characters:
+<first 200 chars>
+
+Last 200 characters:
+<last 200 chars>
+```
+
+This is NOT a simple slice — it gives the LLM:
+- **Size metadata** so it understands the scope
+- **Head** so it can see the command ran as expected
+- **Tail** so it can see the most recent/last results (critical for listings)
+
+### 19.3 Prompt Engineering — Self-Correction Guidance
+
+The terminal agent prompt in `packages/aurora-agent/src/agents/aura.ts` includes an OUTPUT HANDLING section:
+
+```
+OUTPUT HANDLING:
+- Command output larger than 4,000 chars is truncated with a summary.
+  Focus on the last 200 characters — they contain the most recent results.
+- If your output says "[Output truncated...]", do NOT repeat the same command.
+  Instead, propose a more targeted command (grep, Select-String, find).
+- You can chain: list files → if too many results → grep for the specific term.
+```
+
+This makes the agent self-correct without hard-coded logic.
+
+### 19.4 Secondary Safety Net — Duplicate Auto-Skip
+
+Despite the above, if the LLM proposes the same command 3× in a row, `useAgentExecution.ts` auto-declines and logs `"Skipped — already executed"`. The task continues; no error is shown. This covers edge cases where the model ignores the truncation signal.
+
+### 19.5 Data Flow
+
+```
+Command runs → PTY output accumulates in BlockStore (unbounded)
+  → waitForBlockCompletion resolves with full output
+  → truncateOutput() replaces with head+tail summary
+  → Summary sent as stdout in resumeData to agentApproveTool
+  → LLM sees summary, not raw text
+  → LLM proposes next step (more targeted command, or completion)
+```
+
+---
+
+*Last updated: 2026-07-05*

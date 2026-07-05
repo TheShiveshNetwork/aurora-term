@@ -45,6 +45,10 @@ pub struct AiConfig {
     pub active_provider: String,
     pub auto_explain: bool,
     pub context_lines: u32,
+    #[serde(default = "default_enabled")]
+    pub require_review_for_commands: bool,
+    #[serde(default = "default_enabled")]
+    pub require_review_for_writes: bool,
     pub anthropic: ProviderConfig,
     pub openai: ProviderConfig,
     pub gemini: ProviderConfig,
@@ -120,6 +124,8 @@ impl Default for AppConfig {
                 active_provider: "groq".to_string(),
                 auto_explain: true,
                 context_lines: 50,
+                require_review_for_commands: true,
+                require_review_for_writes: true,
                 groq: ProviderConfig {
                     enabled: true,
                     fast_model: "llama-3.2-3b-preview".to_string(),

@@ -154,11 +154,13 @@ pub fn run() {
             aurora_commands::state_set_workspace_cwd,
             // AI commands
             aurora_commands::ai_save_api_key,
+            aurora_commands::ai_get_api_key,
             aurora_commands::ai_delete_api_key,
             aurora_commands::ai_provider_status,
             aurora_commands::ai_translate_command,
             aurora_commands::ai_explain_error,
             aurora_commands::ai_test_provider,
+            aurora_commands::ai_fetch_models,
             aurora_commands::process_list,
             aurora_commands::process_kill,
             aurora_commands::get_system_info,
@@ -204,6 +206,10 @@ pub fn run() {
             aurora_commands::git_remote_list,
             aurora_commands::git_exec,
             aurora_commands::agent_plan_step,
+            aurora_commands::agent_approve_tool,
+            aurora_commands::agent_decline_tool,
+            aurora_commands::agent_chat,
+            aurora_commands::agent_get_logs,
             aurora_commands::get_available_commands,
         ])
         .build(tauri::generate_context!())

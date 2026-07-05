@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { ProviderName } from "@aurora/types";
-import { ProviderIcon, DISPLAY_NAMES } from "./ProviderIcon";
+import { ProviderRegistry } from "../../lib/providers";
+import { ProviderIcon } from "./ProviderIcon";
 
 interface ProviderSelectorProps {
   providers: ProviderName[];
@@ -32,7 +33,7 @@ export function ProviderSelector({ providers, activeProvider, onChange }: Provid
           <ProviderIcon name={activeProvider} size={18} />
         </div>
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium text-[#E8EAF0]">{DISPLAY_NAMES[activeProvider]}</div>
+          <div className="text-sm font-medium text-[#E8EAF0]">{ProviderRegistry.get(activeProvider).displayName}</div>
           <div className="text-[11px] text-[#E8EAF0]/40">Default provider</div>
         </div>
         <svg
@@ -63,7 +64,7 @@ export function ProviderSelector({ providers, activeProvider, onChange }: Provid
                   <ProviderIcon name={name} size={16} />
                 </div>
                 <span className={`text-[13px] ${selected ? "text-[#E8EAF0] font-medium" : "text-[#E8EAF0]/60"}`}>
-                  {DISPLAY_NAMES[name]}
+                  {ProviderRegistry.get(name).displayName}
                 </span>
                 {selected && (
                   <svg className="ml-auto" width="16" height="16" viewBox="0 0 16 16" fill="none">

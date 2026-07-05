@@ -75,17 +75,17 @@ export function Button({
   };
 
   // Size padding and font size
-  const sizeClass = 
+  const sizeClass =
     size === "sm" ? "px-2.5 py-1 text-[11px]" :
-    size === "lg" ? "px-4 py-2.5 text-[14px]" :
-    "px-3 py-1.5 text-[12px]";
+      size === "lg" ? "px-4 py-2.5 text-[14px]" :
+        "px-3 py-1.5 text-[12px]";
 
   const defaultStyle = getStyles();
 
   return (
     <button
       disabled={disabled}
-      className={`font-medium rounded-lg transition-all duration-150 flex items-center justify-center gap-1.5 active:scale-[0.98] ${disabled ? "cursor-default opacity-50" : "cursor-pointer"} ${sizeClass} ${className}`}
+      className={`font-medium rounded-sm transition-all duration-150 flex items-center justify-center gap-1.5 active:scale-[0.98] ${disabled ? "cursor-default opacity-50" : "cursor-pointer"} ${sizeClass} ${className}`}
       style={{
         ...defaultStyle,
         ...style,

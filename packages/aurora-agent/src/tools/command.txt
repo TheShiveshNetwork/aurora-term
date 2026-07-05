@@ -1,0 +1,1 @@
+Execute a shell command sequentially in the client-side terminal execution queue. Requires user approval.

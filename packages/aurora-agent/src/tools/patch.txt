@@ -1,0 +1,1 @@
+Patch an existing file by replacing a specific search block with a replacement block of code. Requires user approval.

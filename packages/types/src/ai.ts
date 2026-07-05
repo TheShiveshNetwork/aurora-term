@@ -11,3 +11,11 @@ export interface ProviderConfig {
   powerfulModel: string;
   baseUrl?: string;
 }
+
+export interface ModelInfo {
+  id: string;
+  display_name: string;
+  supports_tools: boolean;
+  max_tokens: number | null;
+  context_window: number | null;
+}

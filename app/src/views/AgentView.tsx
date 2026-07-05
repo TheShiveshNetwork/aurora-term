@@ -5,6 +5,7 @@ import { useSessionStore } from "../stores/useSessionStore";
 import { useAppShellStore } from "../stores/useAppShellStore";
 import { useAgentExecution } from "../hooks/useAgentExecution";
 import { AgentHeroView } from "../components/terminal/AgentHeroView";
+import { StatusDrawer } from "../components/terminal/StatusDrawer";
 import { renderMarkdown, renderInline } from "../lib/markdown";
 
 export function AgentView() {
@@ -17,6 +18,7 @@ export function AgentView() {
   const lastActiveTerminalId = useAppShellStore((s) => s.lastActiveTerminalId);
   const tabs = useSessionStore((s) => s.tabs);
   const sessions = useAgentStore((s) => s.sessions);
+  const setAgentMode = useAgentStore((s) => s.setAgentMode);
 
   const targetSessionId = lastActiveTerminalId && tabs.some((t) => t.id === lastActiveTerminalId)
     ? lastActiveTerminalId
@@ -27,10 +29,17 @@ export function AgentView() {
     status,
     chatHistory,
     retryTask,
+    approveAndRunPending,
+    declinePending,
+    skipPending,
+    submitAnswer,
   } = useAgentExecution(targetSessionId);
 
   const sessionState = targetSessionId ? sessions[targetSessionId] || CONST_DEFAULT_SESSION_STATE : CONST_DEFAULT_SESSION_STATE;
   const isThinking = status === "planning" || status === "executing";
+  // const filteredChatHistory = chatHistory.filter(
+  //   (m) => m.agentType === "developer" || m.agentType === undefined
+  // );
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -40,7 +49,7 @@ export function AgentView() {
     const trimmed = input.trim();
     if (!trimmed || isThinking) return;
     setInput("");
-    startTask(trimmed);
+    startTask(trimmed, "developer");
   }, [input, isThinking, startTask]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -53,7 +62,7 @@ export function AgentView() {
   const handleHeroSend = useCallback((text: string) => {
     if (isThinking) return;
     useAppShellStore.getState().setViewMode("agent");
-    startTask(text);
+    startTask(text, "developer");
   }, [isThinking, startTask]);
 
   const showEmptyState = chatHistory.length === 0 && !isThinking;
@@ -120,7 +129,43 @@ export function AgentView() {
         <div className="shrink-0 pt-3 pb-6 px-5">
           <div className="max-w-[800px] mx-auto w-full">
             <div className="w-full p-[1px] rounded-[14px] bg-[rgba(255,255,255,0.08)]">
-              <div className="bg-[#161929] rounded-[13px] relative overflow-hidden">
+              <div className="bg-[#161929] rounded-[13px] relative overflow-hidden flex flex-col">
+                {/* Mode Selector Header */}
+                <div className="flex justify-between items-center px-4 py-2 border-b border-white/[0.04] bg-white/[0.01]">
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => targetSessionId && setAgentMode(targetSessionId, "plan")}
+                      className={`px-2.5 py-1 text-[11px] font-semibold rounded-md transition-all cursor-pointer ${sessionState.agentMode === "plan"
+                          ? "bg-blue-500/10 text-blue-400 border border-blue-500/20"
+                          : "text-white/30 border border-transparent"
+                        }`}
+                    >
+                      Plan Mode
+                    </button>
+                    <button
+                      onClick={() => targetSessionId && setAgentMode(targetSessionId, "build")}
+                      className={`px-2.5 py-1 text-[11px] font-semibold rounded-md transition-all cursor-pointer ${sessionState.agentMode === "build"
+                          ? "bg-amber-500/10 text-amber-400 border border-amber-500/20"
+                          : "text-white/30 border border-transparent"
+                        }`}
+                    >
+                      Build Mode
+                    </button>
+                  </div>
+                  <span className="text-[10px] text-white/20 uppercase tracking-wider font-bold">Developer Agent</span>
+                </div>
+
+                {/* Status Drawer inside Input container */}
+                {targetSessionId && (
+                  <StatusDrawer
+                    sessionId={targetSessionId}
+                    onApprove={approveAndRunPending}
+                    onDecline={declinePending}
+                    onSkip={skipPending}
+                    onSubmitAnswer={submitAnswer}
+                  />
+                )}
+
                 <textarea
                   ref={taRef}
                   value={input}

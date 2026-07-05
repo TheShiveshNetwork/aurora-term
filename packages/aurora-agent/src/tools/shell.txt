@@ -1,0 +1,17 @@
+${intro}
+
+Environment:
+- OS: ${os}
+- Shell: ${shell}
+- Temp dir: ${tmp}
+
+${workdirSection}
+
+${commandSection}
+
+Git guidance:
+- Use ${gitCommands} for all git and version control operations.
+- Only use ${gitCommandRestriction} for git operations.
+- ${createPrInstruction}
+  Example:
+    ${createPrExample}

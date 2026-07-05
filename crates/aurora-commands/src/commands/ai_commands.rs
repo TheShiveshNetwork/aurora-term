@@ -3,12 +3,13 @@ use std::collections::HashMap;
 use crate::state::AppState;
 use aurora_core::AppError;
 use aurora_core::config::AppConfig;
-use aurora_core::types::ai::TaskTier;
+use aurora_core::types::ai::{TaskTier, ModelInfo};
 use aurora_ai::{AiRouter, AiTask, AiProvider};
 use aurora_ai::providers::anthropic::AnthropicProvider;
 use aurora_ai::providers::openai::OpenAiCompatProvider;
 use aurora_ai::providers::gemini::GeminiProvider;
 use aurora_ai::providers::ollama::OllamaProvider;
+use aurora_ai::providers::{OPENAI_TOOL_PREFIXES, NIM_TOOL_PREFIXES};
 use aurora_config::KeychainManager;
 
 // Helper to construct a provider from AppConfig and credentials
@@ -83,6 +84,13 @@ pub async fn ai_save_api_key(
     key: String,
 ) -> Result<(), AppError> {
     KeychainManager::save_api_key(&provider, &key)
+}
+
+#[command]
+pub async fn ai_get_api_key(
+    provider: String,
+) -> Result<String, AppError> {
+    KeychainManager::get_api_key(&provider)
 }
 
 #[command]
@@ -161,4 +169,47 @@ pub async fn ai_test_provider(
     }
     let has_key = KeychainManager::has_api_key(&provider);
     Ok(has_key && !model.is_empty())
+}
+
+#[command]
+pub async fn ai_fetch_models(
+    state: State<'_, AppState>,
+    provider: String,
+) -> Result<Vec<ModelInfo>, AppError> {
+    let config = state.config.lock().await;
+
+    match provider.as_str() {
+        "anthropic" => {
+            let key = KeychainManager::get_api_key("anthropic")?;
+            AnthropicProvider::list_models(&key).await
+        }
+        "openai" => {
+            let key = KeychainManager::get_api_key("openai")?;
+            let base_url = config.ai.openai.base_url.clone()
+                .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
+            OpenAiCompatProvider::list_models(&key, &base_url, OPENAI_TOOL_PREFIXES).await
+        }
+        "gemini" => {
+            let key = KeychainManager::get_api_key("gemini")?;
+            GeminiProvider::list_models(&key).await
+        }
+        "nvidia" => {
+            let key = KeychainManager::get_api_key("nvidia")?;
+            let base_url = config.ai.nvidia.base_url.clone()
+                .unwrap_or_else(|| "https://integrate.api.nvidia.com/v1".to_string());
+            OpenAiCompatProvider::list_models(&key, &base_url, NIM_TOOL_PREFIXES).await
+        }
+        "ollama" => {
+            let base_url = config.ai.ollama.base_url.clone()
+                .unwrap_or_else(|| "http://localhost:11434".to_string());
+            OllamaProvider::list_models(&base_url).await
+        }
+        "groq" => {
+            let key = KeychainManager::get_api_key("groq")?;
+            let base_url = config.ai.groq.base_url.clone()
+                .unwrap_or_else(|| "https://api.groq.com/openai/v1".to_string());
+            OpenAiCompatProvider::list_models(&key, &base_url, OPENAI_TOOL_PREFIXES).await
+        }
+        _ => Err(AppError::Ai(format!("Unknown provider: {}", provider))),
+    }
 }
