@@ -74,6 +74,12 @@ export default function EditorSettingsView() {
           <ToggleSwitch checked={draft.config.editor.show_minimap} onChange={(v) => updateDraft((d) => { d.config.editor.show_minimap = v; })} />
         </FieldRow>
       </div>
+
+      <div id="setting-ai-code-completion">
+        <FieldRow label="AI Code Completion">
+          <ToggleSwitch checked={draft.config.editor.ai_code_completion} onChange={(v) => updateDraft((d) => { d.config.editor.ai_code_completion = v; })} />
+        </FieldRow>
+      </div>
     </div>
   );
 }

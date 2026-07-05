@@ -43,8 +43,8 @@ const SECTIONS: Section[] = [
     id: "general",
     label: "General",
     items: [
-      { id: "window", label: "Window Settings", view: <WindowSettingsView /> },
-      { id: "editor", label: "Editor Settings", view: <EditorSettingsView /> },
+      { id: "window", label: "Window", view: <WindowSettingsView /> },
+      { id: "editor", label: "Editor", view: <EditorSettingsView /> },
       { id: "workspace", label: "Workspace", view: <WorkspaceSettingsView /> },
       { id: "appearance", label: "Appearance", view: <AppearanceSettingsView /> },
       { id: "keybindings", label: "Keybindings", view: <KeybindingsSettingsView /> },
@@ -53,10 +53,10 @@ const SECTIONS: Section[] = [
   {
     id: "agent",
     label: "Agent",
-        items: [
-          { id: "ai", label: "AI Providers", view: <AISettingsView /> },
-          { id: "permissions", label: "Permissions", view: <PermissionsSettingsView /> },
-        ],
+    items: [
+      { id: "ai", label: "AI Providers", view: <AISettingsView /> },
+      { id: "permissions", label: "Permissions", view: <PermissionsSettingsView /> },
+    ],
   },
   {
     id: "about",
@@ -84,7 +84,7 @@ export default function SettingsPage() {
   const contentRef = useRef<HTMLDivElement>(null);
 
   const refreshKeyringStatus = () => {
-    ai.getProviderStatus().then(setKeyringStatus).catch(() => {});
+    ai.getProviderStatus().then(setKeyringStatus).catch(() => { });
   };
 
   const { section, sub } = nav;
@@ -95,11 +95,11 @@ export default function SettingsPage() {
     : null;
   const breadcrumbItems = providerPage
     ? [
-        "Settings",
-        activeSection.label,
-        { label: "AI Providers", onClick: () => setProviderPage(null) },
-        providerBreadcrumb!,
-      ]
+      "Settings",
+      activeSection.label,
+      { label: "AI Providers", onClick: () => setProviderPage(null) },
+      providerBreadcrumb!,
+    ]
     : ["Settings", activeSection.label, activePage.label];
 
   useEffect(() => {

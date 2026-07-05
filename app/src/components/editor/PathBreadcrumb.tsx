@@ -7,7 +7,8 @@ interface PathBreadcrumbProps {
 }
 
 export function PathBreadcrumb({ filePath, commitHash, onOpenFile }: PathBreadcrumbProps) {
-  const parts = filePath.split("/");
+  if (!filePath) return null;
+  const parts = filePath.replace(/\\/g, "/").split("/").filter(Boolean);
 
   return (
     <div

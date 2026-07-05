@@ -421,6 +421,99 @@ server.post('/api/tool/decline', async (request, _reply) => {
   }
 });
 
+// ── /api/inline-complete — fast ghost text completion, no tools, no memory ─
+server.post('/api/inline-complete', async (request, _reply) => {
+  const { context_before, language } = request.body as any;
+  const compLog = log.child({ endpoint: 'inline-complete' });
+
+  if (!context_before?.trim()) {
+    return { status: 'completed', completion: '' };
+  }
+
+  compLog.info('Inline completion request', {
+    contextLength: context_before.length,
+    language,
+  });
+
+  const agent = mastra.getAgent('aura');
+  const startTime = Date.now();
+
+  const prompt = `You are a code completion engine. Complete the code at the cursor position (marked by █).
+Respond with ONLY the completion text — no explanations, no markdown, no backticks, no surrounding code.
+
+Language: ${language || 'unknown'}
+
+Context:
+${context_before}█
+
+Completion:`;
+
+  try {
+    const response = await agent.generate(prompt, { memory: false });
+    const elapsed = Date.now() - startTime;
+    compLog.info('Completion done', { elapsedMs: elapsed, textLength: response.text?.length });
+
+    if (response.finishReason === 'error' || response.error) {
+      return { status: 'error', completion: '' };
+    }
+
+    const completion = (response.text || '').trim();
+    return { status: 'completed', completion };
+  } catch (error: any) {
+    compLog.warn('Completion failed', { error: error.message });
+    return { status: 'error', completion: '' };
+  }
+});
+
+// ── /api/edit-code — AI inline code editing, no tools, no memory ───────────
+server.post('/api/edit-code', async (request, _reply) => {
+  const { prompt, code_before, code_after, selection } = request.body as any;
+  const editLog = log.child({ endpoint: 'edit-code' });
+
+  if (!prompt?.trim()) {
+    editLog.warn('Edit request with empty prompt');
+    return { status: 'error', message: 'No prompt provided' };
+  }
+
+  editLog.info('Edit request', { promptLength: prompt.length, hasSelection: !!selection });
+
+  const agent = mastra.getAgent('aura');
+  const startTime = Date.now();
+
+  const content = `You are an AI code editor. Your ONLY job is to modify the code based on the user's instruction.
+Respond with ONLY the final modified code. No explanations. No markdown wrappers. No backticks.
+
+Code before cursor:
+\`\`\`
+${code_before}
+\`\`\`
+
+Selected code${selection ? `:\n\`\`\`\n${selection}\n\`\`\`` : ': (no selection, edit based on cursor context)'}
+
+${code_after ? `Code after cursor:\n\`\`\`\n${code_after}\n\`\`\`` : ''}
+
+User instruction: ${prompt}`;
+
+  try {
+    const response = await agent.generate(content, {
+      memory: false,
+    });
+    const elapsed = Date.now() - startTime;
+    editLog.info('Edit response', { elapsedMs: elapsed });
+
+    if (response.finishReason === 'error' || response.error) {
+      const errMsg = response.error?.message || response.text || 'Edit generation failed';
+      editLog.error('Edit generation error', { error: response.error?.message });
+      return { status: 'error', message: `Edit error: ${errMsg}` };
+    }
+
+    return { status: 'completed', code: response.text };
+  } catch (error: any) {
+    editLog.error('Edit threw exception', { error: error.message, stack: error.stack });
+    return { status: 'error', message: error.message || 'Edit error' };
+  }
+});
+
 // ── /api/chat — conversational, no command planning ───────────────────────
 server.post('/api/chat', async (request, _reply) => {
   const { session_id, task_id, message, agent_type, mode } = request.body as any;

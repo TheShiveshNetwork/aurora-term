@@ -616,6 +616,7 @@ export function AppShellView() {
                               <CommitDiffView
                                 diff={tab.diffContent}
                                 commitHash={tab.diffCommitHash || ""}
+                                filePath={tab.filePath || ""}
                                 collapsible={true}
                               />
                             ) : tab.type === "diff" ? (
@@ -756,6 +757,10 @@ export function AppShellView() {
         }}
         onPeekDefinition={() => {
           window.dispatchEvent(new CustomEvent("file-peek-definition", { detail: { tabId: activeTabId, filePath: contextMenu?.filePath, selectedText: contextMenu?.selectedText } }));
+          clearContextMenu();
+        }}
+        onChangeAllOccurrences={() => {
+          window.dispatchEvent(new CustomEvent("file-change-all-occurrences"));
           clearContextMenu();
         }}
         onFindReferences={() => {

@@ -1,5 +1,3 @@
-import { Clipboard, Copy, Trash2 } from "lucide-react";
-
 import { AppContextMenu as AppContextMenuState } from "../../stores/useAppShellStore";
 import { MenuView, MenuViewItem, MenuViewSeparator } from "../ui/MenuView";
 
@@ -14,11 +12,12 @@ interface AppContextMenuProps {
   onPeekDefinition: () => void;
   onFindReferences: () => void;
   onRenameSymbol: () => void;
+  onChangeAllOccurrences: () => void;
   onFormatDocument: () => void;
   onRunFile: () => void;
 }
 
-export function AppContextMenu({ contextMenu, onPaste, onCopySelection, onCutSelection, onClearTerminal, onSelectAll, onGoToDefinition, onPeekDefinition, onFindReferences, onRenameSymbol, onFormatDocument, onRunFile }: AppContextMenuProps) {
+export function AppContextMenu({ contextMenu, onPaste, onCopySelection, onCutSelection, onClearTerminal, onSelectAll, onGoToDefinition, onPeekDefinition, onFindReferences, onRenameSymbol, onChangeAllOccurrences, onFormatDocument, onRunFile }: AppContextMenuProps) {
   if (!contextMenu) return null;
 
   return (
@@ -47,6 +46,9 @@ export function AppContextMenu({ contextMenu, onPaste, onCopySelection, onCutSel
           <MenuViewSeparator />
           <MenuViewItem variant="rightclick" onClick={onSelectAll}>
             Select All
+          </MenuViewItem>
+          <MenuViewItem variant="rightclick" onClick={onChangeAllOccurrences}>
+            Change All Occurrences
           </MenuViewItem>
           <MenuViewSeparator />
           <MenuViewItem variant="rightclick" onClick={onGoToDefinition}>

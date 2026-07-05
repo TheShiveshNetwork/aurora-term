@@ -73,6 +73,7 @@ interface SettingsStore {
   gitGuiMode: "tab" | "window";
   restoreTabs: boolean;
   wordWrap: boolean;
+  aiCodeCompletion: boolean;
 
   setTheme: (theme: "dark" | "light") => void;
   setMode: (mode: EditorMode) => void;
@@ -90,6 +91,7 @@ interface SettingsStore {
   setGitGuiMode: (mode: "tab" | "window") => void;
   setRestoreTabs: (restore: boolean) => void;
   setWordWrap: (wrap: boolean) => void;
+  setAiCodeCompletion: (enabled: boolean) => void;
 }
 
 export const useSettingsStore = create<SettingsStore>((set) => ({
@@ -109,6 +111,7 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
   gitGuiMode: "tab",
   restoreTabs: true,
   wordWrap: true,
+  aiCodeCompletion: true,
 
   setTheme: (theme) => {
     set({ theme });
@@ -127,6 +130,7 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
   setGitGuiMode: (gitGuiMode) => set({ gitGuiMode }),
   setRestoreTabs: (restoreTabs) => set({ restoreTabs }),
   setWordWrap: (wordWrap) => set({ wordWrap }),
+  setAiCodeCompletion: (aiCodeCompletion) => set({ aiCodeCompletion }),
   setKeybindingOverride: (id, keys) => set((state) => ({ keybindingOverrides: { ...state.keybindingOverrides, [id]: keys } })),
   resetKeybindingOverride: (id) => set((state) => {
     const { [id]: _, ...rest } = state.keybindingOverrides;
