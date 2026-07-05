@@ -1,4 +1,4 @@
-import { type FormEvent, lazy, Suspense, useEffect, useMemo, useRef } from "react";
+import { type FormEvent, lazy, Suspense, useCallback, useEffect, useMemo, useRef } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { v4 as uuidv4 } from "uuid";
 import { Tab } from "@aurora/types";
@@ -12,6 +12,7 @@ import { useKeybindings } from "../hooks/useKeybindings";
 import { useAppShellStore } from "../stores/useAppShellStore";
 import { useBlockStore } from "../stores/useBlockStore";
 import { useSessionStore } from "../stores/useSessionStore";
+import { useAgentStore, CONST_DEFAULT_SESSION_STATE } from "../stores/useAgentStore";
 import { useSettingsStore } from "../stores/useSettingsStore";
 import { TabBar } from "../components/ui/TabBar";
 import { SidePanel } from "../components/ui/SidePanel";
@@ -120,6 +121,31 @@ export function AppShellView() {
 
   const { startTask } = useAgentExecution(targetSessionId);
 
+  const agentStatus = useAgentStore((state) =>
+    targetSessionId ? (state.sessions[targetSessionId]?.status ?? "idle") : "idle"
+  );
+  const isAiRunning = agentStatus === "planning" || agentStatus === "executing" || agentStatus === "paused";
+  const isRunning = isCommandRunning || isAiRunning;
+
+  const handleStop = useCallback(() => {
+    if (isCommandRunning) {
+      handleStopCurrentCommand();
+    }
+    if (isAiRunning && targetSessionId) {
+      const store = useAgentStore.getState();
+      store.setPendingToolCall(targetSessionId, null);
+      store.setCurrentCommandIndex(targetSessionId, -1);
+      store.failTask(targetSessionId, "Cancelled by user");
+      const snap = store.sessions[targetSessionId];
+      store.addChatMessage(targetSessionId, {
+        role: "assistant",
+        content: "Task cancelled by user.",
+        chainNodes: snap?.chainNodes ?? [],
+        agentType: snap?.agentType,
+      });
+    }
+  }, [isCommandRunning, isAiRunning, targetSessionId, handleStopCurrentCommand]);
+
   const shellType: ShellType = useMemo(() => isWindowsPlatform() ? "powershell" : "bash", []);
   const inputMode = useMemo(() => classifyInput(activeCommandInput, shellType), [activeCommandInput, shellType]);
 
@@ -148,7 +174,7 @@ export function AppShellView() {
 
       setCommandInput("");
       setShowAiBar(true);
-      startTask(cleanGoal);
+      startTask(cleanGoal, "terminal");
     } else {
       defaultSubmit(event);
     }
@@ -623,7 +649,7 @@ export function AppShellView() {
                   sessionId={targetSessionId}
                   cwd={cwd}
                   isLoading={isCwdLoading}
-                  isRunning={isCommandRunning}
+                  isRunning={isRunning}
                   value={activeCommandInput}
                   history={[
                     ...activeTabBlocks.filter((block) => block.command && block.command !== "init-aurora").map((block) => block.command as string),
@@ -631,7 +657,7 @@ export function AppShellView() {
                   ]}
                   onChange={setCommandInput}
                   onSubmit={(e) => handleInterceptedSubmit(e, handleExecuteCommand, false)}
-                  onStop={handleStopCurrentCommand}
+                  onStop={handleStop}
                   onOpenAiBar={() => setShowAiBar(true)}
                   inputMode={inputMode}
                 />

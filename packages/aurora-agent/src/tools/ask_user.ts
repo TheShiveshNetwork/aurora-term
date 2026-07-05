@@ -1,6 +1,9 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { getDescription } from './helper';
+import { rootLogger } from '../logger';
+
+const toolLog = rootLogger.child({ tool: 'ask_user' });
 
 export const askUserTool = createTool({
   id: 'ask_user',
@@ -24,14 +27,22 @@ export const askUserTool = createTool({
   execute: async (input, context) => {
     const { resumeData, suspend } = context?.agent ?? {};
     if (!resumeData) {
+      toolLog.info('Suspending — asking user for clarification', {
+        question: input.question,
+      });
       return suspend?.({
         question: input.question,
         type: 'question' as const,
       });
     }
     if (!resumeData.approved) {
+      toolLog.warn('User declined to answer', { question: input.question });
       return { success: false, error: 'User declined to answer.' };
     }
+    toolLog.info('User answered', {
+      question: input.question,
+      answer: resumeData.answer?.slice(0, 200),
+    });
     return { success: true, answer: resumeData.answer || '' };
   },
 });

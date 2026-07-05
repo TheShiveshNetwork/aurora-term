@@ -3,6 +3,9 @@ import { z } from 'zod';
 import * as fs from 'fs';
 import * as path from 'path';
 import { safeResolve, getDescription } from './helper';
+import { rootLogger } from '../logger';
+
+const toolLog = rootLogger.child({ tool: 'glob' });
 
 export const globTool = createTool({
   id: 'glob',
@@ -17,9 +20,11 @@ export const globTool = createTool({
     error: z.string().optional(),
   }),
   execute: async ({ pattern, path: searchPath }) => {
+    toolLog.debug('Glob search', { pattern, searchPath });
     try {
       const baseDir = safeResolve(searchPath || '.');
       if (!fs.existsSync(baseDir)) {
+        toolLog.warn('Directory not found for glob', { searchPath });
         return { success: false, error: `Directory not found: ${searchPath}` };
       }
       
@@ -52,8 +57,10 @@ export const globTool = createTool({
       const regex = new RegExp(`^${regexStr}$`, 'i');
       const matchedFiles = allFiles.filter(f => regex.test(f));
       
+      toolLog.debug('Glob result', { pattern, matches: matchedFiles.length });
       return { success: true, files: matchedFiles };
     } catch (err: any) {
+      toolLog.error('Glob failed', { pattern, error: err.message });
       return { success: false, error: err.message || String(err) };
     }
   },

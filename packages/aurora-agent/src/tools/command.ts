@@ -1,6 +1,9 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { getDescription } from './helper';
+import { rootLogger } from '../logger';
+
+const toolLog = rootLogger.child({ tool: 'exec_command' });
 
 export const execCommandTool = createTool({
   id: 'exec_command',
@@ -33,6 +36,10 @@ export const execCommandTool = createTool({
     // Command execution always goes to the client queue, so we ALWAYS suspend
     // to let the frontend run it in the terminal tab PTY!
     if (!resumeData) {
+      toolLog.info('Suspending — sending command to terminal queue', {
+        command: input.command.slice(0, 200),
+        explanation: input.explanation,
+      });
       return suspend?.({
         command: input.command,
         explanation: input.explanation,
@@ -41,8 +48,21 @@ export const execCommandTool = createTool({
     }
 
     if (!resumeData.approved) {
+      toolLog.warn('Command rejected by user', {
+        command: input.command.slice(0, 200),
+      });
       return { success: false, error: 'User rejected or cancelled command execution.' };
     }
+
+    toolLog.info('Command result received', {
+      command: input.command.slice(0, 200),
+      exitCode: resumeData.exitCode,
+      success: resumeData.exitCode === 0,
+      stdoutLength: resumeData.stdout?.length,
+      stderrLength: resumeData.stderr?.length,
+    });
+    toolLog.debug('Command stdout', { stdout: resumeData.stdout?.slice(0, 500) });
+    toolLog.debug('Command stderr', { stderr: resumeData.stderr?.slice(0, 500) });
 
     return {
       success: resumeData.exitCode === 0,

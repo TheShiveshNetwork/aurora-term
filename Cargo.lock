@@ -386,6 +386,7 @@ dependencies = [
  "aurora-pty",
  "aurora-sidecar",
  "base64 0.22.1",
+ "chrono",
  "ignore",
  "notify",
  "reqwest 0.12.28",
@@ -395,6 +396,7 @@ dependencies = [
  "sysinfo",
  "tauri",
  "tokio",
+ "tracing",
  "uuid",
 ]
 

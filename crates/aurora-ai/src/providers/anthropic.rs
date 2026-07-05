@@ -1,10 +1,9 @@
 use async_trait::async_trait;
 use futures_util::StreamExt;
 use reqwest::header::{HeaderMap, HeaderValue};
-// use serde::Deserialize;
 use serde_json::Value;
 use aurora_core::AppError;
-use aurora_core::types::ai::{TaskTier, AiMessage, AIStreamChunkEvent};
+use aurora_core::types::ai::{TaskTier, AiMessage, AIStreamChunkEvent, ModelInfo};
 use crate::providers::AiProvider;
 use crate::client::{AiHttpClient, SseLineReader};
 use tauri::Emitter;
@@ -32,6 +31,58 @@ impl AnthropicProvider {
             balanced_model,
             powerful_model,
         }
+    }
+
+    /// Fetch available models from Anthropic's API, filtered to those that support tool use.
+    pub async fn list_models(api_key: &str) -> Result<Vec<ModelInfo>, AppError> {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(15))
+            .build()
+            .map_err(|e| AppError::Ai(format!("Failed to build HTTP client: {}", e)))?;
+
+        let mut headers = HeaderMap::new();
+        headers.insert("x-api-key", HeaderValue::from_str(api_key)
+            .map_err(|_| AppError::Ai("Invalid Anthropic API key".to_string()))?);
+        headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
+
+        let res = client
+            .get("https://api.anthropic.com/v1/models?limit=100")
+            .headers(headers)
+            .send()
+            .await
+            .map_err(|e| AppError::Ai(format!("Failed to fetch Anthropic models: {}", e)))?;
+
+        if !res.status().is_success() {
+            return Err(AppError::Ai(format!("Anthropic API error: {}", res.status())));
+        }
+
+        let body: Value = res.json().await
+            .map_err(|e| AppError::Ai(format!("Failed to parse Anthropic models: {}", e)))?;
+
+        let mut models = Vec::new();
+        if let Some(data) = body["data"].as_array() {
+            for item in data {
+                let id = item["id"].as_str().unwrap_or("").to_string();
+                let display_name = item["display_name"].as_str().unwrap_or(&id).to_string();
+                let supports_tools = item["capabilities"]["structured_outputs"]["supported"]
+                    .as_bool()
+                    .unwrap_or(false);
+                let max_tokens = item["max_tokens"].as_u64().map(|v| v as u32);
+                let context_window = item["max_input_tokens"].as_u64().map(|v| v as u32);
+
+                if !id.is_empty() {
+                    models.push(ModelInfo {
+                        id,
+                        display_name,
+                        supports_tools,
+                        max_tokens,
+                        context_window,
+                    });
+                }
+            }
+        }
+
+        Ok(models)
     }
 }
 

@@ -3,6 +3,9 @@ import { z } from 'zod';
 import * as fs from 'fs';
 import * as path from 'path';
 import { safeResolve, getDescription } from './helper';
+import { rootLogger } from '../logger';
+
+const toolLog = rootLogger.child({ tool: 'search_files' });
 
 export const searchFilesTool = createTool({
   id: 'search_files',
@@ -17,9 +20,11 @@ export const searchFilesTool = createTool({
     error: z.string().optional(),
   }),
   execute: async ({ query, path: searchPath }) => {
+    toolLog.debug('Searching files', { query, searchPath });
     try {
       const baseDir = safeResolve(searchPath || '.');
       if (!fs.existsSync(baseDir)) {
+        toolLog.warn('Directory not found for search', { searchPath });
         return { success: false, error: `Directory not found: ${searchPath}` };
       }
       
@@ -44,8 +49,10 @@ export const searchFilesTool = createTool({
       }
       
       await walk(baseDir);
+      toolLog.debug('Search result', { query, matches: matches.length });
       return { success: true, files: matches };
     } catch (err: any) {
+      toolLog.error('Search failed', { query, error: err.message });
       return { success: false, error: err.message || String(err) };
     }
   },

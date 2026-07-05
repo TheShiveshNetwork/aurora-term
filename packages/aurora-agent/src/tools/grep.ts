@@ -3,6 +3,9 @@ import { z } from 'zod';
 import * as fs from 'fs';
 import * as path from 'path';
 import { safeResolve, getDescription } from './helper';
+import { rootLogger } from '../logger';
+
+const toolLog = rootLogger.child({ tool: 'grep_search' });
 
 export const grepSearchTool = createTool({
   id: 'grep_search',
@@ -23,13 +26,16 @@ export const grepSearchTool = createTool({
     error: z.string().optional(),
   }),
   execute: async ({ pattern, path: searchPath, include }) => {
+    toolLog.debug('Grep search', { pattern, searchPath, include });
     try {
       if (!pattern) {
+        toolLog.warn('Grep called without pattern');
         return { success: false, error: 'pattern is required' };
       }
 
       const cwd = safeResolve(searchPath || '.');
       if (!fs.existsSync(cwd)) {
+        toolLog.warn('Directory not found for grep', { searchPath });
         return { success: false, error: `Directory not found: ${searchPath || '.'}` };
       }
 
@@ -121,6 +127,7 @@ export const grepSearchTool = createTool({
       await walk(cwd);
 
       if (matchedRows.length === 0) {
+        toolLog.debug('Grep found no matches', { pattern });
         return emptyResult;
       }
 
@@ -142,6 +149,7 @@ export const grepSearchTool = createTool({
         outputLines.push('(Results truncated. Consider using a more specific path or pattern.)');
       }
 
+      toolLog.debug('Grep result', { pattern, matches: total, truncated });
       return {
         success: true,
         title: pattern,
@@ -152,6 +160,7 @@ export const grepSearchTool = createTool({
         output: outputLines.join('\n'),
       };
     } catch (err: any) {
+      toolLog.error('Grep failed', { pattern, error: err.message });
       return { success: false, error: err.message || String(err) };
     }
   },

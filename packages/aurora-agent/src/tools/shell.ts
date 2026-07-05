@@ -2,6 +2,7 @@ import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import * as os from 'os';
 import { getDescription } from './helper';
+import { rootLogger } from '../logger';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -169,8 +170,8 @@ Usage notes:
     - Use ';' only when you need sequential execution but don't care if earlier commands fail.
     - DO NOT use newlines to separate commands (newlines are ok in quoted strings).
   - AVOID \`cd <directory> && <command>\`. Use the \`workdir\` parameter instead.
-    <good-example>Use workdir="/foo/bar" with command: pytest tests</good-example>
-    <bad-example>cd /foo/bar && pytest tests</bad-example>
+    Good example: Use workdir="/foo/bar" with command: pytest tests
+    Bad example: cd /foo/bar && pytest tests
 
 ${toolPreference}`;
 }
@@ -207,8 +208,8 @@ Usage notes:
     - Use \`;\` only when you need sequential execution but don't care if earlier commands fail.
     - DO NOT use newlines to separate commands (newlines are ok in quoted strings).
   - AVOID changing directories inside the command. Use the \`workdir\` parameter instead.
-    <good-example>Use workdir="project${pathSep}subdir" with command: pytest tests</good-example>
-    <bad-example>${name === 'powershell' ? `Set-Location -LiteralPath "project${pathSep}subdir"; if ($?) { pytest tests }` : `Set-Location -LiteralPath "project${pathSep}subdir" && pytest tests`}</bad-example>
+    Good example: Use workdir="project${pathSep}subdir" with command: pytest tests
+    Bad example: ${name === 'powershell' ? `Set-Location -LiteralPath "project${pathSep}subdir"; if ($?) { pytest tests }` : `Set-Location -LiteralPath "project${pathSep}subdir" && pytest tests`}
 
 ${toolPreference}`;
 }
@@ -357,6 +358,7 @@ export function render(
     description,
     parameters: z.object({
       command: z.string().describe('The command to execute.'),
+      explanation: z.string().describe('Brief explanation of what this command accomplishes.'),
       timeout: z.number().int().positive().default(120_000).describe('Timeout in milliseconds.'),
       workdir: z
         .string()
@@ -395,6 +397,7 @@ export function createShellTool(role: AgentRole) {
     suspendSchema: z.object({
       command: z.string(),
       explanation: z.string(),
+      timeout: z.number().int().positive().optional(),
       type: z.literal('command'),
     }),
     resumeSchema: z.object({
@@ -412,10 +415,13 @@ export function createShellTool(role: AgentRole) {
     }),
 
     execute: async (input, context) => {
+      const toolLog = rootLogger.child({ tool: `shell_${role}` });
+
       // ── Runtime enforcement for readonly role ───────────────────────────
       // Belt-and-suspenders: even if the model ignores the description, the
       // tool itself refuses to execute in readonly mode.
       if (role === 'readonly') {
+        toolLog.warn('Shell execution blocked — readonly mode');
         return {
           success: false,
           error:
@@ -429,23 +435,42 @@ export function createShellTool(role: AgentRole) {
       if (!resumeData) {
         let commandToRun = input.command;
         if (input.workdir) {
-          const sep = process.platform === 'win32' ? '\\' : '/';
           commandToRun =
             process.platform === 'win32'
               ? `Set-Location -LiteralPath "${input.workdir}"; if ($?) { ${input.command} }`
               : `cd "${input.workdir}" && ${input.command}`;
-          void sep; // suppress unused warning
         }
+        toolLog.info('Suspending — sending shell command to terminal', {
+          command: commandToRun.slice(0, 200),
+          workdir: input.workdir,
+          role,
+        });
         return suspend?.({
           command: commandToRun,
-          explanation: `Executing command: ${input.command}`,
+          explanation: input.explanation,
+          timeout: input.timeout,
           type: 'command' as const,
         });
       }
 
       if (!resumeData.approved) {
+        toolLog.warn('Shell command rejected by user', {
+          command: input.command.slice(0, 200),
+          role,
+        });
         return { success: false, error: 'User rejected or cancelled command execution.' };
       }
+
+      toolLog.info('Shell command result received', {
+        command: input.command.slice(0, 200),
+        exitCode: resumeData.exitCode,
+        success: resumeData.exitCode === 0,
+        stdoutLength: resumeData.stdout?.length,
+        stderrLength: resumeData.stderr?.length,
+        role,
+      });
+      toolLog.debug('Shell stdout', { stdout: resumeData.stdout?.slice(0, 500) });
+      toolLog.debug('Shell stderr', { stderr: resumeData.stderr?.slice(0, 500) });
 
       return {
         success: resumeData.exitCode === 0,

@@ -2,6 +2,9 @@ import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import * as fs from 'fs';
 import { safeResolve, reviewSettings, getDescription } from './helper';
+import { rootLogger } from '../logger';
+
+const toolLog = rootLogger.child({ tool: 'patch_file' });
 
 export const patchFileTool = createTool({
   id: 'patch_file',
@@ -29,6 +32,12 @@ export const patchFileTool = createTool({
 
     // Gated by settings check
     if (reviewSettings.requireReviewForWrites && !resumeData) {
+      toolLog.info('Suspending — awaiting approval for file patch', {
+        path: input.path,
+        searchLength: input.search.length,
+        replaceLength: input.replace.length,
+        searchPreview: input.search.slice(0, 200),
+      });
       return suspend?.({
         path: input.path,
         search: input.search,
@@ -38,22 +47,28 @@ export const patchFileTool = createTool({
     }
 
     if (resumeData && !resumeData.approved) {
+      toolLog.warn('File patch rejected by user', { path: input.path });
       return { success: false, error: 'User rejected the file patch operation.' };
     }
 
+    toolLog.info('Patching file', { path: input.path, searchLength: input.search.length });
     try {
       const fullPath = safeResolve(input.path);
       if (!fs.existsSync(fullPath)) {
+        toolLog.error('File not found for patching', { path: input.path });
         return { success: false, error: `File not found to patch: ${input.path}` };
       }
       const content = await fs.promises.readFile(fullPath, 'utf8');
       if (!content.includes(input.search)) {
+        toolLog.error('Search block not found in file', { path: input.path });
         return { success: false, error: `Search block not found exactly in file: ${input.path}` };
       }
       const updated = content.replace(input.search, input.replace);
       await fs.promises.writeFile(fullPath, updated, 'utf8');
+      toolLog.debug('File patched', { path: input.path });
       return { success: true };
     } catch (err: any) {
+      toolLog.error('Failed to patch file', { path: input.path, error: err.message });
       return { success: false, error: err.message || String(err) };
     }
   },

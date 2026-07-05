@@ -37,6 +37,9 @@ export function AgentView() {
 
   const sessionState = targetSessionId ? sessions[targetSessionId] || CONST_DEFAULT_SESSION_STATE : CONST_DEFAULT_SESSION_STATE;
   const isThinking = status === "planning" || status === "executing";
+  // const filteredChatHistory = chatHistory.filter(
+  //   (m) => m.agentType === "developer" || m.agentType === undefined
+  // );
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -46,7 +49,7 @@ export function AgentView() {
     const trimmed = input.trim();
     if (!trimmed || isThinking) return;
     setInput("");
-    startTask(trimmed);
+    startTask(trimmed, "developer");
   }, [input, isThinking, startTask]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -59,7 +62,7 @@ export function AgentView() {
   const handleHeroSend = useCallback((text: string) => {
     if (isThinking) return;
     useAppShellStore.getState().setViewMode("agent");
-    startTask(text);
+    startTask(text, "developer");
   }, [isThinking, startTask]);
 
   const showEmptyState = chatHistory.length === 0 && !isThinking;
@@ -132,21 +135,19 @@ export function AgentView() {
                   <div className="flex items-center gap-1.5">
                     <button
                       onClick={() => targetSessionId && setAgentMode(targetSessionId, "plan")}
-                      className={`px-2.5 py-1 text-[11px] font-semibold rounded-md transition-all cursor-pointer ${
-                        sessionState.agentMode === "plan"
+                      className={`px-2.5 py-1 text-[11px] font-semibold rounded-md transition-all cursor-pointer ${sessionState.agentMode === "plan"
                           ? "bg-blue-500/10 text-blue-400 border border-blue-500/20"
                           : "text-white/30 border border-transparent"
-                      }`}
+                        }`}
                     >
                       Plan Mode
                     </button>
                     <button
                       onClick={() => targetSessionId && setAgentMode(targetSessionId, "build")}
-                      className={`px-2.5 py-1 text-[11px] font-semibold rounded-md transition-all cursor-pointer ${
-                        sessionState.agentMode === "build"
+                      className={`px-2.5 py-1 text-[11px] font-semibold rounded-md transition-all cursor-pointer ${sessionState.agentMode === "build"
                           ? "bg-amber-500/10 text-amber-400 border border-amber-500/20"
                           : "text-white/30 border border-transparent"
-                      }`}
+                        }`}
                     >
                       Build Mode
                     </button>

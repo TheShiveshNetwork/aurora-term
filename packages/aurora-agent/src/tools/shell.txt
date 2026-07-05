@@ -1,4 +1,17 @@
-Execute a shell command sequentially in the client terminal session.
-- Pre-approved for operations like git, build, tests, package installs, and system diagnostics.
-- Avoid using this tool for file reading, writing, or searching if specialized tools are available.
-- When running commands that require specific directories, specify the optional workdir parameter instead of chaining 'cd' commands.
+${intro}
+
+Environment:
+- OS: ${os}
+- Shell: ${shell}
+- Temp dir: ${tmp}
+
+${workdirSection}
+
+${commandSection}
+
+Git guidance:
+- Use ${gitCommands} for all git and version control operations.
+- Only use ${gitCommandRestriction} for git operations.
+- ${createPrInstruction}
+  Example:
+    ${createPrExample}

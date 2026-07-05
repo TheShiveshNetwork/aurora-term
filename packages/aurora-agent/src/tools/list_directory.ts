@@ -3,6 +3,9 @@ import { z } from 'zod';
 import * as fs from 'fs';
 import * as path from 'path';
 import { safeResolve, getDescription } from './helper';
+import { rootLogger } from '../logger';
+
+const toolLog = rootLogger.child({ tool: 'list_directory' });
 
 export const listDirTool = createTool({
   id: 'list_directory',
@@ -20,13 +23,16 @@ export const listDirTool = createTool({
     error: z.string().optional(),
   }),
   execute: async ({ path: dirPath }) => {
+    toolLog.debug('Listing directory', { dirPath });
     try {
       const fullPath = safeResolve(dirPath || '.');
       if (!fs.existsSync(fullPath)) {
+        toolLog.warn('Directory not found', { dirPath });
         return { success: false, error: `Directory not found: ${dirPath}` };
       }
       const stat = await fs.promises.stat(fullPath);
       if (!stat.isDirectory()) {
+        toolLog.warn('Path is not a directory', { dirPath });
         return { success: false, error: `Path is not a directory: ${dirPath}` };
       }
       const entries = await fs.promises.readdir(fullPath, { withFileTypes: true });
@@ -47,8 +53,10 @@ export const listDirTool = createTool({
           };
         })
       );
+      toolLog.debug('Directory listed', { dirPath, entryCount: files.length });
       return { success: true, files };
     } catch (err: any) {
+      toolLog.error('Failed to list directory', { dirPath, error: err.message });
       return { success: false, error: err.message || String(err) };
     }
   },

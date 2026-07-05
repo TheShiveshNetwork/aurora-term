@@ -23,45 +23,83 @@ import { terminalShellTool, developerShellTool } from '../tools/shell';
 export function getModelProvider(
   providerName: string,
   modelName?: string,
+  tier: 'fast' | 'balanced' | 'powerful' = 'balanced',
 ): { id: `${string}/${string}`; url?: string; apiKey?: string } {
-  const normalized = providerName.toLowerCase();
+  // Read dynamic settings from environment variables if passed
+  const activeProvider = process.env.ACTIVE_AI_PROVIDER || providerName;
+  let activeModel = modelName;
+
+  if (process.env.ACTIVE_AI_PROVIDER) {
+    if (tier === 'fast') {
+      activeModel = process.env.ACTIVE_AI_MODEL_FAST || activeModel;
+    } else if (tier === 'powerful') {
+      activeModel = process.env.ACTIVE_AI_MODEL_POWERFUL || activeModel;
+    } else {
+      activeModel = process.env.ACTIVE_AI_MODEL_BALANCED || activeModel;
+    }
+  }
+
+  const normalized = activeProvider.toLowerCase();
 
   if (normalized === 'groq') {
+    // llama-3.3-70b-versatile is the most capable available Groq model.
+    // The old llama3-groq-70b-8192-tool-use-preview was decommissioned.
+    // Tool calling correctness is enforced via the rich shell.txt description
+    // template that provides clear role-aware tool-use guidance to the model.
     return {
-      id: `groq/${modelName ?? 'llama-3.3-70b-versatile'}`,
+      id: `groq/${activeModel ?? 'llama-3.3-70b-versatile'}`,
       apiKey: process.env.GROQ_API_KEY,
     };
   }
   if (normalized === 'gpt-oss') {
     return {
-      id: `openai/${modelName ?? 'gpt-4o-mini'}`,
+      id: `openai/${activeModel ?? 'gpt-4o-mini'}`,
       url: process.env.GPT_OSS_BASE_URL ?? 'http://localhost:11434/v1',
       apiKey: process.env.GPT_OSS_API_KEY ?? 'empty',
     };
   }
   if (normalized === 'kimi') {
     return {
-      id: `openai/${modelName ?? 'kimi-k2'}`,
+      id: `openai/${activeModel ?? 'kimi-k2'}`,
       url: 'https://api.moonshot.cn/v1',
       apiKey: process.env.KIMI_API_KEY ?? 'empty',
     };
   }
   if (normalized === 'anthropic') {
     return {
-      id: `anthropic/${modelName ?? 'claude-3-5-sonnet-latest'}`,
+      id: `anthropic/${activeModel ?? 'claude-3-5-sonnet-latest'}`,
       apiKey: process.env.ANTHROPIC_API_KEY,
     };
   }
-  if (normalized === 'gemini') {
+  if (normalized === 'gemini' || normalized === 'google') {
     return {
-      id: `google/${modelName ?? 'gemini-1.5-pro'}`,
+      id: `google/${activeModel ?? 'gemini-1.5-pro'}`,
       apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
+    };
+  }
+  if (normalized === 'openai') {
+    return {
+      id: `openai/${activeModel ?? 'gpt-4o-mini'}`,
+      apiKey: process.env.OPENAI_API_KEY,
+    };
+  }
+  if (normalized === 'nvidia') {
+    return {
+      id: `nvidia/${activeModel ?? 'meta/llama-3.1-405b-instruct'}`,
+      apiKey: process.env.NVIDIA_API_KEY,
+    };
+  }
+  if (normalized === 'ollama') {
+    return {
+      id: `openai/${activeModel ?? 'llama3.1:8b'}`,
+      url: process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434/v1',
+      apiKey: 'empty',
     };
   }
 
   // Fallback
   return {
-    id: `groq/${modelName ?? 'llama-3.3-70b-versatile'}`,
+    id: `groq/${activeModel ?? 'llama-3.3-70b-versatile'}`,
     apiKey: process.env.GROQ_API_KEY,
   };
 }
@@ -79,25 +117,14 @@ export const auraMemory = new Memory({
   storage: memoryStorage,
   options: {
     lastMessages: 20,
+    // Working memory is DISABLED intentionally.
+    // Mastra wraps its content in <working_memory>...</working_memory> XML tags
+    // which are injected into the system prompt. Llama models interpret XML in
+    // the context as a signal to use XML-style function call syntax
+    // (<function=name{...}>) instead of the standard JSON tool-calling protocol,
+    // causing tool_use_failed errors on every tool call.
     workingMemory: {
-      enabled: true,
-      scope: 'resource',
-      template: `# User Profile
-- **Name**:
-- **OS**:
-- **Shell**:
-- **Working Directory**:
-
-# Preferences
-- **Verbosity**: [concise | detailed]
-- **Auto-approve commands**: [yes | no]
-- **Preferred tools**:
-
-# Session Notes
-- **Frequent tasks**:
-- **Known project context**:
-- **Important paths**:
-`,
+      enabled: false,
     },
   },
 });
@@ -129,8 +156,22 @@ OPERATING MODEL:
 CONVERSATION:
 - For greetings or simple questions, respond conversationally without
   running any commands.
+
+TOOL CALLING:
+- Always use the structured tool-calling interface provided by the system.
+- NEVER output raw function call syntax like <function=name> or <tool_call> tags.
+- Only call tools through the official tool-use channel.
+
+OUTPUT HANDLING:
+- Command output larger than 500 characters is truncated with a summary.
+  Focus on the last 200 characters — they contain the most recent results.
+- If your output says "[Output truncated...]", do NOT repeat the same command.
+  Instead, propose a more targeted command (grep, Select-String, find).
+- If command output is empty, the command ran successfully with no output.
+  Do NOT repeat it unless the user asks.
+- You can chain: list files → if too many results → grep for the specific term.
 `,
-  model: getModelProvider('groq', 'llama-3.3-70b-versatile'),
+  model: getModelProvider('groq', 'llama-3.3-70b-versatile', 'balanced'),
   memory: auraMemory,
   tools: {
     // Shell is primary — uses the terminal-role description (no "avoid shell" language)
@@ -177,7 +218,7 @@ RESEARCH APPROACH:
 - Cross-reference types, imports, and call sites so the plan is complete.
 - Prefer deep understanding over fast answers.
 `,
-  model: getModelProvider('groq', 'llama-3.3-70b-versatile'),
+  model: getModelProvider('groq', 'llama-3.3-70b-versatile', 'powerful'),
   memory: auraMemory,
   tools: {
     // Filesystem exploration — read only, no writes, no shell
@@ -236,7 +277,7 @@ ERROR HANDLING:
 - If a patch fails (context mismatch), re-read the file and recompute the patch.
 - Never guess — inspect first.
 `,
-  model: getModelProvider('groq', 'llama-3.3-70b-versatile'),
+  model: getModelProvider('groq', 'llama-3.3-70b-versatile', 'powerful'),
   memory: auraMemory,
   tools: {
     // Reading and search — highest priority, always try these first
@@ -267,7 +308,7 @@ export const coderAgent = new Agent({
   description: 'Writes and refactors shell commands and code snippets based on specification.',
   instructions: `You are a code specialist. Given a task, output the exact shell command needed.
 Always respond ONLY with valid JSON: {"command": "<shell command>", "explanation": "<why>"}`,
-  model: getModelProvider('groq', 'gemma2-9b-it'),
+  model: getModelProvider('groq', 'gemma2-9b-it', 'fast'),
 });
 
 export const researcherAgent = new Agent({
@@ -276,7 +317,7 @@ export const researcherAgent = new Agent({
   description: 'Analyzes file structures, finds files, and reads documentation.',
   instructions: `You are a research specialist. Given a task, identify what information needs to be gathered.
 Always respond ONLY with valid JSON: {"command": "<shell command to research>", "explanation": "<why>"}`,
-  model: getModelProvider('groq', 'gemma2-9b-it'),
+  model: getModelProvider('groq', 'gemma2-9b-it', 'balanced'),
 });
 
 export const validatorAgent = new Agent({
@@ -285,7 +326,7 @@ export const validatorAgent = new Agent({
   description: 'Validates outputs, runs diagnostics, checks build/test results.',
   instructions: `You are a validation specialist. Given command output, determine if the task succeeded.
 Always respond ONLY with valid JSON: {"status": "success"|"failure", "reason": "<explanation>"}`,
-  model: getModelProvider('groq', 'gemma2-9b-it'),
+  model: getModelProvider('groq', 'gemma2-9b-it', 'fast'),
 });
 
 export const aura = new Agent({
@@ -294,6 +335,6 @@ export const aura = new Agent({
   instructions: `You are Aura, an intelligent AI terminal agent for Aurora Terminal.
 You help users accomplish tasks by executing shell commands step by step on Windows (PowerShell).
 Respond ONLY with a single valid JSON object containing status and command.`,
-  model: getModelProvider('groq', 'llama-3.3-70b-versatile'),
+  model: getModelProvider('groq', 'llama-3.3-70b-versatile', 'balanced'),
   memory: auraMemory,
 });

@@ -1,33 +1,18 @@
-import React, { useEffect, useState, useContext } from "react";
+import React, { useContext } from "react";
 import { ChevronRight, Sparkles } from "lucide-react";
-import { ai } from "../../lib/ipc";
-import { SettingsContext, FieldRow } from "./SettingsShared";
-import { ToggleSwitch } from "../ui/ToggleSwitch";
+import { SettingsContext } from "./SettingsShared";
 import { ProviderName } from "@aurora/types";
+import { ProviderRegistry } from "../../lib/providers";
 import { ProviderSelector } from "./ProviderSelector";
-import { ProviderDetailView } from "./ProviderDetailView";
-import { ProviderIcon, DISPLAY_NAMES } from "./ProviderIcon";
+import { ProviderIcon } from "./ProviderIcon";
 
 export default function AISettingsView() {
   const context = useContext(SettingsContext);
   if (!context) return null;
-  const { draft, updateDraft } = context;
+  const { draft, updateDraft, providerPage, setProviderPage } = context;
 
   const activeProvider = draft.config.ai.active_provider as ProviderName;
-  const [keyringStatus, setKeyringStatus] = useState<Record<string, boolean>>({});
-  const [selectedProvider, setSelectedProvider] = useState<ProviderName | null>(null);
-  const [apiKeyError, setApiKeyError] = useState<string | null>(null);
-
-  const providerNames: ProviderName[] = ["groq", "anthropic", "openai", "gemini", "nvidia", "ollama"];
-
-  const refreshKeyringStatus = () => {
-    ai.getProviderStatus().then(setKeyringStatus).catch(() => {});
-    setApiKeyError(null);
-  };
-
-  useEffect(() => {
-    refreshKeyringStatus();
-  }, []);
+  const providerNames = ProviderRegistry.getIds();
 
   const handleSetSelected = (name: ProviderName) => {
     updateDraft((d) => {
@@ -51,47 +36,22 @@ export default function AISettingsView() {
         />
       </div>
 
-      <div className="space-y-3 pt-2">
-        <h3 className="text-xs font-semibold text-white/40 uppercase tracking-wider">Safety & Reviews</h3>
-        
-        <FieldRow 
-          label="Require review for terminal commands"
-          description="Prompt for approval before executing any command planned by the agent."
-        >
-          <ToggleSwitch 
-            checked={!!draft.config.ai.require_review_for_commands} 
-            onChange={(v) => updateDraft((d) => { d.config.ai.require_review_for_commands = v; })} 
-          />
-        </FieldRow>
-
-        <FieldRow 
-          label="Require review for file changes"
-          description="Prompt for approval before writing or modifying any files in the workspace."
-        >
-          <ToggleSwitch 
-            checked={!!draft.config.ai.require_review_for_writes} 
-            onChange={(v) => updateDraft((d) => { d.config.ai.require_review_for_writes = v; })} 
-          />
-        </FieldRow>
-      </div>
-
       <div className="space-y-2">
         <h3 className="text-xs font-semibold text-white/40 uppercase tracking-wider">All Providers</h3>
         <div className="space-y-2">
           {providerNames.map((name) => {
-            const config = (draft.config.ai as any)[name];
+            const info = ProviderRegistry.get(name);
             const isSelected = name === activeProvider;
-            const isExpanded = selectedProvider === name;
-            const hasKey = keyringStatus[name];
-            const balancedModel = config?.balanced_model || "";
+            const isExpanded = providerPage === name;
 
             return (
               <div key={name}>
                 <button
-                  onClick={() => setSelectedProvider(isExpanded ? null : name)}
-                  className={`flex items-center justify-between w-full p-3 rounded-xl border transition-all cursor-pointer text-left ${isExpanded
-                    ? "border-white/[0.08] bg-[#1c202a]/80"
-                    : "border-white/[0.04] bg-[#161920]/40 hover:bg-[#1c202a]/60"
+                  onClick={() => setProviderPage(isExpanded ? null : name)}
+                  className={`flex items-center justify-between w-full p-3 rounded-xl border transition-all cursor-pointer text-left ${
+                    isExpanded
+                      ? "border-white/[0.08] bg-[#1c202a]/80"
+                      : "border-white/[0.04] bg-[#161920]/40 hover:bg-[#1c202a]/60"
                     } ${isSelected ? "ring-1 ring-blue-500/20" : ""}`}
                 >
                   <div className="flex items-center gap-3">
@@ -100,62 +60,36 @@ export default function AISettingsView() {
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-[#E8EAF0]">{DISPLAY_NAMES[name]}</span>
+                        <span className="text-sm font-medium text-[#E8EAF0]">{info.displayName}</span>
                         {isSelected && (
                           <span className="text-[10px] px-2 py-0.5 rounded-md font-medium tracking-wide bg-blue-500/10 text-blue-400 border border-blue-500/20">
                             Selected
                           </span>
                         )}
-                        {name === "ollama" && (
+                        {!info.requiresApiKey && (
                           <span className="text-[10px] px-2 py-0.5 rounded-md font-medium tracking-wide bg-white/5 text-white/50 border border-white/10">
                             Local
                           </span>
                         )}
                       </div>
-                      <span className="text-[11px] text-[#E8EAF0]/40">{balancedModel}</span>
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
-                    {!hasKey && name !== "ollama" && (
-                      <span className="text-[10px] font-medium text-red-400/80 px-2 py-0.5 bg-red-500/5 border border-red-500/10 rounded-md">
-                        No Key
-                      </span>
-                    )}
                     <ChevronRight
                       size={15}
                       className={`text-white/30 transition-transform ${isExpanded ? "rotate-90" : ""}`}
                     />
                   </div>
                 </button>
-
-                {isExpanded && (
-                  <div className="mt-2">
-                    <ProviderDetailView
-                      name={name}
-                      isSelected={isSelected}
-                      keyringHasKey={!!hasKey}
-                      onSetSelected={() => handleSetSelected(name)}
-                      onClose={() => setSelectedProvider(null)}
-                      onApiKeyChange={refreshKeyringStatus}
-                      onApiKeyError={setApiKeyError}
-                    />
-                  </div>
-                )}
               </div>
             );
           })}
         </div>
       </div>
 
-      {apiKeyError && (
-        <div className="p-3 rounded-xl text-xs text-red-400/90 bg-red-500/5 border border-red-500/10">
-          {apiKeyError}
-        </div>
-      )}
-
       <div className="flex items-center gap-2 pt-2 text-xs text-white/40">
         <Sparkles size={14} className="text-white/30" />
-        <span>Aurora will use the default provider for all AI features.</span>
+        <span>Aurora will use the selected provider for all AI features.</span>
       </div>
     </div>
   );

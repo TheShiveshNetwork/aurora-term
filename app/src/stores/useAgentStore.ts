@@ -10,6 +10,7 @@ export interface ChatMessage {
   chainNodes?: ChainNode[];
   agentLogs?: AgentLog[];
   subagent?: string | null;
+  agentType?: "terminal" | "developer";
 }
 
 export interface AgentCommand {

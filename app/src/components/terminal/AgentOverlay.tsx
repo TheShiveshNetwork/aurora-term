@@ -3,20 +3,18 @@ import {
   X,
   RotateCcw,
   ChevronRight,
-  ChevronDown,
-  ChevronUp,
-  Brain,
-  Zap,
   Code2,
   Search,
   ShieldCheck,
   Copy,
   Check,
-  Share2,
+  Play,
+  SkipForward,
+  Terminal,
 } from "lucide-react";
 import { useAgentExecution } from "../../hooks/useAgentExecution";
 import type { ChainNode, ChatMessage } from "../../stores/useAgentStore";
-import { renderMarkdown, renderInline } from "../../lib/markdown";
+import { renderMarkdown } from "../../lib/markdown";
 import { useCopyWithFeedback } from "../../hooks/useCopyWithFeedback";
 import { useHasApiKeyConfigured, ProviderSetupPrompt } from "./ProviderSetupPrompt";
 
@@ -141,9 +139,7 @@ function ConversationTurn({
   const [logsOpen, setLogsOpen] = useState(false);
 
   useEffect(() => {
-    if (isThinking) {
-      setDetailsOpen(true);
-    }
+    setDetailsOpen(isThinking);
   }, [isThinking]);
 
   return (
@@ -239,14 +235,6 @@ function ConversationTurn({
                     })}
                   </div>
                 )}
-
-                {/* Execution Log */}
-                {agentLogs.length > 0 && (
-                  <div className="pt-2 border-t border-outline-variant/10">
-                    <div className="text-[10px] font-bold text-on-surface-variant/50 uppercase tracking-wider mb-1">Execution Log</div>
-                    <LogPanel logs={agentLogs} />
-                  </div>
-                )}
               </div>
             )}
           </div>
@@ -322,6 +310,88 @@ interface AgentOverlayProps {
   onClose?: () => void;
 }
 
+// ── Command Approval Card ─────────────────────────────────────────────────
+interface CommandApprovalCardProps {
+  command: string;
+  explanation?: string;
+  onApprove: () => void;
+  onSkip: () => void;
+  isRunning: boolean;
+}
+
+function CommandApprovalCard({ command, explanation, onApprove, onSkip, isRunning }: CommandApprovalCardProps) {
+  return (
+    <div
+      className="mx-4 mb-3 rounded-[14px] overflow-hidden animate-fadeIn"
+      style={{
+        background: "rgba(15,19,26,0.95)",
+        border: "1px solid rgba(255,200,60,0.20)",
+        boxShadow: "0 4px 24px rgba(0,0,0,0.35), 0 0 0 1px rgba(255,200,60,0.08)",
+      }}
+    >
+      {/* Header */}
+      <div
+        className="flex items-center gap-2 px-3 py-2"
+      >
+        <Terminal size={11} className="text-amber-400/80 shrink-0" />
+        <span className="text-[10px] font-bold tracking-widest text-amber-400/70">
+          Awaiting Approval
+        </span>
+      </div>
+
+      {/* Command block */}
+      <div className="px-3 pt-1 pb-2">
+        {explanation && (
+          <p className="text-[11px] text-on-surface/50 mb-2 leading-relaxed">{explanation}</p>
+        )}
+        <code
+          className="block font-mono text-[12px] leading-relaxed break-all select-text"
+          style={{
+            background: "rgba(255,255,255,0.04)",
+            border: "1px solid rgba(255,255,255,0.07)",
+            borderRadius: 8,
+            padding: "8px 10px",
+            color: "rgba(180,220,255,0.90)",
+          }}
+        >
+          {command}
+        </code>
+      </div>
+
+      {/* Action buttons */}
+      <div className="flex gap-2 px-3 pb-3">
+        <button
+          onClick={onSkip}
+          disabled={isRunning}
+          className="w-full flex items-center justify-center gap-1.5 text-[11px] font-bold py-2 px-3 rounded-[9px] transition-all cursor-pointer disabled:opacity-50"
+          style={{
+            background: "rgba(255,255,255,0.04)",
+            border: "1px solid rgba(255,255,255,0.09)",
+            color: "rgba(232,234,240,0.40)",
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.08)"; e.currentTarget.style.color = "rgba(232,234,240,0.70)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.04)"; e.currentTarget.style.color = "rgba(232,234,240,0.40)"; }}
+          title="Skip this command"
+        >
+          <X size={12} />
+          Skip
+        </button>
+        <button
+          onClick={onApprove}
+          disabled={isRunning}
+          className="w-full flex items-center justify-center bg-amber-400/70 hover:bg-amber-400/75 transition-colors text-black gap-1.5 text-[11px] font-bold py-2 rounded-[9px] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {isRunning ? (
+            <><span className="w-3 h-3 border border-emerald-400/60 border-t-emerald-400 rounded-full animate-spin" />Running…</>
+          ) : (
+            <><Play size={10} fill="currentColor" />Approve & Run</>
+          )}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function AgentOverlay({ sessionId, onClose }: AgentOverlayProps) {
   const {
     startTask,
@@ -335,6 +405,7 @@ export function AgentOverlay({ sessionId, onClose }: AgentOverlayProps) {
     agentLogs,
     activeSubagent,
     approveAndRunPending,
+    declinePending,
     clearTask,
     retryTask,
     chatHistory,
@@ -435,16 +506,35 @@ export function AgentOverlay({ sessionId, onClose }: AgentOverlayProps) {
   const isPaused = status === "paused";
   const isPlanning = status === "planning";
   const isThinking = isPlanning || isExecuting || isPaused;
+  const [approvalRunning, setApprovalRunning] = useState(false);
 
   const pendingApprovalIndex = queue.findIndex((cmd) => cmd.status === "requires_action");
   const pendingApprovalCmd = pendingApprovalIndex !== -1 ? queue[pendingApprovalIndex] : null;
 
+  const handleApprove = useCallback(async () => {
+    setApprovalRunning(true);
+    try {
+      await approveAndRunPending();
+    } finally {
+      setApprovalRunning(false);
+    }
+  }, [approveAndRunPending]);
+
+  const handleSkip = useCallback(async () => {
+    await declinePending();
+  }, [declinePending]);
+
+  // Show only terminal agent messages (or legacy messages without agentType)
+  const filteredChatHistory = chatHistory.filter(
+    (m) => m.agentType === "terminal" || m.agentType === undefined
+  );
+
   // Group chat history into turns (user + optional assistant)
   const turns: Array<{ user: ChatMessage; assistant: ChatMessage | null }> = [];
-  for (let idx = 0; idx < chatHistory.length; idx++) {
-    const msg = chatHistory[idx];
+  for (let idx = 0; idx < filteredChatHistory.length; idx++) {
+    const msg = filteredChatHistory[idx];
     if (msg.role === "user") {
-      const next = chatHistory[idx + 1];
+      const next = filteredChatHistory[idx + 1];
       const assistant = next?.role === "assistant" ? next : null;
       turns.push({ user: msg, assistant });
       if (assistant) idx++; // skip the assistant message we just paired
@@ -525,7 +615,7 @@ export function AgentOverlay({ sessionId, onClose }: AgentOverlayProps) {
         className="flex-1 scrollable-overlay px-4 pt-3 aurora-ta"
         style={{ scrollbarGutter: "stable" }}
       >
-        {turns.length === 0 && (
+        {filteredChatHistory.length === 0 && (
           <NoApiKeysOrEmpty />
         )}
 
@@ -556,8 +646,19 @@ export function AgentOverlay({ sessionId, onClose }: AgentOverlayProps) {
         <div ref={bottomRef} className="h-2" />
       </div>
 
+      {/* ── Command Approval Card — shown when paused awaiting shell approval ── */}
+      {isPaused && pendingApprovalCmd && (
+        <CommandApprovalCard
+          command={pendingApprovalCmd.command}
+          explanation={pendingApprovalCmd.explanation}
+          onApprove={handleApprove}
+          onSkip={handleSkip}
+          isRunning={approvalRunning}
+        />
+      )}
+
       {/* ── Footer with clear/retry actions ── */}
-      {turns.length > 0 && (
+      {filteredChatHistory.length > 0 && (
         <div
           className="shrink-0 flex items-center justify-between px-4 py-2"
           style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}
