@@ -664,6 +664,21 @@ export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab, onAddTab,
       });
   }, [resolvedCwd]);
 
+  const isSidebarFocusedRef = useRef(false);
+
+  useEffect(() => {
+    const handleWindowClick = (e: MouseEvent) => {
+      const aside = document.getElementById("main-sidebar");
+      if (aside && aside.contains(e.target as Node)) {
+        isSidebarFocusedRef.current = true;
+      } else {
+        isSidebarFocusedRef.current = false;
+      }
+    };
+    window.addEventListener("click", handleWindowClick);
+    return () => window.removeEventListener("click", handleWindowClick);
+  }, []);
+
   // Inline create
   const [creatingIn, setCreatingIn] = useState<{ parentPath: string; type: "file" | "folder" } | null>(null);
   const [creatingName, setCreatingName] = useState("");
@@ -908,6 +923,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab, onAddTab,
     if (collapsed) return;
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
       if (selectedNodes.size === 0) return;
+      if (!isSidebarFocusedRef.current) return;
 
       const activeEl = document.activeElement;
       if (activeEl) {
@@ -923,7 +939,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab, onAddTab,
         }
       }
 
-      if (e.key === "Delete") {
+      if (e.key === "Delete" || e.key === "Del") {
         e.preventDefault();
         startDelete(Array.from(selectedNodes.values()));
       }
@@ -973,11 +989,16 @@ export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab, onAddTab,
         await system.createPath(current, seg, isLast ? creatingIn.type === "folder" : true).catch(() => { });
         if (!isLast) current = current + "/" + seg;
       }
+      const finalPath = (creatingIn.parentPath + "/" + name).replace(/\\/g, "/");
       setCreatingIn(null); setCreatingName("");
       setCollapseAllKey((k) => k + 1);
       if (resolvedCwd) loadTree(resolvedCwd);
+
+      if (creatingIn.type === "file") {
+        onOpenFileAtPath?.(finalPath);
+      }
     } catch (err) { console.error(err); setCreatingIn(null); }
-  }, [creatingIn, creatingName, resolvedCwd, loadTree]);
+  }, [creatingIn, creatingName, resolvedCwd, loadTree, onOpenFileAtPath]);
 
   const cancelCreate = useCallback(() => { setCreatingIn(null); setCreatingName(""); }, []);
   useEffect(() => { if (creatingIn) creatingInputRef.current?.focus(); }, [creatingIn]);
@@ -1119,10 +1140,24 @@ export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab, onAddTab,
     };
   }, []);
 
+  const dragOverPathRef = useRef<string | null>(null);
+  useEffect(() => { dragOverPathRef.current = dragOverPath; }, [dragOverPath]);
+
+  const resolvedCwdRef = useRef<string>("");
+  useEffect(() => { resolvedCwdRef.current = resolvedCwd; }, [resolvedCwd]);
+
+  const loadTreeRef = useRef<(path: string) => Promise<void>>(loadTree);
+  useEffect(() => { loadTreeRef.current = loadTree; }, [loadTree]);
+
+  const onOpenFileAtPathRef = useRef<((path: string) => void) | undefined>(onOpenFileAtPath);
+  useEffect(() => { onOpenFileAtPathRef.current = onOpenFileAtPath; }, [onOpenFileAtPath]);
+
   useEffect(() => {
     const appWindow = getCurrentWebviewWindow();
+    let isCurrent = true;
     let unlisten: (() => void) | null = null;
     appWindow.onDragDropEvent((event) => {
+      if (!isCurrent) return;
       const payload = event.payload;
 
       if (payload.type === "drop") {
@@ -1139,15 +1174,18 @@ export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab, onAddTab,
           tabbar.style.border = "";
         }
 
-        if (isOverTabBar || dragOverPath === "tabbar") {
+        const currentDragOverPath = dragOverPathRef.current;
+        const currentResolvedCwd = resolvedCwdRef.current;
+
+        if (isOverTabBar || currentDragOverPath === "tabbar" || currentDragOverPath === "opentabs") {
           const paths = payload.paths;
           if (paths && paths.length > 0) {
             for (const p of paths) {
-              onOpenFileAtPath?.(p);
+              onOpenFileAtPathRef.current?.(p);
             }
           }
         } else {
-          const targetDir = dragOverPath || resolvedCwd;
+          const targetDir = currentDragOverPath || currentResolvedCwd;
           const srcPath = dragSourcePathRef.current;
           const paths = payload.paths;
 
@@ -1155,7 +1193,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab, onAddTab,
             // Internal move
             if (srcPath !== targetDir && !pathStartsWith(targetDir, srcPath)) {
               system.movePath(srcPath, targetDir)
-                .then(() => { if (resolvedCwd) loadTree(resolvedCwd); })
+                .then(() => { if (currentResolvedCwd) loadTreeRef.current(currentResolvedCwd); })
                 .catch((err) => console.error("Internal move failed:", err));
             }
           } else if (paths && paths.length > 0) {
@@ -1165,7 +1203,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab, onAddTab,
                 for (const p of paths) {
                   await system.copyPath(p, targetDir);
                 }
-                if (resolvedCwd) loadTree(resolvedCwd);
+                if (currentResolvedCwd) loadTreeRef.current(currentResolvedCwd);
               } catch (err) {
                 console.error("External copy failed:", err);
               }
@@ -1199,9 +1237,18 @@ export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab, onAddTab,
         }
         setExpandPath(null);
       }
-    }).then((fn) => { unlisten = fn; });
-    return () => { if (unlisten) unlisten(); };
-  }, [resolvedCwd, loadTree, dragOverPath, onOpenFileAtPath]);
+    }).then((fn) => {
+      if (!isCurrent) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
+    });
+    return () => {
+      isCurrent = false;
+      if (unlisten) unlisten();
+    };
+  }, []);
 
   const filteredNodes = sortNodes(
     rootNodes.filter((n) => !isExcluded(n.name))
@@ -1401,7 +1448,21 @@ export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab, onAddTab,
               </div>
             }
           >
-            <OpenTabs onKillTab={onKillTab} />
+            <div
+              onDragOver={(e) => {
+                e.preventDefault();
+                if (e.dataTransfer) {
+                  e.dataTransfer.dropEffect = "copy";
+                }
+                setDragOverPath("opentabs");
+              }}
+              onDragLeave={() => {
+                setDragOverPath(prev => prev === "opentabs" ? null : prev);
+              }}
+              className={`transition-colors duration-150 rounded-md ${dragOverPath === "opentabs" ? "bg-[rgba(79,140,255,0.06)] border border-dashed border-primary/20" : ""}`}
+            >
+              <OpenTabs onKillTab={onKillTab} />
+            </div>
           </CollapsibleSection>
         )}
 

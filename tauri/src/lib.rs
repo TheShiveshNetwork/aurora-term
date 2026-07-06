@@ -195,6 +195,7 @@ pub fn run() {
             aurora_commands::git_add,
             aurora_commands::git_reset,
             aurora_commands::git_restore,
+            aurora_commands::git_clean,
             aurora_commands::git_commit,
             aurora_commands::git_push,
             aurora_commands::git_pull,

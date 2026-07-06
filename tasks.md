@@ -46,6 +46,8 @@ TODO
 37. MAJOR: Agent improvement
 38. token usage optimization
 
+40. codemirror lint fix
+
 25. settings to separate the idea between command input bar for terminal and file so that on terminal the comand input bar always opens
 37. Operating systems compatibility (only test where it is working)
 42. session management (creating new session, compaction, etc)

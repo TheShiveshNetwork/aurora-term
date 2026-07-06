@@ -692,10 +692,25 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
           })()
           : view.state.sliceDoc(sel.from, sel.to);
         if (text) {
-          const { selectSelectionMatches, SearchQuery, setSearchQuery } = await import("@codemirror/search");
-          const query = new SearchQuery({ search: text, caseSensitive: false });
-          view.dispatch({ effects: setSearchQuery.of(query) });
-          selectSelectionMatches(view);
+          const docLower = view.state.doc.toString().toLowerCase();
+          const textLower = text.toLowerCase();
+          const ranges: any[] = [];
+          const { EditorSelection } = await import("@codemirror/state");
+
+          let pos = 0;
+          while (true) {
+            const index = docLower.indexOf(textLower, pos);
+            if (index === -1) break;
+            ranges.push(EditorSelection.range(index, index + text.length));
+            pos = index + textLower.length;
+          }
+
+          if (ranges.length > 0) {
+            view.dispatch({
+              selection: EditorSelection.create(ranges)
+            });
+            view.focus();
+          }
         }
       }
     };

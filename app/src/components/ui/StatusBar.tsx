@@ -280,7 +280,7 @@ export function StatusBar({ noFolder }: { noFolder?: boolean }) {
 
               {activeFileTab && (
                 <>
-                  <span className="mx-0.5 select-none" style={{ color: "rgba(255,255,255,0.2)" }}>/</span>
+                  <span className="select-none">/</span>
                   <div
                     className="relative cursor-pointer hover:underline flex items-center"
                     onMouseEnter={() => setShowPathTooltip(true)}

@@ -205,6 +205,7 @@ export function GitView({ cwd, tabId }: GitViewProps) {
 
   const handleRestore = useCallback(async (paths: string[]) => {
     try {
+      await system.gitReset(cwd, paths).catch(() => {});
       await system.gitRestore(cwd, paths);
       clearDiffCache();
       useGitStore.getState().invalidateStatus(cwd);
@@ -979,20 +980,25 @@ export function GitView({ cwd, tabId }: GitViewProps) {
               Unstage
             </MenuViewItem>
           )}
-          {(contextMenu.entry.x === " " || contextMenu.entry.x === "?") && (
+          {contextMenu.entry.x === " " && (
             <MenuViewItem variant="rightclick" onClick={() => { setContextMenu(null); handleStage([contextMenu.entry!.path]); }} icon={<CheckSquare size={12} />}>
               Stage
             </MenuViewItem>
           )}
-          {contextMenu.entry.x === " " && contextMenu.entry.y !== " " && (
+          {contextMenu.entry.x !== "?" && (
             <MenuViewItem variant="rightclick" danger onClick={() => { setContextMenu(null); handleRestore([contextMenu.entry!.path]); }} icon={<Undo2 size={12} />}>
               Discard changes
             </MenuViewItem>
           )}
           {contextMenu.entry.x === "?" && (
-            <MenuViewItem variant="rightclick" danger onClick={() => { setContextMenu(null); handleClean([contextMenu.entry!.path]); }} icon={<Trash2 size={12} />}>
-              Delete file
-            </MenuViewItem>
+            <>
+              <MenuViewItem variant="rightclick" onClick={() => { setContextMenu(null); handleStage([contextMenu.entry!.path]); }} icon={<CheckSquare size={12} />}>
+                Stage
+              </MenuViewItem>
+              <MenuViewItem variant="rightclick" danger onClick={() => { setContextMenu(null); handleClean([contextMenu.entry!.path]); }} icon={<Trash2 size={12} />}>
+                Delete file
+              </MenuViewItem>
+            </>
           )}
           <MenuViewSeparator />
           <MenuViewItem variant="rightclick" onClick={() => { setContextMenu(null); handleSelectFile(contextMenu.entry!); }} icon={<Eye size={12} />}>
