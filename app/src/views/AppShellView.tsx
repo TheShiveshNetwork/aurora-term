@@ -491,7 +491,7 @@ export function AppShellView() {
         viewMode={viewMode}
         projectName={projectDirLabel.replace(/^~\//, "")}
         cwdAbsolute={projectDir || cwdAbsolute}
-        onOpenFileAtPath={(path: string) => { openFile(path, projectDir || cwdAbsolute); setViewMode("file"); }}
+        onOpenFileAtPath={(path: string, options?: { lineNumber?: number; matchStart?: number; matchEnd?: number }) => { openFile(path, projectDir || cwdAbsolute, options); setViewMode("file"); }}
         onOpenGitView={handleOpenGitView}
         gitViewActive={gitViewActive}
         noFolder={tabs.length === 0}
@@ -503,7 +503,7 @@ export function AppShellView() {
       ) : (
         <div className="flex flex-1 overflow-hidden">
           <SidePanel collapsed={sidebarCollapsed} cwd={projectDir || cwdAbsolute} activeFilePath={activeFilePath}
-            onOpenFileAtPath={(path: string) => { openFile(path, projectDir || cwdAbsolute); setViewMode("file"); }}
+            onOpenFileAtPath={(path: string, options?: { lineNumber?: number; matchStart?: number; matchEnd?: number }) => { openFile(path, projectDir || cwdAbsolute, options); setViewMode("file"); }}
             onKillTab={(id) => {
               const tab = tabs.find((candidate) => candidate.id === id);
               if (tab?.type === "file" && tab.dirty) {

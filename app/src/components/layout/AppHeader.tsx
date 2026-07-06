@@ -143,11 +143,11 @@ export function AppHeader({
               <MenuViewItem icon={<History size={13} />} disabled>Open Recent…</MenuViewItem>
               <MenuViewSeparator />
               <MenuViewItem icon={<Plus size={13} />} onClick={onNewWindow} shortcut="Ctrl+Shift+N">New Window</MenuViewItem>
-              <MenuViewItem icon={<SquareTerminal size={13} />} onClick={onNewTab} shortcut="Ctrl+T">New Tab</MenuViewItem>
+              <MenuViewItem icon={<SquareTerminal size={13} />} onClick={onNewTab} shortcut="Ctrl+T" disabled>New Tab</MenuViewItem>
               <MenuViewSeparator />
-              <MenuViewItem icon={<Terminal size={13} />} onClick={onCloseSession}>Close Session</MenuViewItem>
-              <MenuViewItem icon={<SplitSquareHorizontal size={13} />} onClick={onCloseTab}>Close Tab</MenuViewItem>
-              <MenuViewItem icon={<SplitSquareHorizontal size={13} />} onClick={onCloseOtherTabs}>Close Other Tabs</MenuViewItem>
+              <MenuViewItem icon={<Terminal size={13} />} onClick={onCloseSession} disabled>Close Session</MenuViewItem>
+              <MenuViewItem icon={<SplitSquareHorizontal size={13} />} onClick={onCloseTab} disabled>Close Tab</MenuViewItem>
+              <MenuViewItem icon={<SplitSquareHorizontal size={13} />} onClick={onCloseOtherTabs} disabled>Close Other Tabs</MenuViewItem>
               <MenuViewSeparator />
               <MenuViewItem icon={<Command size={13} />} onClick={onOpenSettings} shortcut="Ctrl+Shift+P">Command Palette</MenuViewItem>
               <MenuViewItem icon={<Settings size={13} />} onClick={onToggleTheme}>Switch Mode ({theme})</MenuViewItem>

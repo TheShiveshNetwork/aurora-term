@@ -8,7 +8,7 @@ import { Button } from "../ui/Button";
 import type { SearchResult } from "@aurora/types";
 
 interface SearchInFilesProps {
-  onOpenFileAtPath?: (path: string) => void;
+  onOpenFileAtPath?: (path: string, options?: { lineNumber?: number; matchStart?: number; matchEnd?: number }) => void;
 }
 
 function highlightMatch(line: string, matchStart: number, matchEnd: number, replaceText?: string) {
@@ -104,8 +104,8 @@ export function SearchInFiles({ onOpenFileAtPath }: SearchInFilesProps) {
   }, []);
 
   const handleResultClick = useCallback(
-    (path: string) => {
-      onOpenFileAtPath?.(path);
+    (path: string, options?: { lineNumber?: number; matchStart?: number; matchEnd?: number }) => {
+      onOpenFileAtPath?.(path, options);
     },
     [onOpenFileAtPath],
   );
@@ -217,7 +217,7 @@ export function SearchInFiles({ onOpenFileAtPath }: SearchInFilesProps) {
                 value={includePatterns}
                 onChange={(e) => setIncludePatterns(e.target.value)}
                 placeholder="e.g. *.ts, src/**"
-                className="flex-1 w-full min-w-0 bg-transparent outline-none text-[11px] px-2 py-1 rounded"
+                className="flex-1 w-full min-w-0 bg-transparent outline-none text-xs px-2 py-1 rounded"
                 style={{ color: "#E8EAF0", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)" }}
               />
               <span
@@ -230,7 +230,7 @@ export function SearchInFiles({ onOpenFileAtPath }: SearchInFilesProps) {
                 value={excludePatterns}
                 onChange={(e) => setExcludePatterns(e.target.value)}
                 placeholder="e.g. node_modules/**"
-                className="flex-1 w-full min-w-0 bg-transparent outline-none text-[11px] px-2 py-1 rounded"
+                className="flex-1 w-full min-w-0 bg-transparent outline-none text-xs px-2 py-1 rounded"
                 style={{ color: "#E8EAF0", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)" }}
               />
           </div>
@@ -243,7 +243,7 @@ export function SearchInFiles({ onOpenFileAtPath }: SearchInFilesProps) {
         {isSearching && (
           <div className="flex items-center justify-center gap-2 py-8">
             <Loader size={14} className="animate-spin" style={{ color: "rgba(232,234,240,0.35)" }} />
-            <span className="text-[11px]" style={{ color: "rgba(232,234,240,0.35)" }}>Searching...</span>
+            <span className="text-xs" style={{ color: "rgba(232,234,240,0.35)" }}>Searching...</span>
           </div>
         )}
 
@@ -251,7 +251,7 @@ export function SearchInFiles({ onOpenFileAtPath }: SearchInFilesProps) {
         {!isSearching && hasSearched && results.length === 0 && query.trim() && (
           <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
             <FileCode size={20} style={{ color: "rgba(232,234,240,0.15)", marginBottom: "6px" }} />
-            <span className="text-[11px]" style={{ color: "rgba(232,234,240,0.25)" }}>
+            <span className="text-xs" style={{ color: "rgba(232,234,240,0.25)" }}>
               No results found
             </span>
           </div>
@@ -277,7 +277,7 @@ export function SearchInFiles({ onOpenFileAtPath }: SearchInFilesProps) {
                       <ChevronRight size={10} style={{ color: "rgba(232,234,240,0.25)", flexShrink: 0 }} />
                     )}
                     <FileCode size={11} style={{ color: "rgba(232,234,240,0.3)", flexShrink: 0 }} />
-                    <span className="text-[11px] font-medium truncate" style={{ color: "rgba(232,234,240,0.7)" }}>
+                    <span className="text-xs font-medium truncate" style={{ color: "rgba(232,234,240,0.7)" }}>
                       {result.path}
                     </span>
                     <span className="text-xs ml-auto flex-shrink-0" style={{ color: "rgba(232,234,240,0.25)" }}>
@@ -292,19 +292,23 @@ export function SearchInFiles({ onOpenFileAtPath }: SearchInFilesProps) {
                         key={mi}
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleResultClick(result.path);
+                          handleResultClick(result.path, {
+                            lineNumber: match.line_number,
+                            matchStart: match.match_start,
+                            matchEnd: match.match_end,
+                          });
                         }}
-                        className="w-full flex items-start gap-1 px-3 py-0.5 text-left cursor-pointer transition-colors hover:bg-white/5"
+                        className="w-full flex items-center gap-2 px-3 py-0.5 text-left cursor-pointer transition-colors hover:bg-white/5"
                         style={{ paddingLeft: "32px" }}
                       >
                         <span
-                          className="text-xs font-mono flex-shrink-0 mt-[2px]"
-                          style={{ color: "rgba(232,234,240,0.2)", minWidth: "32px" }}
+                          className="text-xs font-mono flex-shrink-0"
+                          style={{ color: "rgba(232,234,240,0.2)" }}
                         >
                           {match.line_number}
                         </span>
                         <span
-                          className="text-[11px] font-mono truncate leading-tight"
+                          className="text-xs font-mono truncate leading-tight"
                           style={{ color: "rgba(232,234,240,0.5)" }}
                         >
                           {highlightMatch(match.line, match.match_start, match.match_end, replaceQuery)}
@@ -321,7 +325,7 @@ export function SearchInFiles({ onOpenFileAtPath }: SearchInFilesProps) {
         {!hasSearched && !isSearching && (
           <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
             <Search size={20} style={{ color: "rgba(232,234,240,0.12)", marginBottom: "8px" }} />
-            <span className="text-[11px]" style={{ color: "rgba(232,234,240,0.2)" }}>
+            <span className="text-xs" style={{ color: "rgba(232,234,240,0.2)" }}>
               Type to search across all files
             </span>
           </div>

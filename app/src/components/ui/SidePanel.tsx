@@ -45,7 +45,7 @@ interface SidePanelProps {
   activeFilePath?: string;
   onKillTab?: (id: string) => void;
   onAddTab?: (type: "terminal" | "file") => void;
-  onOpenFileAtPath?: (path: string) => void;
+  onOpenFileAtPath?: (path: string, options?: { lineNumber?: number; matchStart?: number; matchEnd?: number }) => void;
 }
 
 interface FileMenuState { x: number; y: number; node: FileNode }
@@ -1149,7 +1149,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab, onAddTab,
   const loadTreeRef = useRef<(path: string) => Promise<void>>(loadTree);
   useEffect(() => { loadTreeRef.current = loadTree; }, [loadTree]);
 
-  const onOpenFileAtPathRef = useRef<((path: string) => void) | undefined>(onOpenFileAtPath);
+  const onOpenFileAtPathRef = useRef<((path: string, options?: { lineNumber?: number; matchStart?: number; matchEnd?: number }) => void) | undefined>(onOpenFileAtPath);
   useEffect(() => { onOpenFileAtPathRef.current = onOpenFileAtPath; }, [onOpenFileAtPath]);
 
   useEffect(() => {

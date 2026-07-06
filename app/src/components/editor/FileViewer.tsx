@@ -60,6 +60,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
   const [hasConflicts, setHasConflicts] = useState(false);
   const initialContentRef = useRef<string>("");
   const updateTab = useSessionStore((s) => s.updateTab);
+  const tab = useSessionStore(useCallback(s => s.tabs.find(t => t.id === tabId), [tabId]));
   const editorTheme = useSettingsStore((s) => s.editorTheme);
   const { spawnSession } = usePTY();
 
@@ -437,7 +438,39 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
             { key: "Mod--", run: () => { setEditorZoom((z) => Math.max(8, z - 1)); return true; } },
             { key: "Shift-Mod-l", run: selectSelectionMatches },
           ])),
-          lintGutter(),
+          lintGutter({
+            marker: (diagnostics) => {
+              let severity = "info";
+              for (const d of diagnostics) {
+                if (d.severity === "error") {
+                  severity = "error";
+                  break;
+                }
+                if (d.severity === "warning") {
+                  severity = "warning";
+                }
+              }
+              const marker = document.createElement("div");
+              marker.className = `cm-lint-marker cm-lint-marker-${severity}`;
+              marker.style.width = "10px";
+              marker.style.height = "10px";
+              marker.style.borderRadius = "50%";
+              marker.style.margin = "auto";
+              marker.style.display = "block";
+              
+              if (severity === "error") {
+                marker.style.background = "#FF6B6B";
+                marker.style.boxShadow = "0 0 6px #FF6B6B";
+              } else if (severity === "warning") {
+                marker.style.background = "#FFB86C";
+                marker.style.boxShadow = "0 0 6px #FFB86C";
+              } else {
+                marker.style.background = "#8BE9FD";
+                marker.style.boxShadow = "0 0 6px #8BE9FD";
+              }
+              return marker;
+            }
+          }),
           ...(lintSource ? [linter(lintSource)] : []),
           keymap.of(lintKeymap),
           ...(() => { console.log("Configuring editor, aiSuggestions status:", aiSuggestions); return []; })(),
@@ -504,6 +537,31 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
 
         viewRef.current = view;
 
+        if (tab?.scrollToLine !== undefined) {
+          try {
+            const lineNum = Math.min(Math.max(1, tab.scrollToLine), view.state.doc.lines);
+            const lineInfo = view.state.doc.line(lineNum);
+            const mStart = tab.scrollToMatchStart ?? 0;
+            const mEnd = tab.scrollToMatchEnd ?? 0;
+            const startPos = Math.min(lineInfo.from + mStart, lineInfo.to);
+            const endPos = Math.min(lineInfo.from + mEnd, lineInfo.to);
+            
+            view.dispatch({
+              selection: { anchor: startPos, head: endPos },
+              scrollIntoView: true
+            });
+            view.focus();
+            
+            updateTab(tabId, {
+              scrollToLine: undefined,
+              scrollToMatchStart: undefined,
+              scrollToMatchEnd: undefined,
+            });
+          } catch (err) {
+            console.error("Initial scroll to line failed:", err);
+          }
+        }
+
         getEditorTheme(editorTheme).then(theme => {
           if (viewRef.current === view) {
             view.dispatch({ effects: themeCompartmentRef.current.reconfigure(theme) });
@@ -531,6 +589,35 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
       updateTab(tabId, { dirty: false });
     };
   }, [filePath, tabId, updateTab, isImage, imageMimeType, aiSuggestions, aiCodeCompletion]);
+
+  // Separate useEffect to handle scrolling to a line on tab selection/navigation
+  useEffect(() => {
+    const view = viewRef.current;
+    if (view && tab?.scrollToLine !== undefined) {
+      try {
+        const lineNum = Math.min(Math.max(1, tab.scrollToLine), view.state.doc.lines);
+        const lineInfo = view.state.doc.line(lineNum);
+        const mStart = tab.scrollToMatchStart ?? 0;
+        const mEnd = tab.scrollToMatchEnd ?? 0;
+        const startPos = Math.min(lineInfo.from + mStart, lineInfo.to);
+        const endPos = Math.min(lineInfo.from + mEnd, lineInfo.to);
+        
+        view.dispatch({
+          selection: { anchor: startPos, head: endPos },
+          scrollIntoView: true
+        });
+        view.focus();
+        
+        updateTab(tabId, {
+          scrollToLine: undefined,
+          scrollToMatchStart: undefined,
+          scrollToMatchEnd: undefined,
+        });
+      } catch (err) {
+        console.error("Runtime scroll to line failed:", err);
+      }
+    }
+  }, [tab?.scrollToLine, tab?.scrollToMatchStart, tab?.scrollToMatchEnd, tabId, updateTab]);
 
   // Reload file content when external changes are detected (git checkout, external editor, etc.)
   useEffect(() => {

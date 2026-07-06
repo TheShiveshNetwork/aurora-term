@@ -40,21 +40,22 @@ DONE
 26. whenever some error occurs anywhere show a error toast popup at bottom of the app window. do not show alerts or anything please. create a common notification ui component to implement this. also right now the abort button in the merge editor is not functional. fix that.
 31. on adding new file in side panel when it gets added open the file in new tab, also implement del key click on side panel and shift delete to delete files
 30. implement file drag and drop in file view and outside file view to copy and paste
+40. codemirror lint fix
+40. Disable the things that cant be done on new window like adding new tab, closing tabs etc on the menu options
 
 TODO
+
+39. support for voice input
+25. settings to separate the idea between command input bar for terminal and file so that on terminal the comand input bar always opens
+26. separate the command agent and the agent view
 
 37. MAJOR: Agent improvement
 38. token usage optimization
 
-40. codemirror lint fix
-
-25. settings to separate the idea between command input bar for terminal and file so that on terminal the comand input bar always opens
 37. Operating systems compatibility (only test where it is working)
 42. session management (creating new session, compaction, etc)
 38. Sessions store for the workspace
 39. create brain for the agent with memory, implemntation plan, etc (artifact creation)
-39. support for voice input
-40. Disable the things that cant be done on new window like adding new tab, closing tabs etc on the menu options
 41. supabase integration for user account creation > lazy fetch with user saved settings only once when app is installed and when settings updated update to supabase
 43. Publish to microsoft store
 44. In-built browser

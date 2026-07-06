@@ -16,6 +16,9 @@ export interface Tab {
   created_at: number;
   pinned?: boolean;
   everChanged?: boolean;
+  scrollToLine?: number;
+  scrollToMatchStart?: number;
+  scrollToMatchEnd?: number;
 }
 
 export interface SessionState {
