@@ -355,8 +355,8 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
         ]);
         if (cancelled || !editorRef.current) { setLoading(false); return; }
 
-        const conflictsFound = content.includes("<<<<<<<") && content.includes("=======") && content.includes(">>>>>>>");
-        setHasConflicts(conflictsFound);
+        const hasMergeMarkers = /^<<<<<<< .+/m.test(content) && /^>>>>>>> .+/m.test(content);
+        setHasConflicts(hasMergeMarkers);
 
         if (!wordWrapCompartmentRef.current) {
           wordWrapCompartmentRef.current = new Compartment();
@@ -466,7 +466,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
               delay: 600,
             }),
           ] : []),
-          ...(content.includes("<<<<<<<") && content.includes("=======") && content.includes(">>>>>>>")
+          ...(/^<<<<<<< .+/m.test(content) && /^>>>>>>> .+/m.test(content)
             ? mergeConflictResolver()
             : []),
           themeCompartmentRef.current.of([]),
@@ -483,8 +483,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
               const currentContent = update.state.doc.toString();
               const isDirty = currentContent !== initialContentRef.current;
               updateTab(tabId, { dirty: isDirty, fileContent: currentContent, everChanged: true });
-              const conflictsFound = currentContent.includes("<<<<<<<") && currentContent.includes("=======") && currentContent.includes(">>>>>>>");
-              setHasConflicts(conflictsFound);
+              setHasConflicts(/^<<<<<<< .+/m.test(currentContent) && /^>>>>>>> .+/m.test(currentContent));
             }
           }),
         ];

@@ -381,7 +381,7 @@ export function MergeEditor({ filePath, cwd, onClose, onSave }: MergeEditorProps
       style={{ background: "var(--surface-container-low, #12131a)" }}
     >
       {/* Top Header Controls */}
-      <div className="flex items-center justify-between px-4 py-2 bg-white/[0.02] select-none shrink-0">
+      <div className="flex items-center justify-between pr-2 py-2 bg-white/[0.02] select-none shrink-0">
         <div className="flex items-center gap-3">
           <PathBreadcrumb filePath={filePath} />
           {conflictCount > 0 ? (
@@ -397,10 +397,10 @@ export function MergeEditor({ filePath, cwd, onClose, onSave }: MergeEditorProps
           )}
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="secondary" size="sm" icon={<X size={14} />} onClick={onClose}>
+          <Button variant="secondary" size="sm" onClick={onClose}>
             Abort
           </Button>
-          <Button variant="primary" size="sm" icon={<Check size={14} />} onClick={handleSaveResolution}>
+          <Button variant="primary" size="sm" onClick={handleSaveResolution}>
             Complete Merge
           </Button>
         </div>
