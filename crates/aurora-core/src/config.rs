@@ -105,6 +105,8 @@ pub struct EditorConfig {
     pub ai_code_completion: bool,
     #[serde(default = "default_enabled")]
     pub ai_suggestions: bool,
+    #[serde(default = "default_enabled")]
+    pub indent_markers: bool,
 }
 
 impl Default for AppConfig {
@@ -195,6 +197,7 @@ impl Default for AppConfig {
                 word_wrap: true,
                 ai_code_completion: true,
                 ai_suggestions: true,
+                indent_markers: true,
             },
         }
     }

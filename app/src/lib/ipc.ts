@@ -59,6 +59,7 @@ export interface EditorConfig {
   word_wrap: boolean;
   ai_code_completion: boolean;
   ai_suggestions: boolean;
+  indent_markers: boolean;
 }
 
 export interface AppConfig {

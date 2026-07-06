@@ -41,6 +41,7 @@ export function applyAppConfig(cfg: AppConfig) {
   settings.setWordWrap(cfg.editor.word_wrap !== false);
   settings.setAiCodeCompletion(cfg.editor.ai_code_completion !== false);
   settings.setAiSuggestions(cfg.editor.ai_suggestions !== false);
+  settings.setIndentMarkers(cfg.editor.indent_markers !== false);
 
   // Keybindings
   const overrides: Record<string, string> = {};

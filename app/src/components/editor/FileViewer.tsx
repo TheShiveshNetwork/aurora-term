@@ -15,6 +15,7 @@ import { getLinterSource } from "./linterSources";
 import { aiExtension, inlineCompletion } from "./aiExtensions";
 import { mergeConflictResolver } from "./mergeConflictExtension";
 import { SearchPanel } from "./SearchPanel";
+import { indentMarkersExtension } from "./indentMarkersExtension";
 import { usePTY } from "../../hooks/usePTY";
 import { getDefaultShellLaunch } from "../../lib/shell";
 import { useAppShellStore } from "../../stores/useAppShellStore";
@@ -76,9 +77,11 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
   const wordWrap = useSettingsStore((s) => s.wordWrap);
   const aiCodeCompletion = useSettingsStore((s) => s.aiCodeCompletion);
   const aiSuggestions = useSettingsStore((s) => s.aiSuggestions);
+  const indentMarkers = useSettingsStore((s) => s.indentMarkers);
   const [editorZoom, setEditorZoom] = useState(13);
   const wordWrapCompartmentRef = useRef<Compartment | null>(null);
   const zoomCompartmentRef = useRef<Compartment | null>(null);
+  const indentMarkersCompartmentRef = useRef<Compartment | null>(null);
 
 
   const [imageSrc, setImageSrc] = useState("");
@@ -361,6 +364,9 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
         if (!zoomCompartmentRef.current) {
           zoomCompartmentRef.current = new Compartment();
         }
+        if (!indentMarkersCompartmentRef.current) {
+          indentMarkersCompartmentRef.current = new Compartment();
+        }
 
         initialContentRef.current = content.replace(/\r\n/g, "\n");
 
@@ -471,6 +477,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
             ".cm-scroller": { fontSize: `${editorZoom}px` }
           })),
           createMinimapExtension(showMinimap),
+          indentMarkersCompartmentRef.current.of(indentMarkers ? indentMarkersExtension() : []),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
               const currentContent = update.state.doc.toString();
@@ -800,6 +807,17 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
       }
     });
   }, [wordWrap]);
+
+  // React to indentMarkers toggle
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view || !indentMarkersCompartmentRef.current) return;
+    view.dispatch({
+      effects: indentMarkersCompartmentRef.current.reconfigure(
+        indentMarkers ? indentMarkersExtension() : []
+      )
+    });
+  }, [indentMarkers]);
 
   // React to editorZoom change
   useEffect(() => {

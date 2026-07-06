@@ -76,6 +76,7 @@ interface SettingsStore {
   wordWrap: boolean;
   aiCodeCompletion: boolean;
   aiSuggestions: boolean;
+  indentMarkers: boolean;
 
   setTheme: (theme: "dark" | "light") => void;
   setMode: (mode: EditorMode) => void;
@@ -95,6 +96,7 @@ interface SettingsStore {
   setWordWrap: (wrap: boolean) => void;
   setAiCodeCompletion: (enabled: boolean) => void;
   setAiSuggestions: (enabled: boolean) => void;
+  setIndentMarkers: (enabled: boolean) => void;
 }
 
 export const useSettingsStore = create<SettingsStore>((set) => ({
@@ -116,6 +118,7 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
   wordWrap: true,
   aiCodeCompletion: true,
   aiSuggestions: true,
+  indentMarkers: true,
 
   setTheme: (theme) => {
     set({ theme });
@@ -136,6 +139,7 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
   setWordWrap: (wordWrap) => set({ wordWrap }),
   setAiCodeCompletion: (aiCodeCompletion) => set({ aiCodeCompletion }),
   setAiSuggestions: (aiSuggestions) => set({ aiSuggestions }),
+  setIndentMarkers: (indentMarkers) => set({ indentMarkers }),
   setKeybindingOverride: (id, keys) => set((state) => ({ keybindingOverrides: { ...state.keybindingOverrides, [id]: keys } })),
   resetKeybindingOverride: (id) => set((state) => {
     const { [id]: _, ...rest } = state.keybindingOverrides;
