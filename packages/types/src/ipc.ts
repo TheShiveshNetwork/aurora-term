@@ -65,4 +65,5 @@ export interface UiState {
   active_tab_id: string | null;
   last_project_dir: string | null;
   last_workspace_cwd: string | null;
+  checked_branches: Record<string, string[]>;
 }

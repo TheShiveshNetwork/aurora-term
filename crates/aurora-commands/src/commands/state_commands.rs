@@ -83,3 +83,13 @@ pub async fn state_set_workspace_cwd(
     let mut us = state.ui_state.lock().await;
     us.set_workspace_cwd(path)
 }
+
+#[command]
+pub async fn state_update_checked_branches(
+    state: State<'_, AppState>,
+    project_dir: String,
+    branches: Vec<String>,
+) -> Result<(), AppError> {
+    let mut us = state.ui_state.lock().await;
+    us.update_checked_branches(project_dir, branches)
+}

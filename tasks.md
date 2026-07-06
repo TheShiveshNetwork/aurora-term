@@ -37,6 +37,7 @@ DONE
 32. git merge editor in codemirror for merge errors
 36. on saving the window reloads, fix for that
 34. codemirror ai suggestions
+26. whenever some error occurs anywhere show a error toast popup at bottom of the app window. do not show alerts or anything please. create a common notification ui component to implement this. also right now the abort button in the merge editor is not functional. fix that.
 
 TODO
 
@@ -44,7 +45,6 @@ TODO
 38. token usage optimization
 
 25. settings to separate the idea between command input bar for terminal and file so that on terminal the comand input bar always opens
-26. whenever some error occurs anywhere show a error toast popup at bottom of the app window. do not show alerts or anything please. create a common notification ui component to implement this. also right now the abort button in the merge editor is not functional. fix that.
 30. implement file drag and drop in file view and outside file view to copy and paste
 31. on adding new file in side panel when it gets added open the file in new tab, also implement del key click on side panel and shift delete to delete files
 37. Operating systems compatibility (only test where it is working)

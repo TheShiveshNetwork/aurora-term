@@ -148,7 +148,7 @@ fn run_git(args: &[&str], cwd: Option<&str>) -> Result<String, AppError> {
 }
 
 #[command]
-pub async fn get_git_log(cwd: String, max_count: Option<u32>, skip: Option<u32>, branch: Option<String>) -> Result<GitLogResult, AppError> {
+pub async fn get_git_log(cwd: String, max_count: Option<u32>, skip: Option<u32>, branches: Vec<String>) -> Result<GitLogResult, AppError> {
     let request_count = max_count.unwrap_or(500);
     let fetch_count = request_count + 1;
     let limit_str = fetch_count.to_string();
@@ -156,13 +156,15 @@ pub async fn get_git_log(cwd: String, max_count: Option<u32>, skip: Option<u32>,
     let is_initial = skip_val == 0;
 
     // Build log args — with optional branch filter
-    let cc1 = cwd.clone(); let ls = limit_str.clone(); let br = branch.clone(); let sk = skip_val.to_string();
+    let cc1 = cwd.clone(); let ls = limit_str.clone(); let brs = branches.clone(); let sk = skip_val.to_string();
     let log_h = tokio::task::spawn_blocking(move || {
         let mut args = vec!["log"];
-        if let Some(ref b) = br {
-            args.push(b);
-        } else {
+        if brs.is_empty() {
             args.push("--all");
+        } else {
+            for b in &brs {
+                args.push(b.as_str());
+            }
         }
         args.push("--format=%H|||%P|||%an|||%ai|||%s");
         args.push("--max-count");

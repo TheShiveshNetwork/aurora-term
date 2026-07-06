@@ -9,7 +9,7 @@ import { PathBreadcrumb } from "./PathBreadcrumb";
 import { mergeConflictResolver } from "./mergeConflictExtension";
 import { system } from "../../lib/ipc";
 import { Button } from "../ui/Button";
-import { AlertCircle, Check, X } from "lucide-react";
+import { AlertCircle, Check, X, TriangleAlert } from "lucide-react";
 
 // Helper to count conflict blocks remaining in the text
 function countConflicts(text: string): number {
@@ -122,6 +122,7 @@ export function MergeEditor({ filePath, cwd, onClose, onSave }: MergeEditorProps
   const [conflictCount, setConflictCount] = useState(0);
   const [parsedData, setParsedData] = useState<{ ours: string; theirs: string; result: string } | null>(null);
   const [splitRatio, setSplitRatio] = useState(0.5);
+  const [confirmSave, setConfirmSave] = useState(false);
 
   // Load conflicted file and parse it
   useEffect(() => {

@@ -42,6 +42,9 @@ pub struct UiState {
     pub last_project_dir: Option<String>,
     #[serde(default)]
     pub last_workspace_cwd: Option<String>,
+
+    #[serde(default)]
+    pub checked_branches: HashMap<String, Vec<String>>,
 }
 
 const fn default_true() -> bool {
@@ -67,6 +70,7 @@ impl Default for UiState {
             active_tab_id: None,
             last_project_dir: None,
             last_workspace_cwd: None,
+            checked_branches: HashMap::new(),
         }
     }
 }
@@ -169,6 +173,11 @@ impl UiStateManager {
 
     pub fn set_workspace_cwd(&mut self, path: Option<String>) -> Result<(), AppError> {
         self.state.last_workspace_cwd = path;
+        self.save()
+    }
+
+    pub fn update_checked_branches(&mut self, project_dir: String, branches: Vec<String>) -> Result<(), AppError> {
+        self.state.checked_branches.insert(project_dir, branches);
         self.save()
     }
 }

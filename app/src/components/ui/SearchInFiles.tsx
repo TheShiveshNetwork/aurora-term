@@ -11,13 +11,19 @@ interface SearchInFilesProps {
   onOpenFileAtPath?: (path: string) => void;
 }
 
-function highlightMatch(line: string, matchStart: number, matchEnd: number) {
+function highlightMatch(line: string, matchStart: number, matchEnd: number, replaceText?: string) {
+  const match = line.slice(matchStart, matchEnd);
   return (
     <>
       <span>{line.slice(0, matchStart)}</span>
-      <span style={{ color: "#FFD700", background: "rgba(255,215,0,0.12)" }}>
-        {line.slice(matchStart, matchEnd)}
-      </span>
+      {replaceText ? (
+        <>
+          <s style={{ color: "#EF4444", background: "rgba(239,68,68,0.12)" }}>{match}</s>
+          <span style={{ color: "#4F8CFF", background: "rgba(79,140,255,0.12)" }}>{replaceText}</span>
+        </>
+      ) : (
+        <span style={{ color: "#4F8CFF", background: "rgba(79,140,255,0.12)" }}>{match}</span>
+      )}
       <span>{line.slice(matchEnd)}</span>
     </>
   );
@@ -190,7 +196,7 @@ export function SearchInFiles({ onOpenFileAtPath }: SearchInFilesProps) {
             </div>
             <Button
               variant="primary"
-              className="w-6 h-6 text-[10px] font-medium rounded-xs"
+              className="w-6 h-6 text-xs font-medium rounded-xs"
               title="Replace all matches"
             >
               All
@@ -202,7 +208,7 @@ export function SearchInFiles({ onOpenFileAtPath }: SearchInFilesProps) {
         {filtersExpanded && (
           <div className="px-3 pb-2">
               <span
-                className="text-[10px] font-medium tracking-wider flex-shrink-0"
+                className="text-xs font-medium tracking-wider flex-shrink-0"
               >
                 Files to include
               </span>
@@ -215,7 +221,7 @@ export function SearchInFiles({ onOpenFileAtPath }: SearchInFilesProps) {
                 style={{ color: "#E8EAF0", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)" }}
               />
               <span
-                className="text-[10px] font-medium tracking-wider flex-shrink-0"
+                className="text-xs font-medium tracking-wider flex-shrink-0"
               >
                 Files to exclude
               </span>
@@ -274,7 +280,7 @@ export function SearchInFiles({ onOpenFileAtPath }: SearchInFilesProps) {
                     <span className="text-[11px] font-medium truncate" style={{ color: "rgba(232,234,240,0.7)" }}>
                       {result.path}
                     </span>
-                    <span className="text-[10px] ml-auto flex-shrink-0" style={{ color: "rgba(232,234,240,0.25)" }}>
+                    <span className="text-xs ml-auto flex-shrink-0" style={{ color: "rgba(232,234,240,0.25)" }}>
                       {matchCount} match{matchCount !== 1 ? "es" : ""}
                     </span>
                   </button>
@@ -292,7 +298,7 @@ export function SearchInFiles({ onOpenFileAtPath }: SearchInFilesProps) {
                         style={{ paddingLeft: "32px" }}
                       >
                         <span
-                          className="text-[10px] font-mono flex-shrink-0 mt-[2px]"
+                          className="text-xs font-mono flex-shrink-0 mt-[2px]"
                           style={{ color: "rgba(232,234,240,0.2)", minWidth: "32px" }}
                         >
                           {match.line_number}
@@ -301,7 +307,7 @@ export function SearchInFiles({ onOpenFileAtPath }: SearchInFilesProps) {
                           className="text-[11px] font-mono truncate leading-tight"
                           style={{ color: "rgba(232,234,240,0.5)" }}
                         >
-                          {highlightMatch(match.line, match.match_start, match.match_end)}
+                          {highlightMatch(match.line, match.match_start, match.match_end, replaceQuery)}
                         </span>
                       </button>
                     ))}
@@ -325,7 +331,7 @@ export function SearchInFiles({ onOpenFileAtPath }: SearchInFilesProps) {
       {/* Status bar */}
       {hasSearched && !isSearching && (
         <div
-          className="shrink-0 px-3 py-1 text-[10px] text-center select-none"
+          className="shrink-0 px-3 py-1 text-xs text-center select-none"
           style={{
             color: "rgba(232,234,240,0.25)",
             borderTop: "1px solid rgba(255,255,255,0.06)",

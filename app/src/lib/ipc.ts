@@ -147,6 +147,8 @@ export const state = {
     invoke<void>("state_set_project_dir", { path }),
   setWorkspaceCwd: (path: string | null) =>
     invoke<void>("state_set_workspace_cwd", { path }),
+  updateCheckedBranches: (projectDir: string, branches: string[]) =>
+    invoke<void>("state_update_checked_branches", { projectDir, branches }),
 };
 
 export interface FileNode {
@@ -353,8 +355,8 @@ export const system = {
     invoke<{ git_branch: string | null }>("get_cwd_info", { cwd }),
   getGitBranch: (cwd: string) =>
     invoke<string | null>("get_git_branch", { cwd }),
-  getGitLog: (cwd: string, maxCount?: number, skip?: number, branch?: string) =>
-    invoke<GitLogResult>("get_git_log", { cwd, maxCount, skip, branch }),
+  getGitLog: (cwd: string, maxCount?: number, skip?: number, branchNames?: string[]) =>
+    invoke<GitLogResult>("get_git_log", { cwd, maxCount, skip, branches: branchNames ?? [] }),
   getGitFileLog: (cwd: string, filePath: string) =>
     invoke<GitLogResult>("get_git_file_log", { cwd, filePath }),
   getGitGraph: (cwd: string) =>

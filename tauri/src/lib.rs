@@ -67,6 +67,7 @@ fn start_pty_event_bridge(
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(
             tauri_plugin_prevent_default::Builder::new()
                 .with_flags(Flags::keyboard())
@@ -153,6 +154,7 @@ pub fn run() {
             aurora_commands::state_update_tabs,
             aurora_commands::state_set_project_dir,
             aurora_commands::state_set_workspace_cwd,
+            aurora_commands::state_update_checked_branches,
             // AI commands
             aurora_commands::ai_save_api_key,
             aurora_commands::ai_get_api_key,

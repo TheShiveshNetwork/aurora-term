@@ -389,10 +389,10 @@ function GraphCanvas({ data, graph, width, commitCenters, totalHeight, commitBou
 // ─── GitTree ──────────────────────────────────────────────────────────────────
 interface GitTreeProps {
   variant?: "compact" | "expanded";
-  branchName?: string;
+  branchNames?: string[];
 }
 
-export function GitTree({ variant = "compact", branchName }: GitTreeProps) {
+export function GitTree({ variant = "compact", branchNames }: GitTreeProps) {
   const [data, setData] = useState<GitLogResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -427,7 +427,7 @@ export function GitTree({ variant = "compact", branchName }: GitTreeProps) {
   const fetchLog = useCallback(async () => {
     if (!cwdAbsolute) return;
     const key = ++fetchKeyRef.current;
-    const cacheKey = branchName ? `${cwdAbsolute}|${branchName}` : cwdAbsolute;
+    const cacheKey = branchNames?.length ? `${cwdAbsolute}|${branchNames.join("|")}` : cwdAbsolute;
     // Check shared store cache first (30s TTL)
     const cached = useGitStore.getState().getGitLog(cacheKey);
     if (cached) { setData(cached); return; }
@@ -438,7 +438,7 @@ export function GitTree({ variant = "compact", branchName }: GitTreeProps) {
       if (!inflightFetches.has(cacheKey)) {
         inflightFetches.set(
           cacheKey,
-          system.getGitLog(cwdAbsolute, INITIAL_COUNT, 0, branchName),
+          system.getGitLog(cwdAbsolute, INITIAL_COUNT, 0, branchNames),
         );
       }
       const result = await inflightFetches.get(cacheKey)!;
@@ -452,7 +452,7 @@ export function GitTree({ variant = "compact", branchName }: GitTreeProps) {
       inflightFetches.delete(cacheKey);
       if (key === fetchKeyRef.current) setLoading(false);
     }
-  }, [cwdAbsolute, branchName]);
+  }, [cwdAbsolute, branchNames]);
 
   useEffect(() => { fetchLog(); }, [fetchLog, gitLogVersion]);
 
@@ -462,9 +462,9 @@ export function GitTree({ variant = "compact", branchName }: GitTreeProps) {
     if (!cwdAbsolute || !d?.has_more || loadingMore) return;
     setLoadingMore(true);
     const skip = d.commits.length;
-    const cacheKey = branchName ? `${cwdAbsolute}|${branchName}` : cwdAbsolute;
+    const cacheKey = branchNames?.length ? `${cwdAbsolute}|${branchNames.join("|")}` : cwdAbsolute;
     try {
-      const result = await system.getGitLog(cwdAbsolute, PAGE_SIZE, skip, branchName);
+      const result = await system.getGitLog(cwdAbsolute, PAGE_SIZE, skip, branchNames);
       const updated = {
         ...d,
         commits: [...d.commits, ...result.commits],
@@ -474,7 +474,7 @@ export function GitTree({ variant = "compact", branchName }: GitTreeProps) {
       useGitStore.getState().setGitLog(cacheKey, updated);
     } catch { /* keep existing data */ }
     finally { setLoadingMore(false); }
-  }, [cwdAbsolute, loadingMore]);
+  }, [cwdAbsolute, loadingMore, branchNames]);
 
 
 

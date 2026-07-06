@@ -35,7 +35,7 @@ import { DiffWorkspaceView } from "../components/editor/DiffWorkspaceView";
 import { CommitDiffView } from "../components/editor/CommitDiffView";
 import { GitView } from "../components/git/GitView";
 import { MergeWorkspaceView } from "./MergeWorkspaceView";
-import { ToastContainer } from "../components/ui/ToastContainer";
+import { NotificationContainer } from "../components/ui/NotificationContainer";
 
 export function AppShellView() {
   const { tabs, activeTabId, spawnSession, killSession, openFile, setActiveTabId } = useAppBootstrap();
@@ -818,7 +818,7 @@ export function AppShellView() {
       />
 
       <StatusBar noFolder={tabs.length === 0} />
-      <ToastContainer />
+      <NotificationContainer />
     </div>
   );
 }

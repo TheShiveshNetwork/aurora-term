@@ -25,6 +25,7 @@ aurora-commands = { workspace = true }
 # Tauri dependencies
 tauri                        = { workspace = true }
 tauri-plugin-opener          = "2"
+tauri-plugin-notification    = "2"
 tauri-plugin-prevent-default = "5"
 tauri-plugin-window-state    = "2"
 
