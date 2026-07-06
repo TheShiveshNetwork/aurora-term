@@ -2,7 +2,6 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
-// @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
 
 export default defineConfig(async () => ({
@@ -20,13 +19,30 @@ export default defineConfig(async () => ({
     host: host || false,
     hmr: host
       ? {
-          protocol: "ws",
-          host,
-          port: 1421,
-        }
+        protocol: "ws",
+        host,
+        port: 1421,
+      }
       : undefined,
     watch: {
-      ignored: ["**/src-tauri/**"],
+      ignored: (path: string) => {
+        const normalized = path.replace(/\\/g, "/");
+        return (
+          normalized.includes("/crates/") ||
+          normalized.includes("/tauri/") ||
+          normalized.includes("/target/") ||
+          normalized.includes("/dist/") ||
+          normalized.endsWith(".rs") ||
+          normalized.endsWith(".toml") ||
+          normalized.endsWith(".sql") ||
+          normalized.endsWith(".db") ||
+          normalized.endsWith(".log") ||
+          normalized.endsWith(".bak") ||
+          normalized.endsWith("state.json") ||
+          normalized.endsWith("aurora.json") ||
+          (!normalized.includes("/app/") && !normalized.includes("/packages/") && !normalized.endsWith("index.html"))
+        );
+      }
     },
   },
 
