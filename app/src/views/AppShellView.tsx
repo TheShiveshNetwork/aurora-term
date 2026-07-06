@@ -666,6 +666,24 @@ export function AppShellView() {
                   inputMode={inputMode}
                 />
               )}
+
+              {/* File view: prompt variant (absolute, glassmorphism, independent state) */}
+              {chatInputOpen && activeTab?.type === "file" && (
+                <CommandInputBar
+                  variant="prompt"
+                  sessionId={null}
+                  cwd={cwd}
+                  isLoading={false}
+                  isRunning={false}
+                  value={activeCommandInput}
+                  history={[]}
+                  onChange={setCommandInput}
+                  onSubmit={(e) => handleInterceptedSubmit(e, handleFileCommandSubmit, true)}
+                  onStop={handleStop}
+                  onOpenAiBar={() => setShowAiBar(true)}
+                  inputMode={inputMode}
+                />
+              )}
             </>
           )}
         </main>
