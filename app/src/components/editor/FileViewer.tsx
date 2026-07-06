@@ -2,24 +2,31 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import type { EditorView } from "@codemirror/view";
 import type { Compartment } from "@codemirror/state";
 import { listen } from "@tauri-apps/api/event";
-import { system } from "../../lib/ipc";
+import { system, ai } from "../../lib/ipc";
 import { getLanguageExtension } from "../../lib/codeLang";
 import { isImageFile } from "../../lib/fileUtils";
-import { AlertCircle, Loader, Maximize2, Minimize2, Minus, Plus, RotateCcw } from "lucide-react";
+import { AlertCircle, Loader, Maximize2, Minimize2, Minus, Plus, RotateCcw, GitMerge } from "lucide-react";
 import { useSessionStore } from "../../stores/useSessionStore";
 import { useSettingsStore } from "../../stores/useSettingsStore";
 import { closeAllPopups } from "../../lib/popups";
 import { getEditorTheme, createThemeCompartment } from "./editorThemes";
 import { createMinimapExtension, toggleMinimap } from "./minimapExtension";
+import { getLinterSource } from "./linterSources";
+import { aiExtension, inlineCompletion } from "./aiExtensions";
+import { mergeConflictResolver } from "./mergeConflictExtension";
 import { SearchPanel } from "./SearchPanel";
 import { usePTY } from "../../hooks/usePTY";
 import { getDefaultShellLaunch } from "../../lib/shell";
 import { useAppShellStore } from "../../stores/useAppShellStore";
 
 const STYLE_ID = "aurora-file-viewer-style";
-if (typeof document !== "undefined" && !document.getElementById(STYLE_ID)) {
-  const s = document.createElement("style");
-  s.id = STYLE_ID;
+if (typeof document !== "undefined") {
+  let s = document.getElementById(STYLE_ID) as HTMLStyleElement;
+  if (!s) {
+    s = document.createElement("style");
+    s.id = STYLE_ID;
+    document.head.appendChild(s);
+  }
   s.textContent = `
     .cm-panel.cm-search { display: none !important; }
     .cm-tooltip-autocomplete { background: rgba(15,18,25,0.92) !important; border: 1px solid rgba(232,234,240,0.1) !important; border-radius: 8px !important; backdrop-filter: blur(16px) !important; padding: 4px !important; }
@@ -31,7 +38,6 @@ if (typeof document !== "undefined" && !document.getElementById(STYLE_ID)) {
     .cm-completionDetail { font-size: 10px !important; color: rgba(232,234,240,0.35) !important; margin-left: auto !important; padding-left: 12px !important; }
     .cm-completionMatchedText { text-decoration: none !important; color: rgba(79,140,255,0.9) !important; }
   `;
-  document.head.appendChild(s);
 }
 
 interface FileViewerProps {
@@ -50,6 +56,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
   const themeCompartmentRef = useRef<Compartment>(createThemeCompartment());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [hasConflicts, setHasConflicts] = useState(false);
   const initialContentRef = useRef<string>("");
   const updateTab = useSessionStore((s) => s.updateTab);
   const editorTheme = useSettingsStore((s) => s.editorTheme);
@@ -67,6 +74,8 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
   const showMinimap = useSettingsStore((s) => s.showMinimap);
   const setShowMinimap = useSettingsStore((s) => s.setShowMinimap);
   const wordWrap = useSettingsStore((s) => s.wordWrap);
+  const aiCodeCompletion = useSettingsStore((s) => s.aiCodeCompletion);
+  const aiSuggestions = useSettingsStore((s) => s.aiSuggestions);
   const [editorZoom, setEditorZoom] = useState(13);
   const wordWrapCompartmentRef = useRef<Compartment | null>(null);
   const zoomCompartmentRef = useRef<Compartment | null>(null);
@@ -239,16 +248,29 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
     }
   };
 
+  const formatContent = (text: string, fp: string): string => {
+    if (fp.endsWith(".json")) {
+      return JSON.stringify(JSON.parse(text), null, 2);
+    }
+    if (fp.endsWith(".html") || fp.endsWith(".htm") || fp.endsWith(".xml") || fp.endsWith(".svg")) {
+      let depth = 0;
+      const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
+      const out: string[] = [];
+      for (const l of lines) {
+        const closes = l.startsWith("</") || l.match(/\/>\s*$/);
+        if (closes) depth = Math.max(0, depth - 1);
+        out.push("  ".repeat(depth) + l);
+        if (!closes && !l.endsWith("/>") && l.includes("<") && !l.includes("</")) depth++;
+      }
+      return out.join("\n");
+    }
+    return text.split("\n").map(line => line.trimEnd()).join("\n");
+  };
+
   const handleFormatDocument = () => {
     if (viewRef.current) {
-      const text = viewRef.current.state.doc.toString();
-      let formatted = text;
       try {
-        if (filePath.endsWith(".json")) {
-          formatted = JSON.stringify(JSON.parse(text), null, 2);
-        } else {
-          formatted = text.split("\n").map(line => line.trimEnd()).join("\n");
-        }
+        const formatted = formatContent(viewRef.current.state.doc.toString(), filePath);
         viewRef.current.dispatch({
           changes: { from: 0, to: viewRef.current.state.doc.length, insert: formatted }
         });
@@ -304,15 +326,18 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
 
         if (!editorRef.current) { setLoading(false); return; }
 
+        const ext = filePath.split(".").pop()?.toLowerCase() || "";
         const [
           { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightSpecialChars, drawSelection, dropCursor, rectangularSelection, crosshairCursor, highlightActiveLine },
           { EditorState, Prec, Compartment },
           { autocompletion, completeAnyWord, closeBrackets, closeBracketsKeymap, completionKeymap },
           { history, defaultKeymap, historyKeymap, indentWithTab },
           { foldGutter, indentOnInput, syntaxHighlighting, defaultHighlightStyle, bracketMatching, foldKeymap },
-          { highlightSelectionMatches, searchKeymap },
+          { highlightSelectionMatches, searchKeymap, selectSelectionMatches, SearchQuery, setSearchQuery },
+          { lintGutter, linter, lintKeymap },
           content,
           languageExt,
+          lintSource,
         ] = await Promise.all([
           import("@codemirror/view"),
           import("@codemirror/state"),
@@ -320,10 +345,15 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
           import("@codemirror/commands"),
           import("@codemirror/language"),
           import("@codemirror/search"),
+          import("@codemirror/lint"),
           system.readFileContent(filePath),
           getLanguageExtension(filePath),
+          getLinterSource(ext),
         ]);
         if (cancelled || !editorRef.current) { setLoading(false); return; }
+
+        const conflictsFound = content.includes("<<<<<<<") && content.includes("=======") && content.includes(">>>>>>>");
+        setHasConflicts(conflictsFound);
 
         if (!wordWrapCompartmentRef.current) {
           wordWrapCompartmentRef.current = new Compartment();
@@ -335,13 +365,15 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
         initialContentRef.current = content.replace(/\r\n/g, "\n");
 
         const extensions: any[] = [
+          lineNumbers(),
           highlightActiveLineGutter(),
+          foldGutter(),
           highlightSpecialChars(),
           history(),
-          foldGutter(),
           drawSelection(),
           dropCursor(),
           EditorState.allowMultipleSelections.of(true),
+          EditorView.clickAddsSelectionRange.of((event) => event.altKey),
           indentOnInput(),
           syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
           bracketMatching(),
@@ -362,22 +394,26 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
             indentWithTab,
           ]),
           Prec.high(keymap.of([
-            { key: "Mod-c", run: (view) => {
-              if (!view.state.selection.main.empty) return false;
-              const line = view.state.doc.lineAt(view.state.selection.main.head);
-              navigator.clipboard.writeText(line.text + "\n");
-              return true;
-            }},
-            { key: "Mod-x", run: (view) => {
-              if (!view.state.selection.main.empty) return false;
-              const line = view.state.doc.lineAt(view.state.selection.main.head);
-              navigator.clipboard.writeText(line.text + "\n");
-              view.dispatch({
-                changes: { from: line.from, to: line.to },
-                selection: { anchor: line.from },
-              });
-              return true;
-            }},
+            {
+              key: "Mod-c", run: (view) => {
+                if (!view.state.selection.main.empty) return false;
+                const line = view.state.doc.lineAt(view.state.selection.main.head);
+                navigator.clipboard.writeText(line.text + "\n");
+                return true;
+              }
+            },
+            {
+              key: "Mod-x", run: (view) => {
+                if (!view.state.selection.main.empty) return false;
+                const line = view.state.doc.lineAt(view.state.selection.main.head);
+                navigator.clipboard.writeText(line.text + "\n");
+                view.dispatch({
+                  changes: { from: line.from, to: line.to },
+                  selection: { anchor: line.from },
+                });
+                return true;
+              }
+            },
             { key: "Mod-f", run: () => { toggleSearchRef.current?.(); return true; } },
             { key: "Mod-g", run: () => { toggleSearchRef.current?.(); return true; } },
             { key: "Shift-Mod-g", run: () => { toggleSearchRef.current?.(); return true; } },
@@ -394,6 +430,38 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
             { key: "Mod-+", run: () => { setEditorZoom((z) => Math.min(40, z + 1)); return true; } },
             { key: "Mod--", run: () => { setEditorZoom((z) => Math.max(8, z - 1)); return true; } },
           ])),
+          lintGutter(),
+          ...(lintSource ? [linter(lintSource)] : []),
+          keymap.of(lintKeymap),
+          ...(() => { console.log("Configuring editor, aiSuggestions status:", aiSuggestions); return []; })(),
+          ...(aiSuggestions ? [
+            ...aiExtension({
+              prompt: async ({ prompt, selection, codeBefore, codeAfter }) => {
+                const response = await ai.editCode(prompt, codeBefore, codeAfter, selection);
+                if (response.status !== "completed" || !response.code) {
+                  throw new Error(response.message ?? "Failed to edit code");
+                }
+                return response.code;
+              },
+              onError: (error) => console.error("AI edit error:", error),
+            }),
+          ] : []),
+          ...(aiCodeCompletion ? [
+            ...inlineCompletion({
+              fetchFn: async (state, _signal, _view) => {
+                const cursorPos = state.selection.main.head;
+                const contextBefore = state.sliceDoc(0, cursorPos);
+                if (!contextBefore.trim()) return "";
+                const ext = filePath.split(".").pop() || "";
+                const result = await ai.inlineComplete(contextBefore, ext);
+                return result.completion ?? "";
+              },
+              delay: 600,
+            }),
+          ] : []),
+          ...(content.includes("<<<<<<<") && content.includes("=======") && content.includes(">>>>>>>")
+            ? mergeConflictResolver()
+            : []),
           themeCompartmentRef.current.of([]),
           wordWrapCompartmentRef.current!.of(wordWrap ? EditorView.lineWrapping : []),
           zoomCompartmentRef.current!.of(EditorView.theme({
@@ -401,13 +469,14 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
             ".cm-gutters": { fontSize: `${editorZoom}px` },
             ".cm-scroller": { fontSize: `${editorZoom}px` }
           })),
-          lineNumbers(),
           createMinimapExtension(showMinimap),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
               const currentContent = update.state.doc.toString();
               const isDirty = currentContent !== initialContentRef.current;
               updateTab(tabId, { dirty: isDirty, fileContent: currentContent, everChanged: true });
+              const conflictsFound = currentContent.includes("<<<<<<<") && currentContent.includes("=======") && currentContent.includes(">>>>>>>");
+              setHasConflicts(conflictsFound);
             }
           }),
         ];
@@ -454,7 +523,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
       }
       updateTab(tabId, { dirty: false });
     };
-  }, [filePath, tabId, updateTab, isImage, imageMimeType]);
+  }, [filePath, tabId, updateTab, isImage, imageMimeType, aiSuggestions, aiCodeCompletion]);
 
   // Reload file content when external changes are detected (git checkout, external editor, etc.)
   useEffect(() => {
@@ -574,18 +643,6 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
         }
       }
     };
-    const handleFindReferences = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (detail && detail.tabId !== tabId) return;
-      if (viewRef.current) {
-        const sel = viewRef.current.state.selection.main;
-        const word = viewRef.current.state.wordAt(sel.head);
-        if (word) {
-          const text = viewRef.current.state.sliceDoc(word.from, word.to);
-          console.log(`LSP: Find References for "${text}"`);
-        }
-      }
-    };
     const handleRenameSymbol = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       if (detail && detail.tabId !== tabId) return;
@@ -605,18 +662,42 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
         }
       }
     };
-    const handleFormatDocument = (e: Event) => {
+    const handleFindReferences = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       if (detail && detail.tabId !== tabId) return;
       if (viewRef.current) {
-        const text = viewRef.current.state.doc.toString();
-        let formatted = text;
+        const sel = viewRef.current.state.selection.main;
+        const word = viewRef.current.state.wordAt(sel.head);
+        if (word) {
+          const text = viewRef.current.state.sliceDoc(word.from, word.to);
+          console.log(`LSP: Find References for "${text}"`);
+        }
+      }
+    };
+    const handleChangeAllOccurrences = async () => {
+      if (viewRef.current) {
+        const view = viewRef.current;
+        const sel = view.state.selection.main;
+        const text = sel.empty
+          ? (() => {
+            const word = view.state.wordAt(sel.head);
+            return word ? view.state.sliceDoc(word.from, word.to) : "";
+          })()
+          : view.state.sliceDoc(sel.from, sel.to);
+        if (text) {
+          const { selectSelectionMatches, SearchQuery, setSearchQuery } = await import("@codemirror/search");
+          const query = new SearchQuery({ search: text, caseSensitive: false });
+          view.dispatch({ effects: setSearchQuery.of(query) });
+          selectSelectionMatches(view);
+        }
+      }
+    };
+    const handleFormatDocumentEvent = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail && detail.tabId !== tabId) return;
+      if (viewRef.current) {
         try {
-          if (filePath.endsWith(".json")) {
-            formatted = JSON.stringify(JSON.parse(text), null, 2);
-          } else {
-            formatted = text.split("\n").map(line => line.trimEnd()).join("\n");
-          }
+          const formatted = formatContent(viewRef.current.state.doc.toString(), filePath);
           viewRef.current.dispatch({
             changes: { from: 0, to: viewRef.current.state.doc.length, insert: formatted }
           });
@@ -655,6 +736,18 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
       }).catch(console.error);
     };
 
+    const handleAiImprovement = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      console.log("FileViewer handleAiImprovement received event", { detail, tabId, hasView: !!viewRef.current });
+      if (detail && detail.tabId !== tabId) return;
+      const view = viewRef.current;
+      if (!view) return;
+      import("./aiExtensions").then(({ showAiEditInput }) => {
+        console.log("Imported showAiEditInput, calling it");
+        showAiEditInput(view);
+      });
+    };
+
     window.addEventListener("file-select-all", handler);
     window.addEventListener("file-paste", handlePaste);
     window.addEventListener("file-copy-line", handleCopyLine);
@@ -665,8 +758,10 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
     window.addEventListener("file-peek-definition", handlePeekDefinition);
     window.addEventListener("file-find-references", handleFindReferences);
     window.addEventListener("file-rename-symbol", handleRenameSymbol);
-    window.addEventListener("file-format-document", handleFormatDocument);
+    window.addEventListener("file-change-all-occurrences", handleChangeAllOccurrences);
+    window.addEventListener("file-format-document", handleFormatDocumentEvent);
     window.addEventListener("file-run", handleRunFile);
+    window.addEventListener("file-ai-improvement", handleAiImprovement);
     return () => {
       window.removeEventListener("file-select-all", handler);
       window.removeEventListener("file-paste", handlePaste);
@@ -678,8 +773,10 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
       window.removeEventListener("file-peek-definition", handlePeekDefinition);
       window.removeEventListener("file-find-references", handleFindReferences);
       window.removeEventListener("file-rename-symbol", handleRenameSymbol);
-      window.removeEventListener("file-format-document", handleFormatDocument);
+      window.removeEventListener("file-change-all-occurrences", handleChangeAllOccurrences);
+      window.removeEventListener("file-format-document", handleFormatDocumentEvent);
       window.removeEventListener("file-run", handleRunFile);
+      window.removeEventListener("file-ai-improvement", handleAiImprovement);
     };
   }, [tabId, filePath, updateTab]);
 
@@ -769,6 +866,21 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
 
   return (
     <div className="flex flex-col h-full w-full bg-surface-container-low">
+      {hasConflicts && (
+        <div className="flex items-center justify-between px-4 py-2 bg-amber-500/10 border-b border-amber-500/20 text-amber-200 select-none">
+          <div className="flex items-center gap-2 text-xs">
+            <AlertCircle size={14} className="text-amber-400" />
+            <span>This file has git merge conflicts. Resolve them in the 3-Way Merge Editor for a better experience.</span>
+          </div>
+          <button
+            onClick={() => useSessionStore.getState().updateTab(tabId, { type: "merge" })}
+            className="flex items-center gap-1.5 px-3 py-1 rounded bg-amber-500 hover:bg-amber-400 active:scale-[0.98] text-black font-semibold text-xs transition-all duration-200 cursor-pointer shadow-sm"
+          >
+            <GitMerge size={12} />
+            <span>Open Merge Editor</span>
+          </button>
+        </div>
+      )}
       <div className="flex-1 overflow-hidden w-full relative" onContextMenu={isImage ? undefined : handleContextMenu}>
         {loading && (
           <div className="absolute inset-0 flex items-center justify-center bg-surface-container-low/80 backdrop-blur-sm z-20">

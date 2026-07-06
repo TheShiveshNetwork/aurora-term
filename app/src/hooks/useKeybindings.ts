@@ -244,6 +244,12 @@ export function useKeybindings() {
         case "voice-input":
           window.dispatchEvent(new CustomEvent("voice-input-toggle"));
           break;
+
+        case "ai-suggestions":
+          if (activeTabId) {
+            window.dispatchEvent(new CustomEvent("file-ai-improvement", { detail: { tabId: activeTabId } }));
+          }
+          break;
       }
     };
 

@@ -101,6 +101,10 @@ pub struct EditorConfig {
     pub git_gui_mode: String,
     #[serde(default = "default_enabled")]
     pub word_wrap: bool,
+    #[serde(default = "default_enabled")]
+    pub ai_code_completion: bool,
+    #[serde(default = "default_enabled")]
+    pub ai_suggestions: bool,
 }
 
 impl Default for AppConfig {
@@ -189,6 +193,8 @@ impl Default for AppConfig {
                 show_minimap: true,
                 git_gui_mode: "tab".to_string(),
                 word_wrap: true,
+                ai_code_completion: true,
+                ai_suggestions: true,
             },
         }
     }

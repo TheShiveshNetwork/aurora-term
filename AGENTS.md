@@ -89,7 +89,7 @@ To route new logic, use a concise instruction such as:
 
 "Route `<feature>` to `crates/<crate-name>`: short reason and required public interfaces."
 
-Example: "Route terminal resize debounce and ConPTY watchdog to `crates/aurora-pty`: needs `PtyManager::watch_deadlocks()` and an IPC command `pty_restart(session_id)`." 
+Example: "Route terminal resize debounce and ConPTY watchdog to `crates/aurora-pty`: needs `PtyManager::watch_deadlocks()` and an IPC command `pty_restart(session_id)`."
 
 Below is a short crate summary to help route logic quickly.
 
@@ -715,4 +715,81 @@ Command runs → PTY output accumulates in BlockStore (unbounded)
 
 ---
 
-*Last updated: 2026-07-05*
+## 20. AI Code Completion in CodeMirror Editor
+
+### 20.1 Architecture (Custom Implementation)
+
+The app uses a **custom CodeMirror extension** (`app/src/components/editor/aiExtensions.ts`) instead of the `@marimo-team/codemirror-ai` package. This gives full control over UI, removes unused features, and eliminates peer-dependency warnings.
+
+**Exports:**
+- `aiExtension(options: AiOptions)` — inline edit flow: select code → floating "Edit with AI" button / Ctrl+L → inline input widget → generate via sidecar → accept/reject with diff decorations.
+- `inlineCompletion(options: InlineCompleteOptions)` — ghost text completions: 600ms debounce after each keystroke, Tab to accept, Esc to dismiss.
+- `acceptAiEdit: Command` / `rejectAiEdit: Command` — accept/reject the last AI edit programmatically.
+
+### 20.2 How It Works
+
+**Inline Edit Flow:**
+1. User selects code → a floating "Edit with AI" tooltip appears above the selection
+2. User clicks the button or presses **Ctrl+L** → an inline input widget renders at cursor with a text field
+3. User types editing instructions → presses "Generate" / Enter → `opts.prompt()` fires via sidecar proxy
+4. Sidecar receives `POST /api/edit-code` → user's Mastra agent returns the edited code
+5. Result replaces the selection → old code shown with strikethrough + accept/reject bar
+6. User presses **Ctrl+Y** (accept) or **Ctrl+U** (reject) to finalize
+
+**Inline Completion Flow:**
+1. On each keystroke, a 600ms debounce timer starts
+2. After debounce, `opts.fetchFn()` fires with the current editor state (context-before-cursor only)
+3. Sidecar receives `POST /api/inline-complete` → uses **Fast** tier model for low latency
+4. Result rendered as ghost text (`GhostWidget`) after the cursor, styled dim/italic
+5. User presses **Tab** to accept (inserts text) or continues typing (dismisses automatically)
+
+### 20.3 Theming & CSS
+
+All AI-related styling lives in `EditorView.baseTheme()` inside `aiExtensions.ts` — never in global CSS. This keeps styles scoped to CodeMirror and avoids specificity battles. The dark glass-morphism theme uses the same color palette as the rest of the app.
+
+Class prefix conventions:
+- `cm-ai-trigger` / `cm-ai-trigger-btn` — floating "Edit with AI" button
+- `cm-ai-inp` / `cm-ai-inp-container` — inline editing input widget
+- `cm-ai-gen` / `cm-ai-cancel` / `cm-ai-loading` — generate/cancel/loading in the input row
+- `cm-ai-sel-line` — highlighted selection line during editing
+- `cm-old-code-wrap` / `cm-old-code-text` — old code strikethrough block after accepting
+- `cm-accept-reject-bar` / `cm-ar-btn` / `cm-ar-accept` / `cm-ar-reject` — floating accept/reject buttons
+- `cm-ghost-text` — inline completion ghost text
+
+### 20.4 Sidecar Proxy Pattern
+
+Both edit and completion hit the sidecar's Fastify server — never directly calling a Rust LLM provider. This avoids duplicating provider logic and env-var injection:
+
+| Frontend IPC | Rust Command | Sidecar Endpoint |
+|---|---|---|
+| `ai.editCode(opts)` | `ai_edit_code` | `POST /api/edit-code` |
+| `ai.inlineComplete(opts)` | `ai_inline_complete` | `POST /api/inline-complete` |
+
+Each Rust command in `crates/aurora-commands/src/commands/sidecar_commands.rs` follows the same pattern: get `state.sidecar.lock().await.port()`, then `reqwest::Client` POST to `http://127.0.0.1:{port}/api/<endpoint>`.
+
+### 20.5 IPC Contract
+
+```typescript
+// In app/src/lib/ipc.ts — added:
+ai.editCode(opts: { codeBefore, codeSelection, codeAfter, prompt }) → string
+ai.inlineComplete(opts: { beforeCursor, afterCursor, language }) → string
+```
+
+### 20.6 Configuration
+
+- **Setting**: `EditorConfig.ai_code_completion` (Rust) → `useSettingsStore.aiCodeCompletion` (Zustand) — boolean, default `true`.
+- **Hydration**: `useAppBootstrap` reads from config on startup.
+- **Toggle**: Settings UI in `EditorSettingsView.tsx`.
+- **Conditional loading**: `FileViewer.tsx` checks the setting before adding `aiExtension` and `inlineCompletion` to the extension list.
+
+### 20.7 Key Behaviors
+
+- Inline completions use the **Fast** tier model and send only context-before-cursor to keep latency low.
+- A new `AbortController` cancels stale fetch requests on each keystroke.
+- `StateEffect.define` / `StateField` pattern used for all reactive UI state (input visibility, completion decorations, loading state) — never React state for CodeMirror widget logic.
+- The `TriggerView` plugin (a `ViewPlugin` with `dom` element) manages Show/hide of the "Edit with AI" button based on selection state; hides automatically when the input widget or completion shows.
+- The `OldCodeWidget` renders a floating accept/reject bar positioned above the old code block using `Decoration.widget({block: true})`.
+
+---
+
+*Last updated: 2026-07-06*

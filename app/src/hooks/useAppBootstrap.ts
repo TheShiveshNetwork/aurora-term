@@ -39,6 +39,8 @@ export function applyAppConfig(cfg: AppConfig) {
   settings.setShowMinimap(cfg.editor.show_minimap);
   settings.setGitGuiMode(cfg.editor.git_gui_mode as "tab" | "window");
   settings.setWordWrap(cfg.editor.word_wrap !== false);
+  settings.setAiCodeCompletion(cfg.editor.ai_code_completion !== false);
+  settings.setAiSuggestions(cfg.editor.ai_suggestions !== false);
 
   // Keybindings
   const overrides: Record<string, string> = {};

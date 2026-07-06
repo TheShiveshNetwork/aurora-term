@@ -338,3 +338,14 @@ Respond ONLY with a single valid JSON object containing status and command.`,
   model: getModelProvider('groq', 'llama-3.3-70b-versatile', 'balanced'),
   memory: auraMemory,
 });
+
+export const codeCompletionAgent = new Agent({
+  id: 'codeCompletionAgent',
+  name: 'Code Completion Agent',
+  description: 'Handles code completion and inline code editing.',
+  instructions: `You are a professional code completion and code editing engine.
+Provide clean, direct code completions or code edits without any explanation, conversational filler, markdown formatting, or JSON wrapping.
+For code completion, return only the completion text to append.
+For code editing, return only the final completed/modified code block.`,
+  model: getModelProvider('groq', 'llama-3.3-70b-versatile', 'fast'),
+});

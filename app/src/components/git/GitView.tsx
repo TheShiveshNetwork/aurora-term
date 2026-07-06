@@ -26,6 +26,7 @@ const STATUS_COLOR: Record<string, string> = {
   D: "rgba(255,107,107,0.75)",
   R: "rgba(79,140,255,0.75)",
   C: "rgba(80,227,194,0.75)",
+  U: "rgba(239,83,80,0.8)",
   "?": "rgba(232,234,240,0.35)",
 };
 
@@ -364,13 +365,18 @@ export function GitView({ cwd, tabId }: GitViewProps) {
 
   const handleOpenFile = useCallback(async (filePath: string) => {
     const resolvedPath = cwd ? `${cwd}/${filePath}`.replace(/\/\//g, "/") : filePath;
-    const existing = tabs.find(t => t.type === "file" && t.filePath === resolvedPath && t.cwd === cwd);
+    const entry = status.find(e => e.path === filePath);
+    const code = entry ? `${entry.x}${entry.y}` : "";
+    const isConflict = ["DD", "AA", "UU", "AU", "UD", "UA", "DU"].includes(code);
+    const type = isConflict ? "merge" : "file";
+
+    const existing = tabs.find(t => t.type === type && t.filePath === resolvedPath && t.cwd === cwd);
     if (existing) { setActiveTabId(existing.id); return; }
     const name = filePath.split(/[\\/]/).pop() || filePath;
     const id = uuidv4();
-    addTab({ id, name, type: "file", filePath: resolvedPath, cwd, created_at: Date.now() });
+    addTab({ id, name, type, filePath: resolvedPath, cwd, created_at: Date.now() });
     setActiveTabId(id);
-  }, [cwd, tabs, addTab, setActiveTabId]);
+  }, [cwd, tabs, addTab, setActiveTabId, status]);
 
   const handleOpenDiff = useCallback(async (diffFn: (cwd: string, path?: string) => Promise<string>, title: string) => {
     const existing = tabs.find(t => t.type === "diff" && t.name === title);

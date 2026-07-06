@@ -34,6 +34,7 @@ import { AgentView } from "./AgentView";
 import { DiffWorkspaceView } from "../components/editor/DiffWorkspaceView";
 import { CommitDiffView } from "../components/editor/CommitDiffView";
 import { GitView } from "../components/git/GitView";
+import { MergeWorkspaceView } from "./MergeWorkspaceView";
 
 export function AppShellView() {
   const { tabs, activeTabId, spawnSession, killSession, openFile, setActiveTabId } = useAppBootstrap();
@@ -612,10 +613,13 @@ export function AppShellView() {
                         >
                           {tab.type === "file" ? (
                               <FileWorkspaceView tab={tab} onOpenFile={handleOpenFile} onOpenFolder={handleOpenFolder} />
+                            ) : tab.type === "merge" ? (
+                              <MergeWorkspaceView tab={tab} />
                             ) : tab.type === "diff" && tab.diffContent ? (
                               <CommitDiffView
                                 diff={tab.diffContent}
                                 commitHash={tab.diffCommitHash || ""}
+                                filePath={tab.filePath || ""}
                                 collapsible={true}
                               />
                             ) : tab.type === "diff" ? (
@@ -657,6 +661,24 @@ export function AppShellView() {
                   ]}
                   onChange={setCommandInput}
                   onSubmit={(e) => handleInterceptedSubmit(e, handleExecuteCommand, false)}
+                  onStop={handleStop}
+                  onOpenAiBar={() => setShowAiBar(true)}
+                  inputMode={inputMode}
+                />
+              )}
+
+              {/* File view: prompt variant (absolute, glassmorphism, independent state) */}
+              {chatInputOpen && activeTab?.type === "file" && (
+                <CommandInputBar
+                  variant="prompt"
+                  sessionId={null}
+                  cwd={cwd}
+                  isLoading={false}
+                  isRunning={false}
+                  value={activeCommandInput}
+                  history={[]}
+                  onChange={setCommandInput}
+                  onSubmit={(e) => handleInterceptedSubmit(e, handleFileCommandSubmit, true)}
                   onStop={handleStop}
                   onOpenAiBar={() => setShowAiBar(true)}
                   inputMode={inputMode}
@@ -758,6 +780,10 @@ export function AppShellView() {
           window.dispatchEvent(new CustomEvent("file-peek-definition", { detail: { tabId: activeTabId, filePath: contextMenu?.filePath, selectedText: contextMenu?.selectedText } }));
           clearContextMenu();
         }}
+        onChangeAllOccurrences={() => {
+          window.dispatchEvent(new CustomEvent("file-change-all-occurrences"));
+          clearContextMenu();
+        }}
         onFindReferences={() => {
           window.dispatchEvent(new CustomEvent("file-find-references", { detail: { tabId: activeTabId, filePath: contextMenu?.filePath, selectedText: contextMenu?.selectedText } }));
           clearContextMenu();
@@ -772,6 +798,12 @@ export function AppShellView() {
         }}
         onRunFile={() => {
           window.dispatchEvent(new CustomEvent("file-run", { detail: { tabId: activeTabId, filePath: contextMenu?.filePath } }));
+          clearContextMenu();
+        }}
+        onAiImprovement={() => {
+          if (activeTabId) {
+            window.dispatchEvent(new CustomEvent("file-ai-improvement", { detail: { tabId: activeTabId } }));
+          }
           clearContextMenu();
         }}
       />

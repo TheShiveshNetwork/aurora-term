@@ -57,6 +57,8 @@ export interface EditorConfig {
   show_minimap: boolean;
   git_gui_mode: string;
   word_wrap: boolean;
+  ai_code_completion: boolean;
+  ai_suggestions: boolean;
 }
 
 export interface AppConfig {
@@ -105,6 +107,20 @@ export const ai = {
 
   fetchModels: (provider: ProviderName) =>
     invoke<ModelInfo[]>("ai_fetch_models", { provider }),
+
+  editCode: (prompt: string, codeBefore: string, codeAfter: string, selection: string) =>
+    invoke<{ status: string; code?: string; message?: string }>("ai_edit_code", {
+      prompt,
+      codeBefore,
+      codeAfter,
+      selection,
+    }),
+
+  inlineComplete: (contextBefore: string, language: string) =>
+    invoke<{ status: string; completion?: string }>("ai_inline_complete", {
+      contextBefore,
+      language,
+    }),
 };
 
 export const config = {

@@ -70,6 +70,33 @@ pub struct AgentChatResponse {
     pub message: Option<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AiEditCodeRequest {
+    pub prompt: String,
+    pub code_before: String,
+    pub code_after: String,
+    pub selection: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AiEditCodeResponse {
+    pub status: String,
+    pub code: Option<String>,
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AiInlineCompleteRequest {
+    pub context_before: String,
+    pub language: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AiInlineCompleteResponse {
+    pub status: String,
+    pub completion: Option<String>,
+}
+
 /// Calls the local aurora-agent sidecar and returns a structured step response.
 #[command]
 #[allow(clippy::too_many_arguments)]
@@ -268,6 +295,82 @@ pub async fn agent_chat(
     }
 
     let response_data = response.json::<AgentChatResponse>()
+        .await
+        .map_err(|e| AppError::Sidecar(format!("Failed to parse aurora-agent response: {}", e)))?;
+
+    Ok(response_data)
+}
+
+#[command]
+pub async fn ai_edit_code(
+    state: State<'_, AppState>,
+    prompt: String,
+    code_before: String,
+    code_after: String,
+    selection: String,
+) -> Result<AiEditCodeResponse, AppError> {
+    let port = {
+        let sidecar = state.sidecar.lock().await;
+        sidecar.port().ok_or_else(|| AppError::Sidecar("aurora-agent is not running".to_string()))?
+    };
+
+    let client = reqwest::Client::new();
+    let url = format!("http://127.0.0.1:{}/api/edit-code", port);
+
+    let request_payload = AiEditCodeRequest {
+        prompt,
+        code_before,
+        code_after,
+        selection,
+    };
+
+    let response = client.post(&url)
+        .json(&request_payload)
+        .send()
+        .await
+        .map_err(|e| AppError::Sidecar(format!("Failed to contact aurora-agent: {}", e)))?;
+
+    if !response.status().is_success() {
+        return Err(AppError::Sidecar(format!("aurora-agent API returned error status: {}", response.status())));
+    }
+
+    let response_data = response.json::<AiEditCodeResponse>()
+        .await
+        .map_err(|e| AppError::Sidecar(format!("Failed to parse aurora-agent response: {}", e)))?;
+
+    Ok(response_data)
+}
+
+#[command]
+pub async fn ai_inline_complete(
+    state: State<'_, AppState>,
+    context_before: String,
+    language: String,
+) -> Result<AiInlineCompleteResponse, AppError> {
+    let port = {
+        let sidecar = state.sidecar.lock().await;
+        sidecar.port().ok_or_else(|| AppError::Sidecar("aurora-agent is not running".to_string()))?
+    };
+
+    let client = reqwest::Client::new();
+    let url = format!("http://127.0.0.1:{}/api/inline-complete", port);
+
+    let request_payload = AiInlineCompleteRequest {
+        context_before,
+        language,
+    };
+
+    let response = client.post(&url)
+        .json(&request_payload)
+        .send()
+        .await
+        .map_err(|e| AppError::Sidecar(format!("Failed to contact aurora-agent: {}", e)))?;
+
+    if !response.status().is_success() {
+        return Err(AppError::Sidecar(format!("aurora-agent API returned error status: {}", response.status())));
+    }
+
+    let response_data = response.json::<AiInlineCompleteResponse>()
         .await
         .map_err(|e| AppError::Sidecar(format!("Failed to parse aurora-agent response: {}", e)))?;
 

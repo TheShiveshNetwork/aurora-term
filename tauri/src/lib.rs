@@ -209,6 +209,8 @@ pub fn run() {
             aurora_commands::agent_approve_tool,
             aurora_commands::agent_decline_tool,
             aurora_commands::agent_chat,
+            aurora_commands::ai_edit_code,
+            aurora_commands::ai_inline_complete,
             aurora_commands::agent_get_logs,
             aurora_commands::get_available_commands,
         ])

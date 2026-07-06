@@ -35,7 +35,7 @@ fn main() {
     };
     
     if bun_available {
-        println!("cargo:warning=Compiling aurora-agent sidecar via Bun for target {}...", target);
+        eprintln!("Compiling aurora-agent sidecar via Bun for target {}...", target);
         
         let bun_target = match target.as_str() {
             "x86_64-pc-windows-msvc" => Some("bun-windows-x64"),

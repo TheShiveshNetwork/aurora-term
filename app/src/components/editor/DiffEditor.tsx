@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { EditorView } from "@codemirror/view";
-import type { Compartment } from "@codemirror/state";
+import { Compartment } from "@codemirror/state";
 import type { MergeView } from "@codemirror/merge";
 import { useSettingsStore } from "../../stores/useSettingsStore";
 import { getEditorTheme, createThemeCompartment, READONLY_EDITOR_THEME } from "./editorThemes";
@@ -10,41 +10,26 @@ import { PathBreadcrumb } from "./PathBreadcrumb";
 
 // ─── global styles injected once ─────────────────────────────────────────────
 const STYLE_ID = "aurora-diff-style";
-if (typeof document !== "undefined" && !document.getElementById(STYLE_ID)) {
-  const s = document.createElement("style");
-  s.id = STYLE_ID;
+if (typeof document !== "undefined") {
+  let s = document.getElementById(STYLE_ID) as HTMLStyleElement;
+  if (!s) {
+    s = document.createElement("style");
+    s.id = STYLE_ID;
+    document.head.appendChild(s);
+  }
   s.textContent = `
     /* The wrapper we control is a flex row — MergeView fills it */
     .aurora-diff-inner             { display: flex; flex-direction: row; width: 100%; height: 100%; overflow: hidden; }
 
     /* MergeView root — fill the wrapper */
-    .aurora-diff-inner .cm-mergeView      { flex: 1; display: flex; flex-direction: row; height: 100%; min-width: 0; overflow: hidden; }
-    .aurora-diff-inner .cm-merge-2pane    { flex: 1; display: flex; flex-direction: row; height: 100%; min-width: 0; overflow: hidden; }
+    .aurora-diff-inner .cm-mergeView      { flex: 1; display: flex; flex-direction: row; height: 100% !important; min-width: 0; overflow: hidden !important; }
+    .aurora-diff-inner .cm-mergeViewEditors { display: flex; flex-direction: row; height: 100% !important; width: 100%; min-height: 0; }
+    .aurora-diff-inner .cm-merge-2pane    { flex: 1; display: flex; flex-direction: row; height: 100% !important; min-width: 0; overflow: hidden !important; }
 
-    /* Each pane: fixed width set imperatively after mount, flex disabled */
-    .aurora-diff-inner .cm-merge-pane          { display: flex; flex-direction: column; height: 100%; overflow: hidden; min-width: 0; }
-    .aurora-diff-inner .cm-merge-pane .cm-editor    { flex: 1; min-height: 0; height: 100%; }
-    .aurora-diff-inner .cm-merge-pane .cm-scroller  { overflow: auto !important; }
-
-    /* Gap strip between panes */
-    .aurora-diff-inner .cm-merge-gap      { flex-shrink: 0 !important; width: 2px !important; background: rgba(232,234,240,0.07) !important; border: none !important; }
-    .aurora-diff-inner .cm-merge-gutter   { background: transparent !important; }
-
-    /* Diff colours */
-    .aurora-diff-inner .cm-deletedChunk                  { background: rgba(255,70,70,0.09) !important; }
-    .aurora-diff-inner .cm-deletedChunk .cm-deletedText  { background: rgba(255,70,70,0.28) !important; text-decoration: none !important; }
-    .aurora-diff-inner .cm-changedLine                   { background: rgba(255,179,0,0.06) !important; }
-    .aurora-diff-inner .cm-changedText                   { background: rgba(255,179,0,0.22) !important; border-radius: 2px; }
-    .aurora-diff-inner .cm-insertedLine                  { background: rgba(80,227,194,0.07) !important; }
-
-    /* Gutters */
-    .aurora-diff-inner .cm-gutters          { background: transparent !important; border-right: 1px solid rgba(232,234,240,0.06) !important; }
-    .aurora-diff-inner .cm-activeLineGutter { background: transparent !important; }
-    .aurora-diff-inner .cm-activeLine       { background: rgba(255,255,255,0.022) !important; }
-
-    /* Minimap */
-    .aurora-diff-inner .cm-minimap         { border-left: 1px solid rgba(232,234,240,0.05) !important; opacity: 0.72; }
-    .aurora-diff-inner .cm-minimap-overlay { background: rgba(232,234,240,0.07) !important; border: 1px solid rgba(232,234,240,0.13) !important; }
+    /* Each pane: fixed width set imperatively after mount */
+    .aurora-diff-inner .cm-mergeViewEditor          { display: flex; flex-direction: column; height: 100% !important; overflow: hidden !important; min-width: 0; }
+    .aurora-diff-inner .cm-mergeViewEditor .cm-editor    { flex: 1; display: flex; flex-direction: column; min-height: 0; height: 100% !important; }
+    .aurora-diff-inner .cm-mergeViewEditor .cm-scroller  { height: 100% !important; overflow: auto !important; }
 
     /* Resizer handle */
     .aurora-diff-resizer {
@@ -104,9 +89,14 @@ export function DiffEditor({
   const viewBRef = useRef<EditorView | null>(null);
   const themeCompartmentARef = useRef<Compartment>(createThemeCompartment());
   const themeCompartmentBRef = useRef<Compartment>(createThemeCompartment());
+  const wordWrapCompartmentARef = useRef<Compartment>(new Compartment());
+  const wordWrapCompartmentBRef = useRef<Compartment>(new Compartment());
+  const headerARef = useRef<HTMLDivElement>(null);
+  const headerBRef = useRef<HTMLDivElement>(null);
   const cleanupsRef = useRef<(() => void)[]>([]);
 
   const editorTheme = useSettingsStore((s) => s.editorTheme);
+  const wordWrap = useSettingsStore((s) => s.wordWrap);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -146,8 +136,16 @@ export function DiffEditor({
         ...(langExt.length > 0 ? langExt : []),
       ];
 
-      const baseA = [...base, themeCompartmentARef.current.of([])];
-      const baseB = [...base, themeCompartmentBRef.current.of([])];
+      const baseA = [
+        ...base,
+        themeCompartmentARef.current.of([]),
+        wordWrapCompartmentARef.current.of(wordWrap ? EditorViewClass.lineWrapping : []),
+      ];
+      const baseB = [
+        ...base,
+        themeCompartmentBRef.current.of([]),
+        wordWrapCompartmentBRef.current.of(wordWrap ? EditorViewClass.lineWrapping : []),
+      ];
 
       const merge = new MergeView({
         a: { doc: oldContent, extensions: baseA },
@@ -172,24 +170,35 @@ export function DiffEditor({
         }
       });
 
-      // --- set explicit 50/50 widths on the actual pane elements ---
-      const panes = mount.querySelectorAll<HTMLElement>(".cm-merge-pane");
-      const paneA = panes[0];
-      const paneB = panes[1];
+      const ratioRef = { current: 0.5 };
 
-      const applyWidths = (leftPx: number) => {
-        const totalW = mount.getBoundingClientRect().width;
+      const applyWidths = () => {
+        const rect = mount.getBoundingClientRect();
+        const totalW = rect.width;
+        if (totalW <= 0) return; // wait until container has size
+
+        const panes = mount.querySelectorAll<HTMLElement>(".cm-mergeViewEditor");
+        const paneA = panes[0];
+        const paneB = panes[1];
+        if (!paneA || !paneB) return; // wait until panes are in the DOM
+
         const GAP = 2;
+        const leftPx = Math.max(80, Math.min(totalW - 82, Math.floor(totalW * ratioRef.current)));
         const rightPx = totalW - leftPx - GAP;
-        if (paneA) { paneA.style.width = `${leftPx}px`; paneA.style.flex = "none"; }
-        if (paneB) { paneB.style.width = `${Math.max(80, rightPx)}px`; paneB.style.flex = "none"; }
+
+        paneA.style.width = `${leftPx}px`;
+        paneA.style.flex = "none";
+        paneB.style.width = `${Math.max(80, rightPx)}px`;
+        paneB.style.flex = "none";
+        if (headerARef.current) { headerARef.current.style.width = `${leftPx}px`; headerARef.current.style.flex = "none"; }
+        if (headerBRef.current) { headerBRef.current.style.width = `${Math.max(80, rightPx)}px`; headerBRef.current.style.flex = "none"; }
         setResizerLeft(leftPx + GAP / 2);
       };
 
-      const initRaf = requestAnimationFrame(() => {
-        const totalW = mount.getBoundingClientRect().width;
-        applyWidths(Math.floor((totalW - 2) / 2));
+      const resizeObserver = new ResizeObserver(() => {
+        applyWidths();
       });
+      resizeObserver.observe(mount);
 
       const cleanA = attachScrollSync(merge.a, () => viewBRef.current);
       const cleanB = attachScrollSync(merge.b, () => viewARef.current);
@@ -201,9 +210,12 @@ export function DiffEditor({
 
       const onMouseMove = (e: MouseEvent) => {
         if (!dragging) return;
-        const totalW = mount.getBoundingClientRect().width;
+        const rect = mount.getBoundingClientRect();
+        const totalW = rect.width;
+        if (totalW <= 0) return;
         const newLeft = Math.max(80, Math.min(totalW - 82, startLeftW + (e.clientX - startX)));
-        applyWidths(newLeft);
+        ratioRef.current = newLeft / totalW;
+        applyWidths();
       };
 
       const onMouseUp = () => {
@@ -219,6 +231,7 @@ export function DiffEditor({
         e.preventDefault();
         dragging = true;
         startX = e.clientX;
+        const paneA = mount.querySelector<HTMLElement>(".cm-mergeViewEditor");
         startLeftW = paneA ? paneA.getBoundingClientRect().width : mount.getBoundingClientRect().width / 2;
         resizer?.classList.add("dragging");
         document.body.style.cursor = "col-resize";
@@ -231,7 +244,7 @@ export function DiffEditor({
 
       cleanupsRef.current = [
         cleanA, cleanB,
-        () => cancelAnimationFrame(initRaf),
+        () => resizeObserver.disconnect(),
         () => resizer?.removeEventListener("mousedown", onMouseDown),
         () => onMouseUp(),
       ];
@@ -259,6 +272,22 @@ export function DiffEditor({
     });
   }, [editorTheme]);
 
+  useEffect(() => {
+    const viewA = viewARef.current;
+    const viewB = viewBRef.current;
+    if (!viewA || !viewB) return;
+    import("@codemirror/view").then(({ EditorView }) => {
+      if (viewARef.current === viewA && viewBRef.current === viewB) {
+        viewA.dispatch({
+          effects: wordWrapCompartmentARef.current.reconfigure(wordWrap ? EditorView.lineWrapping : [])
+        });
+        viewB.dispatch({
+          effects: wordWrapCompartmentBRef.current.reconfigure(wordWrap ? EditorView.lineWrapping : [])
+        });
+      }
+    });
+  }, [wordWrap]);
+
   return (
     <div
       ref={shellRef}
@@ -269,12 +298,18 @@ export function DiffEditor({
 
       {/* pane label headers */}
       <div style={{ display: "flex", flexDirection: "row", flexShrink: 0, borderBottom: "1px solid rgba(232,234,240,0.06)" }}>
-        <div style={{ flex: 1, minWidth: 0, height: 26, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 12px", background: "rgba(0,0,0,0.12)" }}>
+        <div
+          ref={headerARef}
+          style={{ minWidth: 0, height: 26, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 12px", background: "rgba(0,0,0,0.12)" }}
+        >
           <span style={{ fontFamily: "monospace", fontSize: 10, color: "rgba(232,234,240,0.28)" }}>{oldLabel}</span>
         </div>
         {/* visual gap spacer — matches the 2px cm-merge-gap */}
         <div style={{ width: 2, background: "rgba(232,234,240,0.07)", flexShrink: 0 }} />
-        <div style={{ flex: 1, minWidth: 0, height: 26, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 12px", background: "rgba(0,0,0,0.12)" }}>
+        <div
+          ref={headerBRef}
+          style={{ minWidth: 0, height: 26, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 12px", background: "rgba(0,0,0,0.12)" }}
+        >
           <span style={{ fontFamily: "monospace", fontSize: 10, color: "rgba(232,234,240,0.28)" }}>{newLabel}</span>
         </div>
       </div>
