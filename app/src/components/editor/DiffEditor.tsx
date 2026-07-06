@@ -31,26 +31,6 @@ if (typeof document !== "undefined") {
     .aurora-diff-inner .cm-mergeViewEditor .cm-editor    { flex: 1; display: flex; flex-direction: column; min-height: 0; height: 100% !important; }
     .aurora-diff-inner .cm-mergeViewEditor .cm-scroller  { height: 100% !important; overflow: auto !important; }
 
-    /* Gap strip between panes */
-    .aurora-diff-inner .cm-merge-gap      { flex-shrink: 0 !important; width: 2px !important; background: rgba(232,234,240,0.07) !important; border: none !important; }
-    .aurora-diff-inner .cm-merge-gutter   { background: transparent !important; }
-
-    /* Diff colours */
-    .aurora-diff-inner .cm-deletedChunk                  { background: rgba(255,70,70,0.09) !important; }
-    .aurora-diff-inner .cm-deletedChunk .cm-deletedText  { background: rgba(255,70,70,0.28) !important; text-decoration: none !important; }
-    .aurora-diff-inner .cm-changedLine                   { background: rgba(255,179,0,0.06) !important; }
-    .aurora-diff-inner .cm-changedText                   { background: rgba(255,179,0,0.22) !important; border-radius: 2px; }
-    .aurora-diff-inner .cm-insertedLine                  { background: rgba(80,227,194,0.10) !important; }
-
-    /* Gutters */
-    .aurora-diff-inner .cm-gutters          { background: transparent !important; border-right: 1px solid rgba(232,234,240,0.06) !important; }
-    .aurora-diff-inner .cm-activeLineGutter { background: transparent !important; }
-    .aurora-diff-inner .cm-activeLine       { background: rgba(255,255,255,0.022) !important; }
-
-    /* Minimap */
-    .aurora-diff-inner .cm-minimap         { border-left: 1px solid rgba(232,234,240,0.05) !important; opacity: 0.72; }
-    .aurora-diff-inner .cm-minimap-overlay { background: rgba(232,234,240,0.07) !important; border: 1px solid rgba(232,234,240,0.13) !important; }
-
     /* Resizer handle */
     .aurora-diff-resizer {
       position: absolute; top: 0; bottom: 0; width: 6px;

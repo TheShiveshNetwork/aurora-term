@@ -34,6 +34,7 @@ import { AgentView } from "./AgentView";
 import { DiffWorkspaceView } from "../components/editor/DiffWorkspaceView";
 import { CommitDiffView } from "../components/editor/CommitDiffView";
 import { GitView } from "../components/git/GitView";
+import { MergeWorkspaceView } from "./MergeWorkspaceView";
 
 export function AppShellView() {
   const { tabs, activeTabId, spawnSession, killSession, openFile, setActiveTabId } = useAppBootstrap();
@@ -612,6 +613,8 @@ export function AppShellView() {
                         >
                           {tab.type === "file" ? (
                               <FileWorkspaceView tab={tab} onOpenFile={handleOpenFile} onOpenFolder={handleOpenFolder} />
+                            ) : tab.type === "merge" ? (
+                              <MergeWorkspaceView tab={tab} />
                             ) : tab.type === "diff" && tab.diffContent ? (
                               <CommitDiffView
                                 diff={tab.diffContent}
@@ -777,6 +780,12 @@ export function AppShellView() {
         }}
         onRunFile={() => {
           window.dispatchEvent(new CustomEvent("file-run", { detail: { tabId: activeTabId, filePath: contextMenu?.filePath } }));
+          clearContextMenu();
+        }}
+        onAiImprovement={() => {
+          if (activeTabId) {
+            window.dispatchEvent(new CustomEvent("file-ai-improvement", { detail: { tabId: activeTabId } }));
+          }
           clearContextMenu();
         }}
       />

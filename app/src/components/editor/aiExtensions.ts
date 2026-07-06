@@ -17,6 +17,7 @@ import {
   keymap,
   type Command,
 } from "@codemirror/view";
+import { completionStatus } from "@codemirror/autocomplete";
 
 // ── Helper Utilities ─────────────────────────────────────────────────────────
 
@@ -26,7 +27,8 @@ function getModSymbol(): string {
   return isMac ? "⌘" : "Ctrl";
 }
 
-function formatKeymap(keymapStr: string): string {
+function formatKeymap(keymapStr: string | undefined): string {
+  if (!keymapStr) return "";
   return keymapStr.replace("Mod", getModSymbol()).replace("-", " ").toUpperCase();
 }
 
@@ -155,14 +157,21 @@ export const loadingState = StateField.define<boolean>({
 
 export const showAiEditInput: Command = (view) => {
   const sel = view.state.selection.main;
-  if (sel.empty) return false;
   const doc = view.state.doc;
-  const fromLine = doc.lineAt(sel.from);
-  const toLine = doc.lineAt(sel.to);
-  const text = view.state.sliceDoc(fromLine.from, toLine.to);
-  if (text.trim().length < 1) return false;
+  console.log("showAiEditInput command run", { selEmpty: sel.empty, docLines: doc.lines });
+  
+  let fromLine, toLine;
+  if (sel.empty) {
+    fromLine = doc.lineAt(sel.head);
+    toLine = fromLine;
+  } else {
+    fromLine = doc.lineAt(sel.from);
+    toLine = doc.lineAt(sel.to);
+  }
+
   const safeL1 = Math.max(1, Math.min(fromLine.number, doc.lines));
   const safeL2 = Math.max(1, Math.min(toLine.number, doc.lines));
+  console.log("showAiEditInput computed lines", { safeL1, safeL2 });
 
   view.dispatch({
     effects: [
@@ -170,8 +179,8 @@ export const showAiEditInput: Command = (view) => {
       setInputFocus.of(true),
       setInputValue.of(""),
     ],
-    selection: EditorSelection.cursor(fromLine.from),
   });
+  console.log("Dispatched showInput effects");
   return true;
 };
 
@@ -445,6 +454,10 @@ class OldCodeWidget extends WidgetType {
   updateDOM() {
     return true;
   }
+
+  eq(other: OldCodeWidget): boolean {
+    return other instanceof OldCodeWidget && other.oldCode === this.oldCode;
+  }
 }
 
 class InputWidget extends WidgetType {
@@ -649,6 +662,10 @@ class InputWidget extends WidgetType {
     return true;
   }
 
+  eq(other: InputWidget): boolean {
+    return other instanceof InputWidget;
+  }
+
   cleanup() {
     this.abortController?.abort();
     this.abortController = null;
@@ -677,28 +694,48 @@ export const newCodeDecoration = EditorView.decorations.of((view) => {
   return Decoration.none;
 });
 
-export const inputPromptDecoration = EditorView.decorations.compute([inputState], (state) => {
-  const inputStateValue = state.field(inputState);
-  const options = state.facet(optionsFacet);
-  const decorations = [];
-  if (inputStateValue.show) {
-    const lineStart = inputStateValue.lineFrom;
-    const lineEnd = inputStateValue.lineTo;
-    for (let line = lineStart; line <= lineEnd; line++) {
-      const pos = state.doc.line(line).from;
-      decorations.push(Decoration.line({ class: "cm-ai-selection" }).range(pos));
-      if (line === lineStart) {
-        decorations.push(
-          Decoration.widget({
-            widget: new InputWidget(options.prompt),
-            side: -1,
-            block: true,
-          }).range(pos)
-        );
+export const inputPromptDecoration = StateField.define<DecorationSet>({
+  create() {
+    return Decoration.none;
+  },
+  update(_value, tr) {
+    const inputStateValue = tr.state.field(inputState);
+    const options = tr.state.facet(optionsFacet);
+    const decorations = [];
+    if (inputStateValue.show) {
+      const lineStart = inputStateValue.lineFrom;
+      const lineEnd = inputStateValue.lineTo;
+      const doc = tr.state.doc;
+      const safeL1 = Math.max(1, Math.min(lineStart, doc.lines));
+      const safeL2 = Math.max(1, Math.min(lineEnd, doc.lines));
+
+      for (let line = safeL1; line <= safeL2; line++) {
+        const lineObj = doc.line(line);
+        const pos = lineObj.from;
+        decorations.push(Decoration.line({ class: "cm-ai-selection" }).range(pos));
+        if (line === safeL1) {
+          decorations.push(
+            Decoration.widget({
+              widget: new InputWidget(options.prompt),
+              side: -1,
+              block: true,
+            }).range(pos)
+          );
+        }
       }
     }
-  }
-  return Decoration.set(decorations);
+    // Sort decorations by range from position first, and then place line decorations before widget decorations.
+    decorations.sort((a, b) => {
+      if (a.from !== b.from) return a.from - b.from;
+      const aIsLine = !a.value.spec.widget;
+      const bIsLine = !b.value.spec.widget;
+      if (aIsLine && !bIsLine) return -1;
+      if (!aIsLine && bIsLine) return 1;
+      return 0;
+    });
+    return Decoration.set(decorations, true);
+  },
+  provide: (f) => EditorView.decorations.from(f),
 });
 
 export const oldCodeDecoration = StateField.define<DecorationSet>({
@@ -744,6 +781,10 @@ class GhostWidget extends WidgetType {
     span.textContent = this.text;
     return span;
   }
+
+  eq(other: GhostWidget): boolean {
+    return other instanceof GhostWidget && other.text === this.text;
+  }
 }
 
 const ghostDecoField = StateField.define<DecorationSet>({
@@ -762,6 +803,9 @@ const ghostDecoField = StateField.define<DecorationSet>({
 });
 
 const acceptInline: Command = (view) => {
+  const status = completionStatus(view.state);
+  if (status === "active") return false;
+
   const sugg = view.state.field(inlineSuggField);
   if (!sugg.text) return false;
   const pos = view.state.selection.main.head;
@@ -820,10 +864,12 @@ export function inlineCompletion(options: InlineCompleteOptions): Extension[] {
     inlineSuggField,
     ghostDecoField,
     inlineCompletePlugin(options),
-    keymap.of([
-      { key: "Tab", run: acceptInline },
-      { key: "Escape", run: rejectInline },
-    ]),
+    Prec.highest(
+      keymap.of([
+        { key: "Tab", run: acceptInline },
+        { key: "Escape", run: rejectInline },
+      ])
+    ),
   ];
 }
 

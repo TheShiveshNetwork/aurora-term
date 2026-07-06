@@ -58,6 +58,7 @@ export interface EditorConfig {
   git_gui_mode: string;
   word_wrap: boolean;
   ai_code_completion: boolean;
+  ai_suggestions: boolean;
 }
 
 export interface AppConfig {

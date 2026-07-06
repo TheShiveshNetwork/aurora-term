@@ -435,7 +435,7 @@ server.post('/api/inline-complete', async (request, _reply) => {
     language,
   });
 
-  const agent = mastra.getAgent('aura');
+  const agent = mastra.getAgent('codeCompletionAgent');
   const startTime = Date.now();
 
   const prompt = `You are a code completion engine. Complete the code at the cursor position (marked by █).
@@ -449,7 +449,7 @@ ${context_before}█
 Completion:`;
 
   try {
-    const response = await agent.generate(prompt, { memory: false });
+    const response = await agent.generate(prompt);
     const elapsed = Date.now() - startTime;
     compLog.info('Completion done', { elapsedMs: elapsed, textLength: response.text?.length });
 
@@ -477,7 +477,7 @@ server.post('/api/edit-code', async (request, _reply) => {
 
   editLog.info('Edit request', { promptLength: prompt.length, hasSelection: !!selection });
 
-  const agent = mastra.getAgent('aura');
+  const agent = mastra.getAgent('codeCompletionAgent');
   const startTime = Date.now();
 
   const content = `You are an AI code editor. Your ONLY job is to modify the code based on the user's instruction.
@@ -495,9 +495,7 @@ ${code_after ? `Code after cursor:\n\`\`\`\n${code_after}\n\`\`\`` : ''}
 User instruction: ${prompt}`;
 
   try {
-    const response = await agent.generate(content, {
-      memory: false,
-    });
+    const response = await agent.generate(content);
     const elapsed = Date.now() - startTime;
     editLog.info('Edit response', { elapsedMs: elapsed });
 

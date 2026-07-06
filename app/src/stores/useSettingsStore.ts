@@ -54,6 +54,7 @@ export const DEFAULT_KEYBINDINGS: KeybindingDef[] = [
   { id: "terminal-search", command: "Search Terminal", keys: "Ctrl+Shift+F", when: "Terminal" },
   { id: "voice-input", command: "Toggle Voice Input", keys: "Ctrl+Alt+M", when: "Global" },
   { id: "toggle-word-wrap", command: "Toggle Word Wrap", keys: "Alt+Z", when: "Editor" },
+  { id: "ai-suggestions", command: "AI Suggestions and Improvements", keys: "Ctrl+L", when: "Editor" },
 ];
 
 interface SettingsStore {
@@ -74,6 +75,7 @@ interface SettingsStore {
   restoreTabs: boolean;
   wordWrap: boolean;
   aiCodeCompletion: boolean;
+  aiSuggestions: boolean;
 
   setTheme: (theme: "dark" | "light") => void;
   setMode: (mode: EditorMode) => void;
@@ -92,6 +94,7 @@ interface SettingsStore {
   setRestoreTabs: (restore: boolean) => void;
   setWordWrap: (wrap: boolean) => void;
   setAiCodeCompletion: (enabled: boolean) => void;
+  setAiSuggestions: (enabled: boolean) => void;
 }
 
 export const useSettingsStore = create<SettingsStore>((set) => ({
@@ -112,6 +115,7 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
   restoreTabs: true,
   wordWrap: true,
   aiCodeCompletion: true,
+  aiSuggestions: true,
 
   setTheme: (theme) => {
     set({ theme });
@@ -131,6 +135,7 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
   setRestoreTabs: (restoreTabs) => set({ restoreTabs }),
   setWordWrap: (wordWrap) => set({ wordWrap }),
   setAiCodeCompletion: (aiCodeCompletion) => set({ aiCodeCompletion }),
+  setAiSuggestions: (aiSuggestions) => set({ aiSuggestions }),
   setKeybindingOverride: (id, keys) => set((state) => ({ keybindingOverrides: { ...state.keybindingOverrides, [id]: keys } })),
   resetKeybindingOverride: (id) => set((state) => {
     const { [id]: _, ...rest } = state.keybindingOverrides;

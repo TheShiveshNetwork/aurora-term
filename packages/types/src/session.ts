@@ -1,4 +1,4 @@
-export type TabType = "terminal" | "file" | "diff" | "git";
+export type TabType = "terminal" | "file" | "diff" | "git" | "merge";
 
 export interface Tab {
   id: string;

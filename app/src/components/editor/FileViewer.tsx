@@ -5,7 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 import { system, ai } from "../../lib/ipc";
 import { getLanguageExtension } from "../../lib/codeLang";
 import { isImageFile } from "../../lib/fileUtils";
-import { AlertCircle, Loader, Maximize2, Minimize2, Minus, Plus, RotateCcw } from "lucide-react";
+import { AlertCircle, Loader, Maximize2, Minimize2, Minus, Plus, RotateCcw, GitMerge } from "lucide-react";
 import { useSessionStore } from "../../stores/useSessionStore";
 import { useSettingsStore } from "../../stores/useSettingsStore";
 import { closeAllPopups } from "../../lib/popups";
@@ -37,7 +37,6 @@ if (typeof document !== "undefined") {
     .cm-completionIcon { font-size: 11px !important; width: 1.2em !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; }
     .cm-completionDetail { font-size: 10px !important; color: rgba(232,234,240,0.35) !important; margin-left: auto !important; padding-left: 12px !important; }
     .cm-completionMatchedText { text-decoration: none !important; color: rgba(79,140,255,0.9) !important; }
-    .cm-gutterElement { padding: 0 4px !important; min-width: 0 !important; }
   `;
 }
 
@@ -57,6 +56,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
   const themeCompartmentRef = useRef<Compartment>(createThemeCompartment());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [hasConflicts, setHasConflicts] = useState(false);
   const initialContentRef = useRef<string>("");
   const updateTab = useSessionStore((s) => s.updateTab);
   const editorTheme = useSettingsStore((s) => s.editorTheme);
@@ -75,6 +75,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
   const setShowMinimap = useSettingsStore((s) => s.setShowMinimap);
   const wordWrap = useSettingsStore((s) => s.wordWrap);
   const aiCodeCompletion = useSettingsStore((s) => s.aiCodeCompletion);
+  const aiSuggestions = useSettingsStore((s) => s.aiSuggestions);
   const [editorZoom, setEditorZoom] = useState(13);
   const wordWrapCompartmentRef = useRef<Compartment | null>(null);
   const zoomCompartmentRef = useRef<Compartment | null>(null);
@@ -351,6 +352,9 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
         ]);
         if (cancelled || !editorRef.current) { setLoading(false); return; }
 
+        const conflictsFound = content.includes("<<<<<<<") && content.includes("=======") && content.includes(">>>>>>>");
+        setHasConflicts(conflictsFound);
+
         if (!wordWrapCompartmentRef.current) {
           wordWrapCompartmentRef.current = new Compartment();
         }
@@ -429,7 +433,8 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
           lintGutter(),
           ...(lintSource ? [linter(lintSource)] : []),
           keymap.of(lintKeymap),
-          ...(aiCodeCompletion ? [
+          ...(() => { console.log("Configuring editor, aiSuggestions status:", aiSuggestions); return []; })(),
+          ...(aiSuggestions ? [
             ...aiExtension({
               prompt: async ({ prompt, selection, codeBefore, codeAfter }) => {
                 const response = await ai.editCode(prompt, codeBefore, codeAfter, selection);
@@ -440,6 +445,8 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
               },
               onError: (error) => console.error("AI edit error:", error),
             }),
+          ] : []),
+          ...(aiCodeCompletion ? [
             ...inlineCompletion({
               fetchFn: async (state, _signal, _view) => {
                 const cursorPos = state.selection.main.head;
@@ -468,6 +475,8 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
               const currentContent = update.state.doc.toString();
               const isDirty = currentContent !== initialContentRef.current;
               updateTab(tabId, { dirty: isDirty, fileContent: currentContent, everChanged: true });
+              const conflictsFound = currentContent.includes("<<<<<<<") && currentContent.includes("=======") && currentContent.includes(">>>>>>>");
+              setHasConflicts(conflictsFound);
             }
           }),
         ];
@@ -514,7 +523,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
       }
       updateTab(tabId, { dirty: false });
     };
-  }, [filePath, tabId, updateTab, isImage, imageMimeType]);
+  }, [filePath, tabId, updateTab, isImage, imageMimeType, aiSuggestions, aiCodeCompletion]);
 
   // Reload file content when external changes are detected (git checkout, external editor, etc.)
   useEffect(() => {
@@ -727,6 +736,18 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
       }).catch(console.error);
     };
 
+    const handleAiImprovement = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      console.log("FileViewer handleAiImprovement received event", { detail, tabId, hasView: !!viewRef.current });
+      if (detail && detail.tabId !== tabId) return;
+      const view = viewRef.current;
+      if (!view) return;
+      import("./aiExtensions").then(({ showAiEditInput }) => {
+        console.log("Imported showAiEditInput, calling it");
+        showAiEditInput(view);
+      });
+    };
+
     window.addEventListener("file-select-all", handler);
     window.addEventListener("file-paste", handlePaste);
     window.addEventListener("file-copy-line", handleCopyLine);
@@ -740,6 +761,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
     window.addEventListener("file-change-all-occurrences", handleChangeAllOccurrences);
     window.addEventListener("file-format-document", handleFormatDocumentEvent);
     window.addEventListener("file-run", handleRunFile);
+    window.addEventListener("file-ai-improvement", handleAiImprovement);
     return () => {
       window.removeEventListener("file-select-all", handler);
       window.removeEventListener("file-paste", handlePaste);
@@ -754,6 +776,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
       window.removeEventListener("file-change-all-occurrences", handleChangeAllOccurrences);
       window.removeEventListener("file-format-document", handleFormatDocumentEvent);
       window.removeEventListener("file-run", handleRunFile);
+      window.removeEventListener("file-ai-improvement", handleAiImprovement);
     };
   }, [tabId, filePath, updateTab]);
 
@@ -843,6 +866,21 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
 
   return (
     <div className="flex flex-col h-full w-full bg-surface-container-low">
+      {hasConflicts && (
+        <div className="flex items-center justify-between px-4 py-2 bg-amber-500/10 border-b border-amber-500/20 text-amber-200 select-none">
+          <div className="flex items-center gap-2 text-xs">
+            <AlertCircle size={14} className="text-amber-400" />
+            <span>This file has git merge conflicts. Resolve them in the 3-Way Merge Editor for a better experience.</span>
+          </div>
+          <button
+            onClick={() => useSessionStore.getState().updateTab(tabId, { type: "merge" })}
+            className="flex items-center gap-1.5 px-3 py-1 rounded bg-amber-500 hover:bg-amber-400 active:scale-[0.98] text-black font-semibold text-xs transition-all duration-200 cursor-pointer shadow-sm"
+          >
+            <GitMerge size={12} />
+            <span>Open Merge Editor</span>
+          </button>
+        </div>
+      )}
       <div className="flex-1 overflow-hidden w-full relative" onContextMenu={isImage ? undefined : handleContextMenu}>
         {loading && (
           <div className="absolute inset-0 flex items-center justify-center bg-surface-container-low/80 backdrop-blur-sm z-20">

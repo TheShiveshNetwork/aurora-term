@@ -115,7 +115,7 @@ export function usePTY() {
 
   const killSession = async (sessionId: string) => {
     const tab = tabs.find(t => t.id === sessionId);
-    if (tab?.type === "file" || tab?.type === "diff" || tab?.type === "git") {
+    if (tab?.type === "file" || tab?.type === "diff" || tab?.type === "git" || tab?.type === "merge") {
       removeTab(sessionId);
       return;
     }
