@@ -429,6 +429,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
             { key: "Mod-=", run: () => { setEditorZoom((z) => Math.min(40, z + 1)); return true; } },
             { key: "Mod-+", run: () => { setEditorZoom((z) => Math.min(40, z + 1)); return true; } },
             { key: "Mod--", run: () => { setEditorZoom((z) => Math.max(8, z - 1)); return true; } },
+            { key: "Shift-Mod-l", run: selectSelectionMatches },
           ])),
           lintGutter(),
           ...(lintSource ? [linter(lintSource)] : []),

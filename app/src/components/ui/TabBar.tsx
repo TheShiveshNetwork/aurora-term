@@ -1,5 +1,5 @@
 import React, { useRef, useState, useCallback, useEffect } from "react";
-import { Terminal, FileText, Plus, X, Copy, Pin, Edit3, XCircle, Trash2, ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, ExternalLink, GitBranch, GitBranchPlus } from "lucide-react";
+import { Terminal, FileText, Plus, X, Copy, Pin, Edit3, XCircle, Trash2, ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, ExternalLink, GitBranch, GitBranchPlus, GitMerge } from "lucide-react";
 import { useOpenTabs, EDITOR_LIKE_TYPES } from "../../hooks/useOpenTabs";
 import { Tab } from "@aurora/types";
 import { MenuView, MenuViewItem, MenuViewSeparator } from "./MenuView";
@@ -356,6 +356,8 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
                 <Terminal size={14} className={`shrink-0`} />
               ) : tab.type === "diff" ? (
                 <GitBranchPlus size={14} className="shrink-0" />
+              ) : tab.type === "merge" ? (
+                <GitMerge size={14} className="shrink-0" />
               ) : tab.type === "git" && (
                 <GitBranch size={14} className="shrink-0" />
               )}

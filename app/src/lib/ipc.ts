@@ -344,8 +344,8 @@ export const system = {
     invoke<{ git_branch: string | null }>("get_cwd_info", { cwd }),
   getGitBranch: (cwd: string) =>
     invoke<string | null>("get_git_branch", { cwd }),
-  getGitLog: (cwd: string, maxCount?: number, skip?: number) =>
-    invoke<GitLogResult>("get_git_log", { cwd, maxCount, skip }),
+  getGitLog: (cwd: string, maxCount?: number, skip?: number, branch?: string) =>
+    invoke<GitLogResult>("get_git_log", { cwd, maxCount, skip, branch }),
   getGitFileLog: (cwd: string, filePath: string) =>
     invoke<GitLogResult>("get_git_file_log", { cwd, filePath }),
   getGitGraph: (cwd: string) =>
@@ -386,6 +386,8 @@ export const system = {
     invoke<void>("git_branch_delete", { cwd, branch, force }),
   gitBranchList: (cwd: string) =>
     invoke<GitBranchInfo[]>("git_branch_list", { cwd }),
+  gitBranchListAll: (cwd: string) =>
+    invoke<GitBranchInfo[]>("git_branch_list_all", { cwd }),
   gitDiffUnstaged: (cwd: string, path?: string) =>
     invoke<string>("git_diff_unstaged", { cwd, path }),
   gitDiffStaged: (cwd: string, path?: string) =>
@@ -398,4 +400,6 @@ export const system = {
     invoke<string[]>("git_remote_list", { cwd }),
   gitExec: (cwd: string, args: string[]) =>
     invoke<string>("git_exec", { cwd, args }),
+  gitIsRepo: (cwd: string) =>
+    invoke<boolean>("git_is_repo", { cwd }),
 };

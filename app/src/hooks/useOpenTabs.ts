@@ -4,7 +4,7 @@ import type { Tab } from "@aurora/types";
 
 export type TabGroup = "terminal" | "editor";
 
-export const EDITOR_LIKE_TYPES: Tab["type"][] = ["file", "diff", "git"];
+export const EDITOR_LIKE_TYPES: Tab["type"][] = ["file", "diff", "git", "merge"];
 
 export function tabGroup(type: Tab["type"]): TabGroup {
   return type === "terminal" ? "terminal" : "editor";

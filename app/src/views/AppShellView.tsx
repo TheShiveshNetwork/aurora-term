@@ -1,4 +1,4 @@
-import { type FormEvent, lazy, Suspense, useCallback, useEffect, useMemo, useRef } from "react";
+import { type FormEvent, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { v4 as uuidv4 } from "uuid";
 import { Tab } from "@aurora/types";
@@ -35,6 +35,7 @@ import { DiffWorkspaceView } from "../components/editor/DiffWorkspaceView";
 import { CommitDiffView } from "../components/editor/CommitDiffView";
 import { GitView } from "../components/git/GitView";
 import { MergeWorkspaceView } from "./MergeWorkspaceView";
+import { ToastContainer } from "../components/ui/ToastContainer";
 
 export function AppShellView() {
   const { tabs, activeTabId, spawnSession, killSession, openFile, setActiveTabId } = useAppBootstrap();
@@ -108,6 +109,12 @@ export function AppShellView() {
     }
   }, [viewMode]);
 
+  const [isGitRepo, setIsGitRepo] = useState(false);
+  useEffect(() => {
+    const dir = projectDir || cwdAbsolute;
+    if (!dir) { setIsGitRepo(false); return; }
+    system.gitIsRepo(dir).then(setIsGitRepo).catch(() => setIsGitRepo(false));
+  }, [projectDir, cwdAbsolute]);
 
   const {
     activeCommandInput,
@@ -186,7 +193,7 @@ export function AppShellView() {
   };
 
   const activeTab = tabs.find((tab) => tab.id === activeTabId) || null;
-  const isStandaloneView = activeTab?.type === "file" || activeTab?.type === "diff" || activeTab?.type === "git";
+  const isStandaloneView = activeTab?.type === "file" || activeTab?.type === "diff" || activeTab?.type === "git" || activeTab?.type === "merge";
   const activeFilePath = (activeTab?.type === "file" || activeTab?.type === "diff") ? activeTab.filePath : undefined;
   const pendingTab = pendingCloseTabId ? tabs.find((tab) => tab.id === pendingCloseTabId) || null : null;
   const hasInteracted = activeTabId ? Boolean(interactedSessions[activeTabId]) : false;
@@ -488,6 +495,7 @@ export function AppShellView() {
         onOpenGitView={handleOpenGitView}
         gitViewActive={gitViewActive}
         noFolder={tabs.length === 0}
+        isGitRepo={isGitRepo}
       />
 
       {tabs.length === 0 ? (
@@ -809,6 +817,7 @@ export function AppShellView() {
       />
 
       <StatusBar noFolder={tabs.length === 0} />
+      <ToastContainer />
     </div>
   );
 }

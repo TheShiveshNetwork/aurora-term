@@ -13,7 +13,7 @@ import { AlertCircle, Check, X } from "lucide-react";
 
 // Helper to count conflict blocks remaining in the text
 function countConflicts(text: string): number {
-  const matches = text.match(/^<<<<<</gm);
+  const matches = text.match(/^<<<<<<</gm);
   return matches ? matches.length : 0;
 }
 
@@ -98,6 +98,8 @@ export function MergeEditor({ filePath, cwd, onClose, onSave }: MergeEditorProps
   const mountOursRef = useRef<HTMLDivElement>(null);
   const mountTheirsRef = useRef<HTMLDivElement>(null);
   const mountResultRef = useRef<HTMLDivElement>(null);
+  const topPaneRef = useRef<HTMLDivElement>(null);
+  const bottomPaneRef = useRef<HTMLDivElement>(null);
 
   const viewOursRef = useRef<EditorView | null>(null);
   const viewTheirsRef = useRef<EditorView | null>(null);
@@ -119,6 +121,7 @@ export function MergeEditor({ filePath, cwd, onClose, onSave }: MergeEditorProps
   const [loading, setLoading] = useState(true);
   const [conflictCount, setConflictCount] = useState(0);
   const [parsedData, setParsedData] = useState<{ ours: string; theirs: string; result: string } | null>(null);
+  const [splitRatio, setSplitRatio] = useState(0.5);
 
   // Load conflicted file and parse it
   useEffect(() => {
@@ -287,6 +290,59 @@ export function MergeEditor({ filePath, cwd, onClose, onSave }: MergeEditorProps
     });
   }, [wordWrap]);
 
+  // ── vertical resize: top (ours/theirs) vs bottom (result) ──────────────
+  const splitRef = useRef(splitRatio);
+  splitRef.current = splitRatio;
+  const containerHeightRef = useRef(0);
+  const [dragging, setDragging] = useState(false);
+
+  const applySplit = useCallback((ratio: number) => {
+    if (!topPaneRef.current || !bottomPaneRef.current) return;
+    const clamped = Math.max(0.15, Math.min(0.85, ratio));
+    topPaneRef.current.style.flex = `${clamped} 1 0`;
+    bottomPaneRef.current.style.flex = `${1 - clamped} 1 0`;
+    setSplitRatio(clamped);
+  }, []);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const ro = new ResizeObserver(() => {
+      containerHeightRef.current = containerRef.current!.getBoundingClientRect().height;
+      applySplit(splitRef.current);
+    });
+    ro.observe(containerRef.current);
+    return () => ro.disconnect();
+  }, [applySplit]);
+
+  const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const container = containerRef.current;
+    if (!container) return;
+    const startY = e.clientY;
+    const startRatio = splitRef.current;
+    setDragging(true);
+
+    const onMove = (ev: MouseEvent) => {
+      const rect = container.getBoundingClientRect();
+      if (rect.height <= 0) return;
+      const delta = ev.clientY - startY;
+      applySplit(startRatio + delta / rect.height);
+    };
+
+    const onUp = () => {
+      setDragging(false);
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+
+    document.body.style.cursor = "row-resize";
+    document.body.style.userSelect = "none";
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }, [applySplit]);
+
   // Save resolved content back to file
   const handleSaveResolution = useCallback(async () => {
     if (!viewResultRef.current) return;
@@ -309,10 +365,10 @@ export function MergeEditor({ filePath, cwd, onClose, onSave }: MergeEditorProps
 
   if (loading) {
     return (
-      <div className="h-full w-full flex items-center justify-center bg-[#0e0f14]">
+      <div className="h-full w-full flex items-center justify-center" style={{ background: "var(--surface-container-low, #12131a)" }}>
         <div className="text-center">
           <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <span className="text-sm text-on-surface-variant/60">Loading conflicted file...</span>
+          <span className="text-sm" style={{ color: "rgba(232,234,240,0.4)" }}>Loading conflicted file...</span>
         </div>
       </div>
     );
@@ -325,7 +381,7 @@ export function MergeEditor({ filePath, cwd, onClose, onSave }: MergeEditorProps
       style={{ background: "var(--surface-container-low, #12131a)" }}
     >
       {/* Top Header Controls */}
-      <div className="flex items-center justify-between px-4 py-2 bg-white/[0.02] border-b border-white/[0.06] select-none shrink-0">
+      <div className="flex items-center justify-between px-4 py-2 bg-white/[0.02] select-none shrink-0">
         <div className="flex items-center gap-3">
           <PathBreadcrumb filePath={filePath} />
           {conflictCount > 0 ? (
@@ -350,13 +406,17 @@ export function MergeEditor({ filePath, cwd, onClose, onSave }: MergeEditorProps
         </div>
       </div>
 
-      {/* Editor Views Pane Layout */}
+      {/* Editor Views Pane Layout — resizable vertical split */}
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-        {/* Top half: side-by-side Ours vs Theirs */}
-        <div className="flex-1 flex min-h-0 border-b border-white/[0.06]">
+        {/* Top: side-by-side Ours vs Theirs */}
+        <div
+          ref={topPaneRef}
+          className="flex min-h-0 border-b border-white/[0.06]"
+          style={{ flex: `${splitRatio} 1 0`, minHeight: 80 }}
+        >
           {/* Ours (Left) */}
           <div className="flex-1 flex flex-col min-w-0 border-r border-white/[0.06]">
-            <div className="px-3 py-1 bg-white/[0.01] border-b border-white/[0.04] text-[10px] uppercase font-mono tracking-wider text-blue-400 select-none">
+            <div className="px-3 py-0.5 bg-white/[0.01] border-b border-white/[0.04] text-[10px] font-mono tracking-wider text-blue-400 select-none shrink-0">
               Current Changes (Ours)
             </div>
             <div ref={mountOursRef} className="flex-1 min-h-0 overflow-hidden [&_.cm-editor]:h-full [&_.cm-scroller]:overflow-auto" />
@@ -364,16 +424,29 @@ export function MergeEditor({ filePath, cwd, onClose, onSave }: MergeEditorProps
 
           {/* Theirs (Right) */}
           <div className="flex-1 flex flex-col min-w-0">
-            <div className="px-3 py-1 bg-white/[0.01] border-b border-white/[0.04] text-[10px] uppercase font-mono tracking-wider text-purple-400 select-none">
+            <div className="px-3 py-0.5 bg-white/[0.01] border-b border-white/[0.04] text-[10px] font-mono tracking-wider text-purple-400 select-none shrink-0">
               Incoming Changes (Theirs)
             </div>
             <div ref={mountTheirsRef} className="flex-1 min-h-0 overflow-hidden [&_.cm-editor]:h-full [&_.cm-scroller]:overflow-auto" />
           </div>
         </div>
 
-        {/* Bottom half: Result Editor */}
-        <div className="flex-1 flex flex-col min-h-0">
-          <div className="px-3 py-1 bg-white/[0.01] border-b border-white/[0.04] text-[10px] uppercase font-mono tracking-wider text-emerald-400 select-none">
+        {/* Resize handle between top and bottom */}
+        <div
+          className="shrink-0 relative z-10 cursor-row-resize select-none"
+          style={{ height: 4, background: dragging ? "rgba(79,140,255,0.35)" : "transparent", transition: "background 0.12s" }}
+          onMouseDown={handleResizeMouseDown}
+          onMouseEnter={e => { if (!dragging) e.currentTarget.style.background = "rgba(79,140,255,0.15)"; }}
+          onMouseLeave={e => { if (!dragging) e.currentTarget.style.background = "transparent"; }}
+        />
+
+        {/* Bottom: Result Editor */}
+        <div
+          ref={bottomPaneRef}
+          className="flex flex-col min-h-0"
+          style={{ flex: `${1 - splitRatio} 1 0`, minHeight: 80 }}
+        >
+          <div className="px-3 py-0.5 bg-white/[0.01] border-b border-white/[0.04] text-[10px] font-mono tracking-wider text-emerald-400 select-none shrink-0">
             Result / Merged Output
           </div>
           <div ref={mountResultRef} className="flex-1 min-h-0 overflow-hidden [&_.cm-editor]:h-full [&_.cm-scroller]:overflow-auto" />

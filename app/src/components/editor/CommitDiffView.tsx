@@ -334,7 +334,11 @@ export function CommitDiffView({
 
   return (
     <div className="h-full w-full flex flex-col" style={{ background: "var(--surface-container-low, #12131a)", minHeight: 0 }}>
-      {showBreadcrumb && <PathBreadcrumb filePath={filePath} commitHash={commitHash} />}
+      {showBreadcrumb && 
+        <div className="py-2">
+          <PathBreadcrumb filePath={filePath} commitHash={commitHash} />
+        </div>
+      }
       <div
         ref={containerRef}
         className="flex-1 overflow-hidden [&_.cm-editor]:h-full [&_.cm-scroller]:overflow-auto"

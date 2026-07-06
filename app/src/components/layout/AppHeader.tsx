@@ -34,6 +34,7 @@ interface AppHeaderProps {
   onShowAgentView: () => void;
   onOpenGitView: () => void;
   gitViewActive: boolean;
+  isGitRepo?: boolean;
   onExit: () => void;
   theme: "dark" | "light";
   tabBarVisible: boolean;
@@ -70,6 +71,7 @@ export function AppHeader({
   onShowAgentView,
   onOpenGitView,
   gitViewActive,
+  isGitRepo,
   onExit,
   theme,
   tabBarVisible,
@@ -221,9 +223,11 @@ export function AppHeader({
               </ViewButton>
             </div>
 
-            <IconBtn onClick={onOpenGitView} title={"Open Git View"} active={gitViewActive}>
-              <GitBranch size={14} />
-            </IconBtn>
+            {isGitRepo && (
+              <IconBtn onClick={onOpenGitView} title={"Open Git View"} active={gitViewActive}>
+                <GitBranch size={14} />
+              </IconBtn>
+            )}
           </>
         )}
       </div>

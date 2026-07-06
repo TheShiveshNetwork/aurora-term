@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Cpu, GitBranch, Wifi, WifiOff, Copy, Folder } from "lucide-react";
 import { useAIStore } from "../../stores/useAIStore";
 import { useAppShellStore } from "../../stores/useAppShellStore";
@@ -184,6 +185,12 @@ export function StatusBar({ noFolder }: { noFolder?: boolean }) {
     window.addEventListener("cwd-change", handleCwdChange);
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
+    const unlistenGit = getCurrentWindow().listen<{ cwd: string; type: string }>("git-changed", (event) => {
+      if (event.payload.type === "refs" && event.payload.cwd === cwdRef.current) {
+        fetchGitBranch(event.payload.cwd);
+      }
+    });
+
     if (document.visibilityState === "visible") {
       fetchRam();
     }
@@ -197,6 +204,7 @@ export function StatusBar({ noFolder }: { noFolder?: boolean }) {
     return () => {
       window.removeEventListener("cwd-change", handleCwdChange);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      unlistenGit.then((fn) => fn());
       clearInterval(interval);
       if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current);
       if (cwdTooltipTimeoutRef.current) clearTimeout(cwdTooltipTimeoutRef.current);

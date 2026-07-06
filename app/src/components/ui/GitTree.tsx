@@ -12,17 +12,19 @@ import { ScrollLoader } from "./ScrollLoader";
 const inflightFetches = new Map<string, Promise<GitLogResult>>();
 
 // ─── constants ────────────────────────────────────────────────────────────────
+const ORANGE = "#FF9800";
+const YELLOW = "#FFD600";
+const PURPLE = "#9A7CFF";
+
 const BRANCH_COLORS = [
-  "#FFB300", // main  (amber)
-  "#4F8CFF", // lane1 (blue)
-  "#FF6B6B", // lane2 (red)
-  "#50E3C2", // lane3 (teal)
-  "#9A7CFF", // lane4 (purple)
-  "#FF7043", // lane5
-  "#42C6FF",
-  "#69F0AE",
-  "#FF80AB",
-  "#B388FF",
+  "#FF6B6B", // red
+  "#50E3C2", // teal
+  "#4F8CFF", // blue
+  "#FF7043", // deep orange
+  "#42C6FF", // light blue
+  "#69F0AE", // light green
+  "#FF80AB", // pink
+  "#B388FF", // lavender
 ];
 
 const ROW_H = 20;     // px per commit row
@@ -68,21 +70,36 @@ function buildGraphData(data: GitLogResult): GraphData {
     (branchByHash[b.commit_hash] ??= []).push(b.name);
   }
 
-  // colour per branch — origin/main gets amber, then main/master
+  // color per branch — main→orange, origin/main→yellow, current→purple
   const mainBranchName = branches.find(b => b.name === "origin/main")?.name
     ?? branches.find(b => /^main$|^master$/.test(b.name))?.name;
   const upstreamName = mainBranchName || currentBranch;
   const branchColors: Record<string, string> = {};
-  branchColors[upstreamName] = BRANCH_COLORS[0];
-  let ci = 1;
+
+  // current branch gets purple (highest priority)
+  for (const b of branches) {
+    if (b.name === currentBranch) {
+      branchColors[b.name] = PURPLE;
+    }
+  }
+  // origin/main or origin/master gets yellow
+  for (const b of branches) {
+    if (b.name === "origin/main" || b.name === "origin/master") {
+      if (!branchColors[b.name]) branchColors[b.name] = YELLOW;
+    }
+  }
+  // local main or master gets orange
+  for (const b of branches) {
+    if (/^main$|^master$/.test(b.name) && !branchColors[b.name]) {
+      branchColors[b.name] = ORANGE;
+    }
+  }
+  // everything else cycles
+  let ci = 0;
   for (const b of branches) {
     if (!branchColors[b.name]) {
-      if (b.name === currentBranch && b.name !== upstreamName) {
-        branchColors[b.name] = "#9A7CFF";
-      } else {
-        branchColors[b.name] = BRANCH_COLORS[ci % BRANCH_COLORS.length];
-        ci++;
-      }
+      branchColors[b.name] = BRANCH_COLORS[ci % BRANCH_COLORS.length];
+      ci++;
     }
   }
 
@@ -147,7 +164,7 @@ function buildGraphData(data: GitLogResult): GraphData {
     if (mainSet.has(c.hash)) {
       // ── spine commit ──────────────────────────────────────────────────
       commitLane[c.hash] = 0;
-      commitColors[c.hash] = unpushedSet.has(c.hash) ? "#9A7CFF" : BRANCH_COLORS[0];
+      commitColors[c.hash] = unpushedSet.has(c.hash) ? PURPLE : ORANGE;
 
       // if this commit is the tip of any non-main branch, open that lane
       for (const t of tags) {
@@ -372,9 +389,10 @@ function GraphCanvas({ data, graph, width, commitCenters, totalHeight, commitBou
 // ─── GitTree ──────────────────────────────────────────────────────────────────
 interface GitTreeProps {
   variant?: "compact" | "expanded";
+  branchName?: string;
 }
 
-export function GitTree({ variant = "compact" }: GitTreeProps) {
+export function GitTree({ variant = "compact", branchName }: GitTreeProps) {
   const [data, setData] = useState<GitLogResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -409,31 +427,32 @@ export function GitTree({ variant = "compact" }: GitTreeProps) {
   const fetchLog = useCallback(async () => {
     if (!cwdAbsolute) return;
     const key = ++fetchKeyRef.current;
+    const cacheKey = branchName ? `${cwdAbsolute}|${branchName}` : cwdAbsolute;
     // Check shared store cache first (30s TTL)
-    const cached = useGitStore.getState().getGitLog(cwdAbsolute);
+    const cached = useGitStore.getState().getGitLog(cacheKey);
     if (cached) { setData(cached); return; }
     setLoading(true);
     setError(null);
     try {
-      // Dedup: if another GitTree instance is already fetching for this cwd, wait on it
-      if (!inflightFetches.has(cwdAbsolute)) {
+      // Dedup: if another GitTree instance is already fetching for this cacheKey, wait on it
+      if (!inflightFetches.has(cacheKey)) {
         inflightFetches.set(
-          cwdAbsolute,
-          system.getGitLog(cwdAbsolute, INITIAL_COUNT, 0),
+          cacheKey,
+          system.getGitLog(cwdAbsolute, INITIAL_COUNT, 0, branchName),
         );
       }
-      const result = await inflightFetches.get(cwdAbsolute)!;
+      const result = await inflightFetches.get(cacheKey)!;
       // Only update if we're still the active fetch
       if (key !== fetchKeyRef.current) return;
-      useGitStore.getState().setGitLog(cwdAbsolute, result);
+      useGitStore.getState().setGitLog(cacheKey, result);
       setData(result);
     } catch (e) {
       if (key === fetchKeyRef.current) setError(String(e));
     } finally {
-      inflightFetches.delete(cwdAbsolute);
+      inflightFetches.delete(cacheKey);
       if (key === fetchKeyRef.current) setLoading(false);
     }
-  }, [cwdAbsolute]);
+  }, [cwdAbsolute, branchName]);
 
   useEffect(() => { fetchLog(); }, [fetchLog, gitLogVersion]);
 
@@ -443,15 +462,16 @@ export function GitTree({ variant = "compact" }: GitTreeProps) {
     if (!cwdAbsolute || !d?.has_more || loadingMore) return;
     setLoadingMore(true);
     const skip = d.commits.length;
+    const cacheKey = branchName ? `${cwdAbsolute}|${branchName}` : cwdAbsolute;
     try {
-      const result = await system.getGitLog(cwdAbsolute, PAGE_SIZE, skip);
+      const result = await system.getGitLog(cwdAbsolute, PAGE_SIZE, skip, branchName);
       const updated = {
         ...d,
         commits: [...d.commits, ...result.commits],
         has_more: result.has_more,
       };
       setData(updated);
-      useGitStore.getState().setGitLog(cwdAbsolute, updated);
+      useGitStore.getState().setGitLog(cacheKey, updated);
     } catch { /* keep existing data */ }
     finally { setLoadingMore(false); }
   }, [cwdAbsolute, loadingMore]);
@@ -540,11 +560,21 @@ export function GitTree({ variant = "compact" }: GitTreeProps) {
     return <div className="px-3 py-2 text-xs" style={{ color: "rgba(232,234,240,0.25)" }}>No commits yet</div>;
 
   // ── build graph ────────────────────────────────────────────────────────────
-  const graph = buildGraphData(data);
+  const isExpanded = variant === "expanded";
+
+  // Compact: only show current branch, main, and origin/main
+  // Expanded: show all branches
+  const filteredBranches = isExpanded
+    ? data.branches
+    : data.branches.filter(b =>
+        b.name === data.current_branch
+        || b.name === "main" || b.name === "master"
+        || b.name === "origin/main" || b.name === "origin/master"
+      );
+  const graph = buildGraphData({ ...data, branches: filteredBranches });
   const { commits } = data;
   const { branchColors, currentBranch, commitColors, branchByHash, commitLane, nLanes } = graph;
 
-  const isExpanded = variant === "expanded";
   const canvasW = nLanes * LANE_W + 4;
 
   // ── render ─────────────────────────────────────────────────────────────────

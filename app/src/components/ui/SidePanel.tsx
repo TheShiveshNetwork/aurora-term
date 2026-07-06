@@ -648,6 +648,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab, onAddTab 
   const activeFileContent = activeFileTab?.type === "file" ? activeFileTab.fileContent : undefined;
   const isTerminalView = activeTab?.type === "terminal";
   const sectionVisibility = useAppShellStore((s) => s.sectionVisibility);
+  const projectDir = useAppShellStore((s) => s.projectDir || s.cwdAbsolute);
 
   // Section layout (collapsible + resize)
   const visibleSections = SECTIONS.filter(s => {
@@ -699,6 +700,18 @@ export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab, onAddTab 
     const unsub = onClosePopups(handler);
     return () => { window.removeEventListener("aurora-right-click-menu-close", handler); unsub(); };
   }, []);
+
+  // Auto-refresh GitTree when git refs change on disk
+  useEffect(() => {
+    const unlisten = listen<{ cwd: string; type: string }>("git-changed", (event) => {
+      if (event.payload.type === "refs" || event.payload.type === "remote") {
+        if (event.payload.cwd === projectDir) {
+          setGitRefreshKey((k) => k + 1);
+        }
+      }
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, [projectDir]);
 
   // Load tree
   const loadTree = useCallback(async (absolutePath: string) => {
