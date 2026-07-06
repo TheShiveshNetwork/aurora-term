@@ -5,6 +5,7 @@
   "windows": ["*"],
   "permissions": [
     "core:default",
+    "drag:default",
     "opener:default",
     "notification:default",
     "notification:allow-is-permission-granted",

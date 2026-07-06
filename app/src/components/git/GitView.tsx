@@ -696,7 +696,7 @@ export function GitView({ cwd, tabId }: GitViewProps) {
         <div className="w-px h-4 bg-white/6" />
 
         <button onClick={handlePull} disabled={gitLoading.pull} className="flex items-center gap-1 px-1.5 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer hover:bg-white/6 disabled:opacity-40 disabled:cursor-not-allowed" style={{ color: "rgba(232,234,240,0.5)" }}>{gitLoading.pull ? <Loader size={13} className="animate-spin" /> : <Download size={13} />} Pull</button>
-        <button onClick={handlePush} disabled={gitLoading.push} className="flex items-center gap-1 px-1.5 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer hover:bg-white/6 disabled:opacity-40 disabled:cursor-not-allowed" style={{ color: "rgba(232,234,240,0.5)" }}>{gitLoading.push ? <Loader size={13} className="animate-spin" /> : <Upload size={13} />} Push</button>
+        <button onClick={handlePush} disabled={gitLoading.push || aheadBehind.ahead === 0} className="flex items-center gap-1 px-1.5 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer hover:bg-white/6 disabled:opacity-40 disabled:cursor-not-allowed" style={{ color: "rgba(232,234,240,0.5)" }}>{gitLoading.push ? <Loader size={13} className="animate-spin" /> : <Upload size={13} />} Push</button>
         <button onClick={handleFetch} disabled={gitLoading.fetch} className="flex items-center gap-1 px-1.5 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer hover:bg-white/6 disabled:opacity-40 disabled:cursor-not-allowed" style={{ color: "rgba(232,234,240,0.5)" }}>{gitLoading.fetch ? <Loader size={13} className="animate-spin" /> : <RefreshCw size={13} />} Fetch</button>
 
         <div className="flex-1" />
