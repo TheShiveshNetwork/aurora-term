@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { ProviderName, UiState, SavedTab, ModelInfo } from "@aurora/types";
+import { ProviderName, UiState, SavedTab, ModelInfo, SearchResult } from "@aurora/types";
 
 // ─── Config types mirrored from Rust side ────────────────────────────────
 export interface TerminalConfig {
@@ -240,6 +240,14 @@ export const system = {
     invoke<FileNode[]>("read_dir", { path }),
   searchFiles: (root: string, query: string) =>
     invoke<FileNode[]>("search_files", { root, query }),
+  searchInFiles: (
+    root: string,
+    query: string,
+    includePatterns: string[],
+    excludePatterns: string[],
+    caseSensitive: boolean,
+    maxResults?: number,
+  ) => invoke<SearchResult[]>("search_in_files", { root, query, includePatterns, excludePatterns, caseSensitive, maxResults: maxResults ?? 2000 }),
   readFileContent: async (path: string) => {
     const pending = pendingFileReads.get(path);
     if (pending) {

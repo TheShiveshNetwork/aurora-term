@@ -589,7 +589,7 @@ export function AgentOverlay({ sessionId, onClose }: AgentOverlayProps) {
 
       {/* ── Header ── */}
       <div
-        className="flex items-center justify-between px-4 py-3 shrink-0"
+        className="flex items-center justify-between px-4 py-3 h-13 shrink-0"
         style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
       >
         <div className="flex items-center gap-2">

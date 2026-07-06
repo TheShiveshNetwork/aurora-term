@@ -283,7 +283,7 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
 
   return (
     <div
-      className="flex items-center w-full h-12 px-3 gap-2"
+      className="flex items-center w-full h-13 px-3 gap-2"
       style={{
         background: "#0A0D14",
         borderBottom: "1px solid rgba(255,255,255,0.05)",
@@ -418,7 +418,6 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
         </button>
       )}
 
-      <div className="relative shrink-0">
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -431,7 +430,7 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
               onAddTab("terminal");
             }
           }}
-          className="w-8 h-8 flex items-center justify-center rounded-[10px] transition-all cursor-pointer"
+          className="w-9 h-9 mt-1.5 self-start flex items-center justify-center rounded-[10px] transition-all cursor-pointer"
           style={{
             background: "rgba(255,255,255,0.04)",
             border: "1px solid rgba(255,255,255,0.07)",
@@ -443,22 +442,6 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
         >
           <Plus size={15} className={`transition-transform duration-200 ${showAddMenu ? "rotate-45" : ""}`} />
         </button>
-
-        <MenuView
-          variant="primary"
-          open={showAddMenu}
-          onClose={() => setShowAddMenu(false)}
-          className="absolute right-0 top-[calc(100%+6px)] min-w-[132px]"
-          style={{ pointerEvents: "auto" }}
-        >
-          <MenuViewItem icon={<Terminal size={12} />} onClick={() => { onAddTab("terminal"); setShowAddMenu(false); }}>
-            Terminal Tab
-          </MenuViewItem>
-          <MenuViewItem icon={<FileText size={12} />} onClick={() => { onAddTab("file"); setShowAddMenu(false); }}>
-            Workspace Tab
-          </MenuViewItem>
-        </MenuView>
-      </div>
 
       <MenuView
         variant="rightclick"

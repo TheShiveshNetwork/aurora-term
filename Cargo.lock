@@ -387,6 +387,7 @@ dependencies = [
  "aurora-sidecar",
  "base64 0.22.1",
  "chrono",
+ "globset",
  "ignore",
  "notify",
  "reqwest 0.12.28",

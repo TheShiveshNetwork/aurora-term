@@ -30,23 +30,32 @@ DONE
 26. git view discard all changes not working
 27. when the agent fails to load any apis tell the user to get an api key and add it in the settings for good ux
 38. Github action for release
+36. Add tests for code
+33. codemirror multiple cursor: See allowMultipleSelections and clickAddsSelectionRange.
+35. codemirror linter
+35. side by side diff view to take proper width 1/2 and allow drag resize
+32. git merge editor in codemirror for merge errors
+36. on saving the window reloads, fix for that
+34. codemirror ai suggestions
 
 TODO
 
+37. MAJOR: Agent improvement
+38. token usage optimization
+
 25. settings to separate the idea between command input bar for terminal and file so that on terminal the comand input bar always opens
+26. whenever some error occurs anywhere show a error toast popup at bottom of the app window. do not show alerts or anything please. create a common notification ui component to implement this. also right now the abort button in the merge editor is not functional. fix that.
 30. implement file drag and drop in file view and outside file view to copy and paste
 31. on adding new file in side panel when it gets added open the file in new tab, also implement del key click on side panel and shift delete to delete files
-32. git merge editor in codemirror for merge errors
-33. codemirror ai suggestions
-34. codemirror linter
-35. Operating systems compatibility (only test where it is working)
-36. Add tests for code
-37. MAJOR: Agent improvement
-38. support for voice input 
-39. Disable the things that cant be done on new window like adding new tab, closing tabs etc on the menu options
-40. supabase integration for user account creation > lazy fetch with user saved settings only once when app is installed and when settings updated update to supabase
-41. Publish to microsoft store
-42. In-built browser
-43. Expose the app features and usage of it like browser as mcp for the built application
-44. Create a website
+37. Operating systems compatibility (only test where it is working)
+42. session management (creating new session, compaction, etc)
+38. Sessions store for the workspace
+39. create brain for the agent with memory, implemntation plan, etc (artifact creation)
+39. support for voice input
+40. Disable the things that cant be done on new window like adding new tab, closing tabs etc on the menu options
+41. supabase integration for user account creation > lazy fetch with user saved settings only once when app is installed and when settings updated update to supabase
+43. Publish to microsoft store
+44. In-built browser
+45. Expose the app features and usage of it like browser as mcp for the built application
+46. Create a website
 

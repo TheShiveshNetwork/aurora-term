@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   Folder, FileText, FileCode, FileImage, FileJson, FileSpreadsheet, FileAudio, FileVideo, FileArchive,
-  ChevronDown, ChevronRight, RefreshCw, MoreHorizontal,
+  ChevronDown, ChevronRight, RefreshCw, MoreHorizontal, Search,
   Copy, FolderOpen, Terminal, ExternalLink, ClipboardCopy, Pencil, Trash2, AlertTriangle,
   ClipboardList, Scissors, CopyMinus, GitBranch, Plus,
 } from "lucide-react";
@@ -20,6 +20,8 @@ import { FileOutline } from "./FileOutline";
 import { FileTimeline } from "./FileTimeline";
 import { GitTree } from "./GitTree";
 import { OpenTabs } from "./OpenTabs";
+import { SearchInFiles } from "./SearchInFiles";
+import { useSearchStore } from "../../stores/useSearchStore";
 
 // ── Normalize path for comparison ────────────────────────────────────────────
 function pathsEqual(a: string, b: string): boolean {
@@ -41,6 +43,7 @@ interface SidePanelProps {
   activeFilePath?: string;
   onKillTab?: (id: string) => void;
   onAddTab?: (type: "terminal" | "file") => void;
+  onOpenFileAtPath?: (path: string) => void;
 }
 
 interface FileMenuState { x: number; y: number; node: FileNode }
@@ -311,13 +314,20 @@ function SectionToggle() {
 }
 
 // ── SidebarIconBtn ────────────────────────────────────────────────────────────
-function SidebarIconBtn({ children, title, onClick }: { children: React.ReactNode; title?: string; onClick?: () => void }) {
+function SidebarIconBtn({ children, title, onClick, active }: { children: React.ReactNode; title?: string; onClick?: () => void; active?: boolean }) {
   return (
     <button type="button" title={title} onClick={onClick}
       className="w-6 h-6 flex items-center justify-center rounded-[6px] cursor-pointer transition-colors"
-      style={{ color: "rgba(232,234,240,0.4)" }}
-      onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.07)"; e.currentTarget.style.color = "#E8EAF0"; }}
-      onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "rgba(232,234,240,0.4)"; }}
+      style={{
+        color: active ? "#E8EAF0" : "rgba(232,234,240,0.4)",
+        background: active ? "rgba(255,255,255,0.07)" : "transparent",
+      }}
+      onMouseEnter={(e) => {
+        if (!active) { e.currentTarget.style.background = "rgba(255,255,255,0.07)"; e.currentTarget.style.color = "#E8EAF0"; }
+      }}
+      onMouseLeave={(e) => {
+        if (!active) { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "rgba(232,234,240,0.4)"; }
+      }}
     >
       {children}
     </button>
@@ -595,7 +605,7 @@ const MAX_WIDTH = 520;
 const DEFAULT_WIDTH = 220;
 
 // ── SidePanel ─────────────────────────────────────────────────────────────────
-export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab, onAddTab }: SidePanelProps) {
+export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab, onAddTab, onOpenFileAtPath }: SidePanelProps) {
   const [showAddTabMenu, setShowAddTabMenu] = useState(false);
   const addTabBtnRef = useRef<HTMLDivElement>(null);
   const [selectedFile, setSelectedFile] = useState("");
@@ -641,6 +651,10 @@ export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab, onAddTab 
   const loadSeqRef = useRef(0);
   const hasDataRef = useRef(false);
   const serializedRootRef = useRef("");
+
+  // Search
+  const searchIsOpen = useSearchStore((s) => s.isOpen);
+  const searchToggle = useSearchStore((s) => s.toggle);
 
   // Stores
   const activeTab = useSessionStore((s) => s.tabs.find((t) => t.id === s.activeTabId));
@@ -1034,18 +1048,28 @@ export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab, onAddTab 
     >
       {/* Explorer header */}
       <div className="flex items-center justify-between px-3 shrink-0 select-none"
-        style={{ height: "34px", borderBottom: "1px solid rgba(255,255,255,0.05)" }}
+        style={{ height: "34px" }}
       >
         <span className="text-[11px] font-bold tracking-[0.08em] uppercase" style={{ color: "rgba(255,255,255,0.35)" }}>
           Explorer
         </span>
-        <SectionToggle />
+        <div className="flex items-center gap-0.5">
+          <SidebarIconBtn title="Search in Files" onClick={searchToggle} active={searchIsOpen}>
+            <Search size={12} />
+          </SidebarIconBtn>
+          <SectionToggle />
+        </div>
       </div>
 
       {/* Sections container — fills remaining height (tracked by ResizeObserver inside useSidepanelLayout) */}
       <div ref={sectionsRef} className="flex flex-col flex-1 min-h-0 overflow-hidden">
 
-        {/* FOLDERS */}
+        {searchIsOpen ? (
+          <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+            <SearchInFiles onOpenFileAtPath={onOpenFileAtPath} />
+          </div>
+        ) : (
+          <>{/* All sections hidden when search is open */}
         {sectionVisibility.folders && (
           <CollapsibleSection
             label={workspaceName}
@@ -1225,6 +1249,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab, onAddTab 
             <GitTree key={gitRefreshKey} />
           </CollapsibleSection>
         )}
+        </>)}
       </div>
 
       {/* Panel resize handle */}

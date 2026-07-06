@@ -132,6 +132,7 @@ pub fn run() {
             aurora_commands::get_cwd,
             aurora_commands::read_dir,
             aurora_commands::search_files,
+            aurora_commands::search_in_files,
             aurora_commands::read_file_content,
             aurora_commands::read_file_base64,
             aurora_commands::write_file_content,

@@ -1117,7 +1117,7 @@ function ChangesFileRow({ entry, onStage, onRestore, onDelete, onOpenFile, onSel
         <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 group-hover:bg-primary rounded" style={{ pointerEvents: "auto" }}>
           <IconButton icon={<FileSymlink />} tooltip="Open File" onClick={onOpenFile} size="sm" className="w-5 h-5 [&_svg]:w-[11px] [&_svg]:h-[11px] text-white" />
           {onRestore && <IconButton icon={<Undo2 />} tooltip="Discard Changes" onClick={onRestore} size="sm" className="w-5 h-5 [&_svg]:w-[11px] [&_svg]:h-[11px] text-white" />}
-          {onDelete && <IconButton icon={<Trash2 />} tooltip="Delete File" onClick={onDelete} size="sm" className="w-5 h-5 [&_svg]:w-[11px] [&_svg]:h-[11px] text-red-400" />}
+          {onDelete && <IconButton icon={<Trash2 />} tooltip="Delete File" onClick={onDelete} size="sm" className="w-5 h-5 [&_svg]:w-[11px] [&_svg]:h-[11px] text-white" />}
           <IconButton icon={<Plus />} tooltip="Stage" onClick={onStage} size="sm" className="w-5 h-5 [&_svg]:w-[11px] [&_svg]:h-[11px] text-white" />
         </div>
       )}

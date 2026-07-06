@@ -26,6 +26,22 @@ export interface ProcessInfo {
   status: string;
 }
 
+// ─── Search in Files ────────────────────────────────────
+
+export interface FileSearchMatch {
+  path: string;
+  line_number: number;
+  column: number;
+  line: string;
+  match_start: number;
+  match_end: number;
+}
+
+export interface SearchResult {
+  path: string;
+  matches: FileSearchMatch[];
+}
+
 // ─── UI State (from state.json) ─────────────────────────
 
 export interface SavedTab {

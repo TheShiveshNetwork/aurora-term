@@ -503,6 +503,7 @@ export function AppShellView() {
       ) : (
         <div className="flex flex-1 overflow-hidden">
           <SidePanel collapsed={sidebarCollapsed} cwd={projectDir || cwdAbsolute} activeFilePath={activeFilePath}
+            onOpenFileAtPath={(path: string) => { openFile(path, projectDir || cwdAbsolute); setViewMode("file"); }}
             onKillTab={(id) => {
               const tab = tabs.find((candidate) => candidate.id === id);
               if (tab?.type === "file" && tab.dirty) {
