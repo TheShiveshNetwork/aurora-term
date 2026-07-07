@@ -127,10 +127,10 @@ export function AppShellView() {
     targetSessionId,
   } = useCommandExecution(tabs, activeTabId);
 
-  const { startTask } = useAgentExecution(targetSessionId);
+  const { startTask } = useAgentExecution(activeTabId);
 
   const agentStatus = useAgentStore((state) =>
-    targetSessionId ? (state.sessions[targetSessionId]?.status ?? "idle") : "idle"
+    activeTabId ? (state.sessions[activeTabId]?.status ?? "idle") : "idle"
   );
   const isAiRunning = agentStatus === "planning" || agentStatus === "executing" || agentStatus === "paused";
   const isRunning = isCommandRunning || isAiRunning;
@@ -139,20 +139,20 @@ export function AppShellView() {
     if (isCommandRunning) {
       handleStopCurrentCommand();
     }
-    if (isAiRunning && targetSessionId) {
+    if (isAiRunning && activeTabId) {
       const store = useAgentStore.getState();
-      store.setPendingToolCall(targetSessionId, null);
-      store.setCurrentCommandIndex(targetSessionId, -1);
-      store.failTask(targetSessionId, "Cancelled by user");
-      const snap = store.sessions[targetSessionId];
-      store.addChatMessage(targetSessionId, {
+      store.setPendingToolCall(activeTabId, null);
+      store.setCurrentCommandIndex(activeTabId, -1);
+      store.failTask(activeTabId, "Cancelled by user");
+      const snap = store.sessions[activeTabId];
+      store.addChatMessage(activeTabId, {
         role: "assistant",
         content: "Task cancelled by user.",
         chainNodes: snap?.chainNodes ?? [],
         agentType: snap?.agentType,
       });
     }
-  }, [isCommandRunning, isAiRunning, targetSessionId, handleStopCurrentCommand]);
+  }, [isCommandRunning, isAiRunning, activeTabId, handleStopCurrentCommand]);
 
   const shellType: ShellType = useMemo(() => isWindowsPlatform() ? "powershell" : "bash", []);
   const inputMode = useMemo(() => classifyInput(activeCommandInput, shellType), [activeCommandInput, shellType]);
@@ -182,7 +182,7 @@ export function AppShellView() {
 
       setCommandInput("");
       setShowAiBar(true);
-      startTask(cleanGoal, "terminal");
+      startTask(cleanGoal, isFilePrompt ? undefined : "terminal");
     } else {
       defaultSubmit(event);
     }
@@ -676,7 +676,7 @@ export function AppShellView() {
                 />
               )}
 
-              {/* File view: prompt variant (absolute, glassmorphism, independent state) */}
+              {/* File view: prompt variant — AI-only, no classifier */}
               {chatInputOpen && activeTab?.type === "file" && (
                 <CommandInputBar
                   variant="prompt"
@@ -690,7 +690,6 @@ export function AppShellView() {
                   onSubmit={(e) => handleInterceptedSubmit(e, handleFileCommandSubmit, true)}
                   onStop={handleStop}
                   onOpenAiBar={() => setShowAiBar(true)}
-                  inputMode={inputMode}
                 />
               )}
             </>

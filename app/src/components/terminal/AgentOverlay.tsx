@@ -524,10 +524,7 @@ export function AgentOverlay({ sessionId, onClose }: AgentOverlayProps) {
     await declinePending();
   }, [declinePending]);
 
-  // Show only terminal agent messages (or legacy messages without agentType)
-  const filteredChatHistory = chatHistory.filter(
-    (m) => m.agentType === "terminal" || m.agentType === undefined
-  );
+  const filteredChatHistory = chatHistory;
 
   // Group chat history into turns (user + optional assistant)
   const turns: Array<{ user: ChatMessage; assistant: ChatMessage | null }> = [];

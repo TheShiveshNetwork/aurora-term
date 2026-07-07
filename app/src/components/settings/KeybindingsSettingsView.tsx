@@ -116,63 +116,65 @@ export default function KeybindingsSettingsView() {
         )}
       </div>
 
-      <div className="rounded-lg overflow-hidden border border-white/6">
-        <div className="flex items-center text-[11px] font-semibold uppercase tracking-wider px-3 py-2 select-none bg-white/3 text-on-surface/35 border-b border-white/6">
-          <div className="w-7 shrink-0" />
-          <div className="flex-1 min-w-0">Command</div>
-          <div className="w-[140px] shrink-0 text-left">Keybinding</div>
-          <div className="w-[90px] shrink-0 text-left">When</div>
-          <div className="w-[72px] shrink-0 text-left">Source</div>
-        </div>
+      <div className="rounded-lg border border-white/6 overflow-hidden">
+        <div className="overflow-x-auto w-full" style={{ scrollbarWidth: "thin" }}>
+          <div className="flex items-center text-[11px] font-semibold uppercase tracking-wider px-3 py-2 select-none bg-white/3 text-on-surface/35 border-b border-white/6">
+            <div className="w-7 shrink-0" />
+            <div className="flex-1 min-w-[60px]">Command</div>
+            <div className="w-[110px] shrink-0 text-left">Keybinding</div>
+            <div className="w-[80px] shrink-0 text-left">When</div>
+            <div className="w-[60px] shrink-0 text-left">Source</div>
+          </div>
 
-        <div className="h-full overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
-          {filtered.length === 0 ? (
-            <div className="flex items-center justify-center py-8 text-[12px] text-on-surface/30">
-              No keybindings match your search
-            </div>
-          ) : (
-            filtered.map((kb) => {
-              const keys = getKeys(kb);
-              const source = getSource(kb);
-              return (
-                <div key={kb.id} className="flex items-center text-[12px] px-3 py-2 group transition-colors border-b border-white/4">
-                  <button
-                    onClick={() => setEditingId(kb.id)}
-                    className="w-6 shrink-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:opacity-100 focus:opacity-100 mr-1 rounded text-on-surface/35"
-                    title="Edit keybinding"
-                  >
-                    <Pencil size={11} />
-                  </button>
+          <div className="h-full overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
+            {filtered.length === 0 ? (
+              <div className="flex items-center justify-center py-8 text-[12px] text-on-surface/30">
+                No keybindings match your search
+              </div>
+            ) : (
+              filtered.map((kb) => {
+                const keys = getKeys(kb);
+                const source = getSource(kb);
+                return (
+                  <div key={kb.id} className="flex items-center text-[12px] px-3 py-2 group transition-colors border-b border-white/4">
+                    <button
+                      onClick={() => setEditingId(kb.id)}
+                      className="w-6 shrink-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:opacity-100 focus:opacity-100 mr-1 rounded text-on-surface/35"
+                      title="Edit keybinding"
+                    >
+                      <Pencil size={11} />
+                    </button>
 
-                  <div className="flex-1 min-w-0 truncate text-on-surface">
-                    {kb.command}
+                    <div className="flex-1 min-w-[60px] truncate text-on-surface">
+                      {kb.command}
+                    </div>
+
+                    <div className="w-[110px] shrink-0 flex justify-start">
+                      <kbd className="px-1.5 py-0.5 rounded text-[11px] font-mono bg-primary/10 text-primary border border-primary/15">
+                        {keys}
+                      </kbd>
+                    </div>
+
+                    <div className="w-[80px] shrink-0 text-left text-[11px] text-on-surface/40">
+                      {kb.when}
+                    </div>
+
+                    <div className="w-[60px] shrink-0 flex justify-start">
+                      {source === "changed" ? (
+                        <span className="text-[11px] px-1.5 py-0.5 rounded font-medium bg-[rgba(255,183,77,0.1)] text-[#FFB74D]">
+                          Changed
+                        </span>
+                      ) : (
+                        <span className="text-[11px] text-on-surface/25">
+                          System
+                        </span>
+                      )}
+                    </div>
                   </div>
-
-                  <div className="w-[140px] shrink-0 flex justify-start">
-                    <kbd className="px-1.5 py-0.5 rounded text-[11px] font-mono bg-primary/10 text-primary border border-primary/15">
-                      {keys}
-                    </kbd>
-                  </div>
-
-                  <div className="w-[90px] shrink-0 text-left text-[11px] text-on-surface/40">
-                    {kb.when}
-                  </div>
-
-                  <div className="w-[72px] shrink-0 flex justify-start">
-                    {source === "changed" ? (
-                      <span className="text-[11px] px-1.5 py-0.5 rounded font-medium bg-[rgba(255,183,77,0.1)] text-[#FFB74D]">
-                        Changed
-                      </span>
-                    ) : (
-                      <span className="text-[11px] text-on-surface/25">
-                        System
-                      </span>
-                    )}
-                  </div>
-                </div>
-              );
-            })
-          )}
+                );
+              })
+            )}
+          </div>
         </div>
       </div>
 
