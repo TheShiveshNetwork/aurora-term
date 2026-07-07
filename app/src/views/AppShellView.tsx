@@ -68,6 +68,9 @@ export function AppShellView() {
     chatInputOpen,
     setChatInputOpen,
     toggleChatInputOpen,
+    fileChatInputOpen,
+    setFileChatInputOpen,
+    toggleFileChatInputOpen,
     setShowMenuDropdown,
     toggleSidebarCollapsed,
     toggleShowMenuDropdown,
@@ -83,6 +86,7 @@ export function AppShellView() {
   const layoutBackupRef = useRef<{
     sidebarCollapsed: boolean;
     chatInputOpen: boolean;
+    fileChatInputOpen: boolean;
     showAiBar: boolean;
   } | null>(null);
 
@@ -93,16 +97,19 @@ export function AppShellView() {
         layoutBackupRef.current = {
           sidebarCollapsed: store.sidebarCollapsed,
           chatInputOpen: store.chatInputOpen,
+          fileChatInputOpen: store.fileChatInputOpen,
           showAiBar: store.showAiBar,
         };
       }
       store.setSidebarCollapsed(true);
       store.setChatInputOpen(false);
+      store.setFileChatInputOpen(false);
       store.setShowAiBar(false);
     } else {
       if (layoutBackupRef.current) {
         store.setSidebarCollapsed(layoutBackupRef.current.sidebarCollapsed);
         store.setChatInputOpen(layoutBackupRef.current.chatInputOpen);
+        store.setFileChatInputOpen(layoutBackupRef.current.fileChatInputOpen);
         store.setShowAiBar(layoutBackupRef.current.showAiBar);
         layoutBackupRef.current = null;
       }
@@ -467,8 +474,14 @@ export function AppShellView() {
           const current = useAppShellStore.getState().showAiBar;
           useAppShellStore.getState().setShowAiBar(!current);
         }}
-        chatInputOpen={chatInputOpen}
-        onToggleChatInput={toggleChatInputOpen}
+        chatInputOpen={activeTab?.type === "terminal" ? chatInputOpen : fileChatInputOpen}
+        onToggleChatInput={() => {
+          if (activeTab?.type === "file") {
+            toggleFileChatInputOpen();
+          } else {
+            toggleChatInputOpen();
+          }
+        }}
         menuOpen={showMenuDropdown}
         onToggleMenu={() => { closeAllPopups(); toggleShowMenuDropdown(); }}
         onOpenFolder={handleOpenFolder}
@@ -556,6 +569,7 @@ export function AppShellView() {
                       onAddTab={async (type: "terminal" | "file") => {
                         const baseCwd = projectDir || cwdAbsolute;
                         if (type === "terminal") {
+                          useAppShellStore.getState().setChatInputOpen(true);
                           const { shell, args } = getDefaultShellLaunch();
                           try {
                             const sessionId = await spawnSession(shell, args, {}, baseCwd);
@@ -677,7 +691,7 @@ export function AppShellView() {
               )}
 
               {/* File view: prompt variant — AI-only, no classifier */}
-              {chatInputOpen && activeTab?.type === "file" && (
+              {fileChatInputOpen && activeTab?.type === "file" && (
                 <CommandInputBar
                   variant="prompt"
                   sessionId={null}

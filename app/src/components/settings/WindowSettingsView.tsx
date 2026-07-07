@@ -10,6 +10,7 @@ export default function WindowSettingsView() {
   const sidebarCollapsed = draft.sidebarCollapsed;
   const showAiBar = draft.showAiBar;
   const chatInputOpen = draft.chatInputOpen;
+  const fileChatInputOpen = draft.fileChatInputOpen;
   const tabBarVisible = draft.tabBarVisible;
   // const blurSidebar = draft.config.appearance.blur_sidebar;
   const showStatusbar = draft.config.appearance.show_statusbar;
@@ -31,8 +32,8 @@ export default function WindowSettingsView() {
       </div>
 
       <div id="setting-command-input">
-        <FieldRow label="Show Command Input">
-          <ToggleSwitch checked={chatInputOpen} onChange={(v) => updateDraft(d => { d.chatInputOpen = v; })} />
+        <FieldRow label="Show Command Input" description="File views respect this toggle; terminal always shows input on new tabs">
+          <ToggleSwitch checked={chatInputOpen} onChange={(v) => updateDraft(d => { d.chatInputOpen = v; d.fileChatInputOpen = v; })} />
         </FieldRow>
       </div>
 

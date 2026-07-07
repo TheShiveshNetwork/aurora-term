@@ -1,12 +1,13 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Command, Send, Terminal, RotateCcw, Paperclip, Plus, Check, Copy } from "lucide-react";
 import { useAgentStore, CONST_DEFAULT_SESSION_STATE } from "../stores/useAgentStore";
-import { useSessionStore } from "../stores/useSessionStore";
 import { useAppShellStore } from "../stores/useAppShellStore";
 import { useAgentExecution } from "../hooks/useAgentExecution";
 import { AgentHeroView } from "../components/terminal/AgentHeroView";
 import { StatusDrawer } from "../components/terminal/StatusDrawer";
 import { renderMarkdown, renderInline } from "../lib/markdown";
+
+const AGENT_VIEW_SESSION_ID = "agent-view";
 
 export function AgentView() {
   const [input, setInput] = useState("");
@@ -15,14 +16,10 @@ export function AgentView() {
   const taRef = useRef<HTMLTextAreaElement>(null);
   const sendBtnRef = useRef<HTMLButtonElement>(null);
 
-  const lastActiveTerminalId = useAppShellStore((s) => s.lastActiveTerminalId);
-  const tabs = useSessionStore((s) => s.tabs);
   const sessions = useAgentStore((s) => s.sessions);
   const setAgentMode = useAgentStore((s) => s.setAgentMode);
 
-  const targetSessionId = lastActiveTerminalId && tabs.some((t) => t.id === lastActiveTerminalId)
-    ? lastActiveTerminalId
-    : tabs.find((t) => t.type === "terminal")?.id || null;
+  const targetSessionId = AGENT_VIEW_SESSION_ID;
 
   const {
     startTask,

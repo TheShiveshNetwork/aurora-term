@@ -9,6 +9,7 @@ import { pty, system, config } from "../lib/ipc";
 import { Block } from "@aurora/types";
 
 // ── Constants ──────────────────────────────────────────────────────────────
+const AGENT_VIEW_SESSION_ID = "agent-view";
 const HEAD_TAIL_CHARS = 200;
 
 function truncateOutput(output: string): string {
@@ -394,6 +395,19 @@ export function useAgentExecution(sessionId: string | null) {
     const targetSessionId = sessionRef.current;
     if (!targetSessionId) return;
 
+    // AgentView uses a dedicated session ID — redirect PTY operations to the
+    // real terminal session so output appears in the user's terminal.
+    const isAgentView = targetSessionId === AGENT_VIEW_SESSION_ID;
+    const ptySessionId = isAgentView
+      ? useAppShellStore.getState().lastActiveTerminalId || targetSessionId
+      : targetSessionId;
+
+    if (isAgentView && ptySessionId === targetSessionId) {
+      console.warn("AgentView: no terminal session available for PTY command");
+      useAgentStore.getState().addLog(targetSessionId, "Cannot run shell command: no terminal session open.");
+      return { exitCode: -1, output: "No terminal session available. Open a terminal tab first." };
+    }
+
     const state = useAgentStore.getState();
     const freshSession = state.sessions[targetSessionId] || defaultSessionState();
     const commandItem = freshSession.queue[index];
@@ -413,7 +427,7 @@ export function useAgentExecution(sessionId: string | null) {
     const blockId = uuidv4();
     const newBlock: Block = {
       id: blockId,
-      session_id: targetSessionId,
+      session_id: ptySessionId,
       command: commandItem.command,
       started_at: startedAt,
       status: "running",
@@ -426,20 +440,20 @@ export function useAgentExecution(sessionId: string | null) {
       anchor_y: 0,
     };
 
-    useBlockStore.getState().setRunningBlockId(targetSessionId, blockId);
-    useBlockStore.getState().setCommandOutputReceived(targetSessionId, false);
-    useBlockStore.getState().addBlock(targetSessionId, newBlock);
+    useBlockStore.getState().setRunningBlockId(ptySessionId, blockId);
+    useBlockStore.getState().setCommandOutputReceived(ptySessionId, false);
+    useBlockStore.getState().addBlock(ptySessionId, newBlock);
 
     try {
-      useAppShellStore.getState().markSessionInteracted(targetSessionId);
+      useAppShellStore.getState().markSessionInteracted(ptySessionId);
       window.dispatchEvent(
-        new CustomEvent(`pty-command-run:${targetSessionId}`, {
+        new CustomEvent(`pty-command-run:${ptySessionId}`, {
           detail: { cmd: commandItem.command },
         })
       );
-      await pty.write(targetSessionId, `${commandItem.command}\r`);
+      await pty.write(ptySessionId, `${commandItem.command}\r`);
 
-      const result = await waitForBlockCompletion(targetSessionId, blockId);
+      const result = await waitForBlockCompletion(ptySessionId, blockId);
       const durationMs = Date.now() - startedAt;
       const cmdStatus = result.exitCode === 0 ? "success" : "error";
 

@@ -135,8 +135,8 @@ export const config = {
 
 export const state = {
   get: () => invoke<UiState>("state_get"),
-  updateSidebar: (collapsed: boolean, visible: boolean, showAiBar: boolean, chatInputOpen: boolean) =>
-    invoke<void>("state_update_sidebar", { collapsed, visible, showAiBar, chatInputOpen }),
+  updateSidebar: (collapsed: boolean, visible: boolean, showAiBar: boolean, chatInputOpen: boolean, fileChatInputOpen?: boolean) =>
+    invoke<void>("state_update_sidebar", { collapsed, visible, showAiBar, chatInputOpen, fileChatInputOpen }),
   updatePinnedTabs: (pinned: string[]) =>
     invoke<void>("state_update_pinned_tabs", { pinned }),
   updateSectionVisibility: (sections: Record<string, boolean>) =>

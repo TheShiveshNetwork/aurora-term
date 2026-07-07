@@ -42,12 +42,12 @@ DONE
 30. implement file drag and drop in file view and outside file view to copy and paste
 40. codemirror lint fix
 40. Disable the things that cant be done on new window like adding new tab, closing tabs etc on the menu options
+25. settings to separate the idea between command input bar for terminal and file so that on terminal the comand input bar always opens
+26. separate the command agent and the agent view
 
 TODO
 
 39. support for voice input
-25. settings to separate the idea between command input bar for terminal and file so that on terminal the comand input bar always opens
-26. separate the command agent and the agent view
 
 37. MAJOR: Agent improvement
 38. token usage optimization

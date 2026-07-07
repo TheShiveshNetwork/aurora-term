@@ -10,6 +10,7 @@ export function usePersistUIState() {
     tabBarVisible: useAppShellStore.getState().tabBarVisible,
     showAiBar: useAppShellStore.getState().showAiBar,
     chatInputOpen: useAppShellStore.getState().chatInputOpen,
+    fileChatInputOpen: useAppShellStore.getState().fileChatInputOpen,
     pinnedTabs: useSessionStore.getState().tabs.filter((t) => t.pinned).map((t) => t.id),
     sectionVisibility: { ...useAppShellStore.getState().sectionVisibility },
     projectDir: useAppShellStore.getState().projectDir,
@@ -32,12 +33,12 @@ export function usePersistUIState() {
     if (!dirtyRef.current) return;
     dirtyRef.current = false;
     const {
-      sidebarCollapsed, tabBarVisible, showAiBar, chatInputOpen, pinnedTabs, sectionVisibility,
+      sidebarCollapsed, tabBarVisible, showAiBar, chatInputOpen, fileChatInputOpen, pinnedTabs, sectionVisibility,
       projectDir, workspaceCwd, openTabs, activeTabId,
     } = latestRef.current;
 
     // Save UI toggles to state.json
-    state.updateSidebar(sidebarCollapsed, tabBarVisible, showAiBar, chatInputOpen).catch(() => {});
+    state.updateSidebar(sidebarCollapsed, tabBarVisible, showAiBar, chatInputOpen, fileChatInputOpen).catch(() => {});
     state.updatePinnedTabs(pinnedTabs).catch(() => {});
     if (sectionVisibility) {
       state.updateSectionVisibility(sectionVisibility).catch(() => {});
@@ -59,12 +60,13 @@ export function usePersistUIState() {
     };
 
     const unsub1 = useAppShellStore.subscribe((s) => {
-      const { sidebarCollapsed, tabBarVisible, showAiBar, chatInputOpen, sectionVisibility, projectDir, cwdAbsolute } = s;
+      const { sidebarCollapsed, tabBarVisible, showAiBar, chatInputOpen, fileChatInputOpen, sectionVisibility, projectDir, cwdAbsolute } = s;
       const l = latestRef.current;
       l.sidebarCollapsed = sidebarCollapsed;
       l.tabBarVisible = tabBarVisible;
       l.showAiBar = showAiBar;
       l.chatInputOpen = chatInputOpen;
+      l.fileChatInputOpen = fileChatInputOpen;
       l.sectionVisibility = { ...sectionVisibility };
       l.projectDir = projectDir;
       l.workspaceCwd = cwdAbsolute;

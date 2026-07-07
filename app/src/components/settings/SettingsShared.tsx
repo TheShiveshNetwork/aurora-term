@@ -7,6 +7,7 @@ export interface DraftSettings {
   sidebarCollapsed: boolean;
   showAiBar: boolean;
   chatInputOpen: boolean;
+  fileChatInputOpen: boolean;
   tabBarVisible: boolean;
 }
 
