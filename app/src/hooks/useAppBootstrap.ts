@@ -41,6 +41,7 @@ export function applyAppConfig(cfg: AppConfig) {
   settings.setWordWrap(cfg.editor.word_wrap !== false);
   settings.setAiCodeCompletion(cfg.editor.ai_code_completion !== false);
   settings.setAiSuggestions(cfg.editor.ai_suggestions !== false);
+  settings.setIndentMarkers(cfg.editor.indent_markers !== false);
 
   // Keybindings
   const overrides: Record<string, string> = {};
@@ -162,6 +163,7 @@ export function useAppBootstrap() {
           useAppShellStore.getState().setTabBarVisible(uiState.tab_bar_visible);
           useAppShellStore.getState().setShowAiBar(uiState.show_ai_bar);
           useAppShellStore.getState().setChatInputOpen(uiState.chat_input_open);
+          useAppShellStore.getState().setFileChatInputOpen(uiState.file_chat_input_open !== undefined ? uiState.file_chat_input_open : uiState.chat_input_open);
 
           if (uiState.section_visibility) {
             useAppShellStore.getState().setSectionVisibility(uiState.section_visibility as any);
@@ -277,13 +279,15 @@ export function useAppBootstrap() {
       sidebarCollapsed: boolean;
       showAiBar: boolean;
       chatInputOpen: boolean;
+      fileChatInputOpen: boolean;
       tabBarVisible: boolean;
     }>("ui_state_changed", (event) => {
-      const { sidebarCollapsed, showAiBar, chatInputOpen, tabBarVisible } = event.payload;
+      const { sidebarCollapsed, showAiBar, chatInputOpen, fileChatInputOpen, tabBarVisible } = event.payload;
       const shell = useAppShellStore.getState();
       shell.setSidebarCollapsed(sidebarCollapsed);
       shell.setShowAiBar(showAiBar);
       shell.setChatInputOpen(chatInputOpen);
+      shell.setFileChatInputOpen(fileChatInputOpen);
       shell.setTabBarVisible(tabBarVisible);
     }).then((u) => {
       unlistenUiState = u;

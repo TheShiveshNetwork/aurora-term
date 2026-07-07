@@ -26,3 +26,4 @@ ignore  = { workspace = true }
 sysinfo = { workspace = true }
 notify  = { workspace = true }
 rfd     = { workspace = true }
+globset = { workspace = true }

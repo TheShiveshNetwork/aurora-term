@@ -212,6 +212,12 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
     };
 
     // 1. Construct the xterm.js instance
+    const container = xtermRef.current;
+    if (!container || container.clientWidth === 0 || container.clientHeight === 0) {
+      console.warn(`[TerminalPane ${sessionId}] Container has zero dimensions, deferring terminal init`);
+      return;
+    }
+
     const term = new Terminal({
       allowProposedApi: true,
       allowTransparency: true,
@@ -219,7 +225,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
       cursorBlink: false,
       cursorStyle: "bar",
       cursorInactiveStyle: "none",
-      cursorWidth: 0,
+      cursorWidth: 1,
       theme: buildXtermTheme(),
       disableStdin: true, // Decoupled input
     });

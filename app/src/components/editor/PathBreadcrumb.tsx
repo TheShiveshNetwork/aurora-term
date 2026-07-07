@@ -12,17 +12,11 @@ export function PathBreadcrumb({ filePath, commitHash, onOpenFile }: PathBreadcr
 
   return (
     <div
-      className="flex items-center gap-1 px-3 shrink-0 text-xs font-mono"
-      style={{
-        height: 34,
-        background: "rgba(0,0,0,0.20)",
-        borderBottom: "1px solid rgba(232,234,240,0.07)",
-        color: "rgba(232,234,240,0.5)",
-      }}
+      className="flex items-center px-3 shrink-0 text-xs font-mono"
     >
       {parts.map((part, i) => (
         <React.Fragment key={i}>
-          {i > 0 && <span style={{ color: "rgba(232,234,240,0.2)" }}>/</span>}
+          {i > 0 && <span>/</span>}
           <span
             className={i < parts.length - 1 && onOpenFile ? "cursor-pointer hover:text-[#E8EAF0]" : ""}
             onClick={() => {

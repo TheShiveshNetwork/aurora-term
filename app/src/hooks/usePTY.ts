@@ -127,9 +127,14 @@ export function usePTY() {
     }
   };
 
-  const openFile = (filePath: string, cwd?: string) => {
+  const openFile = (filePath: string, cwd?: string, options?: { lineNumber?: number; matchStart?: number; matchEnd?: number }) => {
     const existing = tabs.find(t => t.type === "file" && t.filePath === filePath);
     if (existing) {
+      updateTab(existing.id, {
+        scrollToLine: options?.lineNumber,
+        scrollToMatchStart: options?.matchStart,
+        scrollToMatchEnd: options?.matchEnd,
+      });
       setActiveTabId(existing.id);
       return existing.id;
     }
@@ -146,6 +151,9 @@ export function usePTY() {
         dirty: false,
         everChanged: false,
         fileContent: undefined,
+        scrollToLine: options?.lineNumber,
+        scrollToMatchStart: options?.matchStart,
+        scrollToMatchEnd: options?.matchEnd,
       });
       setActiveTabId(reuseTab.id);
       preloadFileContent(filePath);
@@ -161,6 +169,9 @@ export function usePTY() {
       cwd,
       created_at: Date.now(),
       everChanged: false,
+      scrollToLine: options?.lineNumber,
+      scrollToMatchStart: options?.matchStart,
+      scrollToMatchEnd: options?.matchEnd,
     };
 
     addTab(newTab);

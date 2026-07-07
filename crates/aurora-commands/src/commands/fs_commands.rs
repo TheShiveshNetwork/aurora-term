@@ -8,7 +8,9 @@ use base64::Engine;
 use serde_json;
 use notify::Watcher;
 use aurora_core::AppError;
+use aurora_core::types::search::{FileSearchMatch, SearchResult};
 use crate::state::AppState;
+use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use ignore::WalkBuilder;
 
@@ -477,6 +479,141 @@ pub fn watch_git(
     state.git_watcher.store(cwd, watcher);
 
     Ok(())
+}
+
+#[command]
+pub fn search_in_files(
+    root: String,
+    query: String,
+    include_patterns: Vec<String>,
+    exclude_patterns: Vec<String>,
+    case_sensitive: bool,
+    max_results: usize,
+) -> Result<Vec<SearchResult>, AppError> {
+    let root_path = PathBuf::from(&root);
+    if !root_path.is_dir() {
+        return Err(AppError::Io("Root is not a directory".to_string()));
+    }
+
+    // Build include globset
+    let include_set: Option<GlobSet> = if include_patterns.is_empty() {
+        None
+    } else {
+        let mut builder = GlobSetBuilder::new();
+        for pat in &include_patterns {
+            let glob = Glob::new(pat).map_err(|e| AppError::Io(e.to_string()))?;
+            builder.add(glob);
+        }
+        Some(builder.build().map_err(|e| AppError::Io(e.to_string()))?)
+    };
+
+    // Build exclude globset
+    let exclude_set: Option<GlobSet> = if exclude_patterns.is_empty() {
+        None
+    } else {
+        let mut builder = GlobSetBuilder::new();
+        for pat in &exclude_patterns {
+            let glob = Glob::new(pat).map_err(|e| AppError::Io(e.to_string()))?;
+            builder.add(glob);
+        }
+        Some(builder.build().map_err(|e| AppError::Io(e.to_string()))?)
+    };
+
+    let query_lower = query.to_lowercase();
+    let mut results: Vec<SearchResult> = Vec::new();
+    let match_limit = max_results.clamp(1, 5000);
+
+    let walker = WalkBuilder::new(&root_path)
+        .standard_filters(true)
+        .build();
+
+    for entry in walker {
+        if results.len() >= match_limit {
+            break;
+        }
+        let entry = entry.map_err(|e| AppError::Io(e.to_string()))?;
+        let path = entry.path();
+
+        if !path.is_file() {
+            continue;
+        }
+
+        // Relative path for glob matching
+        let rel = path.strip_prefix(&root_path).unwrap_or(path);
+        let rel_str = rel.to_string_lossy().replace('\\', "/");
+
+        // Check exclude patterns first
+        if let Some(ref exclude_set) = exclude_set {
+            if exclude_set.is_match(&rel_str) {
+                continue;
+            }
+        }
+
+        // Check include patterns
+        if let Some(ref include_set) = include_set {
+            if !include_set.is_match(&rel_str) {
+                continue;
+            }
+        }
+
+        // Read file and search content
+        let content = match std::fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        // Skip binary files (check for null byte)
+        if content.contains('\0') {
+            continue;
+        }
+
+        // Skip files larger than 1MB
+        if content.len() > 1_048_576 {
+            continue;
+        }
+
+        let mut file_matches: Vec<FileSearchMatch> = Vec::new();
+
+        for (line_num, line) in content.lines().enumerate() {
+            let search_line = if case_sensitive { line.to_string() } else { line.to_lowercase() };
+            let search_query = if case_sensitive { query.clone() } else { query_lower.clone() };
+
+            let mut col = 0;
+            while let Some(idx) = search_line[col..].find(&search_query) {
+                let absolute_col = col + idx;
+                let match_end = absolute_col + search_query.len();
+                file_matches.push(FileSearchMatch {
+                    path: path.to_string_lossy().into_owned(),
+                    line_number: line_num + 1,
+                    column: absolute_col + 1,
+                    line: line.to_string(),
+                    match_start: absolute_col,
+                    match_end,
+                });
+                col = absolute_col + 1;
+                // Stop searching same line after 5 matches
+                if file_matches.len() >= 5 {
+                    break;
+                }
+            }
+
+            // Stop after too many total matches in this file
+            if file_matches.len() >= 100 {
+                break;
+            }
+        }
+
+        if !file_matches.is_empty() {
+            results.push(SearchResult {
+                path: path.to_string_lossy().into_owned(),
+                matches: file_matches,
+            });
+        }
+    }
+
+    results.sort_by(|a, b| a.path.cmp(&b.path));
+
+    Ok(results)
 }
 
 #[command]

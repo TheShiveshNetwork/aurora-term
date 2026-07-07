@@ -524,10 +524,7 @@ export function AgentOverlay({ sessionId, onClose }: AgentOverlayProps) {
     await declinePending();
   }, [declinePending]);
 
-  // Show only terminal agent messages (or legacy messages without agentType)
-  const filteredChatHistory = chatHistory.filter(
-    (m) => m.agentType === "terminal" || m.agentType === undefined
-  );
+  const filteredChatHistory = chatHistory;
 
   // Group chat history into turns (user + optional assistant)
   const turns: Array<{ user: ChatMessage; assistant: ChatMessage | null }> = [];
@@ -589,7 +586,7 @@ export function AgentOverlay({ sessionId, onClose }: AgentOverlayProps) {
 
       {/* ── Header ── */}
       <div
-        className="flex items-center justify-between px-4 py-3 shrink-0"
+        className="flex items-center justify-between px-4 py-3 h-13 shrink-0"
         style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
       >
         <div className="flex items-center gap-2">

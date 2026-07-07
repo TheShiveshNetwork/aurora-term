@@ -112,6 +112,7 @@ export default function SettingsPage() {
         sidebarCollapsed: uiState.sidebar_collapsed,
         showAiBar: uiState.show_ai_bar,
         chatInputOpen: uiState.chat_input_open,
+        fileChatInputOpen: uiState.file_chat_input_open,
         tabBarVisible: uiState.tab_bar_visible,
       };
       setDraft(JSON.parse(JSON.stringify(initialVal)));
@@ -154,9 +155,10 @@ export default function SettingsPage() {
       sidebarCollapsed: boolean;
       showAiBar: boolean;
       chatInputOpen: boolean;
+      fileChatInputOpen: boolean;
       tabBarVisible: boolean;
     }>("ui_state_changed", (event) => {
-      const { sidebarCollapsed, showAiBar, chatInputOpen, tabBarVisible } = event.payload;
+      const { sidebarCollapsed, showAiBar, chatInputOpen, fileChatInputOpen, tabBarVisible } = event.payload;
       setDraft((prev) => {
         if (!prev) return null;
         return {
@@ -164,6 +166,7 @@ export default function SettingsPage() {
           sidebarCollapsed,
           showAiBar,
           chatInputOpen,
+          fileChatInputOpen,
           tabBarVisible,
         };
       });
@@ -174,6 +177,7 @@ export default function SettingsPage() {
           sidebarCollapsed,
           showAiBar,
           chatInputOpen,
+          fileChatInputOpen,
           tabBarVisible,
         };
       });
@@ -184,6 +188,7 @@ export default function SettingsPage() {
           sidebarCollapsed,
           showAiBar,
           chatInputOpen,
+          fileChatInputOpen,
           tabBarVisible,
         };
       });
@@ -255,12 +260,14 @@ export default function SettingsPage() {
         draft.sidebarCollapsed,
         draft.tabBarVisible,
         draft.showAiBar,
-        draft.chatInputOpen
+        draft.chatInputOpen,
+        draft.fileChatInputOpen
       );
       await emit("ui_state_changed", {
         sidebarCollapsed: draft.sidebarCollapsed,
         showAiBar: draft.showAiBar,
         chatInputOpen: draft.chatInputOpen,
+        fileChatInputOpen: draft.fileChatInputOpen,
         tabBarVisible: draft.tabBarVisible,
       });
       setApplied(JSON.parse(JSON.stringify(draft)));
@@ -279,12 +286,14 @@ export default function SettingsPage() {
         draft.sidebarCollapsed,
         draft.tabBarVisible,
         draft.showAiBar,
-        draft.chatInputOpen
+        draft.chatInputOpen,
+        draft.fileChatInputOpen
       );
       await emit("ui_state_changed", {
         sidebarCollapsed: draft.sidebarCollapsed,
         showAiBar: draft.showAiBar,
         chatInputOpen: draft.chatInputOpen,
+        fileChatInputOpen: draft.fileChatInputOpen,
         tabBarVisible: draft.tabBarVisible,
       });
       setApplied(JSON.parse(JSON.stringify(draft)));

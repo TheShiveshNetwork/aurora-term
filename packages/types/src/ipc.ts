@@ -26,6 +26,22 @@ export interface ProcessInfo {
   status: string;
 }
 
+// ─── Search in Files ────────────────────────────────────
+
+export interface FileSearchMatch {
+  path: string;
+  line_number: number;
+  column: number;
+  line: string;
+  match_start: number;
+  match_end: number;
+}
+
+export interface SearchResult {
+  path: string;
+  matches: FileSearchMatch[];
+}
+
 // ─── UI State (from state.json) ─────────────────────────
 
 export interface SavedTab {
@@ -43,10 +59,12 @@ export interface UiState {
   tab_bar_visible: boolean;
   show_ai_bar: boolean;
   chat_input_open: boolean;
+  file_chat_input_open: boolean;
   pinned_tabs: string[];
   section_visibility: Record<string, boolean>;
   open_tabs: SavedTab[];
   active_tab_id: string | null;
   last_project_dir: string | null;
   last_workspace_cwd: string | null;
+  checked_branches: Record<string, string[]>;
 }

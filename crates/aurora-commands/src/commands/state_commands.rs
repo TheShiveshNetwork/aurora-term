@@ -20,9 +20,10 @@ pub async fn state_update_sidebar(
     visible: bool,
     show_ai_bar: bool,
     chat_input_open: bool,
+    file_chat_input_open: bool,
 ) -> Result<(), AppError> {
     let mut us = state.ui_state.lock().await;
-    us.update_sidebar(collapsed, visible, show_ai_bar, chat_input_open)
+    us.update_sidebar(collapsed, visible, show_ai_bar, chat_input_open, file_chat_input_open)
 }
 
 #[command]
@@ -82,4 +83,14 @@ pub async fn state_set_workspace_cwd(
 ) -> Result<(), AppError> {
     let mut us = state.ui_state.lock().await;
     us.set_workspace_cwd(path)
+}
+
+#[command]
+pub async fn state_update_checked_branches(
+    state: State<'_, AppState>,
+    project_dir: String,
+    branches: Vec<String>,
+) -> Result<(), AppError> {
+    let mut us = state.ui_state.lock().await;
+    us.update_checked_branches(project_dir, branches)
 }

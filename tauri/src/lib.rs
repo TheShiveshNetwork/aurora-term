@@ -67,6 +67,8 @@ fn start_pty_event_bridge(
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_drag::init())
         .plugin(
             tauri_plugin_prevent_default::Builder::new()
                 .with_flags(Flags::keyboard())
@@ -132,6 +134,7 @@ pub fn run() {
             aurora_commands::get_cwd,
             aurora_commands::read_dir,
             aurora_commands::search_files,
+            aurora_commands::search_in_files,
             aurora_commands::read_file_content,
             aurora_commands::read_file_base64,
             aurora_commands::write_file_content,
@@ -152,6 +155,7 @@ pub fn run() {
             aurora_commands::state_update_tabs,
             aurora_commands::state_set_project_dir,
             aurora_commands::state_set_workspace_cwd,
+            aurora_commands::state_update_checked_branches,
             // AI commands
             aurora_commands::ai_save_api_key,
             aurora_commands::ai_get_api_key,
@@ -191,6 +195,7 @@ pub fn run() {
             aurora_commands::git_add,
             aurora_commands::git_reset,
             aurora_commands::git_restore,
+            aurora_commands::git_clean,
             aurora_commands::git_commit,
             aurora_commands::git_push,
             aurora_commands::git_pull,
@@ -205,6 +210,8 @@ pub fn run() {
             aurora_commands::git_clone,
             aurora_commands::git_remote_list,
             aurora_commands::git_exec,
+            aurora_commands::git_branch_list_all,
+            aurora_commands::git_is_repo,
             aurora_commands::agent_plan_step,
             aurora_commands::agent_approve_tool,
             aurora_commands::agent_decline_tool,

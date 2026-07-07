@@ -7,7 +7,7 @@ interface MergeWorkspaceViewProps {
 }
 
 export function MergeWorkspaceView({ tab }: MergeWorkspaceViewProps) {
-  const killSession = useSessionStore((s) => s.killSession);
+  const removeTab = useSessionStore((s) => s.removeTab);
 
   if (!tab.filePath) {
     return (
@@ -21,7 +21,7 @@ export function MergeWorkspaceView({ tab }: MergeWorkspaceViewProps) {
     <MergeEditor
       filePath={tab.filePath}
       cwd={tab.cwd || ""}
-      onClose={() => killSession(tab.id)}
+      onClose={() => removeTab(tab.id)}
     />
   );
 }

@@ -86,6 +86,12 @@ export default function EditorSettingsView() {
           <ToggleSwitch checked={draft.config.editor.ai_suggestions} onChange={(v) => updateDraft((d) => { d.config.editor.ai_suggestions = v; })} />
         </FieldRow>
       </div>
+
+      <div id="setting-indent-markers">
+        <FieldRow label="Indent Markers">
+          <ToggleSwitch checked={draft.config.editor.indent_markers} onChange={(v) => updateDraft((d) => { d.config.editor.indent_markers = v; })} />
+        </FieldRow>
+      </div>
     </div>
   );
 }

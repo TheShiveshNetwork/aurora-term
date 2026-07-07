@@ -15,6 +15,7 @@ import { getLinterSource } from "./linterSources";
 import { aiExtension, inlineCompletion } from "./aiExtensions";
 import { mergeConflictResolver } from "./mergeConflictExtension";
 import { SearchPanel } from "./SearchPanel";
+import { indentMarkersExtension } from "./indentMarkersExtension";
 import { usePTY } from "../../hooks/usePTY";
 import { getDefaultShellLaunch } from "../../lib/shell";
 import { useAppShellStore } from "../../stores/useAppShellStore";
@@ -59,6 +60,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
   const [hasConflicts, setHasConflicts] = useState(false);
   const initialContentRef = useRef<string>("");
   const updateTab = useSessionStore((s) => s.updateTab);
+  const tab = useSessionStore(useCallback(s => s.tabs.find(t => t.id === tabId), [tabId]));
   const editorTheme = useSettingsStore((s) => s.editorTheme);
   const { spawnSession } = usePTY();
 
@@ -76,9 +78,11 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
   const wordWrap = useSettingsStore((s) => s.wordWrap);
   const aiCodeCompletion = useSettingsStore((s) => s.aiCodeCompletion);
   const aiSuggestions = useSettingsStore((s) => s.aiSuggestions);
+  const indentMarkers = useSettingsStore((s) => s.indentMarkers);
   const [editorZoom, setEditorZoom] = useState(13);
   const wordWrapCompartmentRef = useRef<Compartment | null>(null);
   const zoomCompartmentRef = useRef<Compartment | null>(null);
+  const indentMarkersCompartmentRef = useRef<Compartment | null>(null);
 
 
   const [imageSrc, setImageSrc] = useState("");
@@ -352,14 +356,17 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
         ]);
         if (cancelled || !editorRef.current) { setLoading(false); return; }
 
-        const conflictsFound = content.includes("<<<<<<<") && content.includes("=======") && content.includes(">>>>>>>");
-        setHasConflicts(conflictsFound);
+        const hasMergeMarkers = /^<<<<<<< .+/m.test(content) && /^>>>>>>> .+/m.test(content);
+        setHasConflicts(hasMergeMarkers);
 
         if (!wordWrapCompartmentRef.current) {
           wordWrapCompartmentRef.current = new Compartment();
         }
         if (!zoomCompartmentRef.current) {
           zoomCompartmentRef.current = new Compartment();
+        }
+        if (!indentMarkersCompartmentRef.current) {
+          indentMarkersCompartmentRef.current = new Compartment();
         }
 
         initialContentRef.current = content.replace(/\r\n/g, "\n");
@@ -429,8 +436,41 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
             { key: "Mod-=", run: () => { setEditorZoom((z) => Math.min(40, z + 1)); return true; } },
             { key: "Mod-+", run: () => { setEditorZoom((z) => Math.min(40, z + 1)); return true; } },
             { key: "Mod--", run: () => { setEditorZoom((z) => Math.max(8, z - 1)); return true; } },
+            { key: "Shift-Mod-l", run: selectSelectionMatches },
           ])),
-          lintGutter(),
+          lintGutter({
+            marker: (diagnostics) => {
+              let severity = "info";
+              for (const d of diagnostics) {
+                if (d.severity === "error") {
+                  severity = "error";
+                  break;
+                }
+                if (d.severity === "warning") {
+                  severity = "warning";
+                }
+              }
+              const marker = document.createElement("div");
+              marker.className = `cm-lint-marker cm-lint-marker-${severity}`;
+              marker.style.width = "10px";
+              marker.style.height = "10px";
+              marker.style.borderRadius = "50%";
+              marker.style.margin = "auto";
+              marker.style.display = "block";
+              
+              if (severity === "error") {
+                marker.style.background = "#FF6B6B";
+                marker.style.boxShadow = "0 0 6px #FF6B6B";
+              } else if (severity === "warning") {
+                marker.style.background = "#FFB86C";
+                marker.style.boxShadow = "0 0 6px #FFB86C";
+              } else {
+                marker.style.background = "#8BE9FD";
+                marker.style.boxShadow = "0 0 6px #8BE9FD";
+              }
+              return marker;
+            }
+          }),
           ...(lintSource ? [linter(lintSource)] : []),
           keymap.of(lintKeymap),
           ...(() => { console.log("Configuring editor, aiSuggestions status:", aiSuggestions); return []; })(),
@@ -459,7 +499,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
               delay: 600,
             }),
           ] : []),
-          ...(content.includes("<<<<<<<") && content.includes("=======") && content.includes(">>>>>>>")
+          ...(/^<<<<<<< .+/m.test(content) && /^>>>>>>> .+/m.test(content)
             ? mergeConflictResolver()
             : []),
           themeCompartmentRef.current.of([]),
@@ -470,13 +510,13 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
             ".cm-scroller": { fontSize: `${editorZoom}px` }
           })),
           createMinimapExtension(showMinimap),
+          indentMarkersCompartmentRef.current.of(indentMarkers ? indentMarkersExtension() : []),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
               const currentContent = update.state.doc.toString();
               const isDirty = currentContent !== initialContentRef.current;
               updateTab(tabId, { dirty: isDirty, fileContent: currentContent, everChanged: true });
-              const conflictsFound = currentContent.includes("<<<<<<<") && currentContent.includes("=======") && currentContent.includes(">>>>>>>");
-              setHasConflicts(conflictsFound);
+              setHasConflicts(/^<<<<<<< .+/m.test(currentContent) && /^>>>>>>> .+/m.test(currentContent));
             }
           }),
         ];
@@ -496,6 +536,31 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
         });
 
         viewRef.current = view;
+
+        if (tab?.scrollToLine !== undefined) {
+          try {
+            const lineNum = Math.min(Math.max(1, tab.scrollToLine), view.state.doc.lines);
+            const lineInfo = view.state.doc.line(lineNum);
+            const mStart = tab.scrollToMatchStart ?? 0;
+            const mEnd = tab.scrollToMatchEnd ?? 0;
+            const startPos = Math.min(lineInfo.from + mStart, lineInfo.to);
+            const endPos = Math.min(lineInfo.from + mEnd, lineInfo.to);
+            
+            view.dispatch({
+              selection: { anchor: startPos, head: endPos },
+              scrollIntoView: true
+            });
+            view.focus();
+            
+            updateTab(tabId, {
+              scrollToLine: undefined,
+              scrollToMatchStart: undefined,
+              scrollToMatchEnd: undefined,
+            });
+          } catch (err) {
+            console.error("Initial scroll to line failed:", err);
+          }
+        }
 
         getEditorTheme(editorTheme).then(theme => {
           if (viewRef.current === view) {
@@ -524,6 +589,35 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
       updateTab(tabId, { dirty: false });
     };
   }, [filePath, tabId, updateTab, isImage, imageMimeType, aiSuggestions, aiCodeCompletion]);
+
+  // Separate useEffect to handle scrolling to a line on tab selection/navigation
+  useEffect(() => {
+    const view = viewRef.current;
+    if (view && tab?.scrollToLine !== undefined) {
+      try {
+        const lineNum = Math.min(Math.max(1, tab.scrollToLine), view.state.doc.lines);
+        const lineInfo = view.state.doc.line(lineNum);
+        const mStart = tab.scrollToMatchStart ?? 0;
+        const mEnd = tab.scrollToMatchEnd ?? 0;
+        const startPos = Math.min(lineInfo.from + mStart, lineInfo.to);
+        const endPos = Math.min(lineInfo.from + mEnd, lineInfo.to);
+        
+        view.dispatch({
+          selection: { anchor: startPos, head: endPos },
+          scrollIntoView: true
+        });
+        view.focus();
+        
+        updateTab(tabId, {
+          scrollToLine: undefined,
+          scrollToMatchStart: undefined,
+          scrollToMatchEnd: undefined,
+        });
+      } catch (err) {
+        console.error("Runtime scroll to line failed:", err);
+      }
+    }
+  }, [tab?.scrollToLine, tab?.scrollToMatchStart, tab?.scrollToMatchEnd, tabId, updateTab]);
 
   // Reload file content when external changes are detected (git checkout, external editor, etc.)
   useEffect(() => {
@@ -685,10 +779,25 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
           })()
           : view.state.sliceDoc(sel.from, sel.to);
         if (text) {
-          const { selectSelectionMatches, SearchQuery, setSearchQuery } = await import("@codemirror/search");
-          const query = new SearchQuery({ search: text, caseSensitive: false });
-          view.dispatch({ effects: setSearchQuery.of(query) });
-          selectSelectionMatches(view);
+          const docLower = view.state.doc.toString().toLowerCase();
+          const textLower = text.toLowerCase();
+          const ranges: any[] = [];
+          const { EditorSelection } = await import("@codemirror/state");
+
+          let pos = 0;
+          while (true) {
+            const index = docLower.indexOf(textLower, pos);
+            if (index === -1) break;
+            ranges.push(EditorSelection.range(index, index + text.length));
+            pos = index + textLower.length;
+          }
+
+          if (ranges.length > 0) {
+            view.dispatch({
+              selection: EditorSelection.create(ranges)
+            });
+            view.focus();
+          }
         }
       }
     };
@@ -799,6 +908,17 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
       }
     });
   }, [wordWrap]);
+
+  // React to indentMarkers toggle
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view || !indentMarkersCompartmentRef.current) return;
+    view.dispatch({
+      effects: indentMarkersCompartmentRef.current.reconfigure(
+        indentMarkers ? indentMarkersExtension() : []
+      )
+    });
+  }, [indentMarkers]);
 
   // React to editorZoom change
   useEffect(() => {

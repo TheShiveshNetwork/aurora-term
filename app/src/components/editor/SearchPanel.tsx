@@ -37,23 +37,24 @@ export function SearchPanel({ view, onClose, initialFindText = "" }: SearchPanel
   const [showReplace, setShowReplace] = useState(false);
   const [matchIdx, setMatchIdx] = useState(0);
   const [matchTotal, setMatchTotal] = useState(0);
+  const [caseSensitive, setCaseSensitive] = useState(false);
   const findRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     openSearchPanel(view);
     if (initialFindText) {
-      const query = new SearchQuery({ search: initialFindText, caseSensitive: false });
+      const query = new SearchQuery({ search: initialFindText, caseSensitive });
       view.dispatch({ effects: setSearchQuery.of(query) });
       setMatchTotal(countMatches(view, query));
       setMatchIdx(currentMatchIndex(view, query));
     }
     findRef.current?.focus();
     findRef.current?.select();
-  }, [view, initialFindText]);
+  }, [view, initialFindText, caseSensitive]);
 
-  const doSearch = useCallback((text: string) => {
+  const doSearch = useCallback((text: string, isCaseSensitive: boolean = caseSensitive) => {
     if (text) {
-      const query = new SearchQuery({ search: text, caseSensitive: false });
+      const query = new SearchQuery({ search: text, caseSensitive: isCaseSensitive });
       view.dispatch({ effects: setSearchQuery.of(query) });
       setMatchTotal(countMatches(view, query));
       setMatchIdx(currentMatchIndex(view, query));
@@ -62,7 +63,7 @@ export function SearchPanel({ view, onClose, initialFindText = "" }: SearchPanel
       setMatchTotal(0);
       setMatchIdx(0);
     }
-  }, [view]);
+  }, [view, caseSensitive]);
 
   const handleFindChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const text = e.target.value;
@@ -70,25 +71,33 @@ export function SearchPanel({ view, onClose, initialFindText = "" }: SearchPanel
     doSearch(text);
   }, [doSearch]);
 
+  const toggleCaseSensitive = useCallback(() => {
+    setCaseSensitive(prev => {
+      const next = !prev;
+      doSearch(findText, next);
+      return next;
+    });
+  }, [doSearch, findText]);
+
   const goNext = useCallback(() => {
     if (findText) {
       findNext(view);
-      const query = new SearchQuery({ search: findText, caseSensitive: false });
+      const query = new SearchQuery({ search: findText, caseSensitive });
       setMatchIdx(currentMatchIndex(view, query));
     }
-  }, [view, findText]);
+  }, [view, findText, caseSensitive]);
 
   const goPrev = useCallback(() => {
     if (findText) {
       findPrevious(view);
-      const query = new SearchQuery({ search: findText, caseSensitive: false });
+      const query = new SearchQuery({ search: findText, caseSensitive });
       setMatchIdx(currentMatchIndex(view, query));
     }
-  }, [view, findText]);
+  }, [view, findText, caseSensitive]);
 
   const handleReplaceAll = useCallback(() => {
     if (findText) {
-      const query = new SearchQuery({ search: findText, replace: replaceText, caseSensitive: false });
+      const query = new SearchQuery({ search: findText, replace: replaceText, caseSensitive });
       view.dispatch({ effects: setSearchQuery.of(query) });
       replaceAll(view);
       setFindText("");
@@ -97,16 +106,36 @@ export function SearchPanel({ view, onClose, initialFindText = "" }: SearchPanel
       setMatchIdx(0);
       view.focus();
     }
-  }, [view, findText, replaceText]);
+  }, [view, findText, replaceText, caseSensitive]);
 
-  const handleSelectAll = useCallback(() => {
+  const handleSelectAll = useCallback(async () => {
     if (findText) {
-      const query = new SearchQuery({ search: findText, caseSensitive: false });
-      view.dispatch({ effects: setSearchQuery.of(query) });
-      selectSelectionMatches(view);
-      onClose();
+      const doc = view.state.doc.toString();
+      const ranges: any[] = [];
+      const { EditorSelection } = await import("@codemirror/state");
+
+      let pos = 0;
+      while (true) {
+        let index = -1;
+        if (caseSensitive) {
+          index = doc.indexOf(findText, pos);
+        } else {
+          index = doc.toLowerCase().indexOf(findText.toLowerCase(), pos);
+        }
+        if (index === -1) break;
+        ranges.push(EditorSelection.range(index, index + findText.length));
+        pos = index + findText.length;
+      }
+
+      if (ranges.length > 0) {
+        view.dispatch({
+          selection: EditorSelection.create(ranges)
+        });
+        view.focus();
+        onClose();
+      }
     }
-  }, [view, findText, onClose]);
+  }, [view, findText, caseSensitive, onClose]);
 
   const handleClose = useCallback(() => {
     closeSearchPanel(view);
@@ -138,7 +167,7 @@ export function SearchPanel({ view, onClose, initialFindText = "" }: SearchPanel
 
   return (
     <div
-      className="absolute top-3 right-3 z-30 min-w-[300px] overflow-hidden rounded-xl shadow-2xl"
+      className="absolute top-3 right-3 z-30 min-w-[300px] overflow-hidden rounded-md shadow-2xl"
       style={{
         background: "rgba(15,18,25,0.85)",
         backdropFilter: "blur(24px)",
@@ -147,7 +176,7 @@ export function SearchPanel({ view, onClose, initialFindText = "" }: SearchPanel
       }}
     >
       <div className="flex items-center gap-1.5 pl-3 pr-1.5 py-1.5">
-        <div className="flex-1 flex items-center">
+        <div className="flex-1 flex items-center relative pr-6">
           <input
             ref={findRef}
             type="text"
@@ -155,8 +184,20 @@ export function SearchPanel({ view, onClose, initialFindText = "" }: SearchPanel
             onChange={handleFindChange}
             onKeyDown={handleFindKeyDown}
             placeholder="Find"
-            className="w-full bg-transparent border-none outline-none text-[13px] text-white placeholder:text-white/25"
+            className="w-full bg-transparent border-none outline-none text-[13px] text-white placeholder:text-white/25 pr-1"
           />
+          <button
+            onClick={toggleCaseSensitive}
+            className="absolute right-0 flex h-[18px] w-5 text-[10px] font-semibold items-center justify-center rounded cursor-pointer transition-colors"
+            style={{
+              color: caseSensitive ? "#4F8CFF" : "rgba(232,234,240,0.35)",
+              background: caseSensitive ? "rgba(79,140,255,0.12)" : "transparent",
+              border: caseSensitive ? "1px solid rgba(79,140,255,0.2)" : "none",
+            }}
+            title="Case sensitive"
+          >
+            Aa
+          </button>
         </div>
         <span className="text-[11px] text-white/35 min-w-[36px] text-right tabular-nums select-none">
           {matchTotal > 0 ? `${matchIdx}/${matchTotal}` : "0/0"}

@@ -291,10 +291,12 @@ export function DiffEditor({
   return (
     <div
       ref={shellRef}
-      style={{ height: "100%", width: "100%", display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden", background: "var(--surface-container-low,#12131a)" }}
+      style={{ height: "100%", width: "100%", display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}
     >
       {/* breadcrumb */}
-      <PathBreadcrumb filePath={filePath} commitHash={commitHash} onOpenFile={onOpenFile} />
+      <div className="py-2">
+        <PathBreadcrumb filePath={filePath} commitHash={commitHash} onOpenFile={onOpenFile} />
+      </div>
 
       {/* pane label headers */}
       <div style={{ display: "flex", flexDirection: "row", flexShrink: 0, borderBottom: "1px solid rgba(232,234,240,0.06)" }}>

@@ -67,6 +67,7 @@ ignore  = "0.4"
 sysinfo = "0.31"
 notify  = "7.0"
 rfd     = "0.15"
+globset = "0.4"
 
 [profile.release]
 opt-level     = "z"

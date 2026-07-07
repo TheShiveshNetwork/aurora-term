@@ -1,4 +1,4 @@
-import { type FormEvent, lazy, Suspense, useCallback, useEffect, useMemo, useRef } from "react";
+import { type FormEvent, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { v4 as uuidv4 } from "uuid";
 import { Tab } from "@aurora/types";
@@ -35,6 +35,7 @@ import { DiffWorkspaceView } from "../components/editor/DiffWorkspaceView";
 import { CommitDiffView } from "../components/editor/CommitDiffView";
 import { GitView } from "../components/git/GitView";
 import { MergeWorkspaceView } from "./MergeWorkspaceView";
+import { NotificationContainer } from "../components/ui/NotificationContainer";
 
 export function AppShellView() {
   const { tabs, activeTabId, spawnSession, killSession, openFile, setActiveTabId } = useAppBootstrap();
@@ -67,6 +68,9 @@ export function AppShellView() {
     chatInputOpen,
     setChatInputOpen,
     toggleChatInputOpen,
+    fileChatInputOpen,
+    setFileChatInputOpen,
+    toggleFileChatInputOpen,
     setShowMenuDropdown,
     toggleSidebarCollapsed,
     toggleShowMenuDropdown,
@@ -82,6 +86,7 @@ export function AppShellView() {
   const layoutBackupRef = useRef<{
     sidebarCollapsed: boolean;
     chatInputOpen: boolean;
+    fileChatInputOpen: boolean;
     showAiBar: boolean;
   } | null>(null);
 
@@ -92,22 +97,31 @@ export function AppShellView() {
         layoutBackupRef.current = {
           sidebarCollapsed: store.sidebarCollapsed,
           chatInputOpen: store.chatInputOpen,
+          fileChatInputOpen: store.fileChatInputOpen,
           showAiBar: store.showAiBar,
         };
       }
       store.setSidebarCollapsed(true);
       store.setChatInputOpen(false);
+      store.setFileChatInputOpen(false);
       store.setShowAiBar(false);
     } else {
       if (layoutBackupRef.current) {
         store.setSidebarCollapsed(layoutBackupRef.current.sidebarCollapsed);
         store.setChatInputOpen(layoutBackupRef.current.chatInputOpen);
+        store.setFileChatInputOpen(layoutBackupRef.current.fileChatInputOpen);
         store.setShowAiBar(layoutBackupRef.current.showAiBar);
         layoutBackupRef.current = null;
       }
     }
   }, [viewMode]);
 
+  const [isGitRepo, setIsGitRepo] = useState(false);
+  useEffect(() => {
+    const dir = projectDir || cwdAbsolute;
+    if (!dir) { setIsGitRepo(false); return; }
+    system.gitIsRepo(dir).then(setIsGitRepo).catch(() => setIsGitRepo(false));
+  }, [projectDir, cwdAbsolute]);
 
   const {
     activeCommandInput,
@@ -120,10 +134,10 @@ export function AppShellView() {
     targetSessionId,
   } = useCommandExecution(tabs, activeTabId);
 
-  const { startTask } = useAgentExecution(targetSessionId);
+  const { startTask } = useAgentExecution(activeTabId);
 
   const agentStatus = useAgentStore((state) =>
-    targetSessionId ? (state.sessions[targetSessionId]?.status ?? "idle") : "idle"
+    activeTabId ? (state.sessions[activeTabId]?.status ?? "idle") : "idle"
   );
   const isAiRunning = agentStatus === "planning" || agentStatus === "executing" || agentStatus === "paused";
   const isRunning = isCommandRunning || isAiRunning;
@@ -132,20 +146,20 @@ export function AppShellView() {
     if (isCommandRunning) {
       handleStopCurrentCommand();
     }
-    if (isAiRunning && targetSessionId) {
+    if (isAiRunning && activeTabId) {
       const store = useAgentStore.getState();
-      store.setPendingToolCall(targetSessionId, null);
-      store.setCurrentCommandIndex(targetSessionId, -1);
-      store.failTask(targetSessionId, "Cancelled by user");
-      const snap = store.sessions[targetSessionId];
-      store.addChatMessage(targetSessionId, {
+      store.setPendingToolCall(activeTabId, null);
+      store.setCurrentCommandIndex(activeTabId, -1);
+      store.failTask(activeTabId, "Cancelled by user");
+      const snap = store.sessions[activeTabId];
+      store.addChatMessage(activeTabId, {
         role: "assistant",
         content: "Task cancelled by user.",
         chainNodes: snap?.chainNodes ?? [],
         agentType: snap?.agentType,
       });
     }
-  }, [isCommandRunning, isAiRunning, targetSessionId, handleStopCurrentCommand]);
+  }, [isCommandRunning, isAiRunning, activeTabId, handleStopCurrentCommand]);
 
   const shellType: ShellType = useMemo(() => isWindowsPlatform() ? "powershell" : "bash", []);
   const inputMode = useMemo(() => classifyInput(activeCommandInput, shellType), [activeCommandInput, shellType]);
@@ -175,7 +189,7 @@ export function AppShellView() {
 
       setCommandInput("");
       setShowAiBar(true);
-      startTask(cleanGoal, "terminal");
+      startTask(cleanGoal, isFilePrompt ? undefined : "terminal");
     } else {
       defaultSubmit(event);
     }
@@ -186,7 +200,7 @@ export function AppShellView() {
   };
 
   const activeTab = tabs.find((tab) => tab.id === activeTabId) || null;
-  const isStandaloneView = activeTab?.type === "file" || activeTab?.type === "diff" || activeTab?.type === "git";
+  const isStandaloneView = activeTab?.type === "file" || activeTab?.type === "diff" || activeTab?.type === "git" || activeTab?.type === "merge";
   const activeFilePath = (activeTab?.type === "file" || activeTab?.type === "diff") ? activeTab.filePath : undefined;
   const pendingTab = pendingCloseTabId ? tabs.find((tab) => tab.id === pendingCloseTabId) || null : null;
   const hasInteracted = activeTabId ? Boolean(interactedSessions[activeTabId]) : false;
@@ -460,8 +474,14 @@ export function AppShellView() {
           const current = useAppShellStore.getState().showAiBar;
           useAppShellStore.getState().setShowAiBar(!current);
         }}
-        chatInputOpen={chatInputOpen}
-        onToggleChatInput={toggleChatInputOpen}
+        chatInputOpen={activeTab?.type === "terminal" ? chatInputOpen : fileChatInputOpen}
+        onToggleChatInput={() => {
+          if (activeTab?.type === "file") {
+            toggleFileChatInputOpen();
+          } else {
+            toggleChatInputOpen();
+          }
+        }}
         menuOpen={showMenuDropdown}
         onToggleMenu={() => { closeAllPopups(); toggleShowMenuDropdown(); }}
         onOpenFolder={handleOpenFolder}
@@ -484,10 +504,11 @@ export function AppShellView() {
         viewMode={viewMode}
         projectName={projectDirLabel.replace(/^~\//, "")}
         cwdAbsolute={projectDir || cwdAbsolute}
-        onOpenFileAtPath={(path: string) => { openFile(path, projectDir || cwdAbsolute); setViewMode("file"); }}
+        onOpenFileAtPath={(path: string, options?: { lineNumber?: number; matchStart?: number; matchEnd?: number }) => { openFile(path, projectDir || cwdAbsolute, options); setViewMode("file"); }}
         onOpenGitView={handleOpenGitView}
         gitViewActive={gitViewActive}
         noFolder={tabs.length === 0}
+        isGitRepo={isGitRepo}
       />
 
       {tabs.length === 0 ? (
@@ -495,6 +516,7 @@ export function AppShellView() {
       ) : (
         <div className="flex flex-1 overflow-hidden">
           <SidePanel collapsed={sidebarCollapsed} cwd={projectDir || cwdAbsolute} activeFilePath={activeFilePath}
+            onOpenFileAtPath={(path: string, options?: { lineNumber?: number; matchStart?: number; matchEnd?: number }) => { openFile(path, projectDir || cwdAbsolute, options); setViewMode("file"); }}
             onKillTab={(id) => {
               const tab = tabs.find((candidate) => candidate.id === id);
               if (tab?.type === "file" && tab.dirty) {
@@ -547,6 +569,7 @@ export function AppShellView() {
                       onAddTab={async (type: "terminal" | "file") => {
                         const baseCwd = projectDir || cwdAbsolute;
                         if (type === "terminal") {
+                          useAppShellStore.getState().setChatInputOpen(true);
                           const { shell, args } = getDefaultShellLaunch();
                           try {
                             const sessionId = await spawnSession(shell, args, {}, baseCwd);
@@ -667,8 +690,8 @@ export function AppShellView() {
                 />
               )}
 
-              {/* File view: prompt variant (absolute, glassmorphism, independent state) */}
-              {chatInputOpen && activeTab?.type === "file" && (
+              {/* File view: prompt variant — AI-only, no classifier */}
+              {fileChatInputOpen && activeTab?.type === "file" && (
                 <CommandInputBar
                   variant="prompt"
                   sessionId={null}
@@ -681,7 +704,6 @@ export function AppShellView() {
                   onSubmit={(e) => handleInterceptedSubmit(e, handleFileCommandSubmit, true)}
                   onStop={handleStop}
                   onOpenAiBar={() => setShowAiBar(true)}
-                  inputMode={inputMode}
                 />
               )}
             </>
@@ -809,6 +831,7 @@ export function AppShellView() {
       />
 
       <StatusBar noFolder={tabs.length === 0} />
+      <NotificationContainer />
     </div>
   );
 }
