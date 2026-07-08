@@ -30,6 +30,9 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "resources": [
+      "../static/aurora-icon.png"
+    ],
     "externalBin": [
       "binaries/aurora-agent"
     ],

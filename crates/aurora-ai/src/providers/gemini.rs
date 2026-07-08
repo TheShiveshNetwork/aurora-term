@@ -3,7 +3,7 @@ use futures_util::StreamExt;
 use reqwest::header::{HeaderMap, HeaderValue};
 use serde_json::Value;
 use aurora_core::AppError;
-use aurora_core::types::ai::{TaskTier, AiMessage, AIStreamChunkEvent};
+use aurora_core::types::ai::{TaskTier, AiMessage, AIStreamChunkEvent, ModelInfo};
 use crate::providers::AiProvider;
 use crate::client::{AiHttpClient, SseLineReader};
 use tauri::Emitter;
@@ -31,6 +31,64 @@ impl GeminiProvider {
             balanced_model,
             powerful_model,
         }
+    }
+
+    /// Fetch available models from Gemini's API.
+    /// Filters to models that support content generation (tool calling compatible).
+    pub async fn list_models(api_key: &str) -> Result<Vec<ModelInfo>, AppError> {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(15))
+            .build()
+            .map_err(|e| AppError::Ai(format!("Failed to build HTTP client: {}", e)))?;
+
+        let endpoint = format!(
+            "https://generativelanguage.googleapis.com/v1beta/models?key={}",
+            api_key
+        );
+
+        let res = client
+            .get(&endpoint)
+            .send()
+            .await
+            .map_err(|e| AppError::Ai(format!("Failed to fetch Gemini models: {}", e)))?;
+
+        if !res.status().is_success() {
+            return Err(AppError::Ai(format!("Gemini API error: {}", res.status())));
+        }
+
+        let body: Value = res.json().await
+            .map_err(|e| AppError::Ai(format!("Failed to parse Gemini models: {}", e)))?;
+
+        let mut models = Vec::new();
+        if let Some(models_arr) = body["models"].as_array() {
+            for item in models_arr {
+                let name = item["name"].as_str().unwrap_or("");
+                let id = name.strip_prefix("models/").unwrap_or(name).to_string();
+                if id.is_empty() {
+                    continue;
+                }
+                let display_name = item["displayName"].as_str().unwrap_or(&id).to_string();
+                let description = item["description"].as_str().unwrap_or("").to_lowercase();
+                let methods = item["supportedGenerationMethods"].as_array();
+                let has_generate = methods
+                    .map(|m| m.iter().any(|v| v.as_str() == Some("generateContent")))
+                    .unwrap_or(false);
+                if description.contains("deprecated") || description.contains("shut down") {
+                    continue;
+                }
+                let context_window = item["inputTokenLimit"].as_u64().map(|v| v as u32);
+                let max_tokens = item["outputTokenLimit"].as_u64().map(|v| v as u32);
+                models.push(ModelInfo {
+                    id,
+                    display_name,
+                    supports_tools: has_generate,
+                    max_tokens,
+                    context_window,
+                });
+            }
+        }
+
+        Ok(models)
     }
 }
 

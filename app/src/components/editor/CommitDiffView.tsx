@@ -1,6 +1,7 @@
 import { useMemo, useEffect, useRef, useState } from "react";
 import type { EditorView } from "@codemirror/view";
-import type { Extension, Range, Compartment } from "@codemirror/state";
+import { Compartment } from "@codemirror/state";
+import type { Extension, Range } from "@codemirror/state";
 import type { Decoration, DecorationSet, ViewUpdate } from "@codemirror/view";
 import { useSettingsStore } from "../../stores/useSettingsStore";
 import { getEditorTheme, createThemeCompartment, READONLY_EDITOR_THEME } from "./editorThemes";
@@ -157,7 +158,9 @@ export function CommitDiffView({
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const themeCompartmentRef = useRef<Compartment>(createThemeCompartment());
+  const wordWrapCompartmentRef = useRef<Compartment>(new Compartment());
   const editorTheme = useSettingsStore((s) => s.editorTheme);
+  const wordWrap = useSettingsStore((s) => s.wordWrap);
   const lineToBlockRef = useRef<number[]>([]);
   const fileLineNumsRef = useRef<number[]>([]);
 
@@ -287,6 +290,7 @@ export function CommitDiffView({
             customLineNumbers,
             collapsedClickHandler,
             themeCompartmentRef.current.of([]),
+            wordWrapCompartmentRef.current.of(wordWrap ? EditorViewClass.lineWrapping : []),
           ],
         }),
         parent: el,
@@ -316,9 +320,25 @@ export function CommitDiffView({
     });
   }, [editorTheme]);
 
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    import("@codemirror/view").then(({ EditorView }) => {
+      if (viewRef.current === view) {
+        view.dispatch({
+          effects: wordWrapCompartmentRef.current.reconfigure(wordWrap ? EditorView.lineWrapping : [])
+        });
+      }
+    });
+  }, [wordWrap]);
+
   return (
     <div className="h-full w-full flex flex-col" style={{ background: "var(--surface-container-low, #12131a)", minHeight: 0 }}>
-      {showBreadcrumb && <PathBreadcrumb filePath={filePath} commitHash={commitHash} />}
+      {showBreadcrumb && 
+        <div className="py-2">
+          <PathBreadcrumb filePath={filePath} commitHash={commitHash} />
+        </div>
+      }
       <div
         ref={containerRef}
         className="flex-1 overflow-hidden [&_.cm-editor]:h-full [&_.cm-scroller]:overflow-auto"

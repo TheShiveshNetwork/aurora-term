@@ -148,28 +148,32 @@ fn run_git(args: &[&str], cwd: Option<&str>) -> Result<String, AppError> {
 }
 
 #[command]
-pub async fn get_git_log(cwd: String, max_count: Option<u32>, skip: Option<u32>) -> Result<GitLogResult, AppError> {
+pub async fn get_git_log(cwd: String, max_count: Option<u32>, skip: Option<u32>, branches: Vec<String>) -> Result<GitLogResult, AppError> {
     let request_count = max_count.unwrap_or(500);
     let fetch_count = request_count + 1;
     let limit_str = fetch_count.to_string();
     let skip_val = skip.unwrap_or(0);
     let is_initial = skip_val == 0;
 
-    // Build log args with optional skip for incremental pagination
-    let cc1 = cwd.clone(); let ls = limit_str.clone();
+    // Build log args — with optional branch filter
+    let cc1 = cwd.clone(); let ls = limit_str.clone(); let brs = branches.clone(); let sk = skip_val.to_string();
     let log_h = tokio::task::spawn_blocking(move || {
-        if skip_val > 0 {
-            run_git(&[
-                "log", "--all", "--format=%H|||%P|||%an|||%ai|||%s",
-                "--skip", &skip_val.to_string(),
-                "--max-count", &ls,
-            ], Some(&cc1))
+        let mut args = vec!["log"];
+        if brs.is_empty() {
+            args.push("--all");
         } else {
-            run_git(&[
-                "log", "--all", "--format=%H|||%P|||%an|||%ai|||%s",
-                "--max-count", &ls,
-            ], Some(&cc1))
+            for b in &brs {
+                args.push(b.as_str());
+            }
         }
+        args.push("--format=%H|||%P|||%an|||%ai|||%s");
+        args.push("--max-count");
+        args.push(&ls);
+        if skip_val > 0 {
+            args.push("--skip");
+            args.push(&sk);
+        }
+        run_git(&args, Some(&cc1))
     });
 
     // Only fetch refs on initial load — subsequent pages only need commits
@@ -601,6 +605,55 @@ pub struct GitBranchInfo {
     pub ahead: i32,
     pub behind: i32,
     pub commit_hash: String,
+}
+
+#[command]
+pub async fn git_branch_list_all(cwd: String) -> Result<Vec<GitBranchInfo>, AppError> {
+    tokio::task::spawn_blocking(move || {
+        let output = run_git_strict(&[
+            "branch", "-a", "--format=%(refname:short)|||%(objectname)|||%(upstream:short)|||%(upstream:track)",
+        ], Some(&cwd))?;
+        let current = run_git_strict(&["rev-parse", "--abbrev-ref", "HEAD"], Some(&cwd))
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty() && s != "HEAD");
+
+        let mut branches = Vec::new();
+        for line in output.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() { continue; }
+            let parts: Vec<&str> = trimmed.split("|||").collect();
+            if parts.len() < 2 { continue; }
+            let name = parts[0].to_string();
+            let commit_hash = parts[1].to_string();
+            let is_current = current.as_deref() == Some(&name);
+            let remote = if parts.len() >= 4 && !parts[2].is_empty() {
+                if parts[2] == "." { None } else { Some(parts[2].to_string()) }
+            } else {
+                None
+            };
+            branches.push(GitBranchInfo { name, current: is_current, remote, ahead: 0, behind: 0, commit_hash });
+        }
+
+        if branches.is_empty() {
+            if let Some(ref cur) = current {
+                branches.push(GitBranchInfo { name: cur.clone(), current: true, remote: None, ahead: 0, behind: 0, commit_hash: String::new() });
+            }
+        }
+        Ok(branches)
+    }).await.map_err(|e| AppError::Io(e.to_string()))?
+}
+
+#[command]
+pub async fn git_is_repo(cwd: String) -> Result<bool, AppError> {
+    tokio::task::spawn_blocking(move || {
+        let mut cmd = std::process::Command::new("git");
+        cmd.args(["rev-parse", "--git-dir"]);
+        #[cfg(target_os = "windows")]
+        { use std::os::windows::process::CommandExt; cmd.creation_flags(0x08000000); }
+        cmd.current_dir(&cwd);
+        Ok(cmd.output().map(|o| o.status.success()).unwrap_or(false))
+    }).await.map_err(|e| AppError::Io(e.to_string()))?
 }
 
 #[command]

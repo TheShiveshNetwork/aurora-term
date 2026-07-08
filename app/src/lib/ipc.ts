@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { ProviderName, UiState, SavedTab } from "@aurora/types";
+import { ProviderName, UiState, SavedTab, ModelInfo, SearchResult } from "@aurora/types";
 
 // ─── Config types mirrored from Rust side ────────────────────────────────
 export interface TerminalConfig {
@@ -17,6 +17,8 @@ export interface AiConfig {
   active_provider: string;
   auto_explain: boolean;
   context_lines: number;
+  require_review_for_commands: boolean;
+  require_review_for_writes: boolean;
   anthropic: ProviderConfig;
   openai: ProviderConfig;
   gemini: ProviderConfig;
@@ -55,6 +57,9 @@ export interface EditorConfig {
   show_minimap: boolean;
   git_gui_mode: string;
   word_wrap: boolean;
+  ai_code_completion: boolean;
+  ai_suggestions: boolean;
+  indent_markers: boolean;
 }
 
 export interface AppConfig {
@@ -89,6 +94,9 @@ export const ai = {
   saveApiKey: (provider: ProviderName, key: string) =>
     invoke<void>("ai_save_api_key", { provider, key }),
 
+  getApiKey: (provider: ProviderName) =>
+    invoke<string>("ai_get_api_key", { provider }),
+
   deleteApiKey: (provider: ProviderName) =>
     invoke<void>("ai_delete_api_key", { provider }),
 
@@ -97,6 +105,23 @@ export const ai = {
 
   getProviderStatus: () =>
     invoke<Record<ProviderName, boolean>>("ai_provider_status"),
+
+  fetchModels: (provider: ProviderName) =>
+    invoke<ModelInfo[]>("ai_fetch_models", { provider }),
+
+  editCode: (prompt: string, codeBefore: string, codeAfter: string, selection: string) =>
+    invoke<{ status: string; code?: string; message?: string }>("ai_edit_code", {
+      prompt,
+      codeBefore,
+      codeAfter,
+      selection,
+    }),
+
+  inlineComplete: (contextBefore: string, language: string) =>
+    invoke<{ status: string; completion?: string }>("ai_inline_complete", {
+      contextBefore,
+      language,
+    }),
 };
 
 export const config = {
@@ -110,8 +135,8 @@ export const config = {
 
 export const state = {
   get: () => invoke<UiState>("state_get"),
-  updateSidebar: (collapsed: boolean, visible: boolean, showAiBar: boolean, chatInputOpen: boolean) =>
-    invoke<void>("state_update_sidebar", { collapsed, visible, showAiBar, chatInputOpen }),
+  updateSidebar: (collapsed: boolean, visible: boolean, showAiBar: boolean, chatInputOpen: boolean, fileChatInputOpen?: boolean) =>
+    invoke<void>("state_update_sidebar", { collapsed, visible, showAiBar, chatInputOpen, fileChatInputOpen }),
   updatePinnedTabs: (pinned: string[]) =>
     invoke<void>("state_update_pinned_tabs", { pinned }),
   updateSectionVisibility: (sections: Record<string, boolean>) =>
@@ -122,6 +147,8 @@ export const state = {
     invoke<void>("state_set_project_dir", { path }),
   setWorkspaceCwd: (path: string | null) =>
     invoke<void>("state_set_workspace_cwd", { path }),
+  updateCheckedBranches: (projectDir: string, branches: string[]) =>
+    invoke<void>("state_update_checked_branches", { projectDir, branches }),
 };
 
 export interface FileNode {
@@ -144,6 +171,15 @@ export interface AgentStepResult {
   command?: string;
   explanation?: string;
   subagent?: string;
+  message?: string;
+  run_id?: string;
+  tool_call_id?: string;
+  tool_name?: string;
+  args?: any;
+}
+
+export interface AgentChatResult {
+  status: string;
   message?: string;
 }
 
@@ -207,6 +243,14 @@ export const system = {
     invoke<FileNode[]>("read_dir", { path }),
   searchFiles: (root: string, query: string) =>
     invoke<FileNode[]>("search_files", { root, query }),
+  searchInFiles: (
+    root: string,
+    query: string,
+    includePatterns: string[],
+    excludePatterns: string[],
+    caseSensitive: boolean,
+    maxResults?: number,
+  ) => invoke<SearchResult[]>("search_in_files", { root, query, includePatterns, excludePatterns, caseSensitive, maxResults: maxResults ?? 2000 }),
   readFileContent: async (path: string) => {
     const pending = pendingFileReads.get(path);
     if (pending) {
@@ -241,16 +285,78 @@ export const system = {
     invoke<void>("watch_git", { cwd }),
   readShellHistory: () =>
     invoke<string[]>("read_shell_history"),
-  agentPlanStep: (taskId: string, sessionId: string | null, goal: string | null, lastOutput: string | null, exitCode: number | null) =>
-    invoke<AgentStepResult>("agent_plan_step", { taskId, sessionId, goal, lastOutput, exitCode }),
+  agentPlanStep: (
+    taskId: string,
+    sessionId: string | null,
+    goal: string | null,
+    lastOutput: string | null,
+    exitCode: number | null,
+    agentType?: string,
+    mode?: string,
+    requireReviewForCommands?: boolean,
+    requireReviewForWrites?: boolean
+  ) =>
+    invoke<AgentStepResult>("agent_plan_step", {
+      taskId,
+      sessionId,
+      goal,
+      lastOutput,
+      exitCode,
+      agentType,
+      mode,
+      requireReviewForCommands,
+      requireReviewForWrites,
+    }),
+  agentApproveTool: (
+    agentType: string | undefined,
+    mode: string | undefined,
+    runId: string,
+    toolCallId: string | undefined,
+    resumeData?: any
+  ) =>
+    invoke<AgentStepResult>("agent_approve_tool", {
+      agentType,
+      mode,
+      runId,
+      toolCallId,
+      resumeData,
+    }),
+  agentDeclineTool: (
+    agentType: string | undefined,
+    mode: string | undefined,
+    runId: string,
+    toolCallId: string | undefined
+  ) =>
+    invoke<AgentStepResult>("agent_decline_tool", {
+      agentType,
+      mode,
+      runId,
+      toolCallId,
+    }),
+  agentGetLogs: () =>
+    invoke<{ status: string; logs: Array<{ timestamp: number; type: string; content: string }> }>("agent_get_logs"),
+  agentChat: (
+    message: string,
+    sessionId?: string,
+    taskId?: string,
+    agentType?: string,
+    mode?: string,
+  ) =>
+    invoke<AgentChatResult>("agent_chat", {
+      sessionId,
+      taskId,
+      message,
+      agentType,
+      mode,
+    }),
   revealInExplorer: (path: string) =>
     invoke<void>("reveal_in_explorer", { path }),
   getCwdInfo: (cwd: string) =>
     invoke<{ git_branch: string | null }>("get_cwd_info", { cwd }),
   getGitBranch: (cwd: string) =>
     invoke<string | null>("get_git_branch", { cwd }),
-  getGitLog: (cwd: string, maxCount?: number, skip?: number) =>
-    invoke<GitLogResult>("get_git_log", { cwd, maxCount, skip }),
+  getGitLog: (cwd: string, maxCount?: number, skip?: number, branchNames?: string[]) =>
+    invoke<GitLogResult>("get_git_log", { cwd, maxCount, skip, branches: branchNames ?? [] }),
   getGitFileLog: (cwd: string, filePath: string) =>
     invoke<GitLogResult>("get_git_file_log", { cwd, filePath }),
   getGitGraph: (cwd: string) =>
@@ -291,6 +397,8 @@ export const system = {
     invoke<void>("git_branch_delete", { cwd, branch, force }),
   gitBranchList: (cwd: string) =>
     invoke<GitBranchInfo[]>("git_branch_list", { cwd }),
+  gitBranchListAll: (cwd: string) =>
+    invoke<GitBranchInfo[]>("git_branch_list_all", { cwd }),
   gitDiffUnstaged: (cwd: string, path?: string) =>
     invoke<string>("git_diff_unstaged", { cwd, path }),
   gitDiffStaged: (cwd: string, path?: string) =>
@@ -303,4 +411,6 @@ export const system = {
     invoke<string[]>("git_remote_list", { cwd }),
   gitExec: (cwd: string, args: string[]) =>
     invoke<string>("git_exec", { cwd, args }),
+  gitIsRepo: (cwd: string) =>
+    invoke<boolean>("git_is_repo", { cwd }),
 };

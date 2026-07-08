@@ -223,7 +223,8 @@ body {
 
 /* Tab bar: 2px thin scrollbar, hidden by default, shown on hover */
 #aurora-tab-bar::-webkit-scrollbar {
-  height: 2px;
+  height: 2px !important;
+  width: 2px !important;
 }
 
 #aurora-tab-bar::-webkit-scrollbar-thumb {
@@ -440,4 +441,61 @@ body {
 .cm-minimap-overlay {
   background: rgba(232, 234, 240, 0.06);
   border: 1px solid rgba(232, 234, 240, 0.08);
+}
+
+/* ── 16. CodeMirror Global Gutter Layout Overrides ────────────────── */
+.cm-gutters {
+  background-color: transparent !important;
+  border-right: 1px solid rgba(232, 234, 240, 0.05) !important;
+}
+
+.cm-gutterElement {
+  padding: 0 6px !important;
+  min-width: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+}
+
+.cm-foldGutter .cm-gutterElement {
+  justify-content: center !important;
+  padding: 0 2px !important;
+}
+
+.cm-gutter-lint .cm-gutterElement {
+  justify-content: center !important;
+  padding: 0 2px !important;
+}
+
+.cm-gutter-lint {
+  display: none !important;
+}
+
+.cm-gutter-lint:has(.cm-lint-marker) {
+  display: flex !important;
+}
+
+/* ── 17. CodeMirror Merge View (Side-by-Side) Styling Overrides ───── */
+.cm-mergeView .cm-insertedLine,
+.cm-mergeView .cm-insertedChunk {
+  background-color: rgba(80, 227, 194, 0.07) !important;
+}
+
+.cm-mergeView .cm-deletedLine,
+.cm-mergeView .cm-deletedChunk {
+  background-color: rgba(255, 70, 70, 0.07) !important;
+}
+
+.cm-mergeView .cm-insertedChunkGL {
+  background-color: rgba(80, 227, 194, 0.04) !important;
+}
+
+.cm-mergeView .cm-deletedChunkGL {
+  background-color: rgba(255, 70, 70, 0.04) !important;
+}
+
+.cm-merge-gap {
+  background-color: var(--surface-container-low, #12131a) !important;
+  border-left: 1px solid rgba(232, 234, 240, 0.05) !important;
+  border-right: 1px solid rgba(232, 234, 240, 0.05) !important;
 }

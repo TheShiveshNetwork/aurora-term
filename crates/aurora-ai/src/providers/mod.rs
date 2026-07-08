@@ -21,3 +21,19 @@ pub trait AiProvider: Send + Sync {
         request_id: String,
     ) -> Result<(), AppError>;
 }
+
+/// Hardcoded allowlist of OpenAI model ID prefixes known to support tool calling.
+pub const OPENAI_TOOL_PREFIXES: &[&str] = &[
+    "gpt-5", "gpt-4o", "gpt-4",
+    "o3", "o4-mini", "o4", "o1",
+];
+
+/// Hardcoded allowlist of NVIDIA NIM model family prefixes known to support tool calling.
+pub const NIM_TOOL_PREFIXES: &[&str] = &[
+    "meta/llama-3.1", "meta/llama-3.2", "meta/llama-3.3", "meta/llama-4",
+    "nvidia/nemotron-4", "nvidia/llama",
+    "deepseek/deepseek", "deepseek-ai/DeepSeek",
+    "qwen/qwen2", "qwen/qwen3",
+    "mistralai/mistral", "mistralai/mixtral", "mistralai/Mistral",
+    "ibm/granite",
+];

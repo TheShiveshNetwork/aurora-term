@@ -1,1 +1,10 @@
 .env
+
+*.db
+*.db-shm
+*.db-wal
+
+
+*.bun-build
+
+test.exe

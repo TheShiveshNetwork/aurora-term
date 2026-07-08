@@ -29,6 +29,8 @@ pub struct UiState {
     #[serde(default)]
     pub chat_input_open: bool,
     #[serde(default)]
+    pub file_chat_input_open: bool,
+    #[serde(default)]
     pub pinned_tabs: Vec<String>,
     #[serde(default)]
     pub section_visibility: HashMap<String, bool>,
@@ -42,6 +44,9 @@ pub struct UiState {
     pub last_project_dir: Option<String>,
     #[serde(default)]
     pub last_workspace_cwd: Option<String>,
+
+    #[serde(default)]
+    pub checked_branches: HashMap<String, Vec<String>>,
 }
 
 const fn default_true() -> bool {
@@ -55,6 +60,7 @@ impl Default for UiState {
             tab_bar_visible: true,
             show_ai_bar: false,
             chat_input_open: false,
+            file_chat_input_open: false,
             pinned_tabs: Vec::new(),
             section_visibility: HashMap::from([
                 ("folders".to_string(), true),
@@ -67,6 +73,7 @@ impl Default for UiState {
             active_tab_id: None,
             last_project_dir: None,
             last_workspace_cwd: None,
+            checked_branches: HashMap::new(),
         }
     }
 }
@@ -136,11 +143,13 @@ impl UiStateManager {
         visible: bool,
         show_ai_bar: bool,
         chat_input_open: bool,
+        file_chat_input_open: bool,
     ) -> Result<(), AppError> {
         self.state.sidebar_collapsed = collapsed;
         self.state.tab_bar_visible = visible;
         self.state.show_ai_bar = show_ai_bar;
         self.state.chat_input_open = chat_input_open;
+        self.state.file_chat_input_open = file_chat_input_open;
         self.save()
     }
 
@@ -169,6 +178,11 @@ impl UiStateManager {
 
     pub fn set_workspace_cwd(&mut self, path: Option<String>) -> Result<(), AppError> {
         self.state.last_workspace_cwd = path;
+        self.save()
+    }
+
+    pub fn update_checked_branches(&mut self, project_dir: String, branches: Vec<String>) -> Result<(), AppError> {
+        self.state.checked_branches.insert(project_dir, branches);
         self.save()
     }
 }

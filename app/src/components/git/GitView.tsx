@@ -6,10 +6,11 @@ import {
   GitBranch, ArrowUp, ArrowDown, RefreshCw, Plus, X, ChevronDown,
   CheckSquare, Square, Download, Upload, Trash2, Eye,
   AlertCircle, Search, MoreVertical, GitMerge, GitFork,
-  Pencil, ExternalLink, Undo2, FileDiff, FileSymlink,
+  Pencil, ExternalLink, Undo2, FileDiff, FileSymlink, Loader,
 } from "lucide-react";
-import { system } from "../../lib/ipc";
+import { system, state as stateIpc } from "../../lib/ipc";
 import type { GitStatusEntry, GitBranchInfo } from "../../lib/ipc";
+import { useNotificationStore } from "../../stores/useToastStore";
 import { useDragResize } from "../../hooks/useDragResize";
 import { useSessionStore } from "../../stores/useSessionStore";
 import { useGitStore } from "../../stores/useGitStore";
@@ -18,6 +19,9 @@ import { CommitDiffView } from "../editor/CommitDiffView";
 import { GitTree } from "../ui/GitTree";
 import { LoadingSpinner } from "../ui/LoadingSpinner";
 import { MenuView, MenuViewItem, MenuViewSeparator } from "../ui/MenuView";
+import { InputDialog } from "../ui/InputDialog";
+import { ConfirmDialog } from "../ui/ConfirmDialog";
+import { BranchCheckoutDialog } from "../ui/BranchCheckoutDialog";
 import { ChangesDiffView } from "./ChangesDiffView";
 
 const STATUS_COLOR: Record<string, string> = {
@@ -26,6 +30,7 @@ const STATUS_COLOR: Record<string, string> = {
   D: "rgba(255,107,107,0.75)",
   R: "rgba(79,140,255,0.75)",
   C: "rgba(80,227,194,0.75)",
+  U: "rgba(239,83,80,0.8)",
   "?": "rgba(232,234,240,0.35)",
 };
 
@@ -65,6 +70,44 @@ export function GitView({ cwd, tabId }: GitViewProps) {
   const [commitMessage, setCommitMessage] = useState("");
   const [branchFilter, setBranchFilter] = useState("");
   const [showBranchDropdown, setShowBranchDropdown] = useState(false);
+  const [checkedBranches, setCheckedBranches] = useState<string[]>([]);
+  const hasSavedState = useRef(false);
+
+  // Load checked branches from persisted state on mount.
+  // If no saved state exists for this cwd, default to all selected.
+  useEffect(() => {
+    stateIpc.get().then(s => {
+      const saved = s.checked_branches[cwd];
+      if (saved !== undefined) {
+        hasSavedState.current = true;
+        if (saved.length) setCheckedBranches(saved);
+      }
+    }).catch(() => {});
+  }, [cwd]);
+
+  // When branches load and no saved state exists, select all
+  useEffect(() => {
+    if (!hasSavedState.current && branches.length > 0 && checkedBranches.length === 0) {
+      setCheckedBranches(branches.map(b => b.name));
+    }
+  }, [branches, checkedBranches.length]);
+
+  // Persist checked branches whenever they change
+  const persistCheckedBranches = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => {
+    if (persistCheckedBranches.current) clearTimeout(persistCheckedBranches.current);
+    persistCheckedBranches.current = setTimeout(() => {
+      stateIpc.updateCheckedBranches(cwd, checkedBranches).catch(() => {});
+    }, 500);
+    return () => { if (persistCheckedBranches.current) clearTimeout(persistCheckedBranches.current); };
+  }, [cwd, checkedBranches]);
+
+  // Dialog states (replacing alert/prompt/confirm)
+  const [inputDialog, setInputDialog] = useState<{ title: string; description?: string; initialValue?: string; placeholder?: string; confirmLabel?: string; onSubmit: (v: string) => void } | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{ title: string; description?: string; confirmLabel?: string; variant?: "danger" | "primary"; onConfirm: () => void } | null>(null);
+  const [checkoutDialogOpen, setCheckoutDialogOpen] = useState(false);
+  const [allBranches, setAllBranches] = useState<GitBranchInfo[]>([]);
+
   const { size: leftWidth, onMouseDown: startResize } = useDragResize({
     axis: "x", min: 180, max: 500, initial: 300,
   });
@@ -137,6 +180,9 @@ export function GitView({ cwd, tabId }: GitViewProps) {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  // Reset branch selection when repo changes
+  useEffect(() => { setCheckedBranches([]); }, [cwd]);
+
   const clearDiffCache = useCallback(() => { diffCacheRef.current.clear(); }, []);
 
   const handleStage = useCallback(async (paths: string[]) => {
@@ -159,6 +205,7 @@ export function GitView({ cwd, tabId }: GitViewProps) {
 
   const handleRestore = useCallback(async (paths: string[]) => {
     try {
+      await system.gitReset(cwd, paths).catch(() => {});
       await system.gitRestore(cwd, paths);
       clearDiffCache();
       useGitStore.getState().invalidateStatus(cwd);
@@ -193,26 +240,58 @@ export function GitView({ cwd, tabId }: GitViewProps) {
       clearDiffCache();
       useGitStore.getState().invalidateAll(cwd);
       await Promise.all([refreshStatus(), refreshBranches()]);
-    } catch (e) { console.error(e); }
+    } catch (e) { addNotification(e); }
   }, [cwd, refreshStatus, refreshBranches, clearDiffCache]);
 
-  const handlePush = useCallback(async () => {
+  const handleOpenCheckoutDialog = useCallback(async () => {
     try {
+      const branches = await system.gitBranchListAll(cwd);
+      setAllBranches(branches);
+      setCheckoutDialogOpen(true);
+    } catch (e) { addNotification(e); }
+  }, [cwd]);
+
+  const [gitLoading, setGitLoading] = useState<Record<string, boolean>>({});
+  const addNotification = useNotificationStore((s) => s.addNotification);
+
+  const withLoading = useCallback(async (key: string, fn: () => Promise<void>) => {
+    setGitLoading((prev) => ({ ...prev, [key]: true }));
+    try {
+      await fn();
+    } catch (e) {
+      addNotification(e);
+    } finally {
+      setGitLoading((prev) => ({ ...prev, [key]: false }));
+      useGitStore.getState().invalidateBranches(cwd);
+      await refreshBranches();
+    }
+  }, [cwd, refreshBranches, addNotification]);
+
+  const handlePush = useCallback(() => {
+    withLoading("push", async () => {
       await system.gitPush(cwd, "origin", currentBranch);
       clearDiffCache();
       useGitStore.getState().invalidateBranches(cwd);
-      await refreshBranches();
-    } catch (e) { console.error(e); }
-  }, [cwd, currentBranch, refreshBranches, clearDiffCache]);
+    });
+  }, [cwd, currentBranch, withLoading, clearDiffCache]);
 
-  const handlePull = useCallback(async () => {
-    try {
+  const handlePull = useCallback(() => {
+    withLoading("pull", async () => {
       await system.gitPull(cwd, "origin", currentBranch);
       clearDiffCache();
       useGitStore.getState().invalidateAll(cwd);
-      await Promise.all([refreshStatus(), refreshBranches()]);
-    } catch (e) { console.error(e); }
-  }, [cwd, currentBranch, refreshStatus, refreshBranches, clearDiffCache]);
+      await refreshStatus();
+    });
+  }, [cwd, currentBranch, withLoading, clearDiffCache, refreshStatus]);
+
+  const handleFetch = useCallback(() => {
+    withLoading("fetch", async () => {
+      await system.gitFetch(cwd, "origin");
+      clearDiffCache();
+      useGitStore.getState().invalidateAll(cwd);
+      await refreshStatus();
+    });
+  }, [cwd, withLoading, clearDiffCache, refreshStatus]);
 
   const SECTION_MIN = 28;
   const leftPanelRef = useRef<HTMLDivElement>(null);
@@ -260,81 +339,114 @@ export function GitView({ cwd, tabId }: GitViewProps) {
     return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
   }, []);
 
-  const handleFetch = useCallback(async () => {
-    try {
-      await system.gitFetch(cwd, "origin");
-      clearDiffCache();
-      useGitStore.getState().invalidateAll(cwd);
-      await Promise.all([refreshStatus(), refreshBranches()]);
-    } catch (e) { console.error(e); }
-  }, [cwd, refreshStatus, refreshBranches, clearDiffCache]);
-
   // ── Branch actions ─────────────────────────────────────────────
   const handleMergeBranch = useCallback(async (branch: string) => {
-    const target = prompt(`Merge branch into ${currentBranch}:`, branch);
-    if (!target) return;
-    try {
-      await system.gitExec(cwd, ["merge", target]);
-      clearDiffCache();
-      useGitStore.getState().invalidateAll(cwd);
-      await Promise.all([refreshStatus(), refreshBranches()]);
-    } catch (e) { alert(String(e)); }
+    setInputDialog({
+      title: "Merge Branch",
+      description: `Merge branch into ${currentBranch}:`,
+      initialValue: branch,
+      confirmLabel: "Merge",
+      onSubmit: async (target) => {
+        try {
+          await system.gitExec(cwd, ["merge", target]);
+          clearDiffCache();
+          useGitStore.getState().invalidateAll(cwd);
+          await Promise.all([refreshStatus(), refreshBranches()]);
+        } catch (e) { addNotification(e); }
+      },
+    });
   }, [cwd, currentBranch, refreshStatus, refreshBranches, clearDiffCache]);
 
   const handleRebaseBranch = useCallback(async (branch: string) => {
-    const target = prompt(`Rebase ${currentBranch} onto:`, branch);
-    if (!target) return;
-    try {
-      await system.gitExec(cwd, ["rebase", target]);
-      clearDiffCache();
-      useGitStore.getState().invalidateAll(cwd);
-      await Promise.all([refreshStatus(), refreshBranches()]);
-    } catch (e) { alert(String(e)); }
+    setInputDialog({
+      title: "Rebase Branch",
+      description: `Rebase ${currentBranch} onto:`,
+      initialValue: branch,
+      confirmLabel: "Rebase",
+      onSubmit: async (target) => {
+        try {
+          await system.gitExec(cwd, ["rebase", target]);
+          clearDiffCache();
+          useGitStore.getState().invalidateAll(cwd);
+          await Promise.all([refreshStatus(), refreshBranches()]);
+        } catch (e) { addNotification(e); }
+      },
+    });
   }, [cwd, currentBranch, refreshStatus, refreshBranches, clearDiffCache]);
 
-  const handleCreateBranch = useCallback(async () => {
-    const name = prompt("Branch name:");
-    if (!name) return;
-    try {
-      await system.gitBranchCreate(cwd, name);
-      useGitStore.getState().invalidateBranches(cwd);
-      await refreshBranches();
-    } catch (e) { alert(String(e)); }
+  const handleCreateBranch = useCallback(() => {
+    setInputDialog({
+      title: "Create Branch",
+      description: "Branch name:",
+      confirmLabel: "Create",
+      onSubmit: async (name) => {
+        try {
+          await system.gitBranchCreate(cwd, name);
+          useGitStore.getState().invalidateBranches(cwd);
+          await refreshBranches();
+        } catch (e) { addNotification(e); }
+      },
+    });
   }, [cwd, refreshBranches]);
 
-  const handleCreateBranchFrom = useCallback(async () => {
-    const name = prompt("Branch name:");
-    if (!name) return;
-    const startPoint = prompt("Start point (branch/commit):");
-    if (!startPoint) return;
-    try {
-      await system.gitBranchCreate(cwd, name, startPoint);
-      useGitStore.getState().invalidateBranches(cwd);
-      await refreshBranches();
-    } catch (e) { alert(String(e)); }
+  const handleCreateBranchFrom = useCallback(() => {
+    let branchName = "";
+    setInputDialog({
+      title: "Create Branch",
+      description: "Branch name:",
+      confirmLabel: "Next",
+      onSubmit: (name) => {
+        branchName = name;
+        setInputDialog({
+          title: "Create Branch",
+          description: "Start point (branch/commit):",
+          confirmLabel: "Create",
+          onSubmit: async (startPoint) => {
+            try {
+              await system.gitBranchCreate(cwd, branchName, startPoint);
+              useGitStore.getState().invalidateBranches(cwd);
+              await refreshBranches();
+            } catch (e) { addNotification(e); }
+          },
+        });
+      },
+    });
   }, [cwd, refreshBranches]);
 
   const handleRenameBranch = useCallback(async (branch: string) => {
-    const name = prompt(`Rename "${branch}" to:`, branch);
-    if (!name) return;
-    try {
-      if (branch === currentBranch) {
-        await system.gitExec(cwd, ["branch", "-m", name]);
-      } else {
-        await system.gitExec(cwd, ["branch", "-m", branch, name]);
-      }
-      useGitStore.getState().invalidateBranches(cwd);
-      await refreshBranches();
-    } catch (e) { alert(String(e)); }
+    setInputDialog({
+      title: "Rename Branch",
+      description: `Rename "${branch}" to:`,
+      initialValue: branch,
+      confirmLabel: "Rename",
+      onSubmit: async (name) => {
+        try {
+          if (branch === currentBranch) {
+            await system.gitExec(cwd, ["branch", "-m", name]);
+          } else {
+            await system.gitExec(cwd, ["branch", "-m", branch, name]);
+          }
+          useGitStore.getState().invalidateBranches(cwd);
+          await refreshBranches();
+        } catch (e) { addNotification(e); }
+      },
+    });
   }, [cwd, currentBranch, refreshBranches]);
 
   const handleDeleteBranch = useCallback(async (branch: string) => {
-    if (!confirm(`Delete branch "${branch}"?`)) return;
-    try {
-      await system.gitBranchDelete(cwd, branch, true);
-      useGitStore.getState().invalidateBranches(cwd);
-      await refreshBranches();
-    } catch (e) { alert(String(e)); }
+    setConfirmDialog({
+      title: "Delete Branch",
+      description: `Delete branch "${branch}"?`,
+      confirmLabel: "Delete",
+      variant: "danger",
+      onConfirm: async () => {
+        try {
+          await system.gitBranchDelete(cwd, branch, true);
+          useGitStore.getState().invalidateBranches(cwd);
+          await refreshBranches();
+        } catch (e) { addNotification(e); }
+      },
+    });
   }, [cwd, refreshBranches]);
 
   const handlePublishBranch = useCallback(async (branch: string) => {
@@ -342,20 +454,33 @@ export function GitView({ cwd, tabId }: GitViewProps) {
       await system.gitPush(cwd, "origin", branch);
       useGitStore.getState().invalidateBranches(cwd);
       await refreshBranches();
-    } catch (e) { alert(String(e)); }
+    } catch (e) { addNotification(e); }
   }, [cwd, refreshBranches]);
 
   const handleRenameRemoteBranch = useCallback(async (branch: string) => {
-    const remote = prompt("Remote (default: origin):", "origin");
-    if (!remote) return;
-    const name = prompt(`New name for remote branch "${branch}":`);
-    if (!name) return;
-    try {
-      await system.gitExec(cwd, ["push", remote, `:${branch}`]);
-      await system.gitExec(cwd, ["push", remote, name]);
-      useGitStore.getState().invalidateBranches(cwd);
-      await refreshBranches();
-    } catch (e) { alert(String(e)); }
+    let remoteName = "";
+    setInputDialog({
+      title: "Rename Remote Branch",
+      description: "Remote (default: origin):",
+      initialValue: "origin",
+      confirmLabel: "Next",
+      onSubmit: (remote) => {
+        remoteName = remote;
+        setInputDialog({
+          title: "Rename Remote Branch",
+          description: `New name for remote branch "${branch}":`,
+          confirmLabel: "Rename",
+          onSubmit: async (name) => {
+            try {
+              await system.gitExec(cwd, ["push", remoteName, `:${branch}`]);
+              await system.gitExec(cwd, ["push", remoteName, name]);
+              useGitStore.getState().invalidateBranches(cwd);
+              await refreshBranches();
+            } catch (e) { addNotification(e); }
+          },
+        });
+      },
+    });
   }, [cwd, refreshBranches]);
 
   const addTab = useSessionStore(s => s.addTab);
@@ -364,11 +489,22 @@ export function GitView({ cwd, tabId }: GitViewProps) {
 
   const handleOpenFile = useCallback(async (filePath: string) => {
     const resolvedPath = cwd ? `${cwd}/${filePath}`.replace(/\/\//g, "/") : filePath;
-    const existing = tabs.find(t => t.type === "file" && t.filePath === resolvedPath && t.cwd === cwd);
+
+    // Check for actual merge conflict markers in file content
+    let type: "file" | "merge" = "file";
+    try {
+      const content = await system.readFileContent(resolvedPath);
+      if (content.includes("<<<<<<<") && content.includes("=======") && content.includes(">>>>>>>")) {
+        type = "merge";
+      }
+    } catch {}
+
+    const existing = tabs.find(t => t.type === type && t.filePath === resolvedPath && t.cwd === cwd);
     if (existing) { setActiveTabId(existing.id); return; }
-    const name = filePath.split(/[\\/]/).pop() || filePath;
+    const fileName = filePath.split(/[\\/]/).pop() || filePath;
+    const name = type === "merge" ? `Merge: ${fileName}` : fileName;
     const id = uuidv4();
-    addTab({ id, name, type: "file", filePath: resolvedPath, cwd, created_at: Date.now() });
+    addTab({ id, name, type, filePath: resolvedPath, cwd, created_at: Date.now() });
     setActiveTabId(id);
   }, [cwd, tabs, addTab, setActiveTabId]);
 
@@ -551,18 +687,18 @@ export function GitView({ cwd, tabId }: GitViewProps) {
           )}
         </div>
 
-        <div className="flex items-center gap-1 text-[11px] px-2 py-1 rounded" style={{ color: "rgba(232,234,240,0.4)", background: "rgba(255,255,255,0.03)" }}>
-          <ArrowUp size={11} style={{ color: aheadBehind.ahead > 0 ? "#50E3C2" : undefined }} />
-          <span>{aheadBehind.ahead}</span>
-          <ArrowDown size={11} style={{ color: aheadBehind.behind > 0 ? "#FF6B6B" : undefined }} />
-          <span>{aheadBehind.behind}</span>
-        </div>
+        {(aheadBehind.ahead > 0 || aheadBehind.behind > 0) && (
+          <div className="flex items-center gap-1 text-[11px] px-2 py-1 rounded" style={{ color: "rgba(232,234,240,0.4)", background: "rgba(255,255,255,0.03)" }}>
+            {aheadBehind.ahead > 0 && <><ArrowUp size={11} style={{ color: "#50E3C2" }} /><span>{aheadBehind.ahead}</span></>}
+            {aheadBehind.behind > 0 && <><ArrowDown size={11} style={{ color: "#FF6B6B" }} /><span>{aheadBehind.behind}</span></>}
+          </div>
+        )}
 
         <div className="w-px h-4 bg-white/6" />
 
-        <button onClick={handlePull} className="flex items-center gap-1 px-1.5 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer hover:bg-white/6" style={{ color: "rgba(232,234,240,0.5)" }}><Download size={13} /> Pull</button>
-        <button onClick={handlePush} className="flex items-center gap-1 px-1.5 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer hover:bg-white/6" style={{ color: "rgba(232,234,240,0.5)" }}><Upload size={13} /> Push</button>
-        <button onClick={handleFetch} className="flex items-center gap-1 px-1.5 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer hover:bg-white/6" style={{ color: "rgba(232,234,240,0.5)" }}><RefreshCw size={13} /> Fetch</button>
+        <button onClick={handlePull} disabled={gitLoading.pull} className="flex items-center gap-1 px-1.5 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer hover:bg-white/6 disabled:opacity-40 disabled:cursor-not-allowed" style={{ color: "rgba(232,234,240,0.5)" }}>{gitLoading.pull ? <Loader size={13} className="animate-spin" /> : <Download size={13} />} Pull</button>
+        <button onClick={handlePush} disabled={gitLoading.push || aheadBehind.ahead === 0} className="flex items-center gap-1 px-1.5 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer hover:bg-white/6 disabled:opacity-40 disabled:cursor-not-allowed" style={{ color: "rgba(232,234,240,0.5)" }}>{gitLoading.push ? <Loader size={13} className="animate-spin" /> : <Upload size={13} />} Push</button>
+        <button onClick={handleFetch} disabled={gitLoading.fetch} className="flex items-center gap-1 px-1.5 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer hover:bg-white/6 disabled:opacity-40 disabled:cursor-not-allowed" style={{ color: "rgba(232,234,240,0.5)" }}>{gitLoading.fetch ? <Loader size={13} className="animate-spin" /> : <RefreshCw size={13} />} Fetch</button>
 
         <div className="flex-1" />
 
@@ -585,7 +721,7 @@ export function GitView({ cwd, tabId }: GitViewProps) {
                   </button>
                   {branchesMenuOpen && (
                     <MenuView variant="secondary" open={branchesMenuOpen} onClose={() => setBranchesMenuOpen(false)} className="absolute right-0 top-full">
-                      <MenuViewItem variant="secondary" onClick={() => { setBranchesMenuOpen(false); handleCheckout(prompt("Branch name:", "") || currentBranch); }} icon={<GitBranch size={12} />}>Checkout to</MenuViewItem>
+                      <MenuViewItem variant="secondary" onClick={() => { setBranchesMenuOpen(false); handleOpenCheckoutDialog(); }} icon={<GitBranch size={12} />}>Checkout to</MenuViewItem>
                       <MenuViewSeparator />
                       <MenuViewItem variant="secondary" onClick={() => { setBranchesMenuOpen(false); handleMergeBranch(currentBranch); }} icon={<GitMerge size={12} />}>Merge</MenuViewItem>
                       <MenuViewItem variant="secondary" onClick={() => { setBranchesMenuOpen(false); handleRebaseBranch(currentBranch); }} icon={<GitFork size={12} />}>Rebase branch</MenuViewItem>
@@ -604,22 +740,27 @@ export function GitView({ cwd, tabId }: GitViewProps) {
                   <LoadingSpinner size={14} inline />
                 </div>
               ) : (
-                branches.map(b => (
-                  <div key={b.name}
-                    className="flex items-center gap-1 w-full text-xs px-3 py-1 transition-colors"
-                    style={{ color: b.current ? "#4F8CFF" : "rgba(232,234,240,0.6)", background: b.current ? "rgba(79,140,255,0.06)" : "transparent" }}
-                    onMouseEnter={e => { if (!b.current) e.currentTarget.style.background = "rgba(255,255,255,0.03)"; }}
-                    onMouseLeave={e => { if (!b.current) e.currentTarget.style.background = "transparent"; }}
-                    onContextMenu={e => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, branch: b.name }); }}
-                  >
-                    <button onClick={() => handleCheckout(b.name)} className="flex items-center gap-1.5 flex-1 min-w-0 text-left cursor-pointer">
+                branches.map(b => {
+                  const isChecked = checkedBranches.includes(b.name);
+                  return (
+                    <div key={b.name}
+                      className="group flex items-center gap-1.5 w-full text-xs px-3 py-1 cursor-pointer hover:bg-white/5"
+                      style={{ color: b.current ? "#4F8CFF" : "rgba(232,234,240,0.6)" }}
+                      onClick={() => { if (b.current) return; setCheckedBranches(prev => prev.includes(b.name) ? prev.filter(n => n !== b.name) : [...prev, b.name]); }}
+                      onContextMenu={e => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, branch: b.name }); }}
+                    >
+                      {b.current || isChecked ? (
+                        <CheckSquare size={11} style={{ color: "#4F8CFF" }} />
+                      ) : (
+                        <Square size={11} style={{ color: "rgba(232,234,240,0.25)" }} />
+                      )}
                       <GitBranch size={11} style={{ color: b.current ? "#4F8CFF" : "rgba(232,234,240,0.2)" }} />
-                      <span className="truncate">{b.name}</span>
+                      <span className="truncate flex-1">{b.name}</span>
                       {b.ahead > 0 && <span className="text-[10px]" style={{ color: "#50E3C2" }}>↑{b.ahead}</span>}
                       {b.behind > 0 && <span className="text-[10px]" style={{ color: "#FF6B6B" }}>↓{b.behind}</span>}
-                    </button>
-                  </div>
-                ))
+                    </div>
+                  );
+                })
               )}
             </div>
           </div>
@@ -793,7 +934,15 @@ export function GitView({ cwd, tabId }: GitViewProps) {
             style={{ borderColor: "rgba(255,255,255,0.05)", height: selectedFile ? commitHistoryH : undefined, minHeight: selectedFile ? COMMIT_HISTORY_MIN : undefined }}
           >
             <SectionHeader label="Commit History" />
-            <GitTree variant="expanded" />
+            {checkedBranches.length === 0 ? (
+              <div className="flex items-center justify-center flex-1 min-h-0">
+                <span className="text-xs" style={{ color: "rgba(232,234,240,0.25)" }}>
+                  Select branches to view commit history
+                </span>
+              </div>
+            ) : (
+              <GitTree variant="expanded" branchNames={checkedBranches} />
+            )}
           </div>
         </div>
       </div>
@@ -831,20 +980,25 @@ export function GitView({ cwd, tabId }: GitViewProps) {
               Unstage
             </MenuViewItem>
           )}
-          {(contextMenu.entry.x === " " || contextMenu.entry.x === "?") && (
+          {contextMenu.entry.x === " " && (
             <MenuViewItem variant="rightclick" onClick={() => { setContextMenu(null); handleStage([contextMenu.entry!.path]); }} icon={<CheckSquare size={12} />}>
               Stage
             </MenuViewItem>
           )}
-          {contextMenu.entry.x === " " && contextMenu.entry.y !== " " && (
+          {contextMenu.entry.x !== "?" && (
             <MenuViewItem variant="rightclick" danger onClick={() => { setContextMenu(null); handleRestore([contextMenu.entry!.path]); }} icon={<Undo2 size={12} />}>
               Discard changes
             </MenuViewItem>
           )}
           {contextMenu.entry.x === "?" && (
-            <MenuViewItem variant="rightclick" danger onClick={() => { setContextMenu(null); handleClean([contextMenu.entry!.path]); }} icon={<Trash2 size={12} />}>
-              Delete file
-            </MenuViewItem>
+            <>
+              <MenuViewItem variant="rightclick" onClick={() => { setContextMenu(null); handleStage([contextMenu.entry!.path]); }} icon={<CheckSquare size={12} />}>
+                Stage
+              </MenuViewItem>
+              <MenuViewItem variant="rightclick" danger onClick={() => { setContextMenu(null); handleClean([contextMenu.entry!.path]); }} icon={<Trash2 size={12} />}>
+                Delete file
+              </MenuViewItem>
+            </>
           )}
           <MenuViewSeparator />
           <MenuViewItem variant="rightclick" onClick={() => { setContextMenu(null); handleSelectFile(contextMenu.entry!); }} icon={<Eye size={12} />}>
@@ -852,6 +1006,34 @@ export function GitView({ cwd, tabId }: GitViewProps) {
           </MenuViewItem>
         </MenuView>
       )}
+
+      {/* ── Dialogs ──────────────────────────────────────────────── */}
+      <InputDialog
+        open={!!inputDialog}
+        title={inputDialog?.title || ""}
+        description={inputDialog?.description}
+        initialValue={inputDialog?.initialValue}
+        placeholder={inputDialog?.placeholder}
+        confirmLabel={inputDialog?.confirmLabel}
+        onSubmit={v => { inputDialog?.onSubmit(v); setInputDialog(null); }}
+        onCancel={() => setInputDialog(null)}
+      />
+      <ConfirmDialog
+        open={!!confirmDialog}
+        title={confirmDialog?.title || ""}
+        description={confirmDialog?.description}
+        confirmLabel={confirmDialog?.confirmLabel}
+        variant={confirmDialog?.variant}
+        onConfirm={() => { confirmDialog?.onConfirm(); setConfirmDialog(null); }}
+        onCancel={() => setConfirmDialog(null)}
+      />
+      <BranchCheckoutDialog
+        open={checkoutDialogOpen}
+        branches={allBranches}
+        currentBranch={currentBranch}
+        onCheckout={(b) => { setCheckoutDialogOpen(false); handleCheckout(b); }}
+        onCancel={() => setCheckoutDialogOpen(false)}
+      />
     </div>
   );
 }
@@ -964,7 +1146,7 @@ function ChangesFileRow({ entry, onStage, onRestore, onDelete, onOpenFile, onSel
         <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 group-hover:bg-primary rounded" style={{ pointerEvents: "auto" }}>
           <IconButton icon={<FileSymlink />} tooltip="Open File" onClick={onOpenFile} size="sm" className="w-5 h-5 [&_svg]:w-[11px] [&_svg]:h-[11px] text-white" />
           {onRestore && <IconButton icon={<Undo2 />} tooltip="Discard Changes" onClick={onRestore} size="sm" className="w-5 h-5 [&_svg]:w-[11px] [&_svg]:h-[11px] text-white" />}
-          {onDelete && <IconButton icon={<Trash2 />} tooltip="Delete File" onClick={onDelete} size="sm" className="w-5 h-5 [&_svg]:w-[11px] [&_svg]:h-[11px] text-red-400" />}
+          {onDelete && <IconButton icon={<Trash2 />} tooltip="Delete File" onClick={onDelete} size="sm" className="w-5 h-5 [&_svg]:w-[11px] [&_svg]:h-[11px] text-white" />}
           <IconButton icon={<Plus />} tooltip="Stage" onClick={onStage} size="sm" className="w-5 h-5 [&_svg]:w-[11px] [&_svg]:h-[11px] text-white" />
         </div>
       )}

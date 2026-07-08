@@ -54,6 +54,7 @@ export const DEFAULT_KEYBINDINGS: KeybindingDef[] = [
   { id: "terminal-search", command: "Search Terminal", keys: "Ctrl+Shift+F", when: "Terminal" },
   { id: "voice-input", command: "Toggle Voice Input", keys: "Ctrl+Alt+M", when: "Global" },
   { id: "toggle-word-wrap", command: "Toggle Word Wrap", keys: "Alt+Z", when: "Editor" },
+  { id: "ai-suggestions", command: "AI Suggestions and Improvements", keys: "Ctrl+L", when: "Editor" },
 ];
 
 interface SettingsStore {
@@ -73,6 +74,9 @@ interface SettingsStore {
   gitGuiMode: "tab" | "window";
   restoreTabs: boolean;
   wordWrap: boolean;
+  aiCodeCompletion: boolean;
+  aiSuggestions: boolean;
+  indentMarkers: boolean;
 
   setTheme: (theme: "dark" | "light") => void;
   setMode: (mode: EditorMode) => void;
@@ -90,6 +94,9 @@ interface SettingsStore {
   setGitGuiMode: (mode: "tab" | "window") => void;
   setRestoreTabs: (restore: boolean) => void;
   setWordWrap: (wrap: boolean) => void;
+  setAiCodeCompletion: (enabled: boolean) => void;
+  setAiSuggestions: (enabled: boolean) => void;
+  setIndentMarkers: (enabled: boolean) => void;
 }
 
 export const useSettingsStore = create<SettingsStore>((set) => ({
@@ -109,6 +116,9 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
   gitGuiMode: "tab",
   restoreTabs: true,
   wordWrap: true,
+  aiCodeCompletion: true,
+  aiSuggestions: true,
+  indentMarkers: true,
 
   setTheme: (theme) => {
     set({ theme });
@@ -127,6 +137,9 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
   setGitGuiMode: (gitGuiMode) => set({ gitGuiMode }),
   setRestoreTabs: (restoreTabs) => set({ restoreTabs }),
   setWordWrap: (wordWrap) => set({ wordWrap }),
+  setAiCodeCompletion: (aiCodeCompletion) => set({ aiCodeCompletion }),
+  setAiSuggestions: (aiSuggestions) => set({ aiSuggestions }),
+  setIndentMarkers: (indentMarkers) => set({ indentMarkers }),
   setKeybindingOverride: (id, keys) => set((state) => ({ keybindingOverrides: { ...state.keybindingOverrides, [id]: keys } })),
   resetKeybindingOverride: (id) => set((state) => {
     const { [id]: _, ...rest } = state.keybindingOverrides;

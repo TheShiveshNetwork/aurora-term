@@ -34,3 +34,13 @@ pub struct AIStreamChunkEvent {
     pub chunk: String,
     pub done: bool,
 }
+
+/// Model metadata returned by provider model-listing APIs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelInfo {
+    pub id: String,
+    pub display_name: String,
+    pub supports_tools: bool,
+    pub max_tokens: Option<u32>,
+    pub context_window: Option<u32>,
+}

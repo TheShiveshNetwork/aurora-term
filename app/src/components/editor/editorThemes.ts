@@ -7,14 +7,7 @@ export function createThemeCompartment(): Compartment {
   return new Compartment();
 }
 
-export const READONLY_EDITOR_THEME = EditorView.theme({
-  "&": { backgroundColor: "transparent", height: "100%" },
-  ".cm-gutters": { backgroundColor: "transparent" },
-  ".cm-activeLineGutter": { backgroundColor: "transparent" },
-  ".cm-activeLine": { backgroundColor: "rgba(255,255,255,0.022)" },
-  ".cm-scroller": { fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace", fontSize: "12px", lineHeight: "1.65" },
-  ".cm-content": { padding: "4px 0" },
-});
+export const READONLY_EDITOR_THEME = EditorView.theme({});
 
 export async function getEditorTheme(name: EditorThemeName): Promise<Extension> {
   switch (name) {

@@ -4,13 +4,14 @@ import EditorSettingsView from "./EditorSettingsView";
 import WorkspaceSettingsView from "./WorkspaceSettingsView";
 import AppearanceSettingsView from "./AppearanceSettingsView";
 import AISettingsView from "./AISettingsView";
+import PermissionsSettingsView from "./PermissionsSettingsView";
 import KeybindingsSettingsView from "./KeybindingsSettingsView";
 import AboutSettingsView from "./AboutSettingsView";
+import { ProviderDetailView } from "./ProviderDetailView";
 import { Breadcrumbs, SettingsContext, DraftSettings } from "./SettingsShared";
-import { useSettingsStore } from "../../stores/useSettingsStore";
-import { useAppShellStore } from "../../stores/useAppShellStore";
-import { useAIStore } from "../../stores/useAIStore";
-import { AppConfig, config, state } from "../../lib/ipc";
+import { ProviderName } from "@aurora/types";
+import { ProviderRegistry } from "../../lib/providers";
+import { ai, AppConfig, config, state } from "../../lib/ipc";
 import { WindowControls } from "../ui/WindowControls";
 import { emit, listen } from "@tauri-apps/api/event";
 import { Button } from "../ui/Button";
@@ -42,8 +43,8 @@ const SECTIONS: Section[] = [
     id: "general",
     label: "General",
     items: [
-      { id: "window", label: "Window Settings", view: <WindowSettingsView /> },
-      { id: "editor", label: "Editor Settings", view: <EditorSettingsView /> },
+      { id: "window", label: "Window", view: <WindowSettingsView /> },
+      { id: "editor", label: "Editor", view: <EditorSettingsView /> },
       { id: "workspace", label: "Workspace", view: <WorkspaceSettingsView /> },
       { id: "appearance", label: "Appearance", view: <AppearanceSettingsView /> },
       { id: "keybindings", label: "Keybindings", view: <KeybindingsSettingsView /> },
@@ -54,6 +55,7 @@ const SECTIONS: Section[] = [
     label: "Agent",
     items: [
       { id: "ai", label: "AI Providers", view: <AISettingsView /> },
+      { id: "permissions", label: "Permissions", view: <PermissionsSettingsView /> },
     ],
   },
   {
@@ -71,18 +73,34 @@ export default function SettingsPage() {
     section: "general",
     sub: "window",
   });
+  const [providerPage, setProviderPage] = useState<string | null>(null);
   const [scrollTarget, setScrollTarget] = useState<string | null>(null);
   const [draft, setDraft] = useState<DraftSettings | null>(null);
   const [initial, setInitial] = useState<DraftSettings | null>(null);
   const [applied, setApplied] = useState<DraftSettings | null>(null);
   const [saving, setSaving] = useState(false);
   const [applying, setApplying] = useState(false);
+  const [keyringStatus, setKeyringStatus] = useState<Record<string, boolean>>({});
   const contentRef = useRef<HTMLDivElement>(null);
+
+  const refreshKeyringStatus = () => {
+    ai.getProviderStatus().then(setKeyringStatus).catch(() => { });
+  };
 
   const { section, sub } = nav;
   const activeSection = SECTIONS.find((s) => s.id === section)!;
   const activePage = activeSection.items.find((p) => p.id === sub) ?? activeSection.items[0];
-  const breadcrumbItems = ["Settings", activeSection.label, activePage.label];
+  const providerBreadcrumb = providerPage
+    ? ProviderRegistry.get(providerPage as ProviderName)?.displayName || providerPage
+    : null;
+  const breadcrumbItems = providerPage
+    ? [
+      "Settings",
+      activeSection.label,
+      { label: "AI Providers", onClick: () => setProviderPage(null) },
+      providerBreadcrumb!,
+    ]
+    : ["Settings", activeSection.label, activePage.label];
 
   useEffect(() => {
     Promise.all([
@@ -94,12 +112,14 @@ export default function SettingsPage() {
         sidebarCollapsed: uiState.sidebar_collapsed,
         showAiBar: uiState.show_ai_bar,
         chatInputOpen: uiState.chat_input_open,
+        fileChatInputOpen: uiState.file_chat_input_open,
         tabBarVisible: uiState.tab_bar_visible,
       };
       setDraft(JSON.parse(JSON.stringify(initialVal)));
       setInitial(JSON.parse(JSON.stringify(initialVal)));
       setApplied(JSON.parse(JSON.stringify(initialVal)));
     }).catch(console.error);
+    refreshKeyringStatus();
   }, []);
 
   useEffect(() => {
@@ -135,9 +155,10 @@ export default function SettingsPage() {
       sidebarCollapsed: boolean;
       showAiBar: boolean;
       chatInputOpen: boolean;
+      fileChatInputOpen: boolean;
       tabBarVisible: boolean;
     }>("ui_state_changed", (event) => {
-      const { sidebarCollapsed, showAiBar, chatInputOpen, tabBarVisible } = event.payload;
+      const { sidebarCollapsed, showAiBar, chatInputOpen, fileChatInputOpen, tabBarVisible } = event.payload;
       setDraft((prev) => {
         if (!prev) return null;
         return {
@@ -145,6 +166,7 @@ export default function SettingsPage() {
           sidebarCollapsed,
           showAiBar,
           chatInputOpen,
+          fileChatInputOpen,
           tabBarVisible,
         };
       });
@@ -155,6 +177,7 @@ export default function SettingsPage() {
           sidebarCollapsed,
           showAiBar,
           chatInputOpen,
+          fileChatInputOpen,
           tabBarVisible,
         };
       });
@@ -165,6 +188,7 @@ export default function SettingsPage() {
           sidebarCollapsed,
           showAiBar,
           chatInputOpen,
+          fileChatInputOpen,
           tabBarVisible,
         };
       });
@@ -236,12 +260,14 @@ export default function SettingsPage() {
         draft.sidebarCollapsed,
         draft.tabBarVisible,
         draft.showAiBar,
-        draft.chatInputOpen
+        draft.chatInputOpen,
+        draft.fileChatInputOpen
       );
       await emit("ui_state_changed", {
         sidebarCollapsed: draft.sidebarCollapsed,
         showAiBar: draft.showAiBar,
         chatInputOpen: draft.chatInputOpen,
+        fileChatInputOpen: draft.fileChatInputOpen,
         tabBarVisible: draft.tabBarVisible,
       });
       setApplied(JSON.parse(JSON.stringify(draft)));
@@ -260,16 +286,18 @@ export default function SettingsPage() {
         draft.sidebarCollapsed,
         draft.tabBarVisible,
         draft.showAiBar,
-        draft.chatInputOpen
+        draft.chatInputOpen,
+        draft.fileChatInputOpen
       );
       await emit("ui_state_changed", {
         sidebarCollapsed: draft.sidebarCollapsed,
         showAiBar: draft.showAiBar,
         chatInputOpen: draft.chatInputOpen,
+        fileChatInputOpen: draft.fileChatInputOpen,
         tabBarVisible: draft.tabBarVisible,
       });
-      const { getCurrentWebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-      await getCurrentWebviewWindow().close();
+      setApplied(JSON.parse(JSON.stringify(draft)));
+      setInitial(JSON.parse(JSON.stringify(draft)));
     } catch (e) {
       console.error("Save failed", e);
     }
@@ -288,7 +316,7 @@ export default function SettingsPage() {
   const hasChanges = isDirty || !!(draft && applied && JSON.stringify(draft) !== JSON.stringify(applied));
 
   return (
-    <SettingsContext.Provider value={{ draft, updateDraft }}>
+    <SettingsContext.Provider value={{ draft, updateDraft, providerPage, setProviderPage }}>
       <div className="h-screen flex flex-col overflow-hidden select-none" style={{ background: "#0A0D14", color: "#E8EAF0" }}>
         <style>{`.setting-flash { outline: 2px solid rgba(79,140,255,0.4); outline-offset: -2px; border-radius: 8px; transition: outline-color 0.15s; }`}</style>
         <header
@@ -316,11 +344,11 @@ export default function SettingsPage() {
                 </div>
                 <div className="mt-0.5 space-y-0.5">
                   {sec.items.map((p) => {
-                    const selected = sub === p.id;
+                    const selected = sub === p.id || (p.id === "ai" && providerPage !== null);
                     return (
                       <button
                         key={p.id}
-                        onClick={() => setNav({ section: sec.id, sub: p.id })}
+                        onClick={() => { setNav({ section: sec.id, sub: p.id }); setProviderPage(null); }}
                         className="flex items-center gap-2 w-full px-3 py-1.5 text-sm text-left transition-all cursor-pointer rounded-sm"
                         style={{
                           background: selected ? "rgba(255,255,255,0.04)" : "transparent",
@@ -342,7 +370,21 @@ export default function SettingsPage() {
           <div className="flex-1 flex flex-col min-h-0">
             <div ref={contentRef} className="flex-1 overflow-y-auto p-6">
               <Breadcrumbs items={breadcrumbItems} />
-              {activePage.view}
+              {providerPage ? (
+                <ProviderDetailView
+                  name={providerPage as ProviderName}
+                  isSelected={draft.config.ai.active_provider === providerPage}
+                  keyringHasKey={!!keyringStatus[providerPage]}
+                  onSetSelected={() => {
+                    updateDraft((d) => { d.config.ai.active_provider = providerPage; });
+                    setProviderPage(null);
+                  }}
+                  onClose={() => setProviderPage(null)}
+                  onApiKeyChange={refreshKeyringStatus}
+                />
+              ) : (
+                activePage.view
+              )}
             </div>
 
             {/* Footer Bar */}

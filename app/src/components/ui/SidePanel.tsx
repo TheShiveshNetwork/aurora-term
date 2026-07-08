@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   Folder, FileText, FileCode, FileImage, FileJson, FileSpreadsheet, FileAudio, FileVideo, FileArchive,
-  ChevronDown, ChevronRight, RefreshCw, MoreHorizontal,
+  ChevronDown, ChevronRight, RefreshCw, MoreHorizontal, Search,
   Copy, FolderOpen, Terminal, ExternalLink, ClipboardCopy, Pencil, Trash2, AlertTriangle,
   ClipboardList, Scissors, CopyMinus, GitBranch, Plus,
 } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { startDrag } from "@crabnebula/tauri-plugin-drag";
+import { resolveResource } from "@tauri-apps/api/path";
 import { useSessionStore } from "../../stores/useSessionStore";
 import { useAppShellStore } from "../../stores/useAppShellStore";
 import { MenuView, MenuViewItem, MenuViewSeparator } from "./MenuView";
@@ -20,6 +22,8 @@ import { FileOutline } from "./FileOutline";
 import { FileTimeline } from "./FileTimeline";
 import { GitTree } from "./GitTree";
 import { OpenTabs } from "./OpenTabs";
+import { SearchInFiles } from "./SearchInFiles";
+import { useSearchStore } from "../../stores/useSearchStore";
 
 // ── Normalize path for comparison ────────────────────────────────────────────
 function pathsEqual(a: string, b: string): boolean {
@@ -41,12 +45,13 @@ interface SidePanelProps {
   activeFilePath?: string;
   onKillTab?: (id: string) => void;
   onAddTab?: (type: "terminal" | "file") => void;
+  onOpenFileAtPath?: (path: string, options?: { lineNumber?: number; matchStart?: number; matchEnd?: number }) => void;
 }
 
 interface FileMenuState { x: number; y: number; node: FileNode }
 interface RenameState { path: string; currentName: string; value: string }
 interface ClipboardState { path: string; operation: "copy" | "cut" }
-interface DeleteConfirmState { node: FileNode }
+interface DeleteConfirmState { nodes: { path: string; name: string; is_dir: boolean }[] }
 
 const isExcluded = (name: string) =>
   name === ".git" || name === ".DS_Store" || name.endsWith(".swp") || name.endsWith(".swo") || name.startsWith("~");
@@ -63,19 +68,23 @@ function sortNodes(nodes: FileNode[]): FileNode[] {
 
 // ── TreeNode ──────────────────────────────────────────────────────────────────
 function TreeNode({
-  node, depth, selectedFile, activePath, onSelect, onActivate, onContextMenu,
+  node, depth, selectedFile, activePath, selectedPaths, onClickNode, onContextMenu,
   renamingPath, renameValue, onRenameChange, onRenameCommit, onRenameCancel,
-  dragOverPath, draggedNodePath, onPointerDown, expandPath, collapsePath,
+  dragOverPath, draggedNodePath, onDragStart,
+  onDragOverFolder, onDragLeaveFolder,
+  expandPath, collapsePath,
   creatingParent, creatingType, creatingName, onCreatingNameChange, onCreatingCommit, onCreatingCancel,
   collapseKey, refreshKey,
 }: {
-  node: FileNode; depth: number; selectedFile: string; activePath: string;
-  onSelect: (path: string) => void; onActivate: (path: string) => void;
+  node: FileNode; depth: number; selectedFile: string; activePath: string; selectedPaths: Set<string>;
+  onClickNode: (node: FileNode, e: React.MouseEvent) => void;
   onContextMenu: (e: React.MouseEvent, node: FileNode) => void;
   renamingPath: string; renameValue: string;
   onRenameChange: (val: string) => void; onRenameCommit: () => void; onRenameCancel: () => void;
   dragOverPath: string | null; draggedNodePath: string | null;
-  onPointerDown: (e: React.PointerEvent, node: FileNode) => void;
+  onDragStart: (e: React.DragEvent, node: FileNode) => void;
+  onDragOverFolder: (path: string) => void;
+  onDragLeaveFolder: (path: string) => void;
   expandPath: string | null; collapsePath: string | null;
   creatingParent: string | null; creatingType: "file" | "folder" | null;
   creatingName: string; onCreatingNameChange: (val: string) => void;
@@ -143,16 +152,17 @@ function TreeNode({
     setChildren([]);
   }, [refreshKey]); // eslint-disable-line
 
-  const handleClick = async () => {
+  const handleClick = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onClickNode(node, e);
     if (node.is_dir) {
-      onActivate(node.path);
       const next = !isOpen;
       setIsOpen(next);
       if (next) await loadChildren();
     } else {
-      onSelect(node.path);
-      onActivate(node.path);
-      window.dispatchEvent(new CustomEvent("sidebar-open-file", { detail: { path: node.path } }));
+      if (!e.ctrlKey && !e.metaKey) {
+        window.dispatchEvent(new CustomEvent("sidebar-open-file", { detail: { path: node.path } }));
+      }
     }
   };
 
@@ -161,23 +171,46 @@ function TreeNode({
   const isDragOver = dragOverPath === node.path && node.is_dir;
   const isBeingDragged = draggedNodePath === node.path;
   const isActive = activePath === node.path;
+  const isSelected = selectedPaths.has(node.path);
   const isCreating = creatingParent === node.path && node.is_dir;
 
   return (
     <div className="select-none">
       <div
+        draggable={!isRenaming}
+        onDragStart={(e) => onDragStart(e, node)}
+        onDragOver={(e) => {
+          if (node.is_dir) {
+            e.preventDefault();
+            const srcPath = draggedNodePath;
+            if (srcPath && (srcPath === node.path || pathStartsWith(node.path, srcPath))) {
+              return;
+            }
+            onDragOverFolder(node.path);
+          }
+        }}
+        onDragLeave={() => {
+          if (node.is_dir) {
+            onDragLeaveFolder(node.path);
+          }
+        }}
         onClick={isRenaming ? undefined : handleClick}
         onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); if (!isRenaming) onContextMenu(e, node); }}
         title={isRenaming ? undefined : node.name}
         data-path={node.path}
         data-is-dir={node.is_dir ? "true" : "false"}
         data-active-file={isActive ? "true" : undefined}
-        onPointerDown={(e) => { if (!node.is_dir) onPointerDown(e, node); }}
         className={`flex items-center gap-1.5 cursor-pointer transition-colors ${isBeingDragged ? "opacity-40" : ""}`}
         style={{
           paddingLeft: `${indent}px`, paddingRight: "8px",
           paddingTop: "4px", paddingBottom: "4px", minHeight: "24px",
-          background: isActive ? "rgba(79,140,255,0.10)" : isDragOver ? "rgba(79,140,255,0.08)" : undefined,
+          background: isActive
+            ? "rgba(79,140,255,0.12)"
+            : isSelected
+              ? "rgba(79,140,255,0.06)"
+              : isDragOver
+                ? "rgba(79,140,255,0.15)"
+                : undefined,
           borderLeft: isActive ? "2px solid rgba(79,140,255,0.55)" : "2px solid transparent",
         }}
       >
@@ -230,10 +263,12 @@ function TreeNode({
               <TreeNode
                 key={child.path} node={child} depth={depth + 1}
                 selectedFile={selectedFile} activePath={activePath}
-                onSelect={onSelect} onActivate={onActivate} onContextMenu={onContextMenu}
+                selectedPaths={selectedPaths} onClickNode={onClickNode} onContextMenu={onContextMenu}
                 renamingPath={renamingPath} renameValue={renameValue}
                 onRenameChange={onRenameChange} onRenameCommit={onRenameCommit} onRenameCancel={onRenameCancel}
-                dragOverPath={dragOverPath} draggedNodePath={draggedNodePath} onPointerDown={onPointerDown}
+                dragOverPath={dragOverPath} draggedNodePath={draggedNodePath}
+                onDragStart={onDragStart}
+                onDragOverFolder={onDragOverFolder} onDragLeaveFolder={onDragLeaveFolder}
                 expandPath={expandPath} collapsePath={collapsePath}
                 creatingParent={creatingParent} creatingType={creatingType}
                 creatingName={creatingName} onCreatingNameChange={onCreatingNameChange}
@@ -311,13 +346,20 @@ function SectionToggle() {
 }
 
 // ── SidebarIconBtn ────────────────────────────────────────────────────────────
-function SidebarIconBtn({ children, title, onClick }: { children: React.ReactNode; title?: string; onClick?: () => void }) {
+function SidebarIconBtn({ children, title, onClick, active }: { children: React.ReactNode; title?: string; onClick?: () => void; active?: boolean }) {
   return (
     <button type="button" title={title} onClick={onClick}
       className="w-6 h-6 flex items-center justify-center rounded-[6px] cursor-pointer transition-colors"
-      style={{ color: "rgba(232,234,240,0.4)" }}
-      onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.07)"; e.currentTarget.style.color = "#E8EAF0"; }}
-      onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "rgba(232,234,240,0.4)"; }}
+      style={{
+        color: active ? "#E8EAF0" : "rgba(232,234,240,0.4)",
+        background: active ? "rgba(255,255,255,0.07)" : "transparent",
+      }}
+      onMouseEnter={(e) => {
+        if (!active) { e.currentTarget.style.background = "rgba(255,255,255,0.07)"; e.currentTarget.style.color = "#E8EAF0"; }
+      }}
+      onMouseLeave={(e) => {
+        if (!active) { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "rgba(232,234,240,0.4)"; }
+      }}
     >
       {children}
     </button>
@@ -595,17 +637,47 @@ const MAX_WIDTH = 520;
 const DEFAULT_WIDTH = 220;
 
 // ── SidePanel ─────────────────────────────────────────────────────────────────
-export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab, onAddTab }: SidePanelProps) {
+export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab, onAddTab, onOpenFileAtPath }: SidePanelProps) {
   const [showAddTabMenu, setShowAddTabMenu] = useState(false);
   const addTabBtnRef = useRef<HTMLDivElement>(null);
   const [selectedFile, setSelectedFile] = useState("");
   const [activePath, setActivePath] = useState("");
+  const [activeNode, setActiveNode] = useState<FileNode | null>(null);
+  const [selectedNodes, setSelectedNodes] = useState<Map<string, { path: string; name: string; is_dir: boolean }>>(new Map());
+  const selectedPaths = useMemo(() => new Set(selectedNodes.keys()), [selectedNodes]);
   const [rootNodes, setRootNodes] = useState<FileNode[]>([]);
   const [workspaceName, setWorkspaceName] = useState("Workspace");
   const [resolvedCwd, setResolvedCwd] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [width, setWidth] = useState(DEFAULT_WIDTH);
+  const [dragIconPath, setDragIconPath] = useState("");
+
+  useEffect(() => {
+    resolveResource("static/aurora-icon.png")
+      .then((path) => setDragIconPath(path))
+      .catch((err) => {
+        console.error("Failed to resolve drag icon resource:", err);
+        if (resolvedCwd) {
+          setDragIconPath(resolvedCwd + "/static/aurora-icon.png");
+        }
+      });
+  }, [resolvedCwd]);
+
+  const isSidebarFocusedRef = useRef(false);
+
+  useEffect(() => {
+    const handleWindowClick = (e: MouseEvent) => {
+      const aside = document.getElementById("main-sidebar");
+      if (aside && aside.contains(e.target as Node)) {
+        isSidebarFocusedRef.current = true;
+      } else {
+        isSidebarFocusedRef.current = false;
+      }
+    };
+    window.addEventListener("click", handleWindowClick);
+    return () => window.removeEventListener("click", handleWindowClick);
+  }, []);
 
   // Inline create
   const [creatingIn, setCreatingIn] = useState<{ parentPath: string; type: "file" | "folder" } | null>(null);
@@ -642,12 +714,17 @@ export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab, onAddTab 
   const hasDataRef = useRef(false);
   const serializedRootRef = useRef("");
 
+  // Search
+  const searchIsOpen = useSearchStore((s) => s.isOpen);
+  const searchToggle = useSearchStore((s) => s.toggle);
+
   // Stores
   const activeTab = useSessionStore((s) => s.tabs.find((t) => t.id === s.activeTabId));
   const activeFileTab = useSessionStore((s) => s.tabs.find((t) => (t.type === "file" || t.type === "diff") && t.filePath === activeFilePath));
   const activeFileContent = activeFileTab?.type === "file" ? activeFileTab.fileContent : undefined;
   const isTerminalView = activeTab?.type === "terminal";
   const sectionVisibility = useAppShellStore((s) => s.sectionVisibility);
+  const projectDir = useAppShellStore((s) => s.projectDir || s.cwdAbsolute);
 
   // Section layout (collapsible + resize)
   const visibleSections = SECTIONS.filter(s => {
@@ -699,6 +776,18 @@ export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab, onAddTab 
     const unsub = onClosePopups(handler);
     return () => { window.removeEventListener("aurora-right-click-menu-close", handler); unsub(); };
   }, []);
+
+  // Auto-refresh GitTree when git refs change on disk
+  useEffect(() => {
+    const unlisten = listen<{ cwd: string; type: string }>("git-changed", (event) => {
+      if (event.payload.type === "refs" || event.payload.type === "remote") {
+        if (event.payload.cwd === projectDir) {
+          setGitRefreshKey((k) => k + 1);
+        }
+      }
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, [projectDir]);
 
   // Load tree
   const loadTree = useCallback(async (absolutePath: string) => {
@@ -779,9 +868,89 @@ export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab, onAddTab 
 
   // Context menu helpers
   const handleFileContextMenu = useCallback((e: React.MouseEvent, node: FileNode) => {
-    closeAllPopups(); setFileMenu({ x: e.clientX, y: e.clientY, node });
+    closeAllPopups();
+    setSelectedNodes((prev) => {
+      if (prev.has(node.path)) {
+        return prev;
+      }
+      const next = new Map();
+      next.set(node.path, { path: node.path, name: node.name, is_dir: node.is_dir });
+      return next;
+    });
+    setActivePath(node.path);
+    setActiveNode(node);
+    setFileMenu({ x: e.clientX, y: e.clientY, node });
   }, []);
-  const handleActivateNode = useCallback((path: string) => setActivePath(path), []);
+
+  const handleSelectNode = useCallback((node: FileNode, e: React.MouseEvent) => {
+    setSelectedNodes((prev) => {
+      const next = new Map(prev);
+      if (e.ctrlKey || e.metaKey) {
+        if (next.has(node.path)) {
+          next.delete(node.path);
+        } else {
+          next.set(node.path, { path: node.path, name: node.name, is_dir: node.is_dir });
+        }
+        setActivePath(node.path);
+        setActiveNode(node);
+      } else if (e.shiftKey && activePath) {
+        const rows = Array.from(document.querySelectorAll("#main-sidebar [data-path]")) as HTMLElement[];
+        const idxA = rows.findIndex(r => r.dataset.path === activePath);
+        const idxB = rows.findIndex(r => r.dataset.path === node.path);
+        if (idxA !== -1 && idxB !== -1) {
+          const start = Math.min(idxA, idxB);
+          const end = Math.max(idxA, idxB);
+          next.clear();
+          for (let i = start; i <= end; i++) {
+            const r = rows[i];
+            const p = r.dataset.path!;
+            const name = r.title || p.split(/[/\\]/).pop() || "";
+            const isDir = r.dataset.isDir === "true";
+            next.set(p, { path: p, name, is_dir: isDir });
+          }
+        }
+      } else {
+        next.clear();
+        next.set(node.path, { path: node.path, name: node.name, is_dir: node.is_dir });
+        setActivePath(node.path);
+        setActiveNode(node);
+      }
+      return next;
+    });
+  }, [activePath]);
+
+  useEffect(() => {
+    if (collapsed) return;
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if (selectedNodes.size === 0) return;
+      if (!isSidebarFocusedRef.current) return;
+
+      const activeEl = document.activeElement;
+      if (activeEl) {
+        const tag = activeEl.tagName.toLowerCase();
+        if (
+          tag === "input" ||
+          tag === "textarea" ||
+          tag === "select" ||
+          activeEl.hasAttribute("contenteditable") ||
+          (activeEl as HTMLElement).isContentEditable
+        ) {
+          return;
+        }
+      }
+
+      if (e.key === "Delete" || e.key === "Del") {
+        e.preventDefault();
+        startDelete(Array.from(selectedNodes.values()));
+      }
+    };
+
+    window.addEventListener("keydown", handleGlobalKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleGlobalKeyDown);
+    };
+  }, [selectedNodes, collapsed]);
+
   const { handleCopy: copyToClipboard } = useCopyWithFeedback();
   const revealInExplorer = (path: string) => system.revealInExplorer(path).catch(console.error);
   const getTargetPath = (node: FileNode) => node.is_dir ? node.path : node.path.replace(/[/\\][^/\\]+$/, "");
@@ -820,11 +989,16 @@ export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab, onAddTab 
         await system.createPath(current, seg, isLast ? creatingIn.type === "folder" : true).catch(() => { });
         if (!isLast) current = current + "/" + seg;
       }
+      const finalPath = (creatingIn.parentPath + "/" + name).replace(/\\/g, "/");
       setCreatingIn(null); setCreatingName("");
       setCollapseAllKey((k) => k + 1);
       if (resolvedCwd) loadTree(resolvedCwd);
+
+      if (creatingIn.type === "file") {
+        onOpenFileAtPath?.(finalPath);
+      }
     } catch (err) { console.error(err); setCreatingIn(null); }
-  }, [creatingIn, creatingName, resolvedCwd, loadTree]);
+  }, [creatingIn, creatingName, resolvedCwd, loadTree, onOpenFileAtPath]);
 
   const cancelCreate = useCallback(() => { setCreatingIn(null); setCreatingName(""); }, []);
   useEffect(() => { if (creatingIn) creatingInputRef.current?.focus(); }, [creatingIn]);
@@ -840,13 +1014,30 @@ export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab, onAddTab 
   };
 
   // Delete
-  const startDelete = (node: FileNode) => { closeAllPopups(); setFileMenu(null); setDeleteError(null); setDeleteConfirm({ node }); };
+  const startDelete = (nodes: { path: string; name: string; is_dir: boolean }[]) => {
+    closeAllPopups();
+    setFileMenu(null);
+    setDeleteError(null);
+    setDeleteConfirm({ nodes });
+  };
   const confirmDelete = async () => {
     if (!deleteConfirm) return;
-    setIsDeleting(true); setDeleteError(null);
-    try { await system.deletePath(deleteConfirm.node.path); setDeleteConfirm(null); if (resolvedCwd) loadTree(resolvedCwd); }
-    catch (err) { setDeleteError(String(err)); }
-    finally { setIsDeleting(false); }
+    setIsDeleting(true);
+    setDeleteError(null);
+    try {
+      for (const n of deleteConfirm.nodes) {
+        await system.deletePath(n.path);
+      }
+      setDeleteConfirm(null);
+      setSelectedNodes(new Map());
+      setActivePath("");
+      setActiveNode(null);
+      if (resolvedCwd) loadTree(resolvedCwd);
+    } catch (err) {
+      setDeleteError(String(err));
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   // Clipboard
@@ -868,111 +1059,196 @@ export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab, onAddTab 
     } catch (err) { console.error(err); clipboardRef.current = null; setClipboardHasContent(false); }
   }, [resolvedCwd, loadTree]);
 
-  // Internal DnD
-  const isPointerDragging = useRef(false);
-  const dragPointerStart = useRef<{ x: number; y: number } | null>(null);
-  const dragActiveRef = useRef(false);
+  // Drag & drop handlers
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastHoverPathRef = useRef<string | null>(null);
   const hoverExpandedPathRef = useRef<string | null>(null);
 
-  const handlePointerDown = useCallback((e: React.PointerEvent, node: FileNode) => {
-    if (node.is_dir) return;
-    e.preventDefault(); e.stopPropagation();
+  const handleDragStart = useCallback((e: React.DragEvent, node: FileNode) => {
+    setSelectedNodes((prev) => {
+      if (prev.has(node.path)) {
+        return prev;
+      }
+      const next = new Map();
+      next.set(node.path, { path: node.path, name: node.name, is_dir: node.is_dir });
+      return next;
+    });
     dragSourcePathRef.current = node.path;
-    isPointerDragging.current = true;
-    dragPointerStart.current = { x: e.clientX, y: e.clientY };
-    dragActiveRef.current = false;
     setDraggedNodePath(node.path);
+
+    // Prevent default Chromium drag visualization
+    e.preventDefault();
+
+    // Start native OS drag
+    startDrag({
+      item: [node.path],
+      icon: dragIconPath || (resolvedCwd ? (resolvedCwd + "/static/aurora-icon.png") : ""),
+    }).catch(console.error);
+  }, [dragIconPath, resolvedCwd]);
+
+  const handleDragOverFolder = useCallback((path: string) => {
+    setDragOverPath(path);
+    if (path !== lastHoverPathRef.current) {
+      if (hoverExpandedPathRef.current && hoverExpandedPathRef.current !== path) {
+        setCollapsePath(hoverExpandedPathRef.current);
+        hoverExpandedPathRef.current = null;
+      }
+      lastHoverPathRef.current = path;
+      if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = setTimeout(() => {
+        setExpandPath(path);
+        hoverExpandedPathRef.current = path;
+        hoverTimerRef.current = null;
+      }, 600);
+    }
   }, []);
 
-  useEffect(() => {
-    const handlePointerMove = (e: PointerEvent) => {
-      if (!isPointerDragging.current || !dragPointerStart.current) return;
-      if (!dragActiveRef.current) {
-        const dx = e.clientX - dragPointerStart.current.x;
-        const dy = e.clientY - dragPointerStart.current.y;
-        if (dx * dx + dy * dy < 25) return;
-        dragActiveRef.current = true;
+  const handleDragLeaveFolder = useCallback((path: string) => {
+    setDragOverPath((prev) => (prev === path ? null : prev));
+    if (lastHoverPathRef.current === path) {
+      lastHoverPathRef.current = null;
+      if (hoverTimerRef.current) {
+        clearTimeout(hoverTimerRef.current);
+        hoverTimerRef.current = null;
       }
-      const el = document.elementFromPoint(e.clientX, e.clientY);
-      const treeRow = el?.closest<HTMLElement>("[data-path]") ?? null;
-      if (treeRow?.dataset.isDir === "true") {
-        const newPath = treeRow.dataset.path ?? null;
-        setDragOverPath(newPath);
-        if (newPath !== lastHoverPathRef.current) {
-          if (hoverExpandedPathRef.current && hoverExpandedPathRef.current !== newPath) {
-            setCollapsePath(hoverExpandedPathRef.current); hoverExpandedPathRef.current = null;
-          }
-          lastHoverPathRef.current = newPath;
-          if (hoverTimerRef.current) { clearTimeout(hoverTimerRef.current); hoverTimerRef.current = null; }
-          if (newPath) {
-            hoverTimerRef.current = setTimeout(() => {
-              setExpandPath(newPath); hoverExpandedPathRef.current = newPath; hoverTimerRef.current = null;
-            }, 500);
-          }
-        }
-      } else {
-        lastHoverPathRef.current = null;
-        if (hoverTimerRef.current) { clearTimeout(hoverTimerRef.current); hoverTimerRef.current = null; }
-        setDragOverPath(null);
-      }
-    };
-    const handlePointerUp = async (e: PointerEvent) => {
-      if (!isPointerDragging.current) return;
-      const srcPath = dragSourcePathRef.current;
-      if (dragActiveRef.current && srcPath) {
-        const el = document.elementFromPoint(e.clientX, e.clientY);
-        const treeRow = el?.closest<HTMLElement>("[data-path]") ?? null;
-        const targetPath = treeRow?.dataset.path;
-        if (targetPath && treeRow?.dataset.isDir === "true") {
-          try { await system.movePath(srcPath, targetPath); if (resolvedCwd) loadTree(resolvedCwd); }
-          catch (err) { console.error(err); }
-        }
-      }
-      if (hoverExpandedPathRef.current) { setCollapsePath(hoverExpandedPathRef.current); hoverExpandedPathRef.current = null; }
-      isPointerDragging.current = false; dragPointerStart.current = null; dragActiveRef.current = false;
-      dragSourcePathRef.current = null; lastHoverPathRef.current = null;
-      if (hoverTimerRef.current) { clearTimeout(hoverTimerRef.current); hoverTimerRef.current = null; }
-      setDragOverPath(null); setDraggedNodePath(null); setExpandPath(null);
-    };
-    const handlePointerCancel = () => {
-      if (hoverExpandedPathRef.current) { setCollapsePath(hoverExpandedPathRef.current); hoverExpandedPathRef.current = null; }
-      isPointerDragging.current = false; dragPointerStart.current = null; dragActiveRef.current = false;
-      dragSourcePathRef.current = null; lastHoverPathRef.current = null;
-      if (hoverTimerRef.current) { clearTimeout(hoverTimerRef.current); hoverTimerRef.current = null; }
-      setDragOverPath(null); setDraggedNodePath(null); setExpandPath(null);
-    };
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", handlePointerUp);
-    window.addEventListener("pointercancel", handlePointerCancel);
-    return () => {
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", handlePointerUp);
-      window.removeEventListener("pointercancel", handlePointerCancel);
-    };
-  }, [resolvedCwd, loadTree]);
+    }
+  }, []);
 
-  // External DnD
+  // Set up TabBar HTML5 drag event hooks
+  useEffect(() => {
+    const tabbar = document.getElementById("aurora-tab-bar");
+    if (!tabbar) return;
+    const handleDragOverTabBar = (e: DragEvent) => {
+      e.preventDefault();
+      if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = "copy";
+      }
+      setDragOverPath("tabbar");
+      tabbar.style.background = "rgba(79,140,255,0.08)";
+      tabbar.style.border = "1px dashed rgba(79,140,255,0.3)";
+    };
+    const handleDragLeaveTabBar = () => {
+      setDragOverPath(prev => prev === "tabbar" ? null : prev);
+      tabbar.style.background = "";
+      tabbar.style.border = "";
+    };
+    tabbar.addEventListener("dragover", handleDragOverTabBar);
+    tabbar.addEventListener("dragleave", handleDragLeaveTabBar);
+    return () => {
+      tabbar.removeEventListener("dragover", handleDragOverTabBar);
+      tabbar.removeEventListener("dragleave", handleDragLeaveTabBar);
+    };
+  }, []);
+
+  const dragOverPathRef = useRef<string | null>(null);
+  useEffect(() => { dragOverPathRef.current = dragOverPath; }, [dragOverPath]);
+
+  const resolvedCwdRef = useRef<string>("");
+  useEffect(() => { resolvedCwdRef.current = resolvedCwd; }, [resolvedCwd]);
+
+  const loadTreeRef = useRef<(path: string) => Promise<void>>(loadTree);
+  useEffect(() => { loadTreeRef.current = loadTree; }, [loadTree]);
+
+  const onOpenFileAtPathRef = useRef<((path: string, options?: { lineNumber?: number; matchStart?: number; matchEnd?: number }) => void) | undefined>(onOpenFileAtPath);
+  useEffect(() => { onOpenFileAtPathRef.current = onOpenFileAtPath; }, [onOpenFileAtPath]);
+
   useEffect(() => {
     const appWindow = getCurrentWebviewWindow();
+    let isCurrent = true;
     let unlisten: (() => void) | null = null;
     appWindow.onDragDropEvent((event) => {
+      if (!isCurrent) return;
       const payload = event.payload;
-      if (payload.type === "over") setIsExternalDragging(true);
-      else if (payload.type === "leave") { setIsExternalDragging(false); setDragOverPath(null); }
-      else if (payload.type === "drop") {
-        setIsExternalDragging(false); setDragOverPath(null);
-        if (resolvedCwd) {
-          for (const p of payload.paths) system.copyPath(p, resolvedCwd).catch(console.error);
-          loadTree(resolvedCwd);
-        }
-      }
-    }).then((fn) => { unlisten = fn; });
-    return () => { if (unlisten) unlisten(); };
-  }, [resolvedCwd, loadTree]);
 
-  const [isExternalDragging, setIsExternalDragging] = useState(false);
+      if (payload.type === "drop") {
+        const dpr = window.devicePixelRatio || 1;
+        const x = payload.position.x / dpr;
+        const y = payload.position.y / dpr;
+        const el = document.elementFromPoint(x, y);
+        const isOverTabBar = el?.closest("#aurora-tab-bar") || el?.closest(".safari-tab");
+
+        // Reset hover styling on TabBar if it was set
+        const tabbar = document.getElementById("aurora-tab-bar");
+        if (tabbar) {
+          tabbar.style.background = "";
+          tabbar.style.border = "";
+        }
+
+        const currentDragOverPath = dragOverPathRef.current;
+        const currentResolvedCwd = resolvedCwdRef.current;
+
+        if (isOverTabBar || currentDragOverPath === "tabbar" || currentDragOverPath === "opentabs") {
+          const paths = payload.paths;
+          if (paths && paths.length > 0) {
+            for (const p of paths) {
+              onOpenFileAtPathRef.current?.(p);
+            }
+          }
+        } else {
+          const targetDir = currentDragOverPath || currentResolvedCwd;
+          const srcPath = dragSourcePathRef.current;
+          const paths = payload.paths;
+
+          if (srcPath) {
+            // Internal move
+            if (srcPath !== targetDir && !pathStartsWith(targetDir, srcPath)) {
+              system.movePath(srcPath, targetDir)
+                .then(() => { if (currentResolvedCwd) loadTreeRef.current(currentResolvedCwd); })
+                .catch((err) => console.error("Internal move failed:", err));
+            }
+          } else if (paths && paths.length > 0) {
+            // External copy
+            (async () => {
+              try {
+                for (const p of paths) {
+                  await system.copyPath(p, targetDir);
+                }
+                if (currentResolvedCwd) loadTreeRef.current(currentResolvedCwd);
+              } catch (err) {
+                console.error("External copy failed:", err);
+              }
+            })();
+          }
+        }
+
+        setDragOverPath(null);
+        setDraggedNodePath(null);
+        dragSourcePathRef.current = null;
+        lastHoverPathRef.current = null;
+        if (hoverTimerRef.current) {
+          clearTimeout(hoverTimerRef.current);
+          hoverTimerRef.current = null;
+        }
+        setExpandPath(null);
+      } else if (payload.type === "leave") {
+        const tabbar = document.getElementById("aurora-tab-bar");
+        if (tabbar) {
+          tabbar.style.background = "";
+          tabbar.style.border = "";
+        }
+
+        setDragOverPath(null);
+        setDraggedNodePath(null);
+        dragSourcePathRef.current = null;
+        lastHoverPathRef.current = null;
+        if (hoverTimerRef.current) {
+          clearTimeout(hoverTimerRef.current);
+          hoverTimerRef.current = null;
+        }
+        setExpandPath(null);
+      }
+    }).then((fn) => {
+      if (!isCurrent) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
+    });
+    return () => {
+      isCurrent = false;
+      if (unlisten) unlisten();
+    };
+  }, []);
 
   const filteredNodes = sortNodes(
     rootNodes.filter((n) => !isExcluded(n.name))
@@ -990,12 +1266,15 @@ export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab, onAddTab 
   }, [visibleSections, sectionsOpen]);
 
   const treeNodeProps = {
-    selectedFile, activePath,
-    onSelect: setSelectedFile, onActivate: handleActivateNode, onContextMenu: handleFileContextMenu,
+    selectedFile, activePath, selectedPaths,
+    onClickNode: handleSelectNode, onContextMenu: handleFileContextMenu,
     renamingPath: renameState?.path ?? "", renameValue: renameState?.value ?? "",
     onRenameChange: (val: string) => setRenameState((p) => p ? { ...p, value: val } : null),
     onRenameCommit: commitRename, onRenameCancel: () => setRenameState(null),
-    dragOverPath, draggedNodePath, onPointerDown: handlePointerDown,
+    dragOverPath, draggedNodePath,
+    onDragStart: handleDragStart,
+    onDragOverFolder: handleDragOverFolder,
+    onDragLeaveFolder: handleDragLeaveFolder,
     expandPath, collapsePath,
     creatingParent: creatingIn?.parentPath ?? null, creatingType: creatingIn?.type ?? null,
     creatingName, onCreatingNameChange: setCreatingName,
@@ -1021,18 +1300,28 @@ export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab, onAddTab 
     >
       {/* Explorer header */}
       <div className="flex items-center justify-between px-3 shrink-0 select-none"
-        style={{ height: "34px", borderBottom: "1px solid rgba(255,255,255,0.05)" }}
+        style={{ height: "34px" }}
       >
         <span className="text-[11px] font-bold tracking-[0.08em] uppercase" style={{ color: "rgba(255,255,255,0.35)" }}>
           Explorer
         </span>
-        <SectionToggle />
+        <div className="flex items-center gap-0.5">
+          <SidebarIconBtn title="Search in Files" onClick={searchToggle} active={searchIsOpen}>
+            <Search size={12} />
+          </SidebarIconBtn>
+          <SectionToggle />
+        </div>
       </div>
 
       {/* Sections container — fills remaining height (tracked by ResizeObserver inside useSidepanelLayout) */}
       <div ref={sectionsRef} className="flex flex-col flex-1 min-h-0 overflow-hidden">
 
-        {/* FOLDERS */}
+        {searchIsOpen ? (
+          <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+            <SearchInFiles onOpenFileAtPath={onOpenFileAtPath} />
+          </div>
+        ) : (
+          <>{/* All sections hidden when search is open */}
         {sectionVisibility.folders && (
           <CollapsibleSection
             label={workspaceName}
@@ -1073,7 +1362,17 @@ export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab, onAddTab 
                 {filteredNodes.length === 0 && !isLoading && (
                   <div className="text-[11px] italic px-3 py-3" style={{ color: "rgba(232,234,240,0.2)" }}>No files</div>
                 )}
-                <div ref={treeRef}>
+                <div
+                  ref={treeRef}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setDragOverPath(resolvedCwd);
+                  }}
+                  onDragLeave={() => {
+                    setDragOverPath(prev => prev === resolvedCwd ? null : prev);
+                  }}
+                  className={`min-h-[150px] transition-colors duration-150 ${dragOverPath === resolvedCwd ? "bg-[rgba(79,140,255,0.06)] border border-dashed border-primary/20 rounded-md" : ""}`}
+                >
                   {filteredNodes.map((node) => (
                     <TreeNode key={node.path} node={node} depth={0} {...treeNodeProps} />
                   ))}
@@ -1149,7 +1448,21 @@ export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab, onAddTab 
               </div>
             }
           >
-            <OpenTabs onKillTab={onKillTab} />
+            <div
+              onDragOver={(e) => {
+                e.preventDefault();
+                if (e.dataTransfer) {
+                  e.dataTransfer.dropEffect = "copy";
+                }
+                setDragOverPath("opentabs");
+              }}
+              onDragLeave={() => {
+                setDragOverPath(prev => prev === "opentabs" ? null : prev);
+              }}
+              className={`transition-colors duration-150 rounded-md ${dragOverPath === "opentabs" ? "bg-[rgba(79,140,255,0.06)] border border-dashed border-primary/20" : ""}`}
+            >
+              <OpenTabs onKillTab={onKillTab} />
+            </div>
           </CollapsibleSection>
         )}
 
@@ -1212,6 +1525,7 @@ export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab, onAddTab 
             <GitTree key={gitRefreshKey} />
           </CollapsibleSection>
         )}
+        </>)}
       </div>
 
       {/* Panel resize handle */}
@@ -1264,7 +1578,13 @@ export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab, onAddTab 
         <MenuViewItem variant="rightclick" icon={<GitBranch size={13} />} onClick={() => { if (!fileMenu) return; setFileMenu(null); window.dispatchEvent(new CustomEvent("git-file-history", { detail: { path: fileMenu.node.path } })); }}>Git / Version Control</MenuViewItem>
         <MenuViewSeparator />
         <MenuViewItem variant="rightclick" icon={<Pencil size={13} />} onClick={() => { if (fileMenu) startRename(fileMenu.node); }}>Rename</MenuViewItem>
-        <MenuViewItem variant="rightclick" icon={<Trash2 size={13} />} onClick={() => { if (fileMenu) startDelete(fileMenu.node); }} danger>Delete</MenuViewItem>
+        <MenuViewItem variant="rightclick" icon={<Trash2 size={13} />} onClick={() => {
+          if (selectedNodes.size > 0) {
+            startDelete(Array.from(selectedNodes.values()));
+          } else if (fileMenu) {
+            startDelete([fileMenu.node]);
+          }
+        }} danger>Delete</MenuViewItem>
       </MenuView>
 
       {/* Delete confirmation modal */}
@@ -1280,12 +1600,20 @@ export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab, onAddTab 
             <div className="px-5 pt-5 pb-3">
               <div className="flex items-center gap-2 mb-3">
                 <AlertTriangle size={15} style={{ color: "#FF6B6B" }} className="shrink-0" />
-                <h3 className="text-[13px] font-semibold" style={{ color: "#E8EAF0" }}>Delete {deleteConfirm.node.is_dir ? "folder" : "file"}?</h3>
+                <h3 className="text-[13px] font-semibold" style={{ color: "#E8EAF0" }}>
+                  Delete {deleteConfirm.nodes.length === 1 ? (deleteConfirm.nodes[0].is_dir ? "folder" : "file") : `${deleteConfirm.nodes.length} items`}?
+                </h3>
               </div>
               <p className="text-[12px] leading-relaxed" style={{ color: "rgba(232,234,240,0.55)" }}>
                 Are you sure you want to permanently delete{" "}
-                <span style={{ color: "#4F8CFF", fontWeight: 500 }}>{deleteConfirm.node.name}</span>?
-                {deleteConfirm.node.is_dir && <span style={{ color: "rgba(255,107,107,0.75)" }}> This will delete all contents inside.</span>}
+                {deleteConfirm.nodes.length === 1 ? (
+                  <span style={{ color: "#4F8CFF", fontWeight: 500 }}>{deleteConfirm.nodes[0].name}</span>
+                ) : (
+                  <span>these <span style={{ color: "#4F8CFF", fontWeight: 500 }}>{deleteConfirm.nodes.length} items</span></span>
+                )}?
+                {deleteConfirm.nodes.some(n => n.is_dir) && (
+                  <span style={{ color: "rgba(255,107,107,0.75)" }}> This will delete all contents inside the folders.</span>
+                )}
               </p>
               {deleteError && <p className="text-[11px] mt-2" style={{ color: "#FF6B6B" }}>{deleteError}</p>}
             </div>

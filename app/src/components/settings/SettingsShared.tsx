@@ -7,12 +7,15 @@ export interface DraftSettings {
   sidebarCollapsed: boolean;
   showAiBar: boolean;
   chatInputOpen: boolean;
+  fileChatInputOpen: boolean;
   tabBarVisible: boolean;
 }
 
 export interface SettingsContextType {
   draft: DraftSettings;
   updateDraft: (updater: (prev: DraftSettings) => void) => void;
+  providerPage: string | null;
+  setProviderPage: (name: string | null) => void;
 }
 
 export const SettingsContext = createContext<SettingsContextType | null>(null);
@@ -26,10 +29,15 @@ export function SectionTitle({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function FieldRow({ label, children }: { label: string; children: React.ReactNode }) {
+export function FieldRow({ label, description, children }: { label: string; description?: string; children: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between">
-      <span className="text-[12px]" style={{ color: "rgba(232,234,240,0.65)" }}>{label}</span>
+      <div className="flex flex-col gap-0.5">
+        <span className="text-[12px]" style={{ color: "rgba(232,234,240,0.65)" }}>{label}</span>
+        {description && (
+          <span className="text-[10px]" style={{ color: "rgba(232,234,240,0.35)" }}>{description}</span>
+        )}
+      </div>
       <div className="flex items-center gap-2">
         {children}
       </div>
@@ -37,17 +45,35 @@ export function FieldRow({ label, children }: { label: string; children: React.R
   );
 }
 
-export function Breadcrumbs({ items }: { items: string[] }) {
+export interface BreadcrumbItem {
+  label: string;
+  onClick?: () => void;
+}
+
+export function Breadcrumbs({ items }: { items: (string | BreadcrumbItem)[] }) {
+  const resolved: BreadcrumbItem[] = items.map((item) =>
+    typeof item === "string" ? { label: item } : item
+  );
+
   return (
     <div className="flex items-center gap-1.5 text-[11px] mb-5 select-none" style={{ color: "rgba(232,234,240,0.35)" }}>
-      {items.map((item, i) => (
+      {resolved.map((item, i) => (
         <React.Fragment key={i}>
           {i > 0 && (
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="shrink-0">
               <path d="M3.5 2L6.5 5l-3 3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           )}
-          <span className={i === items.length - 1 ? "text-[#E8EAF0]/60" : ""}>{item}</span>
+          {item.onClick ? (
+            <button
+              onClick={item.onClick}
+              className="hover:text-[#E8EAF0]/80 transition-colors cursor-pointer"
+            >
+              {item.label}
+            </button>
+          ) : (
+            <span className={i === resolved.length - 1 ? "text-[#E8EAF0]/60" : ""}>{item.label}</span>
+          )}
         </React.Fragment>
       ))}
     </div>

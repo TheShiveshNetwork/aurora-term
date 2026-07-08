@@ -1,6 +1,6 @@
 import React, { useRef, useState, useCallback, useEffect } from "react";
 import {
-  Terminal, FileText, GitBranch, GitBranchPlus, X, Pin, Edit3, XCircle, Trash2,
+  Terminal, FileText, GitBranch, GitBranchPlus, GitMerge, X, Pin, Edit3, XCircle, Trash2,
   ArrowUp, ArrowDown, Copy, ExternalLink,
 } from "lucide-react";
 import { useSessionStore } from "../../stores/useSessionStore";
@@ -22,6 +22,8 @@ function TabIcon({ type }: { type: Tab["type"] }) {
       return <FileText size={13} style={{ color: "rgba(79,140,255,0.7)" }} className="shrink-0" />;
     case "diff":
       return <GitBranchPlus size={13} style={{ color: "rgba(79,140,255,0.7)" }} className="shrink-0" />;
+    case "merge":
+      return <GitMerge size={13} style={{ color: "rgba(255,179,0,0.7)" }} className="shrink-0" />;
     case "git":
       return <GitBranch size={13} style={{ color: "rgba(79,140,255,0.7)" }} className="shrink-0" />;
   }

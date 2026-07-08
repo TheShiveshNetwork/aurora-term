@@ -15,7 +15,7 @@ const CATEGORY: Record<string, Record<string, string>> = {
     appearance: "Appearance",
     keybindings: "Keybindings",
   },
-  agent: { ai: "AI" },
+  agent: { ai: "AI", permissions: "Permissions" },
   about: { about: "About" },
 };
 
@@ -37,6 +37,8 @@ export const SETTINGS_MANIFEST: SettingsManifestEntry[] = [
   { id: "cursorBlink", label: "Cursor Blink", description: "Toggle cursor blinking in terminal", elementId: "setting-cursor-blink", section: "general", subPage: "editor" },
   { id: "wordWrap", label: "Word Wrap", description: "Toggle editor word wrapping", elementId: "setting-word-wrap", section: "general", subPage: "editor" },
   { id: "showMinimap", label: "Show Minimap", description: "Toggle editor code minimap", elementId: "setting-show-minimap", section: "general", subPage: "editor" },
+  { id: "aiCodeCompletion", label: "AI Code Completion", description: "Enable AI-powered inline code suggestions in the editor", elementId: "setting-ai-code-completion", section: "general", subPage: "editor" },
+  { id: "aiSuggestions", label: "AI Suggestions and Improvements", description: "Enable AI-powered inline code improvements and edit suggestions (Ctrl+L)", elementId: "setting-ai-suggestions", section: "general", subPage: "editor" },
   // ── Appearance ──
   { id: "theme", label: "Theme", description: "Dark/Light theme", elementId: "setting-theme", section: "general", subPage: "appearance" },
   { id: "editorTheme", label: "Editor Theme", description: "CodeMirror editor color theme", elementId: "setting-editor-theme", section: "general", subPage: "appearance" },
@@ -46,6 +48,8 @@ export const SETTINGS_MANIFEST: SettingsManifestEntry[] = [
   { id: "ai-providers", label: "AI Providers", description: "Select and configure AI providers", elementId: "setting-ai-providers", section: "agent", subPage: "ai" },
   { id: "default-provider", label: "Default Provider", description: "Set default AI provider", elementId: "setting-default-provider", section: "agent", subPage: "ai" },
   { id: "api-key", label: "API Key", description: "Manage AI provider API keys", elementId: "setting-api-key", section: "agent", subPage: "ai" },
+  // ── Permissions ──
+  { id: "permissions", label: "Permissions", description: "Agent approval and safety settings", elementId: "setting-permissions", section: "agent", subPage: "permissions" },
   // ── About ──
   { id: "about", label: "About Aurora", description: "Version, credits, and system info", elementId: "setting-about", section: "about", subPage: "about" },
 ];

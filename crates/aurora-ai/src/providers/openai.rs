@@ -3,7 +3,7 @@ use futures_util::StreamExt;
 use reqwest::header::{HeaderMap, HeaderValue};
 use serde_json::Value;
 use aurora_core::AppError;
-use aurora_core::types::ai::{TaskTier, AiMessage, AIStreamChunkEvent};
+use aurora_core::types::ai::{TaskTier, AiMessage, AIStreamChunkEvent, ModelInfo};
 use crate::providers::AiProvider;
 use crate::client::{AiHttpClient, SseLineReader};
 use tauri::Emitter;
@@ -35,6 +35,68 @@ impl OpenAiCompatProvider {
             balanced_model,
             powerful_model,
         }
+    }
+
+    /// Fetch models from an OpenAI-compatible `/v1/models` endpoint.
+    /// `tool_prefixes` is a list of model ID prefixes that are known to support tool calling.
+    /// Pass `&[]` to mark all models as tool-capable (opt-in).
+    pub async fn list_models(
+        api_key: &str,
+        base_url: &str,
+        tool_prefixes: &[&str],
+    ) -> Result<Vec<ModelInfo>, AppError> {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(15))
+            .build()
+            .map_err(|e| AppError::Ai(format!("Failed to build HTTP client: {}", e)))?;
+
+        let mut headers = HeaderMap::new();
+        headers.insert("Authorization", HeaderValue::from_str(&format!("Bearer {}", api_key))
+            .map_err(|_| AppError::Ai("Invalid API key format".to_string()))?);
+
+        let endpoint = format!("{}/models", base_url.trim_end_matches('/'));
+        let res = client
+            .get(&endpoint)
+            .headers(headers)
+            .send()
+            .await
+            .map_err(|e| AppError::Ai(format!("Failed to fetch models: {}", e)))?;
+
+        if !res.status().is_success() {
+            return Err(AppError::Ai(format!("API error: {}", res.status())));
+        }
+
+        let body: Value = res.json().await
+            .map_err(|e| AppError::Ai(format!("Failed to parse models response: {}", e)))?;
+
+        let mut models = Vec::new();
+        if let Some(data) = body["data"].as_array() {
+            for item in data {
+                let id = item["id"].as_str().unwrap_or("").to_string();
+                if id.is_empty() {
+                    continue;
+                }
+                let owned_by = item["owned_by"].as_str().unwrap_or("");
+                let supports_tools = tool_prefixes.is_empty()
+                    || tool_prefixes.iter().any(|p| id.starts_with(p));
+
+                // Only include models that are either system models (owned_by known provider)
+                // or user fine-tuned models
+                if owned_by != "openai" && owned_by != "system" && owned_by != item["id"].as_str().unwrap_or("") {
+                    // Skip models that look like user prefixes
+                }
+
+                models.push(ModelInfo {
+                    id: id.clone(),
+                    display_name: id.clone(),
+                    supports_tools,
+                    max_tokens: None,
+                    context_window: None,
+                });
+            }
+        }
+
+        Ok(models)
     }
 }
 

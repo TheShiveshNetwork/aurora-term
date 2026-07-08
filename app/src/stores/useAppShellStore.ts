@@ -17,6 +17,7 @@ interface AppShellStore {
   showSettings: boolean;
   showAiBar: boolean;
   chatInputOpen: boolean;
+  fileChatInputOpen: boolean;
   showMenuDropdown: boolean;
   tabBarVisible: boolean;
   viewMode: AppViewMode;
@@ -42,6 +43,8 @@ interface AppShellStore {
   setShowAiBar: (show: boolean) => void;
   setChatInputOpen: (open: boolean) => void;
   toggleChatInputOpen: () => void;
+  setFileChatInputOpen: (open: boolean) => void;
+  toggleFileChatInputOpen: () => void;
   setShowMenuDropdown: (show: boolean) => void;
   toggleShowMenuDropdown: () => void;
   setTabBarVisible: (visible: boolean) => void;
@@ -79,6 +82,7 @@ export const useAppShellStore = create<AppShellStore>((set) => ({
   showSettings: false,
   showAiBar: false,
   chatInputOpen: true,
+  fileChatInputOpen: true,
   showMenuDropdown: false,
   tabBarVisible: true,
   viewMode: "terminal",
@@ -110,6 +114,8 @@ export const useAppShellStore = create<AppShellStore>((set) => ({
   setShowAiBar: (show) => set({ showAiBar: show }),
   setChatInputOpen: (chatInputOpen) => set({ chatInputOpen }),
   toggleChatInputOpen: () => set((state) => ({ chatInputOpen: !state.chatInputOpen })),
+  setFileChatInputOpen: (fileChatInputOpen) => set({ fileChatInputOpen }),
+  toggleFileChatInputOpen: () => set((state) => ({ fileChatInputOpen: !state.fileChatInputOpen })),
   setShowMenuDropdown: (show) => set({ showMenuDropdown: show }),
   toggleShowMenuDropdown: () => set((state) => ({ showMenuDropdown: !state.showMenuDropdown })),
   setTabBarVisible: (visible) => set({ tabBarVisible: visible }),

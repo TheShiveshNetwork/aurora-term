@@ -1,4 +1,4 @@
-export type TabType = "terminal" | "file" | "diff" | "git";
+export type TabType = "terminal" | "file" | "diff" | "git" | "merge";
 
 export interface Tab {
   id: string;
@@ -16,6 +16,9 @@ export interface Tab {
   created_at: number;
   pinned?: boolean;
   everChanged?: boolean;
+  scrollToLine?: number;
+  scrollToMatchStart?: number;
+  scrollToMatchEnd?: number;
 }
 
 export interface SessionState {

@@ -85,7 +85,8 @@ export function useCommandExecution(tabs: Tab[], activeTabId: string | null) {
     clearCommandInput(activeTabId);
 
     const cmdLower = cmd.trim().toLowerCase();
-    if (cmdLower === "clear" || cmdLower === "cls" || cmdLower === "clear-host") {
+    const clearFirstWord = cmdLower.split(/\s+/)[0];
+    if (clearFirstWord === "clear" || clearFirstWord === "cls" || cmdLower === "clear-host") {
       useBlockStore.getState().clearBlocks(targetId);
       clearSessionInteracted(targetId);
 
