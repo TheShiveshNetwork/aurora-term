@@ -3,7 +3,9 @@ import { listen } from "@tauri-apps/api/event";
 import { useAIStore } from "../stores/useAIStore";
 
 export function useAICompletion() {
-  const { appendStreamingText, setStreamingText, removePendingRequest } = useAIStore();
+  const appendStreamingText = useAIStore(s => s.appendStreamingText);
+  const setStreamingText = useAIStore(s => s.setStreamingText);
+  const removePendingRequest = useAIStore(s => s.removePendingRequest);
 
   useEffect(() => {
     const unsubscribe = listen<{ request_id: string; chunk: string; done: boolean }>(

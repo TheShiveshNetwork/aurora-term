@@ -81,7 +81,7 @@ export function AppShellView() {
     setSessionCwd,
     appendCommandInput,
     clearSessionInteracted,
-  } = useAppShellStore();
+  } = useAppShellStore(s => s);
 
   const layoutBackupRef = useRef<{
     sidebarCollapsed: boolean;

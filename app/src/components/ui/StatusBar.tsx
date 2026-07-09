@@ -121,8 +121,9 @@ function CollapsibleFilePath({ filePath, cwd }: { filePath: string; cwd: string 
 }
 
 export function StatusBar({ noFolder }: { noFolder?: boolean }) {
-  const { activeProvider } = useAIStore();
-  const { tabs, activeTabId } = useSessionStore();
+  const activeProvider = useAIStore(s => s.activeProvider);
+  const tabs = useSessionStore(s => s.tabs);
+  const activeTabId = useSessionStore(s => s.activeTabId);
   const { sessionCwds, projectDir, cwdAbsolute, viewMode } = useAppShellStore(
     useShallow((s) => ({
       sessionCwds: s.sessionCwds,

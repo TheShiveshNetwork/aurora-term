@@ -60,7 +60,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
   const [hasConflicts, setHasConflicts] = useState(false);
   const initialContentRef = useRef<string>("");
   const updateTab = useSessionStore((s) => s.updateTab);
-  const tab = useSessionStore(useCallback(s => s.tabs.find(t => t.id === tabId), [tabId]));
+  const tab = useSessionStore(s => s.tabs.find(t => t.id === tabId));
   const editorTheme = useSettingsStore((s) => s.editorTheme);
   const { spawnSession } = usePTY();
 
@@ -438,39 +438,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
             { key: "Mod--", run: () => { setEditorZoom((z) => Math.max(8, z - 1)); return true; } },
             { key: "Shift-Mod-l", run: selectSelectionMatches },
           ])),
-          lintGutter({
-            marker: (diagnostics) => {
-              let severity = "info";
-              for (const d of diagnostics) {
-                if (d.severity === "error") {
-                  severity = "error";
-                  break;
-                }
-                if (d.severity === "warning") {
-                  severity = "warning";
-                }
-              }
-              const marker = document.createElement("div");
-              marker.className = `cm-lint-marker cm-lint-marker-${severity}`;
-              marker.style.width = "10px";
-              marker.style.height = "10px";
-              marker.style.borderRadius = "50%";
-              marker.style.margin = "auto";
-              marker.style.display = "block";
-              
-              if (severity === "error") {
-                marker.style.background = "#FF6B6B";
-                marker.style.boxShadow = "0 0 6px #FF6B6B";
-              } else if (severity === "warning") {
-                marker.style.background = "#FFB86C";
-                marker.style.boxShadow = "0 0 6px #FFB86C";
-              } else {
-                marker.style.background = "#8BE9FD";
-                marker.style.boxShadow = "0 0 6px #8BE9FD";
-              }
-              return marker;
-            }
-          }),
+          lintGutter(),
           ...(lintSource ? [linter(lintSource)] : []),
           keymap.of(lintKeymap),
           ...(() => { console.log("Configuring editor, aiSuggestions status:", aiSuggestions); return []; })(),

@@ -54,7 +54,7 @@ function registerPtyListeners() {
 }
 
 export function usePTY() {
-  const store = useSessionStore();
+  const store = useSessionStore(s => s);
   const { tabs, activeTabId, addTab, removeTab, setActiveTabId, updateTab } = store;
 
   useEffect(() => {
