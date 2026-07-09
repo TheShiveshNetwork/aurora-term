@@ -1,9 +1,10 @@
 import { type FormEvent } from "react";
-import { Command, Plus, RefreshCw, FolderOpen, Square, Mic } from "lucide-react";
+import { Command, Plus, RefreshCw, FolderOpen, Square, Mic, X } from "lucide-react";
 
 import { GhostInput } from "../terminal/GhostInput";
 import type { InputMode } from "../../lib/nlClassifier";
 import { closeAllPopups } from "../../lib/popups";
+import { useVoiceInput } from "../../hooks/useVoiceInput";
 
 type Variant = "command" | "prompt";
 
@@ -37,6 +38,11 @@ export function CommandInputBar({
   inputMode = "unknown",
 }: CommandInputBarProps) {
   const isPrompt = variant === "prompt";
+
+  const { isListening, toggleListening } = useVoiceInput({
+    onTranscript: (text) => onChange(text),
+    getCurrentValue: () => value,
+  });
 
   if (!sessionId && !isPrompt) return null;
 
@@ -119,8 +125,14 @@ export function CommandInputBar({
                 <IconButton onClick={onOpenAiBar} title="Agent (⌘K)">
                   <Command size={14} />
                 </IconButton>
-                <IconButton title="Voice Input">
-                  <Mic size={14} />
+                <IconButton
+                  onClick={toggleListening}
+                  title={isListening ? "Listening... Click to stop" : "Voice Input"}
+                  active={isListening}
+                >
+                  {!isListening ?
+                    <Mic size={14} />
+                    : <X size={14} />}
                 </IconButton>
               </>
             )}
@@ -135,25 +147,41 @@ function IconButton({
   children,
   onClick,
   title,
+  className = "",
+  active = false,
 }: {
   children: React.ReactNode;
   onClick?: () => void;
   title?: string;
+  className?: string;
+  active?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       title={title}
-      className="w-8 h-8 flex items-center justify-center rounded-[10px] transition-all cursor-pointer"
-      style={{ color: "rgba(232,234,240,0.35)" }}
+      className={`w-8 h-8 flex items-center justify-center rounded-[10px] transition-all cursor-pointer ${className}`}
+      style={{
+        color: active ? "#4F8CFF" : "rgba(232,234,240,0.35)",
+        background: active ? "#4f8dff18" : "transparent",
+        border: active ? "1px solid #4F8CFF" : "none",
+      }}
       onMouseEnter={(e) => {
-        e.currentTarget.style.background = "rgba(255,255,255,0.06)";
-        e.currentTarget.style.color = "#4F8CFF";
+        if (!active) {
+          e.currentTarget.style.background = "#4f8dff2f";
+          e.currentTarget.style.color = "#4F8CFF";
+        } else {
+          e.currentTarget.style.background = "#4f8dff2f";
+        }
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.background = "transparent";
-        e.currentTarget.style.color = "rgba(232,234,240,0.35)";
+        if (!active) {
+          e.currentTarget.style.background = "transparent";
+          e.currentTarget.style.color = "rgba(232,234,240,0.35)";
+        } else {
+          e.currentTarget.style.background = "#4f8dff2f";
+        }
       }}
     >
       {children}
