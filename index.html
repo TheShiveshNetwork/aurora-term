@@ -2,6 +2,25 @@
 <html lang="en" class="dark" style="background-color: #131314;">
 
 <head>
+  <script>
+    window.myErrors = [];
+    window.addEventListener('error', (e) => {
+      window.myErrors.push({
+        type: 'error',
+        message: e.message,
+        filename: e.filename,
+        lineno: e.lineno,
+        stack: e.error ? e.error.stack : null
+      });
+    });
+    window.addEventListener('unhandledrejection', (e) => {
+      window.myErrors.push({
+        type: 'unhandledrejection',
+        message: e.reason ? e.reason.message || String(e.reason) : 'unknown',
+        stack: e.reason ? e.reason.stack : null
+      });
+    });
+  </script>
   <meta charset="UTF-8" />
   <link rel="icon" type="image/svg+xml" href="/vite.svg" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
