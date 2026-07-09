@@ -1,4 +1,4 @@
-import { type FormEvent, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type SubmitEvent, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { v4 as uuidv4 } from "uuid";
 import { Tab } from "@aurora/types";
@@ -21,12 +21,12 @@ import { AppHeader } from "../components/layout/AppHeader";
 import { AppContextMenu } from "../components/layout/AppContextMenu";
 import { AgentOverlay } from "../components/terminal/AgentOverlay";
 import { SaveChangesModal } from "../components/layout/SaveChangesModal";
-import { CommandInputBar } from "../components/layout/CommandInputBar";
+import { CommandInputBar, type AttachedFile } from "../components/layout/CommandInputBar";
+import { system } from "../lib/ipc";
 import { TerminalWorkspaceView } from "./TerminalWorkspaceView";
 import { NewWindowView } from "./NewWindowView";
 import { getDefaultShellLaunch, isWindowsPlatform } from "../lib/shell";
 import { classifyInput, setAvailableCommands, type ShellType } from "../lib/nlClassifier";
-import { system } from "../lib/ipc";
 import { closeAllPopups, onClosePopups } from "../lib/popups";
 
 import { FileWorkspaceView } from "./FileWorkspaceView";
@@ -168,10 +168,15 @@ export function AppShellView() {
     system.getAvailableCommands().then(setAvailableCommands).catch(() => { });
   }, []);
 
-  const handleInterceptedSubmit = (event: FormEvent, defaultSubmit: (e: FormEvent) => void, isFilePrompt = false) => {
+  const handleInterceptedSubmit = async (
+    event: SubmitEvent<HTMLFormElement>,
+    defaultSubmit: (e: SubmitEvent<HTMLFormElement>, commandOverride?: string) => void,
+    isFilePrompt = false,
+    attachedFiles: AttachedFile[] = []
+  ) => {
     event.preventDefault();
     const input = activeCommandInput.trim();
-    if (!input) return;
+    if (!input && attachedFiles.length === 0) return;
 
     // Explicit prefix overrides take priority over the classifier
     const hasExplicitNL = input.startsWith("? ") || input.startsWith("/ai ");
@@ -185,17 +190,43 @@ export function AppShellView() {
           : input.slice(4).trim()
         : input;
 
-      if (!cleanGoal) return;
+      let goalWithFiles = cleanGoal;
+      if (attachedFiles.length > 0) {
+        const filesContext = attachedFiles.map(file => {
+          return `\n\n[Attached File: ${file.name}]\n${file.content}`;
+        }).join("\n");
+        goalWithFiles = (cleanGoal || "Review attached files") + filesContext;
+      }
 
       setCommandInput("");
       setShowAiBar(true);
-      startTask(cleanGoal, isFilePrompt ? undefined : "terminal");
+      startTask(goalWithFiles, isFilePrompt ? undefined : "terminal");
     } else {
-      defaultSubmit(event);
+      // It's a PTY command!
+      // 1. Copy files to CWD
+      if (attachedFiles.length > 0) {
+        for (const file of attachedFiles) {
+          try {
+            await system.copyPath(file.path, cwd);
+          } catch (err) {
+            console.error("Failed to copy file to CWD:", err);
+          }
+        }
+      }
+
+      // 2. Append filenames to command input
+      let finalCommand = input;
+      if (attachedFiles.length > 0) {
+        const filenames = attachedFiles.map(f => f.name).join(" ");
+        finalCommand = finalCommand ? `${finalCommand} ${filenames}` : filenames;
+        setCommandInput(finalCommand);
+      }
+
+      defaultSubmit(event, finalCommand);
     }
   };
 
-  const handleFileCommandSubmit = (event: FormEvent) => {
+  const handleFileCommandSubmit = (event: SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
   };
 
@@ -683,7 +714,7 @@ export function AppShellView() {
                     ...shellHistory.slice().reverse(),
                   ]}
                   onChange={setCommandInput}
-                  onSubmit={(e) => handleInterceptedSubmit(e, handleExecuteCommand, false)}
+                  onSubmit={(e, files) => handleInterceptedSubmit(e, handleExecuteCommand, false, files)}
                   onStop={handleStop}
                   onOpenAiBar={() => setShowAiBar(true)}
                   inputMode={inputMode}
@@ -701,7 +732,7 @@ export function AppShellView() {
                   value={activeCommandInput}
                   history={[]}
                   onChange={setCommandInput}
-                  onSubmit={(e) => handleInterceptedSubmit(e, handleFileCommandSubmit, true)}
+                  onSubmit={(e, files) => handleInterceptedSubmit(e, handleFileCommandSubmit, true, files)}
                   onStop={handleStop}
                   onOpenAiBar={() => setShowAiBar(true)}
                 />

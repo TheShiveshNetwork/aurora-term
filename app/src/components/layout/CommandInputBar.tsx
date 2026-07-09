@@ -1,12 +1,19 @@
-import { type FormEvent } from "react";
-import { Command, Plus, RefreshCw, FolderOpen, Square, Mic, X } from "lucide-react";
+import { type SubmitEvent, useState } from "react";
+import { Plus, RefreshCw, FolderOpen, Square, Mic, X, ArrowUp } from "lucide-react";
 
 import { GhostInput } from "../terminal/GhostInput";
 import type { InputMode } from "../../lib/nlClassifier";
 import { closeAllPopups } from "../../lib/popups";
 import { useVoiceInput } from "../../hooks/useVoiceInput";
+import { system } from "../../lib/ipc";
 
 type Variant = "command" | "prompt";
+
+export interface AttachedFile {
+  name: string;
+  path: string;
+  content: string;
+}
 
 interface CommandInputBarProps {
   sessionId: string | null;
@@ -16,7 +23,7 @@ interface CommandInputBarProps {
   value: string;
   history: string[];
   onChange: (value: string | ((previous: string) => string)) => void;
-  onSubmit: (event: FormEvent) => void;
+  onSubmit: (event: SubmitEvent<HTMLFormElement>, attachedFiles: AttachedFile[]) => void;
   onStop?: () => void;
   onOpenAiBar?: () => void;
   variant?: Variant;
@@ -39,10 +46,35 @@ export function CommandInputBar({
 }: CommandInputBarProps) {
   const isPrompt = variant === "prompt";
 
+  const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
+
   const { isListening, toggleListening } = useVoiceInput({
     onTranscript: (text) => onChange(text),
     getCurrentValue: () => value,
   });
+
+  const handleAttachFile = async () => {
+    try {
+      const filePath = await system.selectFile();
+      if (!filePath) return;
+
+      const name = filePath.split(/[/\\]/).pop() || filePath;
+      const content = await system.readFileContent(filePath);
+
+      setAttachedFiles((prev) => {
+        if (prev.some((f) => f.path === filePath)) return prev;
+        return [...prev, { name, path: filePath, content }];
+      });
+    } catch (err) {
+      console.error("Failed to attach file:", err);
+    }
+  };
+
+  const handleFormSubmit = (e: SubmitEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    onSubmit(e, attachedFiles);
+    setAttachedFiles([]);
+  };
 
   if (!sessionId && !isPrompt) return null;
 
@@ -88,13 +120,39 @@ export function CommandInputBar({
           </div>
         )}
 
+        {/* Attached Files List */}
+        {attachedFiles.length > 0 && (
+          <div className="flex flex-wrap gap-2 px-4 pt-2">
+            {attachedFiles.map((file, idx) => (
+              <div
+                key={idx}
+                className="flex items-center gap-1.5 px-2 py-0.5 rounded-sm text-[10px]"
+                style={{
+                  background: "rgba(255,255,255,0.03)",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  color: "rgba(232,234,240,0.85)"
+                }}
+              >
+                <span className="truncate max-w-[150px] font-sans">{file.name}</span>
+                <button
+                  type="button"
+                  onClick={() => setAttachedFiles(prev => prev.filter((_, i) => i !== idx))}
+                  className="text-white/40 hover:text-white/80 cursor-pointer transition-colors"
+                >
+                  <X size={10} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Body */}
         <div className="flex items-start">
           <GhostInput
             sessionId={sessionId}
             value={value}
             onChange={onChange}
-            onSubmit={onSubmit}
+            onSubmit={handleFormSubmit}
             history={history}
             placeholder="Type a command or describe a goal…"
             className="flex-1"
@@ -119,11 +177,8 @@ export function CommandInputBar({
               </button>
             ) : (
               <>
-                <IconButton title="Attach File">
+                <IconButton onClick={handleAttachFile} title="Attach File">
                   <Plus size={14} />
-                </IconButton>
-                <IconButton onClick={onOpenAiBar} title="Agent (⌘K)">
-                  <Command size={14} />
                 </IconButton>
                 <IconButton
                   onClick={toggleListening}
@@ -134,6 +189,16 @@ export function CommandInputBar({
                     <Mic size={14} />
                     : <X size={14} />}
                 </IconButton>
+                {isPrompt && (
+                  <button
+                    onClick={(e) => handleFormSubmit(e as any)}
+                    disabled={!value.trim() && attachedFiles.length === 0}
+                    className="flex items-center justify-center w-8 h-8 bg-[#4553d4] border-none rounded-sm cursor-pointer shrink-0 transition-all duration-150 hover:bg-[#5f6df0] disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Send Prompt"
+                  >
+                    <ArrowUp size={14} className="text-white" />
+                  </button>
+                )}
               </>
             )}
           </div>
@@ -161,7 +226,7 @@ function IconButton({
       type="button"
       onClick={onClick}
       title={title}
-      className={`w-8 h-8 flex items-center justify-center rounded-[10px] transition-all cursor-pointer ${className}`}
+      className={`w-8 h-8 flex items-center justify-center rounded-sm transition-all cursor-pointer ${className}`}
       style={{
         color: active ? "#4F8CFF" : "rgba(232,234,240,0.35)",
         background: active ? "#4f8dff18" : "transparent",
