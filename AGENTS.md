@@ -792,4 +792,14 @@ ai.inlineComplete(opts: { beforeCursor, afterCursor, language }) → string
 
 ---
 
-*Last updated: 2026-07-06*
+## 21. Voice Input & Speech-to-Text
+
+### 21.1 Native Dictation
+Primary layer uses the browser-native Web Speech API (`webkitSpeechRecognition` or `SpeechRecognition`) on supported platforms (Edge/Chrome via WebView2 on Windows, Safari/WebKit on macOS). No backend audio parsing or local Whisper models are linked to keep binary size under the 15 MB limit.
+
+### 21.2 Future Hybrid Approach (API-based Fallback)
+As a future expansion, if native Speech Recognition is unavailable or fails (e.g. on WebKitGTK/Linux), a fallback layer should capture user audio via `MediaRecorder` and send it to the Whisper or Gemini transcribing API. This uses the existing `reqwest` client and API keys securely stored in the OS keychain via `keyring` (no keys exposed to the frontend).
+
+---
+
+*Last updated: 2026-07-09*

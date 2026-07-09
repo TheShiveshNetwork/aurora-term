@@ -499,3 +499,29 @@ body {
   border-left: 1px solid rgba(232, 234, 240, 0.05) !important;
   border-right: 1px solid rgba(232, 234, 240, 0.05) !important;
 }
+
+/* ── 18. CodeMirror Gutter Lint Custom Markers ────────────────────── */
+.cm-lint-marker {
+  width: 10px !important;
+  height: 10px !important;
+  border-radius: 50% !important;
+  margin: auto !important;
+  display: block !important;
+  border: none !important;
+  content: "" !important;
+}
+
+.cm-lint-marker-error {
+  background: #FF6B6B !important;
+  box-shadow: 0 0 6px #FF6B6B !important;
+}
+
+.cm-lint-marker-warning {
+  background: #FFB86C !important;
+  box-shadow: 0 0 6px #FFB86C !important;
+}
+
+.cm-lint-marker-info {
+  background: #8BE9FD !important;
+  box-shadow: 0 0 6px #8BE9FD !important;
+}

@@ -11,7 +11,7 @@ interface StatusDrawerProps {
 }
 
 export function StatusDrawer({ sessionId, onApprove, onDecline, onSkip, onSubmitAnswer }: StatusDrawerProps) {
-  const store = useAgentStore();
+  const store = useAgentStore(s => s);
   const session = store.sessions[sessionId] || ({} as Partial<SessionAgentState>);
   
   const activeTab = session.activeDrawerTab || null;

@@ -38,7 +38,7 @@ export function SearchInFiles({ onOpenFileAtPath }: SearchInFilesProps) {
     excludePatterns, setExcludePatterns,
     caseSensitive, toggleCaseSensitive,
     results, isSearching, hasSearched, search, close, isOpen,
-  } = useSearchStore();
+  } = useSearchStore(s => s);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const replaceInputRef = useRef<HTMLInputElement>(null);

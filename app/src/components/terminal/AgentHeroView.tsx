@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Terminal, Mic, Paperclip, Plus, ChevronDown } from "lucide-react";
 import { useHasApiKeyConfigured, ProviderSetupPrompt } from "./ProviderSetupPrompt";
+import { useVoiceInput } from "../../hooks/useVoiceInput";
 
 // ── Phrases ───────────────────────────────────────────────────────────────
 const PHRASES = [
@@ -92,6 +93,11 @@ export function AgentHeroView({ onSend }: { onSend?: (text: string) => void }) {
   const taRef = useRef<HTMLTextAreaElement>(null);
   const sendBtnRef = useRef<HTMLButtonElement>(null);
   const [input, setInput] = useState("");
+
+  const { isListening, toggleListening } = useVoiceInput({
+    onTranscript: (text) => setInput(text),
+    getCurrentValue: () => input,
+  });
 
   const curAngleRef = useRef(225);
   const targetAngleRef = useRef(225);
@@ -294,8 +300,16 @@ export function AgentHeroView({ onSend }: { onSend?: (text: string) => void }) {
                 <button className="flex items-center justify-center w-8 h-8 bg-transparent border-none rounded-md text-[rgba(255,255,255,0.32)] cursor-pointer transition-colors duration-150 hover:text-[rgba(255,255,255,0.65)]">
                   <Terminal size={14} />
                 </button>
-                <button className="flex items-center justify-center w-8 h-8 bg-transparent border-none rounded-md text-[rgba(255,255,255,0.32)] cursor-pointer transition-colors duration-150 hover:text-[rgba(255,255,255,0.65)]">
-                  <Mic size={14} />
+                <button 
+                  onClick={toggleListening}
+                  title={isListening ? "Listening... Click to stop" : "Voice Input"}
+                  className={`flex items-center justify-center w-8 h-8 border-none rounded-md cursor-pointer transition-colors duration-150 ${
+                    isListening 
+                      ? "bg-red-500/15 text-red-400 border border-red-500/20" 
+                      : "bg-transparent text-[rgba(255,255,255,0.32)] hover:text-[rgba(255,255,255,0.65)]"
+                  }`}
+                >
+                  <Mic size={14} className={isListening ? "animate-pulse" : ""} />
                 </button>
                 <button ref={sendBtnRef} onClick={handleSend} disabled={!input.trim()}
                   className="flex items-center justify-center w-9 h-9 bg-[#4553d4] border-none rounded-lg cursor-pointer shrink-0 transition-all duration-150 hover:bg-[#5f6df0] disabled:opacity-50 disabled:cursor-not-allowed"

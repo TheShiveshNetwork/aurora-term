@@ -5,7 +5,7 @@ import React, {
   useEffect,
   useCallback,
   KeyboardEvent,
-  FormEvent,
+  SubmitEvent,
 } from "react";
 import { useBlockStore } from "../../stores/useBlockStore";
 import { pty } from "../../lib/ipc";
@@ -30,7 +30,7 @@ interface GhostInputProps {
   sessionId?: string | null;
   value: string;
   onChange: (value: string) => void;
-  onSubmit: (e: FormEvent<HTMLFormElement>) => void;
+  onSubmit: (e: SubmitEvent<HTMLFormElement>) => void;
   history: string[];
   placeholder?: string;
   className?: string;
@@ -212,7 +212,7 @@ export function GhostInput({
     inputRef.current?.focus();
   }, []);
 
-  const handleFormSubmit = useCallback((e: React.FormEvent<HTMLFormElement>) => {
+  const handleFormSubmit = useCallback((e: React.SubmitEvent<HTMLFormElement>) => {
     reset();
     onSubmit(e);
   }, [reset, onSubmit]);
