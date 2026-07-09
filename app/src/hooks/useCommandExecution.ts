@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, type SubmitEvent } from "react";
 import { v4 as uuidv4 } from "uuid";
 
 import { pty } from "../lib/ipc";
@@ -70,9 +70,10 @@ export function useCommandExecution(tabs: Tab[], activeTabId: string | null) {
     }
   }, [activeTabId, activeTab?.type, isCommandRunning]);
 
-  const handleExecuteCommand = useCallback(async (event: FormEvent) => {
+  const handleExecuteCommand = useCallback(async (event: SubmitEvent<HTMLFormElement>, commandOverride?: string) => {
     event.preventDefault();
-    if (!activeCommandInput.trim() || !activeTabId) return;
+    const cmd = commandOverride !== undefined ? commandOverride : activeCommandInput;
+    if (!cmd.trim() || !activeTabId) return;
 
     const currentTab = tabs.find((tab) => tab.id === activeTabId);
     const targetId = currentTab?.type === "file"
@@ -81,7 +82,6 @@ export function useCommandExecution(tabs: Tab[], activeTabId: string | null) {
 
     if (!targetId) return;
 
-    const cmd = activeCommandInput;
     clearCommandInput(activeTabId);
 
     const cmdLower = cmd.trim().toLowerCase();

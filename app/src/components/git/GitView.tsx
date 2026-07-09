@@ -93,7 +93,7 @@ export function GitView({ cwd, tabId }: GitViewProps) {
   }, [branches, checkedBranches.length]);
 
   // Persist checked branches whenever they change
-  const persistCheckedBranches = useRef<ReturnType<typeof setTimeout>>();
+  const persistCheckedBranches = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => {
     if (persistCheckedBranches.current) clearTimeout(persistCheckedBranches.current);
     persistCheckedBranches.current = setTimeout(() => {
