@@ -85,12 +85,31 @@ export function GitView({ cwd, tabId }: GitViewProps) {
     }).catch(() => {});
   }, [cwd]);
 
-  // When branches load and no saved state exists, select all
+  // When branches load and no saved state exists, default to current + main/origin/main
   useEffect(() => {
     if (!hasSavedState.current && branches.length > 0 && checkedBranches.length === 0) {
-      setCheckedBranches(branches.map(b => b.name));
+      const current = branches.find(b => b.current)?.name;
+      const mainLike = branches.find(b => /^main$|^master$/.test(b.name))?.name
+        ?? branches.find(b => b.name === "origin/main" || b.name === "origin/master")?.name;
+      const defaults = new Set<string>();
+      if (current) defaults.add(current);
+      if (mainLike && mainLike !== current) defaults.add(mainLike);
+      if (defaults.size === 0) {
+        setCheckedBranches(branches.map(b => b.name));
+      } else {
+        setCheckedBranches([...defaults]);
+      }
     }
   }, [branches, checkedBranches.length]);
+
+  // Always ensure the current branch is selected when branches change
+  useEffect(() => {
+    if (branches.length === 0) return;
+    const current = branches.find(b => b.current)?.name;
+    if (current && !checkedBranches.includes(current)) {
+      setCheckedBranches(prev => [...prev, current]);
+    }
+  }, [branches]);
 
   // Persist checked branches whenever they change
   const persistCheckedBranches = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
