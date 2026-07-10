@@ -5,24 +5,24 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   size?: "sm" | "md" | "lg" | "icon";
 }
 
-const variantStyles: Record<string, { bg: string; color: string; border: string }> = {
-  primary: { bg: "rgba(79,140,255,1)", color: "#FFFFFF", border: "none" },
-  secondary: { bg: "rgba(255, 255, 255, 0.05)", color: "rgba(232, 234, 240, 0.8)", border: "1px solid rgba(255, 255, 255, 0.08)" },
-  outline: { bg: "transparent", color: "rgba(232, 234, 240, 0.8)", border: "1px solid rgba(255, 255, 255, 0.15)" },
-  danger: { bg: "rgba(255, 107, 107, 1)", color: "#FFFFFF", border: "none" },
-  ghost: { bg: "transparent", color: "rgba(232, 234, 240, 0.8)", border: "none" },
-  link: { bg: "transparent", color: "#4F8CFF", border: "none" },
-  destructive: { bg: "rgba(255, 107, 107, 1)", color: "#FFFFFF", border: "none" },
+const variantStyles: Record<string, { background: string; color: string; border: string }> = {
+  primary: { background: "rgba(79,140,255,1)", color: "#FFFFFF", border: "none" },
+  secondary: { background: "rgba(255, 255, 255, 0.05)", color: "rgba(232, 234, 240, 0.8)", border: "1px solid rgba(255, 255, 255, 0.08)" },
+  outline: { background: "transparent", color: "rgba(232, 234, 240, 0.8)", border: "1px solid rgba(255, 255, 255, 0.15)" },
+  danger: { background: "rgba(255, 107, 107, 1)", color: "#FFFFFF", border: "none" },
+  ghost: { background: "transparent", color: "rgba(232, 234, 240, 0.8)", border: "none" },
+  link: { background: "transparent", color: "#4F8CFF", border: "none" },
+  destructive: { background: "rgba(255, 107, 107, 1)", color: "#FFFFFF", border: "none" },
 };
 
-const disabledStyles: Record<string, { bg: string; color: string; border: string }> = {
-  primary: { bg: "rgba(79,140,255,0.35)", color: "rgba(255,255,255,0.4)", border: "none" },
-  secondary: { bg: "rgba(255, 255, 255, 0.02)", color: "rgba(232, 234, 240, 0.3)", border: "1px solid rgba(255, 255, 255, 0.08)" },
-  outline: { bg: "transparent", color: "rgba(232, 234, 240, 0.3)", border: "1px solid rgba(255, 255, 255, 0.15)" },
-  danger: { bg: "rgba(255, 107, 107, 0.35)", color: "rgba(255,255,255,0.4)", border: "none" },
-  ghost: { bg: "transparent", color: "rgba(232, 234, 240, 0.3)", border: "none" },
-  link: { bg: "transparent", color: "rgba(79,140,255,0.5)", border: "none" },
-  destructive: { bg: "rgba(255, 107, 107, 0.35)", color: "rgba(255,255,255,0.4)", border: "none" },
+const disabledStyles: Record<string, { background: string; color: string; border: string }> = {
+  primary: { background: "rgba(79,140,255,0.35)", color: "rgba(255,255,255,0.4)", border: "none" },
+  secondary: { background: "rgba(255, 255, 255, 0.02)", color: "rgba(232, 234, 240, 0.3)", border: "1px solid rgba(255, 255, 255, 0.08)" },
+  outline: { background: "transparent", color: "rgba(232, 234, 240, 0.3)", border: "1px solid rgba(255, 255, 255, 0.15)" },
+  danger: { background: "rgba(255, 107, 107, 0.35)", color: "rgba(255,255,255,0.4)", border: "none" },
+  ghost: { background: "transparent", color: "rgba(232, 234, 240, 0.3)", border: "none" },
+  link: { background: "transparent", color: "rgba(79,140,255,0.5)", border: "none" },
+  destructive: { background: "rgba(255, 107, 107, 0.35)", color: "rgba(255,255,255,0.4)", border: "none" },
 };
 
 const hoverBg: Record<string, string> = {
@@ -65,7 +65,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         onMouseLeave={(e) => {
           if (disabled) return;
           const ds = variantStyles[v] || variantStyles.primary;
-          e.currentTarget.style.background = ds.bg;
+          e.currentTarget.style.background = ds.background;
           e.currentTarget.style.color = ds.color;
         }}
         {...props}

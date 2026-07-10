@@ -27,7 +27,6 @@ interface AppHeaderProps {
   onCloseTab: () => void;
   onCloseOtherTabs: () => void;
   onOpenSettings: () => void;
-  onToggleTheme: () => void;
   onToggleTabBar: () => void;
   onShowTerminalView: () => void;
   onShowFileView: () => void;
@@ -36,7 +35,6 @@ interface AppHeaderProps {
   gitViewActive: boolean;
   isGitRepo?: boolean;
   onExit: () => void;
-  theme: "dark" | "light";
   tabBarVisible: boolean;
   viewMode: AppViewMode;
   projectName: string;
@@ -64,7 +62,6 @@ export function AppHeader({
   onCloseTab,
   onCloseOtherTabs,
   onOpenSettings,
-  onToggleTheme,
   onToggleTabBar,
   onShowTerminalView,
   onShowFileView,
@@ -73,7 +70,6 @@ export function AppHeader({
   gitViewActive,
   isGitRepo,
   onExit,
-  theme,
   tabBarVisible,
   viewMode,
   projectName,
@@ -150,7 +146,7 @@ export function AppHeader({
               <MenuViewItem icon={<SplitSquareHorizontal size={13} />} onClick={onCloseOtherTabs} disabled>Close Other Tabs</MenuViewItem>
               <MenuViewSeparator />
               <MenuViewItem icon={<Command size={13} />} onClick={onOpenSettings} shortcut="Ctrl+Shift+P">Command Palette</MenuViewItem>
-              <MenuViewItem icon={<Settings size={13} />} onClick={onToggleTheme}>Switch Mode ({theme})</MenuViewItem>
+              <MenuViewItem icon={<Settings size={13} />} onClick={onOpenSettings} shortcut="Ctrl+,">Open Settings</MenuViewItem>
               <MenuViewSeparator />
               <MenuViewItem icon={<ExternalLink size={13} />} onClick={onExit} danger>Exit</MenuViewItem>
             </MenuView>
@@ -196,7 +192,7 @@ export function AppHeader({
                 <MenuViewItem icon={<SplitSquareHorizontal size={13} />} onClick={onCloseOtherTabs}>Close Other Tabs</MenuViewItem>
                 <MenuViewSeparator />
                 <MenuViewItem icon={<Command size={13} />} onClick={onOpenSettings} shortcut="Ctrl+Shift+P">Command Palette</MenuViewItem>
-                <MenuViewItem icon={<Settings size={13} />} onClick={onToggleTheme}>Switch Mode ({theme})</MenuViewItem>
+              <MenuViewItem icon={<Settings size={13} />} onClick={onOpenSettings} shortcut="Ctrl+,">Open Settings</MenuViewItem>
                 <MenuViewSeparator />
                 <MenuViewItem icon={<ExternalLink size={13} />} onClick={onExit} danger>Exit</MenuViewItem>
               </MenuView>
