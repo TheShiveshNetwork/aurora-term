@@ -294,7 +294,8 @@ export const system = {
     agentType?: string,
     mode?: string,
     requireReviewForCommands?: boolean,
-    requireReviewForWrites?: boolean
+    requireReviewForWrites?: boolean,
+    model?: string
   ) =>
     invoke<AgentStepResult>("agent_plan_step", {
       taskId,
@@ -306,6 +307,7 @@ export const system = {
       mode,
       requireReviewForCommands,
       requireReviewForWrites,
+      model,
     }),
   agentApproveTool: (
     agentType: string | undefined,

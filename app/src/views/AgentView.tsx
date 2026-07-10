@@ -1,10 +1,21 @@
-import { useState, useRef, useEffect, useCallback } from "react";
-import { Command, Send, Terminal, RotateCcw, Paperclip, Plus, Check, Copy, X } from "lucide-react";
+import { useState, useRef, useCallback, useEffect } from "react";
+import {
+  Paperclip,
+  Plus,
+  MessageSquare,
+  Trash2,
+  ChevronDown,
+  PanelLeft,
+  PanelLeftClose,
+  Cpu
+} from "lucide-react";
 import { useAgentStore, CONST_DEFAULT_SESSION_STATE } from "../stores/useAgentStore";
 import { useAppShellStore } from "../stores/useAppShellStore";
 import { useAgentExecution } from "../hooks/useAgentExecution";
-import { AgentHeroView } from "../components/terminal/AgentHeroView";
-import { StatusDrawer } from "../components/terminal/StatusDrawer";
+import { AgentHeroView } from "./AgentHeroView";
+import { StatusDrawer } from "../components/agents/StatusDrawer";
+import { AgentPromptInput, AttachedFile } from "../components/agents/AgentPromptInput";
+import { useVoiceInput } from "../hooks/useVoiceInput";
 import { system } from "../lib/ipc";
 
 // Import prompt-kit components
@@ -14,53 +25,75 @@ import {
   ChatContainerScrollAnchor,
 } from "../components/prompt-kit/chat-container";
 import { ScrollButton } from "../components/prompt-kit/scroll-button";
-import {
-  Message,
-  MessageAvatar,
-  MessageContent,
-  MessageActions,
-  MessageAction,
-} from "../components/prompt-kit/message";
-import {
-  PromptInput,
-  PromptInputTextarea,
-  PromptInputActions,
-  PromptInputAction,
-} from "../components/prompt-kit/prompt-input";
-import {
-  ChainOfThought,
-  ChainOfThoughtStep,
-  ChainOfThoughtTrigger,
-  ChainOfThoughtContent,
-  ChainOfThoughtItem,
-} from "../components/prompt-kit/chain-of-thought";
-import {
-  Steps,
-  StepsItem,
-  StepsTrigger,
-  StepsContent,
-} from "../components/prompt-kit/steps";
 import { TextShimmer } from "../components/prompt-kit/text-shimmer";
 import { FileUpload, FileUploadContent } from "../components/prompt-kit/file-upload";
 
-interface AttachedFile {
-  name: string;
-  path: string;
-  content: string;
-}
-
-const AGENT_VIEW_SESSION_ID = "agent-view";
+// Import agent components
+import { AgentTurnMessage } from "../components/agents";
+import type { ChatMessage } from "../stores/useAgentStore";
 
 export function AgentView() {
   const [input, setInput] = useState("");
   const [copiedStates, setCopiedStates] = useState<Record<string, boolean>>({});
+  const [likeStates, setLikeStates] = useState<Record<string, boolean>>({});
+  const [dislikeStates, setDislikeStates] = useState<Record<string, boolean>>({});
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showStatusDrawer, setShowStatusDrawer] = useState(true);
+
+  // Left sidebar & Title rename states
+  const [leftPanelOpen, setLeftPanelOpen] = useState(true);
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [tempTitle, setTempTitle] = useState("");
+
+  // Left sidebar resizer states
+  const MIN_LEFT_PANEL_WIDTH = 200;
+  const MAX_LEFT_PANEL_WIDTH = 450;
+  const [leftWidth, setLeftWidth] = useState(240);
+  const leftPanelDragRef = useRef<{ startX: number; startW: number } | null>(null);
+
+  const onLeftDragHandleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    leftPanelDragRef.current = { startX: e.clientX, startW: leftWidth };
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  }, [leftWidth]);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      const d = leftPanelDragRef.current;
+      if (!d) return;
+      const delta = e.clientX - d.startX;
+      setLeftWidth(Math.min(MAX_LEFT_PANEL_WIDTH, Math.max(MIN_LEFT_PANEL_WIDTH, d.startW + delta)));
+    };
+    const onUp = () => {
+      if (!leftPanelDragRef.current) return;
+      leftPanelDragRef.current = null;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, []);
 
   const sessions = useAgentStore((s) => s.sessions);
   const setAgentMode = useAgentStore((s) => s.setAgentMode);
+  const activeAgentSessionId = useAgentStore((s) => s.activeAgentSessionId);
+  const setActiveAgentSessionId = useAgentStore((s) => s.setActiveAgentSessionId);
+  const createAgentSession = useAgentStore((s) => s.createAgentSession);
+  const renameAgentSession = useAgentStore((s) => s.renameAgentSession);
+  const deleteAgentSession = useAgentStore((s) => s.deleteAgentSession);
 
-  const targetSessionId = AGENT_VIEW_SESSION_ID;
+  const targetSessionId = activeAgentSessionId;
+
+  const { isListening, toggleListening } = useVoiceInput({
+    onTranscript: (text) => setInput(text),
+    getCurrentValue: () => input,
+  });
 
   const {
     startTask,
@@ -72,7 +105,8 @@ export function AgentView() {
     skipPending,
     submitAnswer,
     chainNodes,
-    agentLogs,
+    stepCount,
+    maxSteps,
     activeSubagent,
   } = useAgentExecution(targetSessionId);
 
@@ -80,9 +114,25 @@ export function AgentView() {
   const isThinking = status === "planning" || status === "executing";
   const isThinkingOrPaused = isThinking || status === "paused";
 
+  const selectedModel = sessionState.model || "";
+
+  const handleModelChange = useCallback((model: string) => {
+    if (targetSessionId) {
+      useAgentStore.getState().setAgentModel(targetSessionId, model);
+    }
+  }, [targetSessionId]);
+
   const handleSend = useCallback(() => {
     const trimmed = input.trim();
     if (!trimmed || isThinking) return;
+
+    setInput("");
+    setAttachedFiles([]);
+
+    if (sessionState.pendingToolCall?.name === "ask_user") {
+      submitAnswer(trimmed);
+      return;
+    }
 
     let finalPrompt = trimmed;
     if (attachedFiles.length > 0) {
@@ -92,16 +142,27 @@ export function AgentView() {
       finalPrompt = `${trimmed}\n\nHere are some relevant files to reference:\n\n${fileContentsBlock}`;
     }
 
-    setInput("");
-    setAttachedFiles([]);
-    startTask(finalPrompt, "developer");
-  }, [input, isThinking, attachedFiles, startTask]);
+    if (targetSessionId) {
+      startTask(finalPrompt, "developer", selectedModel);
+    }
+  }, [input, isThinking, attachedFiles, startTask, selectedModel, sessionState.pendingToolCall, submitAnswer, targetSessionId]);
 
-  const handleHeroSend = useCallback((text: string) => {
+  const handleHeroSend = useCallback((text: string, files?: AttachedFile[]) => {
     if (isThinking) return;
     useAppShellStore.getState().setViewMode("agent");
-    startTask(text, "developer");
-  }, [isThinking, startTask]);
+
+    let finalPrompt = text;
+    if (files && files.length > 0) {
+      const fileContentsBlock = files
+        .map((f) => `### File: ${f.name} (${f.path})\n\`\`\`\n${f.content}\n\`\`\``)
+        .join("\n\n");
+      finalPrompt = `${text}\n\nHere are some relevant files to reference:\n\n${fileContentsBlock}`;
+    }
+
+    if (targetSessionId) {
+      startTask(finalPrompt, "developer", selectedModel);
+    }
+  }, [isThinking, startTask, selectedModel, targetSessionId]);
 
   const handleAttachFileClick = async () => {
     try {
@@ -140,6 +201,36 @@ export function AgentView() {
 
   const showEmptyState = chatHistory.length === 0 && !isThinking;
 
+  // Pair chat history into turns (user + optional assistant)
+  const turns: Array<{ user: ChatMessage; assistant: ChatMessage | null }> = [];
+  for (let idx = 0; idx < chatHistory.length; idx++) {
+    const msg = chatHistory[idx];
+    if (msg.role === "user") {
+      const next = chatHistory[idx + 1];
+      const assistant = next?.role === "assistant" ? next : null;
+      turns.push({ user: msg, assistant });
+      if (assistant) idx++;
+    }
+  }
+  const lastTurnIndex = turns.length - 1;
+
+  // Save session title rename
+  const saveRename = () => {
+    if (targetSessionId && tempTitle.trim()) {
+      renameAgentSession(targetSessionId, tempTitle.trim());
+    }
+    setIsEditingTitle(false);
+  };
+
+  const handleNewSession = () => {
+    createAgentSession("New Session");
+  };
+
+  // Previous Agent View Sessions
+  const agentSessions = Object.entries(sessions)
+    .filter(([_, s]) => s.isAgentViewSession)
+    .map(([id, s]) => ({ id, ...s }));
+
   return (
     <FileUpload onFilesAdded={handleFilesAdded}>
       <FileUploadContent className="bg-background/80 fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm">
@@ -150,7 +241,7 @@ export function AgentView() {
         </div>
       </FileUploadContent>
 
-      <div className="flex flex-col h-full bg-background overflow-hidden relative">
+      <div className="flex h-full w-full bg-background overflow-hidden relative">
         <input
           type="file"
           ref={fileInputRef}
@@ -164,254 +255,220 @@ export function AgentView() {
           className="hidden"
         />
 
-        {showEmptyState ? (
-          <AgentHeroView onSend={handleHeroSend} />
-        ) : (
-          <ChatContainerRoot className="flex-1 overflow-y-auto scrollbar-thin">
-            <ChatContainerContent className="max-w-[800px] w-full mx-auto px-5 py-6 space-y-6">
-              {chatHistory.map((msg, idx) => {
-                const isUser = msg.role === "user";
-                if (isUser) {
-                  const assistant = chatHistory[idx + 1]?.role === "assistant" ? chatHistory[idx + 1] : null;
+        {/* ── Left Sidebar (Sessions List) ── */}
+        {leftPanelOpen && (
+          <div
+            className="shrink-0 flex flex-col h-full bg-[#0F131A] border-r border-white/[0.06] select-none relative"
+            style={{ width: leftWidth }}
+          >
+            {/* New Session Button */}
+            <div className="p-3">
+              <button
+                onClick={handleNewSession}
+                className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border border-white/[0.08] hover:bg-white/[0.05] text-xs font-semibold text-on-surface cursor-pointer transition-all"
+              >
+                <Plus size={14} />
+                New Session
+              </button>
+            </div>
+
+            {/* Scrollable list of previous sessions */}
+            <div className="flex-1 overflow-y-auto scrollbar-thin px-2 space-y-1">
+              <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-white/30">
+                Recent Chats
+              </div>
+              {agentSessions.length === 0 ? (
+                <div className="px-3 py-4 text-xs text-white/20 italic text-center">
+                  No previous sessions
+                </div>
+              ) : (
+                agentSessions.map((s) => {
+                  const isActive = s.id === targetSessionId;
                   return (
-                    <div key={msg.id} className="w-full space-y-4">
-                      {/* User Message */}
-                      <Message className="justify-end flex-row-reverse items-start">
-                        <MessageAvatar src="" alt="User" fallback="U" />
-                        <div className="flex flex-col items-end max-w-[70%]">
-                          <MessageContent className="bg-[#272B36] text-[rgba(255,255,255,0.9)] rounded-2xl px-4 py-3 text-[14px] leading-relaxed">
-                            {msg.content}
-                          </MessageContent>
-                        </div>
-                      </Message>
-
-                      {/* Assistant Response */}
-                      {assistant && (
-                        <Message className="justify-start items-start">
-                          <MessageAvatar src="" alt="Agent" fallback="A" className="bg-[#3A43EE]/10 text-[#4F8CFF]" />
-                          <div className="flex flex-col items-start w-full max-w-[85%] space-y-2">
-                            <MessageContent markdown className="bg-[#0F131A] border border-outline text-[rgba(232,234,240,0.9)] rounded-2xl px-4 py-3 text-[13px] leading-relaxed w-full">
-                              {assistant.content}
-                            </MessageContent>
-
-                            <MessageActions className="w-full flex items-center justify-end gap-3 text-[rgba(232,234,240,0.4)] px-1">
-                              {assistant.durationMs !== undefined && assistant.durationMs > 0 && (
-                                <span className="text-[10px] text-[rgba(232,234,240,0.3)]">
-                                  Worked for {Math.round(assistant.durationMs / 1000)}s
-                                </span>
-                              )}
-                              <MessageAction tooltip="Copy response">
-                                <button
-                                  onClick={() => {
-                                    navigator.clipboard.writeText(assistant.content);
-                                    setCopiedStates((p) => ({ ...p, [assistant.id]: true }));
-                                    setTimeout(() => setCopiedStates((p) => ({ ...p, [assistant.id]: false })), 2000);
-                                  }}
-                                  className="hover:text-[rgba(232,234,240,0.8)] transition-colors cursor-pointer p-0.5"
-                                >
-                                  {copiedStates[assistant.id] ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
-                                </button>
-                              </MessageAction>
-                            </MessageActions>
-                          </div>
-                        </Message>
-                      )}
+                    <div
+                      key={s.id}
+                      onClick={() => setActiveAgentSessionId(s.id)}
+                      className={`group flex items-center justify-between px-3 py-2 rounded-lg text-xs hover:bg-white/[0.04] text-white/70 hover:text-white transition-all cursor-pointer ${isActive ? "bg-white/[0.06] text-white font-medium border border-white/[0.04]" : ""
+                        }`}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <MessageSquare size={12} className="text-white/40 shrink-0" />
+                        <span className="truncate">{s.title || "Untitled Session"}</span>
+                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteAgentSession(s.id);
+                        }}
+                        className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-white/10 text-white/40 hover:text-red-400 transition-all cursor-pointer shrink-0"
+                        title="Delete Session"
+                      >
+                        <Trash2 size={11} />
+                      </button>
                     </div>
                   );
-                }
-                if (msg.role === "assistant" && chatHistory[idx - 1]?.role === "user") return null;
-                return null;
-              })}
-
-              {/* Shimmer Response State */}
-              {isThinking && (
-                <div className="flex items-center gap-2 py-2 w-full animate-fadeIn">
-                  <TextShimmer className="text-xs text-white/50">
-                    Farming response and running commands...
-                  </TextShimmer>
-                </div>
+                })
               )}
+            </div>
 
-              {/* Detailed reasoning, chain of thought, execution logs */}
-              {isThinkingOrPaused && (
-                <div className="w-full space-y-4 border-t border-white/[0.03] bg-white/[0.01] p-4 rounded-2xl mt-4">
-                  {activeSubagent && (
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-semibold text-white/50">Active Agent:</span>
-                      <span className="text-xs font-bold text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded-full">
-                        {activeSubagent}
-                      </span>
-                    </div>
-                  )}
-
-                  {chainNodes.length > 0 && (
-                    <div className="space-y-2">
-                      <div className="text-xs font-bold text-white/40 uppercase tracking-wider">Plan & Chain of Thought</div>
-                      <ChainOfThought className="border border-white/[0.04] p-3 rounded-xl bg-black/10">
-                        {chainNodes.map((node, i) => (
-                          <ChainOfThoughtStep key={node.id} isLast={i === chainNodes.length - 1} open={node.status === "active" || node.status === "pending"}>
-                            <ChainOfThoughtTrigger
-                              leftIcon={
-                                node.status === "active" ? (
-                                  <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-ping" />
-                                ) : node.status === "done" ? (
-                                  <Check size={11} className="text-emerald-400" />
-                                ) : node.status === "failed" ? (
-                                  <X size={11} className="text-red-400" />
-                                ) : (
-                                  <span className="h-1.5 w-1.5 rounded-full bg-white/20" />
-                                )
-                              }
-                            >
-                              <span className="font-semibold text-xs text-white/80">{node.label}</span>
-                            </ChainOfThoughtTrigger>
-                            <ChainOfThoughtContent>
-                              <ChainOfThoughtItem className="pl-6 pb-2 text-xs text-white/60">
-                                {node.subLabel && <p className="mb-1">{node.subLabel}</p>}
-                                {node.command && (
-                                  <code className="block font-mono text-[10px] p-2 bg-black/40 rounded border border-white/[0.04] text-white/80 break-all select-text mt-1">
-                                    {node.command}
-                                  </code>
-                                )}
-                              </ChainOfThoughtItem>
-                            </ChainOfThoughtContent>
-                          </ChainOfThoughtStep>
-                        ))}
-                      </ChainOfThought>
-                    </div>
-                  )}
-
-                  {agentLogs.length > 0 && (
-                    <div className="space-y-2">
-                      <Steps className="border border-white/[0.04] rounded-xl bg-black/10">
-                        <StepsTrigger className="px-3 py-2 text-xs font-semibold text-white/80">
-                          Execution Logs ({agentLogs.length})
-                        </StepsTrigger>
-                        <StepsContent className="px-3 pb-3">
-                          <div className="space-y-1 max-h-40 overflow-y-auto scrollbar-thin pr-1">
-                            {agentLogs.map((log, i) => (
-                              <StepsItem key={i} className="font-mono text-[10.5px] leading-relaxed text-white/50 break-all">
-                                <span className="text-white/25 mr-1.5">[{new Date(log.timestamp).toLocaleTimeString()}]</span>
-                                <span>{log.content}</span>
-                              </StepsItem>
-                            ))}
-                          </div>
-                        </StepsContent>
-                      </Steps>
-                    </div>
-                  )}
-                </div>
-              )}
-            </ChatContainerContent>
-
-            <ChatContainerScrollAnchor />
-            <ScrollButton className="fixed bottom-24 right-8 z-30" />
-          </ChatContainerRoot>
+            {/* Resize handle on right edge */}
+            <div
+              onMouseDown={onLeftDragHandleMouseDown}
+              className="absolute top-0 right-0 w-1.5 h-full cursor-col-resize z-30 group select-none"
+              title="Drag to resize"
+            >
+              <div
+                className="w-px h-full ml-auto transition-colors"
+                style={{ background: "transparent" }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(79,140,255,0.35)")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+              />
+            </div>
+          </div>
         )}
 
-        {/* Input Area */}
-        <div className="shrink-0 pt-3 pb-6 px-5 w-full">
-          <div className="max-w-[800px] mx-auto w-full flex flex-col">
-            
-            {/* Status Drawer inside Input container */}
-            {targetSessionId && (
-              <div className="border-b border-white/[0.04] bg-[#0c0e17]/80 backdrop-blur-md rounded-t-2xl overflow-hidden shadow-md">
-                <StatusDrawer
-                  sessionId={targetSessionId}
-                  onApprove={approveAndRunPending}
-                  onDecline={declinePending}
-                  onSkip={skipPending}
-                  onSubmitAnswer={submitAnswer}
-                />
-              </div>
-            )}
+        {/* ── Main Chat Area ── */}
+        <div className="flex-1 min-w-0 flex flex-col h-full bg-background relative overflow-hidden">
+          {/* Transparent Subheader */}
+          <div className="flex items-center justify-between px-4 h-13 shrink-0 bg-transparent border-b border-white/[0.04] select-none">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setLeftPanelOpen(!leftPanelOpen)}
+                className="p-1.5 rounded-[8px] hover:bg-white/5 text-white/60 hover:text-white transition-colors cursor-pointer"
+                title={leftPanelOpen ? "Hide sidebar" : "Show sidebar"}
+              >
+                {leftPanelOpen ? <PanelLeftClose size={14} /> : <PanelLeft size={14} />}
+              </button>
+            </div>
 
-            {/* Prompt Input Form */}
-            <div className="w-full bg-[#131722] border border-outline-variant/10 rounded-b-2xl shadow-xl overflow-hidden">
-              
-              {/* Attached Files List */}
-              {attachedFiles.length > 0 && (
-                <div className="flex flex-wrap gap-2 px-4 py-2 bg-white/[0.01] border-b border-white/[0.04] items-center">
-                  {attachedFiles.map((file, idx) => (
-                    <div key={idx} className="flex items-center gap-1.5 bg-white/[0.05] border border-white/[0.05] rounded-full pl-2.5 pr-1.5 py-1 text-xs text-white/80">
-                      <Paperclip size={11} className="text-primary/70" />
-                      <span className="max-w-[150px] truncate">{file.name}</span>
-                      <button
-                        onClick={() => setAttachedFiles(prev => prev.filter((_, i) => i !== idx))}
-                        className="p-0.5 rounded-full hover:bg-white/10 text-white/40 hover:text-white/80 transition-colors cursor-pointer"
-                      >
-                        <X size={10} />
-                      </button>
-                    </div>
-                  ))}
+            <div className="flex-1 flex justify-center">
+              {isEditingTitle ? (
+                <input
+                  type="text"
+                  className="bg-white/5 border border-white/10 rounded px-2.5 py-0.5 text-xs text-white focus:outline-none focus:border-primary font-medium w-48 text-center"
+                  value={tempTitle}
+                  onChange={(e) => setTempTitle(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      saveRename();
+                    } else if (e.key === "Escape") {
+                      setIsEditingTitle(false);
+                    }
+                  }}
+                  onBlur={saveRename}
+                  autoFocus
+                />
+              ) : (
+                <div
+                  onClick={() => {
+                    setTempTitle(sessionState.title || "New Session");
+                    setIsEditingTitle(true);
+                  }}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-[10px] hover:bg-white/5 transition-colors cursor-pointer text-xs font-semibold text-on-surface"
+                  title="Click to rename session"
+                >
+                  <span>{sessionState.title || "New Session"}</span>
+                  <ChevronDown size={12} className="text-white/40" />
                 </div>
               )}
-
-              {/* Mode Selector & Input text */}
-              <PromptInput
-                isLoading={isThinking}
-                value={input}
-                onValueChange={setInput}
-                onSubmit={handleSend}
-                disabled={isThinking}
-                className="bg-transparent border-none p-4"
-              >
-                <PromptInputTextarea
-                  placeholder="Ask the developer agent to build, modify, or debug..."
-                  className="text-[14px] text-on-background placeholder:text-white/20 min-h-[44px] focus-visible:ring-0 focus-visible:ring-offset-0"
-                />
-                
-                <PromptInputActions className="justify-between mt-3 pt-3 border-t border-white/[0.03]">
-                  <div className="flex items-center gap-1">
-                    <PromptInputAction tooltip="Attach file from dialog">
-                      <button
-                        onClick={handleAttachFileClick}
-                        disabled={isThinking}
-                        className="p-2 rounded-lg text-white/40 hover:text-white/70 hover:bg-white/[0.05] transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-                      >
-                        <Paperclip size={14} />
-                      </button>
-                    </PromptInputAction>
-                    
-                    {/* Mode Selector Header */}
-                    <div className="flex items-center gap-1 ml-2">
-                      <button
-                        onClick={() => targetSessionId && setAgentMode(targetSessionId, "plan")}
-                        className={`px-2.5 py-1 text-[11px] font-semibold rounded-md transition-all cursor-pointer ${
-                          sessionState.agentMode === "plan"
-                            ? "bg-blue-500/10 text-blue-400 border border-blue-500/20"
-                            : "text-white/30 border border-transparent"
-                        }`}
-                      >
-                        Plan Mode
-                      </button>
-                      <button
-                        onClick={() => targetSessionId && setAgentMode(targetSessionId, "build")}
-                        className={`px-2.5 py-1 text-[11px] font-semibold rounded-md transition-all cursor-pointer ${
-                          sessionState.agentMode === "build"
-                            ? "bg-amber-500/10 text-amber-400 border border-amber-500/20"
-                            : "text-white/30 border border-transparent"
-                        }`}
-                      >
-                        Build Mode
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <PromptInputAction tooltip="Send to Agent">
-                      <button
-                        onClick={handleSend}
-                        disabled={!input.trim() || isThinking}
-                        className="flex items-center justify-center w-8 h-8 bg-[#4F8CFF] border-none rounded-lg cursor-pointer transition-all hover:bg-primary-fixed-dim disabled:opacity-30 disabled:cursor-not-allowed"
-                      >
-                        <Send size={13} className="text-white" />
-                      </button>
-                    </PromptInputAction>
-                  </div>
-                </PromptInputActions>
-              </PromptInput>
             </div>
+
+            <div className="w-8" />
+          </div>
+
+          {/* Chat Content */}
+          <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
+            {showEmptyState ? (
+              <AgentHeroView
+                onSend={handleHeroSend}
+                selectedModel={selectedModel}
+                onModelChange={handleModelChange}
+              />
+            ) : (
+              <>
+                <ChatContainerRoot className="flex-1 overflow-y-auto scrollbar-thin">
+                  <ChatContainerContent className="max-w-[800px] w-full mx-auto px-5 py-6 space-y-6">
+                    {turns.map((turn, idx) => {
+                      const isLastTurn = idx === lastTurnIndex;
+                      return (
+                        <AgentTurnMessage
+                          key={turn.user.id}
+                          userMsg={turn.user}
+                          assistantMsg={turn.assistant}
+                          isThinking={isLastTurn && isThinking}
+                          isLastTurn={isLastTurn}
+                          chainNodes={turn.assistant?.chainNodes || (isLastTurn ? chainNodes : [])}
+                          durationSecs={0}
+                          stepCount={isLastTurn ? stepCount : 0}
+                          maxSteps={isLastTurn ? maxSteps : 0}
+                          variant="full"
+                          copied={!!copiedStates[turn.assistant?.id || ""]}
+                          onCopy={(content) => {
+                            navigator.clipboard.writeText(content);
+                            const id = turn.assistant?.id || "";
+                            setCopiedStates((p) => ({ ...p, [id]: true }));
+                            setTimeout(() => setCopiedStates((p) => ({ ...p, [id]: false })), 2000);
+                          }}
+                          onLike={() => {
+                            const id = turn.assistant?.id || "";
+                            setLikeStates((p) => ({ ...p, [id]: !p[id] }));
+                            setDislikeStates((p) => ({ ...p, [id]: false }));
+                          }}
+                          onDislike={() => {
+                            const id = turn.assistant?.id || "";
+                            setDislikeStates((p) => ({ ...p, [id]: !p[id] }));
+                            setLikeStates((p) => ({ ...p, [id]: false }));
+                          }}
+                        />
+                      );
+                    })}
+
+                    {isThinking && turns.length > 0 && !turns[turns.length - 1].assistant && (
+                      <div />
+                    )}
+                  </ChatContainerContent>
+
+                  <ChatContainerScrollAnchor />
+                  <ScrollButton className="fixed bottom-24 right-8 z-30" />
+                </ChatContainerRoot>
+
+                {/* Input Area */}
+                <div className="shrink-0 pb-3 px-5 w-full">
+                  <div className="max-w-[800px] mx-auto w-full flex flex-col overflow-visible">
+                    {/* Status Drawer inside Input container */}
+                    {targetSessionId && showStatusDrawer && (
+                      <StatusDrawer
+                        sessionId={targetSessionId}
+                        onApprove={approveAndRunPending}
+                        onDecline={declinePending}
+                        onSkip={skipPending}
+                        onSubmitAnswer={submitAnswer}
+                      />
+                    )}
+
+                    {/* Prompt Input Form */}
+                    <AgentPromptInput
+                      value={input}
+                      onValueChange={setInput}
+                      onSubmit={handleSend}
+                      isLoading={isThinking}
+                      attachedFiles={attachedFiles}
+                      onRemoveFile={(idx) => setAttachedFiles(prev => prev.filter((_, i) => i !== idx))}
+                      isListening={isListening}
+                      toggleListening={toggleListening}
+                      onAttachClick={handleAttachFileClick}
+                      showModeSelector={true}
+                      agentMode={sessionState.agentMode}
+                      setAgentMode={(mode) => targetSessionId && setAgentMode(targetSessionId, mode)}
+                      selectedModel={selectedModel}
+                      onModelChange={handleModelChange}
+                      showStatusDrawer={showStatusDrawer}
+                      onToggleStatusDrawer={() => setShowStatusDrawer(!showStatusDrawer)}
+                    />
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>

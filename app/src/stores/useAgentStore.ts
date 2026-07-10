@@ -89,6 +89,9 @@ export interface SessionAgentState {
     name: string;
     args: any;
   } | null;
+  model?: string;
+  isAgentViewSession?: boolean;
+  title?: string;
 }
 
 export const CONST_DEFAULT_SESSION_STATE: SessionAgentState = {
@@ -161,6 +164,12 @@ interface AgentStore {
   updateFileChangeStatus: (sessionId: string, path: string, status: "pending" | "approved" | "rejected") => void;
   setPendingToolCall: (sessionId: string, toolCall: SessionAgentState["pendingToolCall"]) => void;
   clearFileChanges: (sessionId: string) => void;
+  setAgentModel: (sessionId: string, model: string | undefined) => void;
+  activeAgentSessionId: string | null;
+  setActiveAgentSessionId: (id: string | null) => void;
+  createAgentSession: (title?: string) => string;
+  renameAgentSession: (sessionId: string, title: string) => void;
+  deleteAgentSession: (sessionId: string) => void;
 }
 
 // ── sanitizeMessage ───────────────────────────────────────────────────────
@@ -209,9 +218,45 @@ const updateSession = (
 
 export const useAgentStore = create<AgentStore>((set) => ({
   sessions: {},
+  activeAgentSessionId: null,
+  setActiveAgentSessionId: (id) => set({ activeAgentSessionId: id }),
+
+  createAgentSession: (title) => {
+    const id = "agent-session-" + genId();
+    const newSession: SessionAgentState = {
+      ...defaultSessionState(),
+      isAgentViewSession: true,
+      title: title || "New Session",
+    };
+    set((state) => ({
+      sessions: {
+        ...state.sessions,
+        [id]: newSession,
+      },
+      activeAgentSessionId: id,
+    }));
+    return id;
+  },
+
+  renameAgentSession: (sessionId, title) => {
+    updateSession(set, sessionId, { title });
+  },
+
+  deleteAgentSession: (sessionId) => {
+    set((state) => {
+      const sessions = { ...state.sessions };
+      delete sessions[sessionId];
+      let nextActiveId = state.activeAgentSessionId;
+      if (state.activeAgentSessionId === sessionId) {
+        const remaining = Object.entries(sessions).filter(([_, s]) => s.isAgentViewSession);
+        nextActiveId = remaining.length > 0 ? remaining[remaining.length - 1][0] : null;
+      }
+      return { sessions, activeAgentSessionId: nextActiveId };
+    });
+  },
 
   startTask: (sessionId, taskId, goal) =>
-    updateSession(set, sessionId, {
+    updateSession(set, sessionId, (prev) => ({
       taskId,
       originalGoal: goal,
       status: "planning",
@@ -231,7 +276,8 @@ export const useAgentStore = create<AgentStore>((set) => ({
       ],
       lastMessage: null,
       activeSubagent: null,
-    }),
+      title: prev.title === "New Session" || !prev.title ? (goal.length > 30 ? goal.slice(0, 30) + "…" : prev.title) : prev.title,
+    })),
 
   pauseTask: (sessionId) => updateSession(set, sessionId, { status: "paused" }),
 
@@ -408,4 +454,7 @@ export const useAgentStore = create<AgentStore>((set) => ({
 
   clearFileChanges: (sessionId) =>
     updateSession(set, sessionId, { filesChanged: [], pendingToolCall: null, activeDrawerTab: null }),
+
+  setAgentModel: (sessionId, model) =>
+    updateSession(set, sessionId, { model }),
 }));

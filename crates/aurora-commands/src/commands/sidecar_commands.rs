@@ -17,6 +17,7 @@ pub struct AgentStepRequest {
     pub mode: Option<String>,
     pub require_review_for_commands: Option<bool>,
     pub require_review_for_writes: Option<bool>,
+    pub model: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -111,6 +112,7 @@ pub async fn agent_plan_step(
     mode: Option<String>,
     require_review_for_commands: Option<bool>,
     require_review_for_writes: Option<bool>,
+    model: Option<String>,
 ) -> Result<AgentStepResponse, AppError> {
     let port = {
         let sidecar = state.sidecar.lock().await;
@@ -130,6 +132,7 @@ pub async fn agent_plan_step(
         mode,
         require_review_for_commands,
         require_review_for_writes,
+        model,
     };
 
     let response = client.post(&url)

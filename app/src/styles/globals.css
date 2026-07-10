@@ -74,6 +74,17 @@
   --color-ui-surface: rgba(15, 19, 26, 0.95);
 }
 
+/* ── Prompt-kit shims (used by TextShimmer inline styles) ─────── */
+:root {
+  --foreground: #E8EAF0;
+  --muted-foreground: rgba(232, 234, 240, 0.45);
+}
+
+@keyframes shimmer {
+  0% { background-position: 100% center; }
+  100% { background-position: -100% center; }
+}
+
 /* ─────────────────────── Base ─────────────────────────────────────── */
 *,
 *::before,

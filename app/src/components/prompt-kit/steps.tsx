@@ -15,7 +15,7 @@ export const StepsItem = ({
   className,
   ...props
 }: StepsItemProps) => (
-  <div className={cn("text-muted-foreground text-sm", className)} {...props}>
+  <div className={cn("font-mono text-[10.5px] leading-relaxed text-on-surface-variant/50 break-all", className)} {...props}>
     {children}
   </div>
 )
@@ -36,12 +36,12 @@ export const StepsTrigger = ({
 }: StepsTriggerProps) => (
   <CollapsibleTrigger
     className={cn(
-      "group text-muted-foreground hover:text-foreground flex w-full cursor-pointer items-center justify-start gap-1 text-sm transition-colors",
+      "group flex items-center justify-between cursor-pointer select-none hover:bg-white/[0.02] text-on-surface-variant/70 transition-colors",
       className
     )}
     {...props}
   >
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2.5">
       {leftIcon ? (
         <span className="relative inline-flex size-4 items-center justify-center">
           <span
@@ -57,11 +57,9 @@ export const StepsTrigger = ({
           )}
         </span>
       ) : null}
-      <span>{children}</span>
+      <span className="text-[12.5px] font-medium">{children}</span>
     </div>
-    {!leftIcon && (
-      <ChevronDown className="size-4 transition-transform group-data-[state=open]:rotate-180" />
-    )}
+    <ChevronDown className="size-3.5 transition-transform group-data-[state=open]:rotate-180" />
   </CollapsibleTrigger>
 )
 
@@ -85,9 +83,8 @@ export const StepsContent = ({
       )}
       {...props}
     >
-      <div className="mt-3 grid max-w-full min-w-0 grid-cols-[min-content_minmax(0,1fr)] items-start gap-x-3">
-        <div className="min-w-0 self-stretch">{bar ?? <StepsBar />}</div>
-        <div className="min-w-0 space-y-2">{children}</div>
+      <div className="space-y-1 max-h-40 overflow-y-auto scrollbar-thin pr-1">
+        {children}
       </div>
     </CollapsibleContent>
   )
@@ -103,12 +100,31 @@ export const StepsBar = ({ className, ...props }: StepsBarProps) => (
   />
 )
 
+export type StepsCountBadgeProps = React.HTMLAttributes<HTMLSpanElement> & {
+  count: number
+}
+
+export const StepsCountBadge = ({ count, className, ...props }: StepsCountBadgeProps) => (
+  <span
+    className={cn(
+      "flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-[10.5px] font-medium text-primary",
+      className
+    )}
+    {...props}
+  >
+    {count}
+  </span>
+)
+
 export type StepsProps = React.ComponentProps<typeof Collapsible>
 
-export function Steps({ defaultOpen = true, className, ...props }: StepsProps) {
+export function Steps({ defaultOpen = false, className, ...props }: StepsProps) {
   return (
     <Collapsible
-      className={cn(className)}
+      className={cn(
+        "overflow-hidden",
+        className
+      )}
       defaultOpen={defaultOpen}
       {...props}
     />

@@ -1,6 +1,42 @@
 import React from "react";
-import { FolderOpen, Terminal as TerminalIcon, FileCheck, Globe, Check, X, ShieldAlert, HelpCircle } from "lucide-react";
+import { FolderOpen, Terminal as TerminalIcon, FileCheck, Globe, Check, X, HelpCircle } from "lucide-react";
 import { useAgentStore, SessionAgentState } from "../../stores/useAgentStore";
+
+interface StatusTabButtonProps {
+  isActive: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+  badgeCount?: number;
+  badgeBgColor?: string;
+}
+
+function StatusTabButton({
+  isActive,
+  onClick,
+  icon,
+  label,
+  badgeCount = 0,
+  badgeBgColor = "bg-blue-500",
+}: StatusTabButtonProps) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium cursor-pointer transition-all hover:bg-white/5 border ${isActive
+        ? "bg-on-surface-variant/20 border-on-surface-variant/30"
+        : "text-white/40 border-transparent"
+        }`}
+    >
+      {icon}
+      <span>{label}</span>
+      {badgeCount > 0 && (
+        <span className={`flex items-center justify-center min-w-[16px] h-4 px-1 text-[9px] font-bold rounded-full ${badgeBgColor} text-white animate-pulse`}>
+          {badgeCount}
+        </span>
+      )}
+    </button>
+  );
+}
 
 interface StatusDrawerProps {
   sessionId: string;
@@ -13,7 +49,7 @@ interface StatusDrawerProps {
 export function StatusDrawer({ sessionId, onApprove, onDecline, onSkip, onSubmitAnswer }: StatusDrawerProps) {
   const store = useAgentStore(s => s);
   const session = store.sessions[sessionId] || ({} as Partial<SessionAgentState>);
-  
+
   const activeTab = session.activeDrawerTab || null;
   const filesChanged = session.filesChanged || [];
   const queue = session.queue || [];
@@ -31,118 +67,70 @@ export function StatusDrawer({ sessionId, onApprove, onDecline, onSkip, onSubmit
     }
   };
 
-  const hasPendingAction = 
-    (pendingToolCall && (pendingToolCall.name === "write_file" || pendingToolCall.name === "patch_file" || pendingToolCall.name === "ask_user")) ||
-    (queue.some((cmd) => cmd.status === "requires_action"));
-
   return (
-    <div className="w-full flex flex-col shrink-0 select-none">
+    <div className="w-full px-3 flex flex-col shrink-0 select-none">
       {/* ── Status Icons Bar ──────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between px-4 py-1.5 border-t border-b border-white/[0.04] bg-white/[0.01]">
+      <div className="flex items-center justify-between px-2 py-1 rounded-t-sm border-t border-l border-r border-on-surface-variant/15 bg-on-surface-variant/10">
         <div className="flex items-center gap-3">
-          {/* Files Changed Icon */}
-          <button
+          <StatusTabButton
+            isActive={activeTab === "files"}
             onClick={() => toggleTab("files")}
-            className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium cursor-pointer transition-all hover:bg-white/[0.05] ${
-              activeTab === "files" ? "text-blue-400 bg-blue-500/10 border border-blue-500/20" : "text-white/40 border border-transparent"
-            }`}
-          >
-            <FolderOpen size={13} />
-            <span>Files</span>
-            {pendingFilesCount > 0 && (
-              <span className="flex items-center justify-center min-w-[16px] h-4 px-1 text-[9px] font-bold rounded-full bg-blue-500 text-white animate-pulse">
-                {pendingFilesCount}
-              </span>
-            )}
-          </button>
+            icon={<FolderOpen size={13} />}
+            label="Files"
+            badgeCount={pendingFilesCount}
+            badgeBgColor="bg-blue-500"
+          />
 
-          {/* Terminal Runs Icon */}
-          <button
+          <StatusTabButton
+            isActive={activeTab === "terminals"}
             onClick={() => toggleTab("terminals")}
-            className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium cursor-pointer transition-all hover:bg-white/[0.05] ${
-              activeTab === "terminals" ? "text-emerald-400 bg-emerald-500/10 border border-emerald-500/20" : "text-white/40 border border-transparent"
-            }`}
-          >
-            <TerminalIcon size={13} />
-            <span>Terminals</span>
-            {pendingTerminalsCount > 0 && (
-              <span className="flex items-center justify-center min-w-[16px] h-4 px-1 text-[9px] font-bold rounded-full bg-emerald-500 text-white animate-pulse">
-                {pendingTerminalsCount}
-              </span>
-            )}
-          </button>
+            icon={<TerminalIcon size={13} />}
+            label="Terminals"
+            badgeCount={pendingTerminalsCount}
+            badgeBgColor="bg-emerald-500"
+          />
 
-          {/* Artifacts Icon */}
-          <button
+          <StatusTabButton
+            isActive={activeTab === "artifacts"}
             onClick={() => toggleTab("artifacts")}
-            className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium cursor-pointer transition-all hover:bg-white/[0.05] ${
-              activeTab === "artifacts" ? "text-purple-400 bg-purple-500/10 border border-purple-500/20" : "text-white/40 border border-transparent"
-            }`}
-          >
-            <FileCheck size={13} />
-            <span>Artifacts</span>
-          </button>
+            icon={<FileCheck size={13} />}
+            label="Artifacts"
+          />
 
-          {/* Browser Sessions Icon */}
-          <button
+          <StatusTabButton
+            isActive={activeTab === "browsers"}
             onClick={() => toggleTab("browsers")}
-            className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium cursor-pointer transition-all hover:bg-white/[0.05] ${
-              activeTab === "browsers" ? "text-amber-400 bg-amber-500/10 border border-amber-500/20" : "text-white/40 border border-transparent"
-            }`}
-          >
-            <Globe size={13} />
-            <span>Browsers</span>
-          </button>
+            icon={<Globe size={13} />}
+            label="Browsers"
+          />
 
-          {/* Questions Icon */}
-          {pendingToolCall?.name === "ask_user" && (
-            <button
-              onClick={() => toggleTab("questions")}
-              className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium cursor-pointer transition-all hover:bg-white/[0.05] ${
-                activeTab === "questions" ? "text-amber-400 bg-amber-500/10 border border-amber-500/20" : "text-white/40 border border-transparent"
-              }`}
-            >
-              <HelpCircle size={13} />
-              <span>Questions</span>
-              <span className="flex items-center justify-center min-w-[16px] h-4 px-1 text-[9px] font-bold rounded-full bg-amber-500 text-white animate-pulse">
-                1
-              </span>
-            </button>
-          )}
+
         </div>
-
-        {hasPendingAction && (
-          <div className="flex items-center gap-1.5 text-[10px] text-amber-400/90 font-medium bg-amber-500/5 px-2 py-0.5 border border-amber-500/10 rounded-md animate-pulse">
-            <ShieldAlert size={11} />
-            <span>Action Required</span>
-          </div>
-        )}
       </div>
 
       {/* ── Expanded Drawer Content ────────────────────────────────────────── */}
       {activeTab && (
-        <div className="border-b border-white/[0.04] bg-[#0c0e17]/80 backdrop-blur-md max-h-[220px] overflow-y-auto scrollbar-thin">
-          <div className="p-4 space-y-3">
+        <div className="border-l border-r border-on-surface-variant/15 bg-on-surface-variant/10 max-h-[220px] overflow-y-auto scrollbar-thin">
+          <div className="p-2 space-y-3">
             {/* 1. Files Tab */}
             {activeTab === "files" && (
               <div className="space-y-3">
-                <div className="text-[11px] font-semibold text-white/50 uppercase tracking-wider">Changed Files list</div>
+                <div className="text-[11px] font-semibold text-white/50 tracking-wider">Changed Files list</div>
                 {filesChanged.length === 0 ? (
                   <div className="text-xs text-white/30 italic">No files modified in this session yet.</div>
                 ) : (
                   <div className="space-y-2">
                     {filesChanged.map((file, idx) => (
-                      <div key={idx} className="flex flex-col p-2.5 rounded-lg border border-white/[0.04] bg-white/[0.01]">
+                      <div key={idx} className="flex flex-col p-2.5 rounded-lg border border-outline-variant/10 bg-on-surface-variant/5">
                         <div className="flex items-center justify-between">
                           <span className="text-xs font-mono font-medium text-[#E8EAF0]">{file.path}</span>
                           <span
-                            className={`text-[9px] uppercase font-bold tracking-wide px-1.5 py-0.5 rounded-sm ${
-                              file.status === "approved"
-                                ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                                : file.status === "rejected"
+                            className={`text-[9px] font-bold tracking-wide px-1.5 py-0.5 rounded-sm ${file.status === "approved"
+                              ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                              : file.status === "rejected"
                                 ? "bg-red-500/10 text-red-400 border border-red-500/20"
                                 : "bg-blue-500/10 text-blue-400 border border-blue-500/20"
-                            }`}
+                              }`}
                           >
                             {file.type || "change"} ({file.status})
                           </span>
@@ -204,7 +192,7 @@ export function StatusDrawer({ sessionId, onApprove, onDecline, onSkip, onSubmit
             {/* 2. Terminals Tab */}
             {activeTab === "terminals" && (
               <div className="space-y-3">
-                <div className="text-[11px] font-semibold text-white/50 uppercase tracking-wider">Terminal Execution Queue</div>
+                <div className="text-[11px] font-semibold text-white/50 tracking-wider">Terminal Execution Queue</div>
                 {queue.length === 0 ? (
                   <div className="text-xs text-white/30 italic">No commands executed in this session.</div>
                 ) : (
@@ -214,26 +202,24 @@ export function StatusDrawer({ sessionId, onApprove, onDecline, onSkip, onSubmit
                       return (
                         <div
                           key={idx}
-                          className={`flex flex-col p-2.5 rounded-lg border transition-all ${
-                            isActive
-                              ? "border-emerald-500/20 bg-emerald-500/[0.02]"
-                              : "border-white/[0.04] bg-white/[0.01]"
-                          }`}
+                          className={`flex flex-col p-2.5 rounded-lg border transition-all ${isActive
+                            ? "border-emerald-500/20 bg-emerald-500/[0.02]"
+                            : "border-outline-variant/10 bg-on-surface-variant/5"
+                            }`}
                         >
                           <div className="flex items-center justify-between">
                             <span className="text-xs font-mono font-medium text-[#E8EAF0]">{cmd.command}</span>
                             <span
-                              className={`text-[9px] uppercase font-bold tracking-wide px-1.5 py-0.5 rounded-sm ${
-                                cmd.status === "success"
-                                  ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                                  : cmd.status === "error"
+                              className={`text-[9px] font-bold tracking-wide px-1.5 py-0.5 rounded-sm ${cmd.status === "success"
+                                ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                                : cmd.status === "error"
                                   ? "bg-red-500/10 text-red-400 border border-red-500/20"
                                   : cmd.status === "running"
-                                  ? "bg-amber-500/10 text-amber-400 border border-amber-500/20 animate-pulse"
-                                  : cmd.status === "requires_action"
-                                  ? "bg-blue-500/10 text-blue-400 border border-blue-500/20"
-                                  : "bg-white/5 text-white/30"
-                              }`}
+                                    ? "bg-amber-500/10 text-amber-400 border border-amber-500/20 animate-pulse"
+                                    : cmd.status === "requires_action"
+                                      ? "bg-blue-500/10 text-blue-400 border border-blue-500/20"
+                                      : "bg-white/5 text-white/30"
+                                }`}
                             >
                               {cmd.status}
                             </span>
@@ -278,7 +264,7 @@ export function StatusDrawer({ sessionId, onApprove, onDecline, onSkip, onSubmit
             {/* 3. Artifacts Tab */}
             {activeTab === "artifacts" && (
               <div className="space-y-2">
-                <div className="text-[11px] font-semibold text-white/50 uppercase tracking-wider">Created Artifacts</div>
+                <div className="text-[11px] font-semibold text-white/50 tracking-wider">Created Artifacts</div>
                 <div className="text-xs text-white/30 italic">No artifacts generated in this session.</div>
               </div>
             )}
@@ -286,60 +272,12 @@ export function StatusDrawer({ sessionId, onApprove, onDecline, onSkip, onSubmit
             {/* 4. Browsers Tab */}
             {activeTab === "browsers" && (
               <div className="space-y-2">
-                <div className="text-[11px] font-semibold text-white/50 uppercase tracking-wider">Active Browser Sessions</div>
+                <div className="text-[11px] font-semibold text-white/50 tracking-wider">Active Browser Sessions</div>
                 <div className="text-xs text-white/30 italic">No active browser sessions.</div>
               </div>
             )}
 
-            {/* 5. Questions Tab */}
-            {activeTab === "questions" && pendingToolCall?.name === "ask_user" && (
-              <div className="space-y-3">
-                <div className="text-[11px] font-semibold text-white/50 uppercase tracking-wider">Aura Clarifying Question</div>
-                <div className="p-3 rounded-lg border border-amber-500/20 bg-amber-500/[0.02]">
-                  <p className="text-xs text-[#E8EAF0] font-medium leading-relaxed select-text">
-                    {pendingToolCall.args.question}
-                  </p>
-                </div>
-                <div className="flex flex-col gap-2">
-                  <textarea
-                    id="aurora-agent-answer-input"
-                    placeholder="Type your answer here..."
-                    className="w-full bg-[#161929] border border-white/[0.08] rounded-md text-xs p-2 text-white outline-none focus:border-blue-500/50 resize-none h-[60px]"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        const val = e.currentTarget.value.trim();
-                        if (val && onSubmitAnswer) {
-                          onSubmitAnswer(val);
-                        }
-                      }
-                    }}
-                  />
-                  <div className="flex gap-2 justify-end">
-                    <button
-                      onClick={() => {
-                        const textarea = document.getElementById("aurora-agent-answer-input") as HTMLTextAreaElement;
-                        const val = textarea?.value?.trim();
-                        if (val && onSubmitAnswer) {
-                          onSubmitAnswer(val);
-                        }
-                      }}
-                      className="flex items-center gap-1 px-3 py-1 rounded-md text-xs font-semibold bg-amber-600 hover:bg-amber-500 text-white cursor-pointer transition-all shadow"
-                    >
-                      <Check size={11} />
-                      <span>Submit Answer</span>
-                    </button>
-                    <button
-                      onClick={onDecline}
-                      className="flex items-center gap-1 px-3 py-1 rounded-md text-xs font-semibold bg-[#1c2033] hover:bg-[#252a45] text-white/70 cursor-pointer border border-white/10 transition-all"
-                    >
-                      <X size={11} />
-                      <span>Decline</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
+
           </div>
         </div>
       )}

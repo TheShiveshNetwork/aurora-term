@@ -235,7 +235,10 @@ export function useAgentExecution(sessionId: string | null) {
           args: step.args,
         });
         state.pauseTask(targetSessionId);
-        state.setActiveDrawerTab(targetSessionId, "questions");
+        state.addChatMessage(targetSessionId, {
+          role: "assistant",
+          content: step.args.question || step.message || "A clarifying question has been asked",
+        });
       }
       return;
     }
@@ -332,7 +335,7 @@ export function useAgentExecution(sessionId: string | null) {
 
     const state = useAgentStore.getState();
     const currentSession = state.sessions[targetSessionId] || defaultSessionState();
-    const { stepCount, maxSteps, originalGoal, agentType, agentMode } = currentSession;
+    const { stepCount, maxSteps, originalGoal, agentType, agentMode, model } = currentSession;
 
     // Don't plan new steps after task was stopped or completed
     if (currentSession.status === "error" || currentSession.status === "completed") {
@@ -364,7 +367,8 @@ export function useAgentExecution(sessionId: string | null) {
         agentType,
         agentMode,
         requireReviewForCommands,
-        requireReviewForWrites
+        requireReviewForWrites,
+        model
       );
 
       await handleStepResult(targetSessionId, taskId, step);
@@ -490,7 +494,7 @@ export function useAgentExecution(sessionId: string | null) {
   }, []);
 
   // ── startTask ────────────────────────────────────────────────────────────
-  const startTask = useCallback((goal: string, forceType?: "terminal" | "developer") => {
+  const startTask = useCallback((goal: string, forceType?: "terminal" | "developer", customModel?: string) => {
     const targetSessionId = sessionRef.current;
     if (!targetSessionId) return;
 
@@ -515,6 +519,11 @@ export function useAgentExecution(sessionId: string | null) {
     state.startTask(targetSessionId, taskId, goal);
     state.setAgentType(targetSessionId, type);
     state.setAgentMode(targetSessionId, mode);
+    if (customModel) {
+      state.setAgentModel(targetSessionId, customModel);
+    } else {
+      state.setAgentModel(targetSessionId, undefined);
+    }
     state.resumeTask(targetSessionId);
     
     executeNextStep(taskId);
@@ -662,6 +671,11 @@ export function useAgentExecution(sessionId: string | null) {
     state.resumeTask(targetSessionId);
     state.setPendingToolCall(targetSessionId, null);
 
+    state.addChatMessage(targetSessionId, {
+      role: "user",
+      content: answer,
+    });
+
     try {
       const stepResult = await system.agentApproveTool(
         freshSession.agentType,
@@ -747,5 +761,6 @@ export function useAgentExecution(sessionId: string | null) {
     pendingToolCall: sessionState.pendingToolCall,
     filesChanged: sessionState.filesChanged,
     activeDrawerTab: sessionState.activeDrawerTab,
+    model: sessionState.model,
   };
 }

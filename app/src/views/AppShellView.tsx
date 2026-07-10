@@ -19,7 +19,7 @@ import { SidePanel } from "../components/ui/SidePanel";
 import { StatusBar } from "../components/ui/StatusBar";
 import { AppHeader } from "../components/layout/AppHeader";
 import { AppContextMenu } from "../components/layout/AppContextMenu";
-import { AgentOverlay } from "../components/terminal/AgentOverlay";
+import { RightPanel } from "../components/layout/RightPanel";
 import { SaveChangesModal } from "../components/layout/SaveChangesModal";
 import { CommandInputBar, type AttachedFile } from "../components/layout/CommandInputBar";
 import { system } from "../lib/ipc";
@@ -83,6 +83,31 @@ export function AppShellView() {
     clearSessionInteracted,
   } = useAppShellStore(s => s);
 
+  const activeAgentSessionId = useAgentStore((state) => state.activeAgentSessionId);
+  const createAgentSession = useAgentStore((state) => state.createAgentSession);
+
+  useEffect(() => {
+    const store = useAgentStore.getState();
+    const sessionsList = Object.entries(store.sessions).filter(([_, s]) => s.isAgentViewSession);
+    if (!store.activeAgentSessionId) {
+      if (sessionsList.length > 0) {
+        store.setActiveAgentSessionId(sessionsList[0][0]);
+      } else {
+        createAgentSession("Welcome Chat");
+      }
+    }
+  }, [createAgentSession]);
+
+  useEffect(() => {
+    const handleOpen = (e: Event) => {
+      const { path, options } = (e as CustomEvent).detail;
+      openFile(path, projectDir || cwdAbsolute, options);
+      setViewMode("file");
+    };
+    window.addEventListener("aurora-open-file-path", handleOpen);
+    return () => window.removeEventListener("aurora-open-file-path", handleOpen);
+  }, [openFile, projectDir, cwdAbsolute, setViewMode]);
+
   const layoutBackupRef = useRef<{
     sidebarCollapsed: boolean;
     chatInputOpen: boolean;
@@ -104,7 +129,7 @@ export function AppShellView() {
       store.setSidebarCollapsed(true);
       store.setChatInputOpen(false);
       store.setFileChatInputOpen(false);
-      store.setShowAiBar(false);
+      store.setShowAiBar(true);
     } else {
       if (layoutBackupRef.current) {
         store.setSidebarCollapsed(layoutBackupRef.current.sidebarCollapsed);
@@ -741,9 +766,13 @@ export function AppShellView() {
           )}
         </main>
 
-        {/* Agent overlay — inside main so it overlays the tab view area */}
-        {showAiBar && activeTabId && !isStandalone && (
-          <AgentOverlay sessionId={activeTabId} onClose={() => setShowAiBar(false)} />
+        {/* Right Panel */}
+        {showAiBar && !isStandalone && (viewMode === "agent" || activeTabId) && (
+          <RightPanel
+            viewMode={viewMode}
+            sessionId={viewMode === "agent" ? activeAgentSessionId : activeTabId!}
+            onClose={() => setShowAiBar(false)}
+          />
         )}
       </div>
       )}

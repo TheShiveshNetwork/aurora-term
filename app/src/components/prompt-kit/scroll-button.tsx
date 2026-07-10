@@ -1,6 +1,6 @@
 "use client"
 
-import { Button, buttonVariants } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/Button"
 import { cn } from "@/lib/utils"
 import { type VariantProps } from "class-variance-authority"
 import { ChevronDown } from "lucide-react"
@@ -22,8 +22,8 @@ function ScrollButton({
 
   return (
     <Button
-      variant={variant}
-      size={size}
+      variant={variant as any}
+      size={size as any}
       className={cn(
         "h-10 w-10 rounded-full transition-all duration-150 ease-out",
         !isAtBottom

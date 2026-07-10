@@ -17,9 +17,10 @@ export const Collapsible = ({
   children,
   open: controlledOpen,
   onOpenChange,
+  defaultOpen = false,
   ...props
 }: any) => {
-  const [internalOpen, setInternalOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(defaultOpen);
   const open = controlledOpen !== undefined ? controlledOpen : internalOpen;
   
   const setOpen = (newOpen: boolean) => {

@@ -6,7 +6,7 @@ import {
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@/components/ui/tooltip"
+} from "@/components/ui/Tooltip"
 import { cn } from "@/lib/utils"
 import React, {
   createContext,
@@ -29,7 +29,7 @@ type PromptInputContextType = {
 const PromptInputContext = createContext<PromptInputContextType>({
   isLoading: false,
   value: "",
-  setValue: () => {},
+  setValue: () => { },
   maxHeight: 240,
   onSubmit: undefined,
   disabled: false,
@@ -49,6 +49,7 @@ export type PromptInputProps = {
   children: React.ReactNode
   className?: string
   disabled?: boolean
+  textareaRef?: React.RefObject<HTMLTextAreaElement | null>
 } & React.ComponentProps<"div">
 
 function PromptInput({
@@ -61,10 +62,12 @@ function PromptInput({
   children,
   disabled = false,
   onClick,
+  textareaRef: externalTextareaRef,
   ...props
 }: PromptInputProps) {
   const [internalValue, setInternalValue] = useState(value || "")
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const fallbackTextareaRef = useRef<HTMLTextAreaElement>(null)
+  const textareaRef = externalTextareaRef || fallbackTextareaRef
 
   const handleChange = (newValue: string) => {
     setInternalValue(newValue)
@@ -92,7 +95,6 @@ function PromptInput({
         <div
           onClick={handleClick}
           className={cn(
-            "border-input bg-background cursor-text rounded-3xl border p-2 shadow-xs",
             disabled && "cursor-not-allowed opacity-60",
             className
           )}
@@ -210,11 +212,11 @@ function PromptInputAction({
   const { disabled } = usePromptInput()
 
   return (
-    <Tooltip {...props}>
+    <Tooltip tooltip={tooltip} side={side} className={className} {...props}>
       <TooltipTrigger
         asChild
         disabled={disabled}
-        onClick={(event) => event.stopPropagation()}
+        onClick={(event: React.MouseEvent<HTMLElement>) => event.stopPropagation()}
       >
         {children}
       </TooltipTrigger>

@@ -4,7 +4,7 @@ import {
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@/components/ui/tooltip"
+} from "@/components/ui/Tooltip"
 import { cn } from "@/lib/utils"
 import { Markdown } from "./markdown"
 
@@ -36,7 +36,7 @@ const MessageAvatar = ({
 }: MessageAvatarProps) => {
   return (
     <Avatar className={cn("h-8 w-8 shrink-0", className)}>
-      <AvatarImage src={src} alt={alt} />
+      {src ? <AvatarImage src={src} alt={alt} /> : null}
       {fallback && (
         <AvatarFallback delayMs={delayMs}>{fallback}</AvatarFallback>
       )}
@@ -58,7 +58,7 @@ const MessageContent = ({
   ...props
 }: MessageContentProps) => {
   const classNames = cn(
-    "rounded-lg p-2 text-foreground bg-secondary prose break-words whitespace-normal",
+    "rounded-lg p-2 text-foreground prose break-words whitespace-normal",
     className
   )
 
@@ -107,7 +107,7 @@ const MessageAction = ({
 }: MessageActionProps) => {
   return (
     <TooltipProvider>
-      <Tooltip {...props}>
+      <Tooltip tooltip={tooltip} side={side} className={className} {...props}>
         <TooltipTrigger asChild>{children}</TooltipTrigger>
         <TooltipContent side={side} className={className}>
           {tooltip}

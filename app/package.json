@@ -33,6 +33,8 @@
     "@codemirror/theme-one-dark": "^6.1.3",
     "@codemirror/view": "^6.43.0",
     "@crabnebula/tauri-plugin-drag": "^2.0.0",
+    "@radix-ui/react-avatar": "^1.2.2",
+    "@radix-ui/react-tooltip": "^1.2.12",
     "@replit/codemirror-indentation-markers": "^6.5.3",
     "@replit/codemirror-minimap": "^0.5.2",
     "@replit/codemirror-vim": "^6.3.0",

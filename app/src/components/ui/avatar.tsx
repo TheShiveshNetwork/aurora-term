@@ -11,7 +11,7 @@ export const AvatarImage = ({ src, alt, className, ...props }: any) => (
   <img src={src} alt={alt} className={cn("aspect-square h-full w-full", className)} {...props} />
 )
 
-export const AvatarFallback = ({ children, className, ...props }: any) => (
+export const AvatarFallback = ({ children, className, delayMs, ...props }: any) => (
   <div className={cn("flex h-full w-full items-center justify-center rounded-full bg-[rgba(255,255,255,0.06)] text-[11px] font-semibold text-on-surface-variant", className)} {...props}>
     {children}
   </div>

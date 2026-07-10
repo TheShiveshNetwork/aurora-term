@@ -16,7 +16,7 @@ export const ChainOfThoughtItem = ({
   className,
   ...props
 }: ChainOfThoughtItemProps) => (
-  <div className={cn("text-muted-foreground text-sm", className)} {...props}>
+  <div className={cn("text-on-surface-variant/60 text-xs", className)} {...props}>
     {children}
   </div>
 )
@@ -37,7 +37,7 @@ export const ChainOfThoughtTrigger = ({
 }: ChainOfThoughtTriggerProps) => (
   <CollapsibleTrigger
     className={cn(
-      "group text-muted-foreground hover:text-foreground flex cursor-pointer items-center justify-start gap-1 text-left text-sm transition-colors",
+      "group text-on-surface-variant/50 hover:text-on-surface-variant/70 flex cursor-pointer items-center justify-start gap-1 text-left text-[11px] font-medium transition-colors",
       className
     )}
     {...props}
@@ -59,13 +59,13 @@ export const ChainOfThoughtTrigger = ({
         </span>
       ) : (
         <span className="relative inline-flex size-4 items-center justify-center">
-          <Circle className="size-2 fill-current" />
+          <Circle className="size-2.5 fill-current" />
         </span>
       )}
       <span>{children}</span>
     </div>
     {!leftIcon && (
-      <ChevronDown className="size-4 transition-transform group-data-[state=open]:rotate-180" />
+      <ChevronDown className="size-3.5 transition-transform group-data-[state=open]:rotate-180" />
     )}
   </CollapsibleTrigger>
 )
@@ -90,11 +90,29 @@ export const ChainOfThoughtContent = ({
       <div className="grid grid-cols-[min-content_minmax(0,1fr)] gap-x-4">
         <div className="bg-primary/20 ml-1.75 h-full w-px group-data-[last=true]:hidden" />
         <div className="ml-1.75 h-full w-px bg-transparent group-data-[last=false]:hidden" />
-        <div className="mt-2 space-y-2">{children}</div>
+        <div className="space-y-2">{children}</div>
       </div>
     </CollapsibleContent>
   )
 }
+
+export type ChainOfThoughtCommandProps = React.ComponentProps<"pre">
+
+export const ChainOfThoughtCommand = ({
+  children,
+  className,
+  ...props
+}: ChainOfThoughtCommandProps) => (
+  <pre
+    className={cn(
+      "mt-2 p-2 rounded-lg bg-black/40 border border-outline-variant/10 text-[11px] font-mono overflow-x-auto text-emerald-300/90 leading-normal select-text",
+      className
+    )}
+    {...props}
+  >
+    {children}
+  </pre>
+)
 
 export type ChainOfThoughtProps = {
   children: React.ReactNode
@@ -105,7 +123,12 @@ export function ChainOfThought({ children, className }: ChainOfThoughtProps) {
   const childrenArray = React.Children.toArray(children)
 
   return (
-    <div className={cn("space-y-0", className)}>
+    <div
+      className={cn(
+        "space-y-0 border border-outline-variant/10 rounded-2xl bg-surface-container-low/20",
+        className
+      )}
+    >
       {childrenArray.map((child, index) => (
         <React.Fragment key={index}>
           {React.isValidElement(child) &&
