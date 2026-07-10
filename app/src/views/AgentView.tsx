@@ -1,18 +1,16 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import {
   Paperclip,
-  Plus,
-  MessageSquare,
-  Trash2,
   ChevronDown,
   PanelLeft,
   PanelLeftClose,
-  Cpu
 } from "lucide-react";
 import { useAgentStore, CONST_DEFAULT_SESSION_STATE } from "../stores/useAgentStore";
 import { useAppShellStore } from "../stores/useAppShellStore";
 import { useAgentExecution } from "../hooks/useAgentExecution";
 import { AgentHeroView } from "./AgentHeroView";
+import { AgentLeftPanel } from "../components/agents/AgentLeftPanel";
+import { MenuView, MenuViewItem } from "../components/ui/MenuView";
 import { StatusDrawer } from "../components/agents/StatusDrawer";
 import { AgentPromptInput, AttachedFile } from "../components/agents/AgentPromptInput";
 import { useVoiceInput } from "../hooks/useVoiceInput";
@@ -45,6 +43,7 @@ export function AgentView() {
   const [leftPanelOpen, setLeftPanelOpen] = useState(true);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [tempTitle, setTempTitle] = useState("");
+  const [showSubheaderMenu, setShowSubheaderMenu] = useState(false);
 
   // Left sidebar resizer states
   const MIN_LEFT_PANEL_WIDTH = 200;
@@ -223,12 +222,17 @@ export function AgentView() {
   };
 
   const handleNewSession = () => {
-    createAgentSession("New Session");
+    const emptySession = Object.entries(sessions).find(([_, s]) => s.isAgentViewSession && s.chatHistory.length === 0);
+    if (emptySession) {
+      setActiveAgentSessionId(emptySession[0]);
+    } else {
+      createAgentSession("New Session");
+    }
   };
 
   // Previous Agent View Sessions
   const agentSessions = Object.entries(sessions)
-    .filter(([_, s]) => s.isAgentViewSession)
+    .filter(([_, s]) => s.isAgentViewSession && s.chatHistory.length > 0)
     .map(([id, s]) => ({ id, ...s }));
 
   return (
@@ -257,91 +261,33 @@ export function AgentView() {
 
         {/* ── Left Sidebar (Sessions List) ── */}
         {leftPanelOpen && (
-          <div
-            className="shrink-0 flex flex-col h-full bg-[#0F131A] border-r border-white/[0.06] select-none relative"
-            style={{ width: leftWidth }}
-          >
-            {/* New Session Button */}
-            <div className="p-3">
-              <button
-                onClick={handleNewSession}
-                className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border border-white/[0.08] hover:bg-white/[0.05] text-xs font-semibold text-on-surface cursor-pointer transition-all"
-              >
-                <Plus size={14} />
-                New Session
-              </button>
-            </div>
-
-            {/* Scrollable list of previous sessions */}
-            <div className="flex-1 overflow-y-auto scrollbar-thin px-2 space-y-1">
-              <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-white/30">
-                Recent Chats
-              </div>
-              {agentSessions.length === 0 ? (
-                <div className="px-3 py-4 text-xs text-white/20 italic text-center">
-                  No previous sessions
-                </div>
-              ) : (
-                agentSessions.map((s) => {
-                  const isActive = s.id === targetSessionId;
-                  return (
-                    <div
-                      key={s.id}
-                      onClick={() => setActiveAgentSessionId(s.id)}
-                      className={`group flex items-center justify-between px-3 py-2 rounded-lg text-xs hover:bg-white/[0.04] text-white/70 hover:text-white transition-all cursor-pointer ${isActive ? "bg-white/[0.06] text-white font-medium border border-white/[0.04]" : ""
-                        }`}
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <MessageSquare size={12} className="text-white/40 shrink-0" />
-                        <span className="truncate">{s.title || "Untitled Session"}</span>
-                      </div>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          deleteAgentSession(s.id);
-                        }}
-                        className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-white/10 text-white/40 hover:text-red-400 transition-all cursor-pointer shrink-0"
-                        title="Delete Session"
-                      >
-                        <Trash2 size={11} />
-                      </button>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-
-            {/* Resize handle on right edge */}
-            <div
-              onMouseDown={onLeftDragHandleMouseDown}
-              className="absolute top-0 right-0 w-1.5 h-full cursor-col-resize z-30 group select-none"
-              title="Drag to resize"
-            >
-              <div
-                className="w-px h-full ml-auto transition-colors"
-                style={{ background: "transparent" }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(79,140,255,0.35)")}
-                onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-              />
-            </div>
-          </div>
+          <AgentLeftPanel
+            leftWidth={leftWidth}
+            onLeftDragHandleMouseDown={onLeftDragHandleMouseDown}
+            handleNewSession={handleNewSession}
+            agentSessions={agentSessions}
+            targetSessionId={targetSessionId}
+            setActiveAgentSessionId={setActiveAgentSessionId}
+            deleteAgentSession={deleteAgentSession}
+            renameAgentSession={renameAgentSession}
+          />
         )}
 
         {/* ── Main Chat Area ── */}
         <div className="flex-1 min-w-0 flex flex-col h-full bg-background relative overflow-hidden">
-          {/* Transparent Subheader */}
-          <div className="flex items-center justify-between px-4 h-13 shrink-0 bg-transparent border-b border-white/[0.04] select-none">
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setLeftPanelOpen(!leftPanelOpen)}
-                className="p-1.5 rounded-[8px] hover:bg-white/5 text-white/60 hover:text-white transition-colors cursor-pointer"
-                title={leftPanelOpen ? "Hide sidebar" : "Show sidebar"}
-              >
-                {leftPanelOpen ? <PanelLeftClose size={14} /> : <PanelLeft size={14} />}
-              </button>
-            </div>
+          {!showEmptyState && (
+            /* Transparent Subheader */
+            <div className="flex items-center justify-between px-4 h-13 shrink-0 bg-transparent select-none border-b border-white/[0.04]">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setLeftPanelOpen(!leftPanelOpen)}
+                  className="p-1.5 rounded-[8px] hover:bg-white/5 text-white/60 hover:text-white transition-colors cursor-pointer"
+                  title={leftPanelOpen ? "Hide sidebar" : "Show sidebar"}
+                >
+                  {leftPanelOpen ? <PanelLeftClose size={14} /> : <PanelLeft size={14} />}
+                </button>
+              </div>
 
-            <div className="flex-1 flex justify-center">
               {isEditingTitle ? (
                 <input
                   type="text"
@@ -359,22 +305,49 @@ export function AgentView() {
                   autoFocus
                 />
               ) : (
-                <div
-                  onClick={() => {
-                    setTempTitle(sessionState.title || "New Session");
-                    setIsEditingTitle(true);
-                  }}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded-[10px] hover:bg-white/5 transition-colors cursor-pointer text-xs font-semibold text-on-surface"
-                  title="Click to rename session"
-                >
-                  <span>{sessionState.title || "New Session"}</span>
-                  <ChevronDown size={12} className="text-white/40" />
+                <div className="relative">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowSubheaderMenu(!showSubheaderMenu);
+                    }}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-[10px] hover:bg-white/5 transition-colors cursor-pointer text-xs font-semibold text-on-surface border-none bg-transparent"
+                    title="Session Actions"
+                  >
+                    <span>{sessionState.title || "New Session"}</span>
+                    <ChevronDown size={12} className="text-white/40" />
+                  </button>
+
+                  <MenuView
+                    open={showSubheaderMenu}
+                    onClose={() => setShowSubheaderMenu(false)}
+                    className="absolute left-1/2 -translate-x-1/2 mt-1.5 w-40 z-[999]"
+                    style={{ pointerEvents: "auto" }}
+                  >
+                    <MenuViewItem
+                      onClick={() => {
+                        setShowSubheaderMenu(false);
+                        handleNewSession();
+                      }}
+                    >
+                      New Session
+                    </MenuViewItem>
+                    <MenuViewItem
+                      onClick={() => {
+                        setShowSubheaderMenu(false);
+                        setTempTitle(sessionState.title || "New Session");
+                        setIsEditingTitle(true);
+                      }}
+                    >
+                      Rename Session
+                    </MenuViewItem>
+                  </MenuView>
                 </div>
               )}
-            </div>
 
-            <div className="w-8" />
-          </div>
+              <div className="w-8" />
+            </div>
+          )}
 
           {/* Chat Content */}
           <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
@@ -383,11 +356,14 @@ export function AgentView() {
                 onSend={handleHeroSend}
                 selectedModel={selectedModel}
                 onModelChange={handleModelChange}
+                sessionName={sessionState.title || "New Session"}
+                onNewSession={handleNewSession}
+                onRenameSession={(newTitle) => targetSessionId && renameAgentSession(targetSessionId, newTitle)}
               />
             ) : (
               <>
                 <ChatContainerRoot className="flex-1 overflow-y-auto scrollbar-thin">
-                  <ChatContainerContent className="max-w-[800px] w-full mx-auto px-5 py-6 space-y-6">
+                  <ChatContainerContent className="max-w-[900px] w-full mx-auto px-5 py-6 space-y-6">
                     {turns.map((turn, idx) => {
                       const isLastTurn = idx === lastTurnIndex;
                       return (
@@ -434,7 +410,7 @@ export function AgentView() {
 
                 {/* Input Area */}
                 <div className="shrink-0 pb-3 px-5 w-full">
-                  <div className="max-w-[800px] mx-auto w-full flex flex-col overflow-visible">
+                  <div className="max-w-[900px] mx-auto w-full flex flex-col overflow-visible">
                     {/* Status Drawer inside Input container */}
                     {targetSessionId && showStatusDrawer && (
                       <StatusDrawer

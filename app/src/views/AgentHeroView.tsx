@@ -4,6 +4,7 @@ import { useHasApiKeyConfigured, ProviderSetupPrompt } from "../components/agent
 import { useVoiceInput } from "../hooks/useVoiceInput";
 import { AgentPromptInput, AttachedFile } from "../components/agents/AgentPromptInput";
 import { system } from "../lib/ipc";
+import { MenuView, MenuViewItem } from "../components/ui/MenuView";
 
 // ── Phrases ───────────────────────────────────────────────────────────────
 const PHRASES = [
@@ -93,15 +94,35 @@ export function AgentHeroView({
   onSend,
   selectedModel,
   onModelChange,
+  sessionName,
+  onNewSession,
+  onRenameSession,
 }: {
   onSend?: (text: string, files?: AttachedFile[]) => void;
   selectedModel?: string;
   onModelChange?: (model: string) => void;
+  sessionName: string;
+  onNewSession?: () => void;
+  onRenameSession?: (newTitle: string) => void;
 }) {
   const hasApiKey = useHasApiKeyConfigured();
   const taRef = useRef<HTMLTextAreaElement>(null);
   const [input, setInput] = useState("");
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
+  const [showMenu, setShowMenu] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [tempTitle, setTempTitle] = useState(sessionName);
+
+  useEffect(() => {
+    setTempTitle(sessionName);
+  }, [sessionName]);
+
+  const saveRename = () => {
+    if (tempTitle.trim()) {
+      onRenameSession?.(tempTitle.trim());
+    }
+    setIsEditing(false);
+  };
 
   const { isListening, toggleListening } = useVoiceInput({
     onTranscript: (text) => setInput(text),
@@ -250,11 +271,47 @@ export function AgentHeroView({
         />
 
         <div className="w-full max-w-[680px] flex flex-col items-center relative z-10">
-          <div className="inline-flex items-center gap-[7px] bg-[rgba(80,90,200,0.18)] border border-[rgba(100,110,220,0.28)] rounded-full px-4 py-1.5 mb-2 select-none">
+          <div className="inline-flex items-center gap-[7px] bg-[rgba(80,90,200,0.18)] border border-[rgba(100,110,220,0.28)] rounded-full px-4 py-1.5 mb-2 select-none relative">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
               <path d="M8 1.5L9.4 6.6L14.5 8L9.4 9.4L8 14.5L6.6 9.4L1.5 8L6.6 6.6Z" fill="#8899ff" />
             </svg>
-            <span className="text-[13px] font-medium tracking-[0.01em] text-[#8899ff]">Aura Agent</span>
+            {isEditing ? (
+              <input
+                type="text"
+                className="bg-transparent border-none text-[13px] font-medium tracking-[0.01em] text-[#8899ff] focus:outline-none w-32 text-center"
+                value={tempTitle}
+                onChange={(e) => setTempTitle(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    saveRename();
+                  } else if (e.key === "Escape") {
+                    setIsEditing(false);
+                  }
+                }}
+                onBlur={saveRename}
+                autoFocus
+              />
+            ) : (
+              <div className="relative flex items-center">
+                <button
+                  onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
+                  className="text-[13px] font-medium tracking-[0.01em] text-[#8899ff] hover:text-[#a0b0ff] flex items-center gap-1 cursor-pointer select-none border-none bg-transparent"
+                >
+                  <span>{sessionName}</span>
+                  <ChevronDown size={12} />
+                </button>
+
+                <MenuView
+                  open={showMenu}
+                  onClose={() => setShowMenu(false)}
+                  className="absolute left-1/2 -translate-x-1/2 mt-6 w-40 z-[999]"
+                  style={{ pointerEvents: "auto" }}
+                >
+                  <MenuViewItem onClick={() => { setShowMenu(false); onNewSession?.(); }}>New Session</MenuViewItem>
+                  <MenuViewItem onClick={() => { setShowMenu(false); setIsEditing(true); }}>Rename Session</MenuViewItem>
+                </MenuView>
+              </div>
+            )}
           </div>
 
           {/* Headline component layout - explicitly given h-16 + py-4 padding space so lines never cut */}

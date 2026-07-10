@@ -108,38 +108,7 @@ export function AppShellView() {
     return () => window.removeEventListener("aurora-open-file-path", handleOpen);
   }, [openFile, projectDir, cwdAbsolute, setViewMode]);
 
-  const layoutBackupRef = useRef<{
-    sidebarCollapsed: boolean;
-    chatInputOpen: boolean;
-    fileChatInputOpen: boolean;
-    showAiBar: boolean;
-  } | null>(null);
 
-  useEffect(() => {
-    const store = useAppShellStore.getState();
-    if (viewMode === "agent") {
-      if (!layoutBackupRef.current) {
-        layoutBackupRef.current = {
-          sidebarCollapsed: store.sidebarCollapsed,
-          chatInputOpen: store.chatInputOpen,
-          fileChatInputOpen: store.fileChatInputOpen,
-          showAiBar: store.showAiBar,
-        };
-      }
-      store.setSidebarCollapsed(true);
-      store.setChatInputOpen(false);
-      store.setFileChatInputOpen(false);
-      store.setShowAiBar(true);
-    } else {
-      if (layoutBackupRef.current) {
-        store.setSidebarCollapsed(layoutBackupRef.current.sidebarCollapsed);
-        store.setChatInputOpen(layoutBackupRef.current.chatInputOpen);
-        store.setFileChatInputOpen(layoutBackupRef.current.fileChatInputOpen);
-        store.setShowAiBar(layoutBackupRef.current.showAiBar);
-        layoutBackupRef.current = null;
-      }
-    }
-  }, [viewMode]);
 
   const [isGitRepo, setIsGitRepo] = useState(false);
   useEffect(() => {

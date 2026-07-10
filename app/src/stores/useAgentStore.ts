@@ -276,7 +276,7 @@ export const useAgentStore = create<AgentStore>((set) => ({
       ],
       lastMessage: null,
       activeSubagent: null,
-      title: prev.title === "New Session" || !prev.title ? (goal.length > 30 ? goal.slice(0, 30) + "…" : prev.title) : prev.title,
+      title: prev.title === "New Session" || !prev.title ? `Session-${Math.floor(1000 + Math.random() * 9000)}` : prev.title,
     })),
 
   pauseTask: (sessionId) => updateSession(set, sessionId, { status: "paused" }),
