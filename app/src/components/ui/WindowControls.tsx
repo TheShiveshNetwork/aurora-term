@@ -64,37 +64,7 @@ export function WindowControls() {
   };
 
   if (isMac) {
-    return (
-      <div
-        data-tauri-no-drag
-        className="flex items-center gap-1.5 pr-2 select-none"
-      >
-        <button
-          type="button"
-          onClick={handleClose}
-          onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
-          data-tauri-no-drag
-          className="w-3.5 h-3.5 rounded-full bg-[#ff5f56] border border-[#e0443e] cursor-pointer hover:opacity-80 transition-opacity"
-          title="Close"
-        />
-        <button
-          type="button"
-          onClick={handleMinimize}
-          onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
-          data-tauri-no-drag
-          className="w-3.5 h-3.5 rounded-full bg-[#ffbd2e] border border-[#dea123] cursor-pointer hover:opacity-80 transition-opacity"
-          title="Minimize"
-        />
-        <button
-          type="button"
-          onClick={handleMaximize}
-          onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
-          data-tauri-no-drag
-          className="w-3.5 h-3.5 rounded-full bg-[#27c93f] border border-[#1aab29] cursor-pointer hover:opacity-80 transition-opacity"
-          title="Maximize"
-        />
-      </div>
-    );
+    return null;
   }
 
   // Windows / Linux layout: minimize | maximize/restore | close on the right

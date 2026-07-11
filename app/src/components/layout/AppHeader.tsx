@@ -79,6 +79,11 @@ export function AppHeader({
 }: AppHeaderProps) {
   const headerRef = useRef<HTMLDivElement>(null);
   const [searchCollapsed, setSearchCollapsed] = useState(false);
+  const [isMac, setIsMac] = useState(false);
+
+  useEffect(() => {
+    setIsMac(navigator.userAgent.includes("Mac"));
+  }, []);
 
   const measureSearchSpace = useCallback(() => {
     const header = headerRef.current;
@@ -102,7 +107,7 @@ export function AppHeader({
       id="aurora-app-header"
       ref={headerRef}
       data-tauri-drag-region
-      className="grid grid-cols-[1fr_minmax(0,400px)_1fr] w-full pl-3 h-auto z-50 select-none gap-3 shrink-0"
+      className={`grid grid-cols-[1fr_minmax(0,400px)_1fr] w-full h-auto z-50 select-none gap-3 shrink-0 ${isMac ? 'pl-[78px]' : 'pl-3'}`}
       style={{
         background: "#0A0D14",
         borderBottom: "1px solid rgba(255,255,255,0.05)",

@@ -365,6 +365,7 @@ dependencies = [
  "aurora-core",
  "aurora-db",
  "aurora-pty",
+ "objc2-app-kit",
  "serde_json",
  "tauri",
  "tauri-build",

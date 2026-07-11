@@ -362,7 +362,7 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
                 <GitBranch size={14} className="shrink-0" />
               )}
               <span
-                className={`truncate transition-all duration-200 ${isActive ? "text-on-surface" : ""} ${isExpanded ? "max-w-[160px]" : "max-w-0 opacity-0 overflow-hidden"} ${tab.missing ? "line-through !opacity-50" : "opacity-100"}`}
+                className={`truncate transition-all pr-3 duration-200 ${isActive ? "text-on-surface" : ""} ${isExpanded ? "max-w-[160px]" : "max-w-0 opacity-0 overflow-hidden"} ${tab.missing ? "line-through !opacity-50" : "opacity-100"}`}
               >
                 {tab.name}
               </span>
