@@ -76,7 +76,7 @@ function TabRow({ tab, index, isActive, onSelect, onKillTab, onContextMenu, onPo
       }}
     >
       <TabIcon type={tab.type} />
-      <span className="text-[12px] overflow-hidden text-ellipsis whitespace-nowrap min-w-0 flex-1">
+      <span className={`text-[12px] overflow-hidden text-ellipsis whitespace-nowrap min-w-0 flex-1 ${tab.missing ? "line-through opacity-50" : ""}`}>
         {tab.name}
       </span>
       {tab.pinned && (

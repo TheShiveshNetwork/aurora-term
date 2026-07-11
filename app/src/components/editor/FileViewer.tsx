@@ -61,6 +61,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
   const initialContentRef = useRef<string>("");
   const updateTab = useSessionStore((s) => s.updateTab);
   const tab = useSessionStore(s => s.tabs.find(t => t.id === tabId));
+  const isMissing = tab?.missing ?? false;
   const editorTheme = useSettingsStore((s) => s.editorTheme);
   const { spawnSession } = usePTY();
 
@@ -589,7 +590,8 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
 
   // Reload file content when external changes are detected (git checkout, external editor, etc.)
   useEffect(() => {
-    let unlisten: (() => void) | null = null;
+    let unlistenContent: (() => void) | null = null;
+    let unlistenDeleted: (() => void) | null = null;
     listen<string>("file-content-changed", async (event) => {
       if (event.payload !== filePath) return;
       const view = viewRef.current;
@@ -605,10 +607,14 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
         view.dispatch({
           changes: { from: 0, to: view.state.doc.length, insert: normalized },
         });
-        updateTab(tabId, { dirty: false, fileContent: normalized });
+        updateTab(tabId, { dirty: false, fileContent: normalized, missing: false });
       } catch { /* file may be temporarily unavailable */ }
-    }).then((u) => { unlisten = u; });
-    return () => { if (unlisten) unlisten(); };
+    }).then((u) => { unlistenContent = u; });
+    listen<string>("file-deleted", (event) => {
+      if (event.payload !== filePath) return;
+      updateTab(tabId, { missing: true });
+    }).then((u) => { unlistenDeleted = u; });
+    return () => { unlistenContent?.(); unlistenDeleted?.(); };
   }, [filePath, tabId, updateTab]);
 
   useEffect(() => {
@@ -985,6 +991,16 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
               <AlertCircle size={32} className="text-error" />
               <span className="text-sm text-on-surface font-medium">Failed to load file</span>
               <span className="text-xs text-on-surface-variant">{error}</span>
+            </div>
+          </div>
+        )}
+
+        {isMissing && (
+          <div className="absolute inset-0 flex items-center justify-center bg-surface-container-low/80 z-20">
+            <div className="flex flex-col items-center gap-3 p-6 text-center">
+              <AlertCircle size={32} className="text-amber-400" />
+              <span className="text-sm text-on-surface font-medium">File has been deleted</span>
+              <span className="text-xs text-on-surface-variant">{filePath}</span>
             </div>
           </div>
         )}

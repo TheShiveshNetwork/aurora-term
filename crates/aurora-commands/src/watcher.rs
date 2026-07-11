@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use notify::{Event, RecursiveMode, Watcher};
+use notify::{Event, EventKind, RecursiveMode, Watcher};
 use notify::RecommendedWatcher;
 use tauri::{AppHandle, Emitter};
 
@@ -99,6 +99,8 @@ impl FileContentWatcher {
             let Ok(event) = res else { return };
 
             let now = Instant::now();
+            let is_remove = matches!(event.kind, EventKind::Remove(_));
+
             let changed_paths: Vec<PathBuf> = event.paths.iter()
                 .filter(|p| {
                     let watch_set = watched_paths.lock().unwrap();
@@ -120,7 +122,11 @@ impl FileContentWatcher {
                 .collect();
 
             for path in changed_paths {
-                let _ = app_clone.emit("file-content-changed", path.to_string_lossy().to_string());
+                if is_remove {
+                    let _ = app_clone.emit("file-deleted", path.to_string_lossy().to_string());
+                } else {
+                    let _ = app_clone.emit("file-content-changed", path.to_string_lossy().to_string());
+                }
             }
         }).ok();
 

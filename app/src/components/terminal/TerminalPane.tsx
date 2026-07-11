@@ -81,8 +81,6 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
   const isCommandRunning = !!runningBlockId;
   const isAlternateActive = useSessionStore((state) => state.alternateBufferActive[sessionId] || false);
   const theme = useSettingsStore((state) => state.theme);
-  const fontFamily = useSettingsStore((state) => state.fontFamily);
-  const fontSize = useSettingsStore((state) => state.fontSize);
 
   // Get dynamic cell dimensions
   const [lineHeight, setLineHeight] = useState(19.5);
@@ -122,14 +120,11 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
     }
   }, [theme]);
 
-  // Sync font size and family when they change in settings
+  // Refit terminal when session changes
   useEffect(() => {
     const term = termRef.current;
     const fit = fitRef.current;
     if (!term) return;
-
-    term.options.fontFamily = `'${fontFamily}', Consolas, 'Cascadia Code', Menlo, Monaco, monospace`;
-    term.options.fontSize = fontSize;
 
     // Use a small safety delay to ensure DOM has rendered
     const timer = setTimeout(() => {
@@ -151,7 +146,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
     }, 150);
 
     return () => clearTimeout(timer);
-  }, [fontFamily, fontSize, sessionId, debouncedResize]);
+  }, [sessionId, debouncedResize]);
 
   // When alternate buffer toggles, refit xterm to catch up with the layout change
   useEffect(() => {

@@ -419,6 +419,21 @@ export function useAppBootstrap() {
     system.watchFiles(filePaths).catch(() => {});
   }, [tabs]);
 
+  // Mark file tabs as missing when their file is deleted externally
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    listen<string>("file-deleted", (event) => {
+      const deletedPath = event.payload;
+      const { tabs: currentTabs, updateTab } = useSessionStore.getState();
+      for (const tab of currentTabs) {
+        if (tab.type === "file" && tab.filePath === deletedPath && !tab.missing) {
+          updateTab(tab.id, { missing: true });
+        }
+      }
+    }).then((u) => { unlisten = u; });
+    return () => { unlisten?.(); };
+  }, []);
+
   useEffect(() => {
     window.dispatchEvent(new CustomEvent("aurora-focus-terminal-input"));
   }, [activeTabId]);
