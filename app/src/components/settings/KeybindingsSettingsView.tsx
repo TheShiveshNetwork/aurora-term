@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState, useContext } 
 import { SettingsContext, SectionTitle } from "./SettingsShared";
 import { Pencil, RotateCcw, Search, X } from "lucide-react";
 import { DEFAULT_KEYBINDINGS, KeybindingDef } from "../../stores/useSettingsStore";
+import { Button } from "../ui/Button";
+import { Modal } from "../ui/Modal";
 
 export default function KeybindingsSettingsView() {
   const context = useContext(SettingsContext);
@@ -109,7 +111,7 @@ export default function KeybindingsSettingsView() {
         {search && (
           <button
             onClick={() => setSearch("")}
-            className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-white/10 transition-colors text-on-surface/35"
+            className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-white/10 transition-colors text-on-surface/35 cursor-pointer"
           >
             <X size={13} />
           </button>
@@ -118,15 +120,15 @@ export default function KeybindingsSettingsView() {
 
       <div className="rounded-lg border border-white/6 overflow-hidden">
         <div className="overflow-x-auto w-full" style={{ scrollbarWidth: "thin" }}>
-          <div className="flex items-center text-[11px] font-semibold uppercase tracking-wider px-3 py-2 select-none bg-white/3 text-on-surface/35 border-b border-white/6">
-            <div className="w-7 shrink-0" />
-            <div className="flex-1 min-w-[60px]">Command</div>
+          <div className="flex items-center overflow-hidden text-[11px] font-semibold uppercase tracking-wider px-3 py-2 select-none bg-white/3 text-on-surface/35 border-b border-white/6">
+            <div className="w-6 shrink-0" />
+            <div className="">Command</div>
             <div className="w-[110px] shrink-0 text-left">Keybinding</div>
-            <div className="w-[80px] shrink-0 text-left">When</div>
+            <div className="w-[80px] shrink-0 text-left hidden sm:block">When</div>
             <div className="w-[60px] shrink-0 text-left">Source</div>
           </div>
 
-          <div className="h-full overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
+          <div className="w-full overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
             {filtered.length === 0 ? (
               <div className="flex items-center justify-center py-8 text-[12px] text-on-surface/30">
                 No keybindings match your search
@@ -136,16 +138,18 @@ export default function KeybindingsSettingsView() {
                 const keys = getKeys(kb);
                 const source = getSource(kb);
                 return (
-                  <div key={kb.id} className="flex items-center text-[12px] px-3 py-2 group transition-colors border-b border-white/4">
-                    <button
+                  <div key={kb.id} className="flex items-center overflow-hidden text-[12px] px-3 py-2 group transition-colors border-b border-white/4">
+                    <Button
+                      variant="ghost"
+                      size="icon"
                       onClick={() => setEditingId(kb.id)}
-                      className="w-6 shrink-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:opacity-100 focus:opacity-100 mr-1 rounded text-on-surface/35"
+                      className="w-6 h-6 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity mr-1"
                       title="Edit keybinding"
                     >
                       <Pencil size={11} />
-                    </button>
+                    </Button>
 
-                    <div className="flex-1 min-w-[60px] truncate text-on-surface">
+                    <div className="w-full truncate flex-1 text-on-surface">
                       {kb.command}
                     </div>
 
@@ -155,7 +159,7 @@ export default function KeybindingsSettingsView() {
                       </kbd>
                     </div>
 
-                    <div className="w-[80px] shrink-0 text-left text-[11px] text-on-surface/40">
+                    <div className="w-[80px] shrink-0 text-left text-[11px] text-on-surface/40 hidden sm:block">
                       {kb.when}
                     </div>
 
@@ -256,62 +260,57 @@ function KeyCaptureModal({
   );
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      onClick={onClose}
-    >
-      <div
-        className="rounded-xl p-5 w-[360px] shadow-2xl bg-surface-container border border-white/8"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center gap-2 mb-3">
-          <span className="text-[11px] font-medium px-1.5 py-0.5 rounded bg-primary/10 text-primary">
-            Keybinding
-          </span>
-          <span className="text-[13px] font-semibold truncate text-on-surface">
-            {label}
-          </span>
-        </div>
-
-        <div
-          ref={captureRef}
-          tabIndex={0}
-          className="flex items-center justify-center h-12 rounded-lg mb-2 cursor-text select-none outline-none transition-colors bg-white/3 border border-primary/30"
-          onKeyDown={handleKeyDown}
-        >
-          <span className="text-[14px] font-mono tracking-wide text-primary">
-            {capturedKeys}
-          </span>
-        </div>
-
-        <p className="text-[11px] mb-4 text-on-surface/35">
-          Press the desired key combination, then press Enter or click Save.
-        </p>
-
-        <div className="flex items-center justify-end gap-2">
-          {currentKeys !== defaultKeys && (
-            <button
-              onClick={onReset}
-              className="flex items-center gap-1 px-3 py-1.5 text-[12px] rounded-lg transition-colors hover:bg-white/5 text-on-surface/50"
-            >
-              <RotateCcw size={12} />
-              Reset
-            </button>
-          )}
-          <button
-            onClick={onClose}
-            className="px-3 py-1.5 text-[12px] rounded-lg transition-colors hover:bg-white/8 text-on-surface/60 bg-white/6"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={() => onSave(capturedKeys)}
-            className="px-3 py-1.5 text-[12px] font-medium rounded-lg transition-colors bg-primary text-white"
-          >
-            Save
-          </button>
-        </div>
+    <Modal open onClose={onClose} title="Keybinding">
+      <div className="flex items-center gap-2 mb-3">
+        <span className="text-[11px] font-medium px-1.5 py-0.5 rounded bg-primary/10 text-primary">
+          Keybinding
+        </span>
+        <span className="text-[13px] font-semibold truncate text-on-surface">
+          {label}
+        </span>
       </div>
-    </div>
+
+      <div
+        ref={captureRef}
+        tabIndex={0}
+        className="flex items-center justify-center h-12 rounded-lg mb-2 cursor-text select-none outline-none transition-colors bg-white/3 border border-primary/30"
+        onKeyDown={handleKeyDown}
+      >
+        <span className="text-[14px] font-mono tracking-wide text-primary">
+          {capturedKeys}
+        </span>
+      </div>
+
+      <p className="text-[11px] mb-4 text-on-surface/35">
+        Press the desired key combination, then press Enter or click Save.
+      </p>
+
+      <div className="flex items-center justify-end gap-2">
+        {currentKeys !== defaultKeys && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onReset}
+          >
+            <RotateCcw size={12} />
+            Reset
+          </Button>
+        )}
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={onClose}
+        >
+          Cancel
+        </Button>
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={() => onSave(capturedKeys)}
+        >
+          Save
+        </Button>
+      </div>
+    </Modal>
   );
 }

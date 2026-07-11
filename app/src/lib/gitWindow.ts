@@ -1,37 +1,28 @@
-export interface SettingsTarget {
-  section: string;
-  sub: string;
-  element?: string;
-}
-
-export async function openSettingsWindow(target?: SettingsTarget) {
+export async function openGitViewWindow(projectDir: string) {
   const { getAllWebviewWindows, WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
   const { getCurrentWindow, PhysicalPosition } = await import("@tauri-apps/api/window");
   const all = await getAllWebviewWindows();
-  const existing = all.find((w) => w.label === "settings");
+  const existing = all.find((w) => w.label === "gitview");
 
   if (existing) {
-    if (target) {
-      await (existing as any).eval(`window.__settingsNavigate(${JSON.stringify(target)})`);
-    }
     await existing.show();
     await existing.setFocus();
   } else {
-    const url = target
-      ? `/?settings=true&settingsTarget=${encodeURIComponent(JSON.stringify(target))}`
-      : "/?settings=true";
+    const projectName = projectDir.split(/[/\\]/).filter(Boolean).pop() || projectDir;
+    const url = `/?gitview=true&projectDir=${encodeURIComponent(projectDir)}`;
+    const windowTitle = `Aurora - ${projectName} Git View`;
 
     const mainPos = await getCurrentWindow().outerPosition();
     const mainSize = await getCurrentWindow().outerSize();
     const x = Math.round(mainPos.x + (mainSize.width - 720) / 2);
     const y = Math.round(mainPos.y + (mainSize.height - 520) / 2);
 
-    const win = new WebviewWindow("settings", {
-      title: "Settings - Aurora",
+    const win = new WebviewWindow("gitview", {
+      title: windowTitle,
       url,
       width: 720,
       height: 520,
-      minWidth: 670,
+      minWidth: 500,
       minHeight: 400,
       resizable: true,
       decorations: false,
@@ -40,7 +31,7 @@ export async function openSettingsWindow(target?: SettingsTarget) {
       visible: false,
     });
 
-    win.once('tauri://created', async () => {
+    win.once("tauri://created", async () => {
       try {
         await win.setPosition(new PhysicalPosition(x, y));
         await win.show();

@@ -1,5 +1,6 @@
 import { type SubmitEvent, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { listen } from "@tauri-apps/api/event";
 import { v4 as uuidv4 } from "uuid";
 import { Tab } from "@aurora/types";
 
@@ -12,6 +13,7 @@ import { useKeybindings } from "../hooks/useKeybindings";
 import { useAppShellStore } from "../stores/useAppShellStore";
 import { useBlockStore } from "../stores/useBlockStore";
 import { useSessionStore } from "../stores/useSessionStore";
+import { useSettingsStore } from "../stores/useSettingsStore";
 import { useAgentStore, CONST_DEFAULT_SESSION_STATE } from "../stores/useAgentStore";
 import { TabBar } from "../components/ui/TabBar";
 import { SidePanel } from "../components/ui/SidePanel";
@@ -22,6 +24,8 @@ import { RightPanel } from "../components/layout/RightPanel";
 import { SaveChangesModal } from "../components/layout/SaveChangesModal";
 import { CommandInputBar, type AttachedFile } from "../components/layout/CommandInputBar";
 import { system } from "../lib/ipc";
+import { openGitViewWindow } from "../lib/gitWindow";
+import { GIT_DIFF_TAB_EVENT, type GitDiffTabPayload } from "../lib/gitDiffBridge";
 import { TerminalWorkspaceView } from "./TerminalWorkspaceView";
 import { NewWindowView } from "./NewWindowView";
 import { getDefaultShellLaunch, isWindowsPlatform } from "../lib/shell";
@@ -104,6 +108,15 @@ export function AppShellView() {
     window.addEventListener("aurora-open-file-path", handleOpen);
     return () => window.removeEventListener("aurora-open-file-path", handleOpen);
   }, [openFile, projectDir, cwdAbsolute, setViewMode]);
+
+  useEffect(() => {
+    const unlisten = listen<GitDiffTabPayload>(GIT_DIFF_TAB_EVENT, (event) => {
+      const payload = event.payload;
+      useSessionStore.getState().addTab(payload);
+      useSessionStore.getState().setActiveTabId(payload.id);
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, []);
 
 
 
@@ -424,6 +437,11 @@ export function AppShellView() {
   };
 
   const handleOpenGitView = () => {
+    const mode = useSettingsStore.getState().gitGuiMode;
+    if (mode === "window") {
+      openGitViewWindow(projectDir || cwdAbsolute);
+      return;
+    }
     const existing = tabs.find(t => t.type === "git");
     if (existing) {
       setActiveTabId(existing.id);
@@ -467,7 +485,8 @@ export function AppShellView() {
   };
 
   const isStandalone = useMemo(() => document.title.includes("Terminal"), []);
-  const gitViewActive = tabs.some(t => t.type === "git" && t.id === activeTabId);
+  const gitGuiMode = useSettingsStore(s => s.gitGuiMode);
+  const gitViewActive = gitGuiMode === "tab" && tabs.some(t => t.type === "git" && t.id === activeTabId);
 
   if (!bootstrapReady) {
     return <div className="h-screen w-screen" style={{ background: "#0A0D14" }} />;

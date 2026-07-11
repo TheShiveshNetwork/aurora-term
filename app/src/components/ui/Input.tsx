@@ -1,5 +1,5 @@
 import React, { useState, useRef, useMemo, useEffect } from "react";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, ChevronDown } from "lucide-react";
 
 export interface ComboboxOption {
   id: string;
@@ -153,8 +153,16 @@ function SelectInput({
         }}
         placeholder={placeholder}
         disabled={disabled}
-        className={`${inputBaseClass} ${disabled ? "opacity-50 cursor-default" : ""} ${className}`}
+        className={`${inputBaseClass} pr-8 ${disabled ? "opacity-50 cursor-default" : ""} ${className}`}
       />
+      <button
+        type="button"
+        tabIndex={-1}
+        onClick={() => setIsOpen(!isOpen)}
+        className="absolute right-2 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded hover:bg-white/[0.06] transition-all cursor-pointer border-none bg-transparent text-on-surface/40 hover:text-on-surface/70"
+      >
+        <ChevronDown size={13} className={`transition-transform duration-150 ${isOpen ? "rotate-180" : ""}`} />
+      </button>
       {isOpen && (
         <div
           className="absolute z-[99999] left-0 right-0 top-full mt-1 max-h-48 overflow-y-auto bg-surface border border-outline rounded-[8px] p-1"

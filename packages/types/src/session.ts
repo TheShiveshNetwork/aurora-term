@@ -17,6 +17,8 @@ export interface Tab {
   pinned?: boolean;
   missing?: boolean;
   everChanged?: boolean;
+  streaming?: boolean;
+  manuallyRenamed?: boolean;
   scrollToLine?: number;
   scrollToMatchStart?: number;
   scrollToMatchEnd?: number;

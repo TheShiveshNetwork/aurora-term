@@ -15,6 +15,7 @@ import { useDragResize } from "../../hooks/useDragResize";
 import { useSessionStore } from "../../stores/useSessionStore";
 import { useGitStore } from "../../stores/useGitStore";
 import { useGitWatcher } from "../../hooks/useGitWatcher";
+import { isGitViewWindow, openDiffTabInMainWindow } from "../../lib/gitDiffBridge";
 import { CommitDiffView } from "../editor/CommitDiffView";
 import { GitTree } from "../ui/GitTree";
 import { LoadingSpinner } from "../ui/LoadingSpinner";
@@ -533,8 +534,12 @@ export function GitView({ cwd, tabId }: GitViewProps) {
     try {
       const diff = await diffFn(cwd);
       const id = uuidv4();
-      addTab({ id, name: title, type: "diff", diffContent: diff, created_at: Date.now() });
-      setActiveTabId(id);
+      if (isGitViewWindow()) {
+        await openDiffTabInMainWindow({ id, name: title, type: "diff", diffContent: diff, created_at: Date.now() });
+      } else {
+        addTab({ id, name: title, type: "diff", diffContent: diff, created_at: Date.now() });
+        setActiveTabId(id);
+      }
     } catch (e) { console.error(e); }
   }, [cwd, tabs, addTab, setActiveTabId]);
 
@@ -582,8 +587,12 @@ export function GitView({ cwd, tabId }: GitViewProps) {
       }
       const id = uuidv4();
       const name = path.split(/[\\/]/).pop() || path;
-      addTab({ id, name, type: "diff", filePath: resolvedPath, diffContent: diff, created_at: Date.now() });
-      setActiveTabId(id);
+      if (isGitViewWindow()) {
+        await openDiffTabInMainWindow({ id, name, type: "diff", filePath: resolvedPath, diffContent: diff, created_at: Date.now() });
+      } else {
+        addTab({ id, name, type: "diff", filePath: resolvedPath, diffContent: diff, created_at: Date.now() });
+        setActiveTabId(id);
+      }
     } catch (e) { console.error(e); }
   }, [selectedFile, cwd, stagedFiles, tabs, addTab, setActiveTabId]);
 

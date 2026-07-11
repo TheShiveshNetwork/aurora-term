@@ -23,8 +23,8 @@ export const SettingsContext = createContext<SettingsContextType | null>(null);
 
 export function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex items-center gap-2 pb-2" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-      <span className="text-[13px] font-semibold" style={{ color: "#E8EAF0" }}>{children}</span>
+    <div className="flex items-center gap-2 pb-2 border-b border-white/6">
+      <span className="text-[13px] font-semibold text-on-surface">{children}</span>
     </div>
   );
 }
@@ -33,9 +33,9 @@ export function FieldRow({ label, description, children }: { label: string; desc
   return (
     <div className="flex items-center justify-between">
       <div className="flex flex-col gap-0.5">
-        <span className="text-[12px]" style={{ color: "rgba(232,234,240,0.65)" }}>{label}</span>
+        <span className="text-[12px] text-on-surface/65">{label}</span>
         {description && (
-          <span className="text-[10px]" style={{ color: "rgba(232,234,240,0.35)" }}>{description}</span>
+          <span className="text-[10px] text-on-surface/35">{description}</span>
         )}
       </div>
       <div className="flex items-center gap-2">
@@ -56,7 +56,7 @@ export function Breadcrumbs({ items }: { items: (string | BreadcrumbItem)[] }) {
   );
 
   return (
-    <div className="flex items-center gap-1.5 text-[11px] mb-5 select-none" style={{ color: "rgba(232,234,240,0.35)" }}>
+    <div className="flex items-center gap-1.5 text-[11px] mb-5 select-none text-on-surface/35">
       {resolved.map((item, i) => (
         <React.Fragment key={i}>
           {i > 0 && (

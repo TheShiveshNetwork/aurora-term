@@ -401,6 +401,11 @@ export function useAppBootstrap() {
         useAppShellStore.getState().setIsCwdLoading(false);
       }
 
+      const tab = useSessionStore.getState().tabs.find(t => t.id === sessionId);
+      if (tab && tab.streaming) {
+        useSessionStore.getState().updateTab(sessionId, { streaming: false });
+      }
+
       if (sessionId === activeTabId) {
         setTimeout(() => {
           window.dispatchEvent(new CustomEvent("aurora-focus-terminal-input", { detail: { sessionId } }));

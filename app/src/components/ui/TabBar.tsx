@@ -4,6 +4,7 @@ import { useOpenTabs, EDITOR_LIKE_TYPES } from "../../hooks/useOpenTabs";
 import { Tab } from "@aurora/types";
 import { MenuView, MenuViewItem, MenuViewSeparator } from "./MenuView";
 import { Button } from "./Button";
+import { StreamingText } from "./StreamingText";
 import { closeAllPopups, onClosePopups } from "../../lib/popups";
 import { system } from "../../lib/ipc";
 
@@ -51,7 +52,7 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
 
   const handleRenameSubmit = () => {
     if (renameTabId && renameValue.trim()) {
-      updateTab(renameTabId, { name: renameValue.trim() });
+      updateTab(renameTabId, { name: renameValue.trim(), manuallyRenamed: true });
     }
     setRenameTabId(null);
   };
@@ -361,11 +362,11 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
               ) : tab.type === "git" && (
                 <GitBranch size={14} className="shrink-0" />
               )}
-              <span
-                className={`truncate transition-all pr-3 duration-200 ${isActive ? "text-on-surface" : ""} ${isExpanded ? "max-w-[160px]" : "max-w-0 opacity-0 overflow-hidden"} ${tab.missing ? "line-through !opacity-50" : "opacity-100"}`}
-              >
-                {tab.name}
-              </span>
+              <StreamingText
+                name={tab.name}
+                streaming={!!tab.streaming}
+                className={`truncate transition-all pr-3 duration-200 ${isActive ? "text-on-surface" : ""} ${isExpanded ? "max-w-[160px] opacity-100" : "max-w-0 !opacity-0 overflow-hidden"} ${tab.missing ? "line-through !opacity-50" : ""}`}
+              />
 
               <button
                 onClick={(e) => {

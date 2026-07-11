@@ -499,7 +499,7 @@ export function GitTree({ variant = "compact", branchNames }: GitTreeProps) {
     if (!cwdAbsolute) return;
     try {
       const [oldContent, newContent] = await getFileDiffAtCommit(cwdAbsolute, filePath, hash);
-      openDiffTab(addTab, setActiveTabId, filePath, hash, oldContent, newContent);
+      await openDiffTab(addTab, setActiveTabId, filePath, hash, oldContent, newContent);
     } catch { /* silent */ }
   }, [cwdAbsolute, addTab, setActiveTabId]);
 

@@ -1,6 +1,8 @@
-import React, { useContext } from "react";
+import React, { useContext, useMemo } from "react";
 import { SettingsContext, SectionTitle, FieldRow, THEME_OPTIONS } from "./SettingsShared";
 import { EditorThemeName } from "../../stores/useSettingsStore";
+import { Button } from "../ui/Button";
+import { SearchableSelect } from "../ui/SearchableSelect";
 
 export default function AppearanceSettingsView() {
   const context = useContext(SettingsContext);
@@ -10,6 +12,8 @@ export default function AppearanceSettingsView() {
   const theme = draft.config.terminal.theme;
   const editorTheme = draft.config.editor.theme as EditorThemeName;
 
+  const themeOptions = useMemo(() => THEME_OPTIONS.map((o) => ({ id: o.value, label: o.label })), []);
+
   return (
     <div className="space-y-5">
       <SectionTitle>Appearance</SectionTitle>
@@ -17,44 +21,33 @@ export default function AppearanceSettingsView() {
       <div id="setting-theme">
         <FieldRow label="Theme">
           <div className="flex gap-2">
-            <button
+            <Button
+              variant={theme === "dark" ? "primary" : "secondary"}
+              size="sm"
               onClick={() => updateDraft((d) => { d.config.terminal.theme = "dark"; })}
-              className="px-3 py-1.5 text-[11px] font-semibold rounded-lg transition-all cursor-pointer"
-              style={{
-                background: theme === "dark" ? "#4F8CFF" : "rgba(255,255,255,0.06)",
-                color: theme === "dark" ? "#000" : "rgba(232,234,240,0.6)",
-                border: theme === "dark" ? "none" : "1px solid rgba(255,255,255,0.08)",
-              }}
             >
               Dark
-            </button>
-            <button
+            </Button>
+            <Button
+              variant={theme === "light" ? "primary" : "secondary"}
+              size="sm"
               onClick={() => updateDraft((d) => { d.config.terminal.theme = "light"; })}
-              className="px-3 py-1.5 text-[11px] font-semibold rounded-lg transition-all cursor-pointer"
-              style={{
-                background: theme === "light" ? "#4F8CFF" : "rgba(255,255,255,0.06)",
-                color: theme === "light" ? "#000" : "rgba(232,234,240,0.6)",
-                border: theme === "light" ? "none" : "1px solid rgba(255,255,255,0.08)",
-              }}
             >
               Light
-            </button>
+            </Button>
           </div>
         </FieldRow>
       </div>
 
       <div id="setting-editor-theme">
         <FieldRow label="Editor Theme">
-          <select
+          <SearchableSelect
             value={editorTheme}
-            onChange={(e) => updateDraft((d) => { d.config.editor.theme = e.target.value; })}
-            className="bg-surface-container-lowest border border-outline-variant/10 rounded-lg px-3 py-1.5 text-[12px] outline-none cursor-pointer select-none"
-            style={{ color: "#E8EAF0", minWidth: "160px" }}
-          >
-            {THEME_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
-            ))}
-          </select>
+            options={themeOptions}
+            onChange={(val) => updateDraft((d) => { d.config.editor.theme = val as EditorThemeName; })}
+            placeholder="Select theme"
+            className="w-[200px]"
+          />
         </FieldRow>
       </div>
     </div>
