@@ -15,6 +15,47 @@ import { stripAnsi, cleanPtyData } from "../../lib/terminal/cleanup";
 import { pty, system } from "../../lib/ipc";
 import { SquareTerminal } from "lucide-react";
 
+function findTrailingIncompleteEscape(data: string, lastAurora: number): number {
+  let splitIndex = -1;
+
+  const lastEsc = data.lastIndexOf("\x1b");
+  if (lastEsc !== -1) {
+    const seq = data.slice(lastEsc);
+
+    if (seq[1] === "[") {
+      // CSI: \x1b [ <params> <final-byte>
+      // final byte is 0x40-0x7E (uppercase letters, lowercase, @, [, \, ], ^, _, `, {, |, }, ~)
+      let hasFinal = false;
+      for (let i = 2; i < seq.length; i++) {
+        const c = seq.charCodeAt(i);
+        if (c >= 0x40 && c <= 0x7E) {
+          hasFinal = true;
+          break;
+        }
+      }
+      if (!hasFinal) splitIndex = lastEsc;
+    } else if (seq[1] === "]") {
+      // OSC: \x1b ] ... BEL (\x07) or ST (\x1b\\)
+      const hasTerminator = seq.includes("\x07") || seq.includes("\x1b\\");
+      if (!hasTerminator) splitIndex = lastEsc;
+    } else if (seq.length < 3 && seq[1] !== undefined) {
+      // ESC + single char (0x40-0x5F) is a valid two-byte sequence
+      const c = seq.charCodeAt(1);
+      if (c < 0x40 || c > 0x5F) splitIndex = lastEsc;
+    } else if (seq.length <= 1) {
+      splitIndex = lastEsc;
+    }
+  }
+
+  if (lastAurora !== -1 && data.indexOf("\n", lastAurora) === -1) {
+    if (splitIndex === -1 || lastAurora < splitIndex) {
+      splitIndex = lastAurora;
+    }
+  }
+
+  return splitIndex;
+}
+
 interface TerminalPaneProps {
   sessionId: string;
   isVisible: boolean;
@@ -386,18 +427,8 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
             }
           }
 
-          const lastEsc = cleanData.lastIndexOf("\x1b");
           const lastAurora = cleanData.lastIndexOf("__AURORA_");
-          let splitIndex = -1;
-
-          if (lastEsc !== -1 && cleanData.length - lastEsc <= 6) {
-            splitIndex = lastEsc;
-          }
-          if (lastAurora !== -1 && cleanData.indexOf("\n", lastAurora) === -1) {
-            if (splitIndex === -1 || lastAurora < splitIndex) {
-              splitIndex = lastAurora;
-            }
-          }
+          const splitIndex = findTrailingIncompleteEscape(cleanData, lastAurora);
 
           if (splitIndex !== -1) {
             leftoverBuffer = cleanData.slice(splitIndex);
