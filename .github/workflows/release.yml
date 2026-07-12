@@ -2,8 +2,8 @@ name: 'publish'
 on:
   workflow_dispatch:
   push:
-    branches:
-      - release
+    tags:
+      - 'v*'
 
 jobs:
   publish-tauri:
@@ -64,7 +64,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: './tauri'
-          tagName: app-v__VERSION__
+          tagName: v__VERSION__
           releaseName: 'Aurora v__VERSION__'
           releaseBody: 'See the assets to download this version and install.'
           releaseDraft: true
