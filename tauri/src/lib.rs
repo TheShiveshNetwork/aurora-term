@@ -205,6 +205,7 @@ pub fn run() {
             aurora_commands::select_folder,
             aurora_commands::select_file,
             aurora_commands::create_path,
+            aurora_commands::path_exists,
             aurora_commands::watch_files,
             aurora_commands::watch_directory,
             aurora_commands::watch_git,

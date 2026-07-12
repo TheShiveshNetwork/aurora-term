@@ -277,6 +277,8 @@ export const system = {
     invoke<string>("move_path", { source, targetDir }),
   createPath: (parentDir: string, name: string, isDir: boolean) =>
     invoke<string>("create_path", { parentDir, name, isDir }),
+  pathExists: (path: string) =>
+    invoke<boolean>("path_exists", { path }),
   watchDirectory: (path: string) =>
     invoke<void>("watch_directory", { path }),
   watchFiles: (paths: string[]) =>

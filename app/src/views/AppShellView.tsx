@@ -600,7 +600,7 @@ export function AppShellView() {
               {!isStandalone && (
                 <div className={tabBarVisible ? "" : "hidden"}>
                   <TabBar
-                    viewMode={viewMode}
+                    viewMode={viewMode === "terminal" ? "terminal" : "file"}
                     onSetViewMode={setViewMode}
                     onAddTab={async (type: "terminal" | "file") => {
                       const baseCwd = projectDir || cwdAbsolute;

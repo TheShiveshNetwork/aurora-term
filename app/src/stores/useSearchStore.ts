@@ -15,6 +15,7 @@ interface SearchStore {
   results: SearchResult[];
   isSearching: boolean;
   hasSearched: boolean;
+  searchGeneration: number;
 
   open: () => void;
   close: () => void;
@@ -44,6 +45,7 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
   results: [],
   isSearching: false,
   hasSearched: false,
+  searchGeneration: 0,
 
   open: () => set({ isOpen: true }),
   close: () => set({ isOpen: false, query: "", replaceQuery: "", results: [], hasSearched: false, includePatterns: "", excludePatterns: "", replaceExpanded: false, filtersExpanded: false }),
@@ -67,7 +69,8 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
     const projectDir = useAppShellStore.getState().projectDir;
     if (!projectDir) return;
 
-    set({ isSearching: true, hasSearched: true });
+    const generation = get().searchGeneration + 1;
+    set({ isSearching: true, hasSearched: true, searchGeneration: generation });
 
     try {
       const includeList = includePatterns
@@ -85,11 +88,17 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
         includeList,
         excludeList,
         caseSensitive,
+        2000,
       );
 
-      set({ results, isSearching: false });
+      // Only apply results if this is still the latest search
+      if (get().searchGeneration === generation) {
+        set({ results, isSearching: false });
+      }
     } catch {
-      set({ isSearching: false });
+      if (get().searchGeneration === generation) {
+        set({ isSearching: false });
+      }
     }
   },
 }));
