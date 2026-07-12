@@ -79,6 +79,30 @@ fn main() {
         if !status.success() {
             panic!("Failed to compile aurora-agent sidecar using Bun");
         }
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Ok(metadata) = std::fs::metadata(&output_path) {
+                let mut perms = metadata.permissions();
+                perms.set_mode(0o755); // rwxr-xr-x
+                let _ = std::fs::set_permissions(&output_path, perms);
+            }
+
+            if let Ok(ldd_output) = Command::new("ldd").arg(&output_path).output() {
+                eprintln!(
+                    "Diagnostic: ldd on sidecar stdout:\n{}",
+                    String::from_utf8_lossy(&ldd_output.stdout)
+                );
+                eprintln!(
+                    "Diagnostic: ldd on sidecar stderr:\n{}",
+                    String::from_utf8_lossy(&ldd_output.stderr)
+                );
+                eprintln!("Diagnostic: ldd on sidecar exit code: {:?}", ldd_output.status.code());
+            } else {
+                eprintln!("Diagnostic: failed to run ldd command on sidecar");
+            }
+        }
     } else {
         if profile == "release" {
             if !output_path.exists() {
