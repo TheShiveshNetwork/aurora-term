@@ -1,4 +1,6 @@
 import { create } from "zustand";
+import { formatTauriError } from "../lib/utils";
+
 
 export interface ChatMessage {
   id: string;
@@ -313,14 +315,7 @@ export const useAgentStore = create<AgentStore>((set) => ({
 
   failTask: (sessionId, error) =>
     updateSession(set, sessionId, (prev) => {
-      const raw =
-        typeof error === "string"
-          ? error
-          : error && typeof error === "object" && "message" in error
-            ? typeof (error as any).message === "string"
-              ? (error as any).message
-              : String((error as any).message)
-            : String(error);
+      const raw = formatTauriError(error);
       const msg = sanitizeMessage(raw);
       return {
         status: "error",

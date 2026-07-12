@@ -1,5 +1,7 @@
 import { useCallback, useRef, useEffect } from "react";
 import { v4 as uuidv4 } from "uuid";
+import { formatTauriError } from "../lib/utils";
+
 import { useAgentStore, AgentCommand, defaultSessionState, CONST_DEFAULT_SESSION_STATE } from "../stores/useAgentStore";
 import { useAppShellStore } from "../stores/useAppShellStore";
 import { useBlockStore } from "../stores/useBlockStore";
@@ -374,7 +376,7 @@ export function useAgentExecution(sessionId: string | null) {
       await handleStepResult(targetSessionId, taskId, step);
     } catch (err: any) {
       console.error("Agent plan step failed:", err);
-      const errMsg = typeof err === "string" ? err : err?.message || err?.toString?.() || JSON.stringify(err);
+      const errMsg = formatTauriError(err);
       const friendlyMsg = errMsg.includes("API key") || errMsg.includes("provider")
         ? "No AI provider configured. Please go to Settings → AI and add an API key."
         : errMsg.includes("timeout") || errMsg.includes("network")
@@ -487,7 +489,7 @@ export function useAgentExecution(sessionId: string | null) {
         state.updateChainNode(targetSessionId, chainNodeId, { status: "failed" });
       }
 
-      const errMsg = typeof err === "string" ? err : err?.message || err?.toString?.() || JSON.stringify(err);
+      const errMsg = formatTauriError(err);
       state.failTask(targetSessionId, errMsg);
       throw err;
     }
