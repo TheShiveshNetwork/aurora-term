@@ -9,6 +9,7 @@ import type { SearchResult } from "@aurora/types";
 
 interface SearchInFilesProps {
   onOpenFileAtPath?: (path: string, options?: { lineNumber?: number; matchStart?: number; matchEnd?: number }) => void;
+  cwd?: string;
 }
 
 function highlightMatch(line: string, matchStart: number, matchEnd: number, replaceText?: string) {
@@ -29,7 +30,7 @@ function highlightMatch(line: string, matchStart: number, matchEnd: number, repl
   );
 }
 
-export function SearchInFiles({ onOpenFileAtPath }: SearchInFilesProps) {
+export function SearchInFiles({ onOpenFileAtPath, cwd }: SearchInFilesProps) {
   const {
     query, setQuery, replaceQuery, setReplaceQuery,
     replaceExpanded, toggleReplaceExpanded,
@@ -43,7 +44,19 @@ export function SearchInFiles({ onOpenFileAtPath }: SearchInFilesProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const replaceInputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
+
+  const relativePath = useCallback((fullPath: string) => {
+    if (!cwd) return fullPath;
+    const normalizedCwd = cwd.replace(/\\/g, "/");
+    const normalizedPath = fullPath.replace(/\\/g, "/");
+    if (normalizedPath.startsWith(normalizedCwd)) {
+      const rel = normalizedPath.slice(normalizedCwd.length);
+      return rel.startsWith("/") || rel.startsWith("\\") ? rel.slice(1) : rel;
+    }
+    return fullPath;
+  }, [cwd]);
 
   // Focus input when opened
   useEffect(() => {
@@ -52,7 +65,7 @@ export function SearchInFiles({ onOpenFileAtPath }: SearchInFilesProps) {
     }
   }, [isOpen]);
 
-  // Debounced auto-search
+  // Debounced auto-search with cancellation of stale requests
   const prevQueryRef = useRef(query);
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -73,7 +86,7 @@ export function SearchInFiles({ onOpenFileAtPath }: SearchInFilesProps) {
     useSearchStore.getState().setSearching(true);
     debounceRef.current = setTimeout(() => {
       search();
-    }, 350);
+    }, 400);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
@@ -278,7 +291,7 @@ export function SearchInFiles({ onOpenFileAtPath }: SearchInFilesProps) {
                     )}
                     <FileCode size={11} style={{ color: "rgba(232,234,240,0.3)", flexShrink: 0 }} />
                     <span className="text-xs font-medium truncate" style={{ color: "rgba(232,234,240,0.7)" }}>
-                      {result.path}
+                      {relativePath(result.path)}
                     </span>
                     <span className="text-xs ml-auto flex-shrink-0" style={{ color: "rgba(232,234,240,0.25)" }}>
                       {matchCount} match{matchCount !== 1 ? "es" : ""}

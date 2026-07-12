@@ -348,6 +348,12 @@ pub fn create_path(parent_dir: String, name: String, is_dir: bool) -> Result<Str
     Ok(new_path.to_string_lossy().into_owned())
 }
 
+// ─── Check if a path exists ──────────────────────────────────────────────────
+#[command]
+pub fn path_exists(path: String) -> Result<bool, AppError> {
+    Ok(PathBuf::from(&path).exists())
+}
+
 // ─── Rename / move a file or directory ────────────────────────────────────────
 #[command]
 pub fn rename_path(old_path: String, new_name: String) -> Result<String, AppError> {

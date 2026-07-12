@@ -1,5 +1,7 @@
 import { useCallback, useRef, useEffect } from "react";
 import { v4 as uuidv4 } from "uuid";
+import { formatTauriError } from "../lib/utils";
+
 import { useAgentStore, AgentCommand, defaultSessionState, CONST_DEFAULT_SESSION_STATE } from "../stores/useAgentStore";
 import { useAppShellStore } from "../stores/useAppShellStore";
 import { useBlockStore } from "../stores/useBlockStore";
@@ -235,7 +237,10 @@ export function useAgentExecution(sessionId: string | null) {
           args: step.args,
         });
         state.pauseTask(targetSessionId);
-        state.setActiveDrawerTab(targetSessionId, "questions");
+        state.addChatMessage(targetSessionId, {
+          role: "assistant",
+          content: step.args.question || step.message || "A clarifying question has been asked",
+        });
       }
       return;
     }
@@ -332,7 +337,7 @@ export function useAgentExecution(sessionId: string | null) {
 
     const state = useAgentStore.getState();
     const currentSession = state.sessions[targetSessionId] || defaultSessionState();
-    const { stepCount, maxSteps, originalGoal, agentType, agentMode } = currentSession;
+    const { stepCount, maxSteps, originalGoal, agentType, agentMode, model } = currentSession;
 
     // Don't plan new steps after task was stopped or completed
     if (currentSession.status === "error" || currentSession.status === "completed") {
@@ -364,13 +369,14 @@ export function useAgentExecution(sessionId: string | null) {
         agentType,
         agentMode,
         requireReviewForCommands,
-        requireReviewForWrites
+        requireReviewForWrites,
+        model
       );
 
       await handleStepResult(targetSessionId, taskId, step);
     } catch (err: any) {
       console.error("Agent plan step failed:", err);
-      const errMsg = typeof err === "string" ? err : err?.message || err?.toString?.() || JSON.stringify(err);
+      const errMsg = formatTauriError(err);
       const friendlyMsg = errMsg.includes("API key") || errMsg.includes("provider")
         ? "No AI provider configured. Please go to Settings → AI and add an API key."
         : errMsg.includes("timeout") || errMsg.includes("network")
@@ -483,14 +489,14 @@ export function useAgentExecution(sessionId: string | null) {
         state.updateChainNode(targetSessionId, chainNodeId, { status: "failed" });
       }
 
-      const errMsg = typeof err === "string" ? err : err?.message || err?.toString?.() || JSON.stringify(err);
+      const errMsg = formatTauriError(err);
       state.failTask(targetSessionId, errMsg);
       throw err;
     }
   }, []);
 
   // ── startTask ────────────────────────────────────────────────────────────
-  const startTask = useCallback((goal: string, forceType?: "terminal" | "developer") => {
+  const startTask = useCallback((goal: string, forceType?: "terminal" | "developer", customModel?: string) => {
     const targetSessionId = sessionRef.current;
     if (!targetSessionId) return;
 
@@ -515,6 +521,11 @@ export function useAgentExecution(sessionId: string | null) {
     state.startTask(targetSessionId, taskId, goal);
     state.setAgentType(targetSessionId, type);
     state.setAgentMode(targetSessionId, mode);
+    if (customModel) {
+      state.setAgentModel(targetSessionId, customModel);
+    } else {
+      state.setAgentModel(targetSessionId, undefined);
+    }
     state.resumeTask(targetSessionId);
     
     executeNextStep(taskId);
@@ -662,6 +673,11 @@ export function useAgentExecution(sessionId: string | null) {
     state.resumeTask(targetSessionId);
     state.setPendingToolCall(targetSessionId, null);
 
+    state.addChatMessage(targetSessionId, {
+      role: "user",
+      content: answer,
+    });
+
     try {
       const stepResult = await system.agentApproveTool(
         freshSession.agentType,
@@ -747,5 +763,6 @@ export function useAgentExecution(sessionId: string | null) {
     pendingToolCall: sessionState.pendingToolCall,
     filesChanged: sessionState.filesChanged,
     activeDrawerTab: sessionState.activeDrawerTab,
+    model: sessionState.model,
   };
 }

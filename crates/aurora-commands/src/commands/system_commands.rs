@@ -696,32 +696,47 @@ pub async fn git_branch_list(cwd: String) -> Result<Vec<GitBranchInfo>, AppError
             });
         }
 
-        // Compute ahead/behind against origin/main (fallback to main)
-        let base_ref = if run_git(&["rev-parse", "--verify", "origin/main"], Some(&cwd))
+        // Resolve a fallback base ref for branches without an upstream
+        let fallback_ref = if run_git(&["rev-parse", "--verify", "origin/main"], Some(&cwd))
             .ok()
             .is_some_and(|s| !s.trim().is_empty())
         {
             "origin/main"
+        } else if run_git(&["rev-parse", "--verify", "origin/master"], Some(&cwd))
+            .ok()
+            .is_some_and(|s| !s.trim().is_empty())
+        {
+            "origin/master"
         } else if run_git(&["rev-parse", "--verify", "main"], Some(&cwd))
             .ok()
             .is_some_and(|s| !s.trim().is_empty())
         {
             "main"
+        } else if run_git(&["rev-parse", "--verify", "master"], Some(&cwd))
+            .ok()
+            .is_some_and(|s| !s.trim().is_empty())
+        {
+            "master"
         } else {
             ""
         };
 
-        if !base_ref.is_empty() {
-            for branch in &mut branches {
-                let range = format!("{}...{}", base_ref, branch.name);
-                if let Ok(output) = run_git(&["rev-list", "--count", "--left-right", &range], Some(&cwd)) {
-                    let trimmed = output.trim();
-                    if !trimmed.is_empty() {
-                        let counts: Vec<&str> = trimmed.split_whitespace().collect();
-                        if counts.len() >= 2 {
-                            branch.behind = counts[0].parse().unwrap_or(0);
-                            branch.ahead = counts[1].parse().unwrap_or(0);
-                        }
+        // Compute ahead/behind per branch against its own upstream (or fallback)
+        for branch in &mut branches {
+            let compare_ref = if let Some(ref upstream) = branch.remote {
+                upstream.as_str()
+            } else {
+                fallback_ref
+            };
+            if compare_ref.is_empty() { continue; }
+            let range = format!("{}...{}", compare_ref, branch.name);
+            if let Ok(output) = run_git(&["rev-list", "--count", "--left-right", &range], Some(&cwd)) {
+                let trimmed = output.trim();
+                if !trimmed.is_empty() {
+                    let counts: Vec<&str> = trimmed.split_whitespace().collect();
+                    if counts.len() >= 2 {
+                        branch.behind = counts[0].parse().unwrap_or(0);
+                        branch.ahead = counts[1].parse().unwrap_or(0);
                     }
                 }
             }

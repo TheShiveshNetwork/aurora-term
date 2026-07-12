@@ -6,6 +6,7 @@ import {
 import { useSessionStore } from "../../stores/useSessionStore";
 import { useOpenTabs } from "../../hooks/useOpenTabs";
 import { MenuView, MenuViewItem, MenuViewSeparator } from "./MenuView";
+import { StreamingText } from "./StreamingText";
 import { closeAllPopups, onClosePopups } from "../../lib/popups";
 import type { Tab } from "@aurora/types";
 import { system } from "../../lib/ipc";
@@ -76,9 +77,11 @@ function TabRow({ tab, index, isActive, onSelect, onKillTab, onContextMenu, onPo
       }}
     >
       <TabIcon type={tab.type} />
-      <span className="text-[12px] overflow-hidden text-ellipsis whitespace-nowrap min-w-0 flex-1">
-        {tab.name}
-      </span>
+      <StreamingText
+        name={tab.name}
+        streaming={!!tab.streaming}
+        className={`text-[12px] overflow-hidden text-ellipsis whitespace-nowrap min-w-0 flex-1 ${tab.missing ? "line-through opacity-50" : ""}`}
+      />
       {tab.pinned && (
         <Pin size={10} className="shrink-0" style={{ color: "rgba(232,234,240,0.25)" }} />
       )}
@@ -137,7 +140,7 @@ export function OpenTabs({ onKillTab }: OpenTabsProps) {
 
   const handleRenameSubmit = () => {
     if (renameTabId && renameValue.trim()) {
-      updateTab(renameTabId, { name: renameValue.trim() });
+      updateTab(renameTabId, { name: renameValue.trim(), manuallyRenamed: true });
     }
     setRenameTabId(null);
   };

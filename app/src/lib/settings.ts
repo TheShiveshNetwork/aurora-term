@@ -31,6 +31,8 @@ export async function openSettingsWindow(target?: SettingsTarget) {
       url,
       width: 720,
       height: 520,
+      minWidth: 670,
+      minHeight: 400,
       resizable: true,
       decorations: false,
       x,

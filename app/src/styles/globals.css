@@ -74,6 +74,17 @@
   --color-ui-surface: rgba(15, 19, 26, 0.95);
 }
 
+/* ── Prompt-kit shims (used by TextShimmer inline styles) ─────── */
+:root {
+  --foreground: #E8EAF0;
+  --muted-foreground: rgba(232, 234, 240, 0.45);
+}
+
+@keyframes shimmer {
+  0% { background-position: 100% center; }
+  100% { background-position: -100% center; }
+}
+
 /* ─────────────────────── Base ─────────────────────────────────────── */
 *,
 *::before,
@@ -411,7 +422,7 @@ body {
   }
 }
 
-/* ── 13. Input Bar Glow ──────────────────────────────────────────── */
+/* ── 15. Input Bar Glow ──────────────────────────────────────────── */
 .warp-input-glow {
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
@@ -420,7 +431,7 @@ body {
   box-shadow: 0 0 0 1px rgba(90, 140, 255, 0.12), 0 4px 20px rgba(79, 140, 255, 0.08);
 }
 
-/* ── 14. Section Label ───────────────────────────────────────────── */
+/* ── 16. Section Label ───────────────────────────────────────────── */
 .section-label {
   font-size: 10px;
   font-weight: 700;
@@ -431,7 +442,7 @@ body {
   user-select: none;
 }
 
-/* ── 15. CodeMirror Minimap ──────────────────────────────────────── */
+/* ── 17. CodeMirror Minimap ──────────────────────────────────────── */
 .cm-minimap {
   border-left: 1px solid rgba(232, 234, 240, 0.06);
   background: transparent;
@@ -443,7 +454,7 @@ body {
   border: 1px solid rgba(232, 234, 240, 0.08);
 }
 
-/* ── 16. CodeMirror Global Gutter Layout Overrides ────────────────── */
+/* ── 18. CodeMirror Global Gutter Layout Overrides ────────────────── */
 .cm-gutters {
   background-color: transparent !important;
   border-right: 1px solid rgba(232, 234, 240, 0.05) !important;
@@ -475,7 +486,7 @@ body {
   display: flex !important;
 }
 
-/* ── 17. CodeMirror Merge View (Side-by-Side) Styling Overrides ───── */
+/* ── 19. CodeMirror Merge View (Side-by-Side) Styling Overrides ───── */
 .cm-mergeView .cm-insertedLine,
 .cm-mergeView .cm-insertedChunk {
   background-color: rgba(80, 227, 194, 0.07) !important;
@@ -500,28 +511,3 @@ body {
   border-right: 1px solid rgba(232, 234, 240, 0.05) !important;
 }
 
-/* ── 18. CodeMirror Gutter Lint Custom Markers ────────────────────── */
-.cm-lint-marker {
-  width: 10px !important;
-  height: 10px !important;
-  border-radius: 50% !important;
-  margin: auto !important;
-  display: block !important;
-  border: none !important;
-  content: "" !important;
-}
-
-.cm-lint-marker-error {
-  background: #FF6B6B !important;
-  box-shadow: 0 0 6px #FF6B6B !important;
-}
-
-.cm-lint-marker-warning {
-  background: #FFB86C !important;
-  box-shadow: 0 0 6px #FFB86C !important;
-}
-
-.cm-lint-marker-info {
-  background: #8BE9FD !important;
-  box-shadow: 0 0 6px #8BE9FD !important;
-}

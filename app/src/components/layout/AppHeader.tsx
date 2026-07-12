@@ -27,7 +27,6 @@ interface AppHeaderProps {
   onCloseTab: () => void;
   onCloseOtherTabs: () => void;
   onOpenSettings: () => void;
-  onToggleTheme: () => void;
   onToggleTabBar: () => void;
   onShowTerminalView: () => void;
   onShowFileView: () => void;
@@ -36,7 +35,6 @@ interface AppHeaderProps {
   gitViewActive: boolean;
   isGitRepo?: boolean;
   onExit: () => void;
-  theme: "dark" | "light";
   tabBarVisible: boolean;
   viewMode: AppViewMode;
   projectName: string;
@@ -64,7 +62,6 @@ export function AppHeader({
   onCloseTab,
   onCloseOtherTabs,
   onOpenSettings,
-  onToggleTheme,
   onToggleTabBar,
   onShowTerminalView,
   onShowFileView,
@@ -73,7 +70,6 @@ export function AppHeader({
   gitViewActive,
   isGitRepo,
   onExit,
-  theme,
   tabBarVisible,
   viewMode,
   projectName,
@@ -83,6 +79,11 @@ export function AppHeader({
 }: AppHeaderProps) {
   const headerRef = useRef<HTMLDivElement>(null);
   const [searchCollapsed, setSearchCollapsed] = useState(false);
+  const [isMac, setIsMac] = useState(false);
+
+  useEffect(() => {
+    setIsMac(navigator.userAgent.includes("Mac"));
+  }, []);
 
   const measureSearchSpace = useCallback(() => {
     const header = headerRef.current;
@@ -106,7 +107,7 @@ export function AppHeader({
       id="aurora-app-header"
       ref={headerRef}
       data-tauri-drag-region
-      className="grid grid-cols-[1fr_minmax(0,400px)_1fr] w-full pl-3 h-auto z-50 select-none gap-3 shrink-0"
+      className={`grid grid-cols-[1fr_minmax(0,400px)_1fr] w-full h-auto z-50 select-none gap-3 shrink-0 ${isMac ? 'pl-[78px]' : 'pl-3'}`}
       style={{
         background: "#0A0D14",
         borderBottom: "1px solid rgba(255,255,255,0.05)",
@@ -150,7 +151,7 @@ export function AppHeader({
               <MenuViewItem icon={<SplitSquareHorizontal size={13} />} onClick={onCloseOtherTabs} disabled>Close Other Tabs</MenuViewItem>
               <MenuViewSeparator />
               <MenuViewItem icon={<Command size={13} />} onClick={onOpenSettings} shortcut="Ctrl+Shift+P">Command Palette</MenuViewItem>
-              <MenuViewItem icon={<Settings size={13} />} onClick={onToggleTheme}>Switch Mode ({theme})</MenuViewItem>
+              <MenuViewItem icon={<Settings size={13} />} onClick={onOpenSettings} shortcut="Ctrl+,">Open Settings</MenuViewItem>
               <MenuViewSeparator />
               <MenuViewItem icon={<ExternalLink size={13} />} onClick={onExit} danger>Exit</MenuViewItem>
             </MenuView>
@@ -196,7 +197,7 @@ export function AppHeader({
                 <MenuViewItem icon={<SplitSquareHorizontal size={13} />} onClick={onCloseOtherTabs}>Close Other Tabs</MenuViewItem>
                 <MenuViewSeparator />
                 <MenuViewItem icon={<Command size={13} />} onClick={onOpenSettings} shortcut="Ctrl+Shift+P">Command Palette</MenuViewItem>
-                <MenuViewItem icon={<Settings size={13} />} onClick={onToggleTheme}>Switch Mode ({theme})</MenuViewItem>
+              <MenuViewItem icon={<Settings size={13} />} onClick={onOpenSettings} shortcut="Ctrl+,">Open Settings</MenuViewItem>
                 <MenuViewSeparator />
                 <MenuViewItem icon={<ExternalLink size={13} />} onClick={onExit} danger>Exit</MenuViewItem>
               </MenuView>

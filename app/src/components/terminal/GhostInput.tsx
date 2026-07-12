@@ -155,7 +155,7 @@ export function GhostInput({
         reset();
       }
     },
-    [acceptGhostCompletion, uniqueHistory, onChange, value, sessionId]
+    [acceptGhostCompletion, navigateUp, navigateDown, reset, onChange, value, sessionId]
   );
 
   const handlePaste = useCallback(

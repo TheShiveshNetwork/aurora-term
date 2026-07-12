@@ -401,6 +401,11 @@ export function useAppBootstrap() {
         useAppShellStore.getState().setIsCwdLoading(false);
       }
 
+      const tab = useSessionStore.getState().tabs.find(t => t.id === sessionId);
+      if (tab && tab.streaming) {
+        useSessionStore.getState().updateTab(sessionId, { streaming: false });
+      }
+
       if (sessionId === activeTabId) {
         setTimeout(() => {
           window.dispatchEvent(new CustomEvent("aurora-focus-terminal-input", { detail: { sessionId } }));
@@ -418,6 +423,21 @@ export function useAppBootstrap() {
       .map((t) => t.filePath!);
     system.watchFiles(filePaths).catch(() => {});
   }, [tabs]);
+
+  // Mark file tabs as missing when their file is deleted externally
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    listen<string>("file-deleted", (event) => {
+      const deletedPath = event.payload;
+      const { tabs: currentTabs, updateTab } = useSessionStore.getState();
+      for (const tab of currentTabs) {
+        if (tab.type === "file" && tab.filePath === deletedPath && !tab.missing) {
+          updateTab(tab.id, { missing: true });
+        }
+      }
+    }).then((u) => { unlisten = u; });
+    return () => { unlisten?.(); };
+  }, []);
 
   useEffect(() => {
     window.dispatchEvent(new CustomEvent("aurora-focus-terminal-input"));

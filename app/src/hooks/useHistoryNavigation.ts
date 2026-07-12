@@ -1,36 +1,41 @@
-import { useState, useRef, useCallback } from "react";
+import { useRef, useCallback } from "react";
 
 export function useHistoryNavigation(history: string[]) {
-  const [index, setIndex] = useState(-1);
+  const indexRef = useRef(-1);
   const draftRef = useRef("");
 
-  const uniqueHistory = [...new Set(history.filter(Boolean))];
+  const historyRef = useRef(history);
+  historyRef.current = history;
 
   const navigateUp = useCallback((currentValue: string) => {
-    if (index === -1) {
+    const idx = indexRef.current;
+    if (idx === -1) {
       draftRef.current = currentValue;
     }
-    if (uniqueHistory.length === 0) return currentValue;
-    const newIndex = index === -1 ? uniqueHistory.length - 1 : Math.max(0, index - 1);
-    setIndex(newIndex);
-    return uniqueHistory[newIndex];
-  }, [index, uniqueHistory]);
+    const entries = historyRef.current;
+    if (entries.length === 0) return currentValue;
+    const newIndex = idx === -1 ? entries.length - 1 : Math.max(0, idx - 1);
+    indexRef.current = newIndex;
+    return entries[newIndex];
+  }, []);
 
   const navigateDown = useCallback(() => {
-    if (uniqueHistory.length === 0) return draftRef.current;
-    const newIndex = index + 1;
-    if (newIndex >= uniqueHistory.length) {
-      setIndex(-1);
-      return draftRef.current;
+    const idx = indexRef.current;
+    const entries = historyRef.current;
+    if (entries.length === 0 || idx === -1) return "";
+    const newIndex = idx + 1;
+    if (newIndex >= entries.length) {
+      indexRef.current = -1;
+      return "";
     }
-    setIndex(newIndex);
-    return uniqueHistory[newIndex];
-  }, [index, uniqueHistory]);
+    indexRef.current = newIndex;
+    return entries[newIndex];
+  }, []);
 
   const reset = useCallback(() => {
-    setIndex(-1);
+    indexRef.current = -1;
     draftRef.current = "";
   }, []);
 
-  return { navigateUp, navigateDown, reset, currentIndex: index };
+  return { navigateUp, navigateDown, reset };
 }

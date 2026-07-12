@@ -122,7 +122,12 @@ export function useCommandExecution(tabs: Tab[], activeTabId: string | null) {
       markSessionInteracted(targetId);
       window.dispatchEvent(new CustomEvent(`pty-command-run:${targetId}`, { detail: { cmd } }));
 
-      // Write user command
+      const targetTab = useSessionStore.getState().tabs.find(t => t.id === targetId);
+      if (targetTab && !targetTab.manuallyRenamed) {
+        const tabName = cmd.length > 30 ? cmd.slice(0, 27) + "..." : cmd;
+        useSessionStore.getState().updateTab(targetId, { name: tabName, streaming: true });
+      }
+
       await pty.write(targetId, `${cmd}\r`);
     } catch (error) {
       console.error("Failed to write command to shell:", error);

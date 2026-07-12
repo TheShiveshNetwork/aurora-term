@@ -224,27 +224,23 @@ export function ProviderDetailView({
               <label className="text-xs font-medium text-[#E8EAF0]/50 tracking-wider">
                 Base URL
               </label>
-              <button
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={() => setEditingBaseUrl(!editingBaseUrl)}
-                className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded-lg transition-all cursor-pointer bg-white/[0.04] text-[#E8EAF0]/50 border border-white/[0.06] hover:bg-white/[0.08]"
               >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
-                </svg>
                 {editingBaseUrl ? "Done" : "Edit"}
-              </button>
+              </Button>
             </div>
             {editingBaseUrl ? (
-              <input
-                type="text"
+              <Input
+                variant="text"
                 value={baseUrl}
-                onChange={(e) => updateDraft((d) => {
+                onChange={(val) => updateDraft((d) => {
                   const p = (d.config.ai as any)[name];
-                  if (p) p.base_url = e.target.value || null;
+                  if (p) p.base_url = val || null;
                 })}
                 placeholder={providerInfo.defaultBaseUrl || ""}
-                className="w-full bg-surface-container-lowest border border-outline-variant/10 rounded-lg px-3 py-1.5 text-[12px] outline-none cursor-text select-text font-mono"
-                style={{ color: "#E8EAF0" }}
               />
             ) : (
               <div className="flex items-center gap-2 px-3 py-1.5 text-[12px] font-mono rounded-lg bg-white/[0.02] border border-white/[0.04]" style={{ color: "#E8EAF0" }}>
@@ -261,14 +257,15 @@ export function ProviderDetailView({
             <label className="text-xs font-medium text-[#E8EAF0]/50 tracking-wider">
               Model Overrides
             </label>
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={fetchModels}
               disabled={loadingModels}
-              className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded-lg transition-all cursor-pointer disabled:opacity-40 bg-white/[0.04] text-[#E8EAF0]/50 border border-white/[0.06] hover:bg-white/[0.08]"
             >
               <RefreshCw size={10} className={loadingModels ? "animate-spin" : ""} />
               {loadingModels ? "Loading" : "Refresh"}
-            </button>
+            </Button>
           </div>
           {loadingModels && (
             <div className="text-xs text-[#E8EAF0]/40 px-3 py-2 rounded-lg bg-white/[0.02] border border-white/[0.04] mb-2">
@@ -330,10 +327,11 @@ export function ProviderDetailView({
 
         {/* Actions */}
         <div className="flex justify-end items-center gap-2 pt-1">
-          <button
+          <Button
+            variant="secondary"
+            size="sm"
             onClick={handleTestConnection}
             disabled={testing}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-all cursor-pointer disabled:opacity-40 bg-white/[0.04] text-[#E8EAF0]/60 border border-white/[0.06] hover:bg-white/[0.08]"
           >
             <RefreshCw size={12} className={testing ? "animate-spin" : testResult === "success" ? "text-green-400/80" : "text-red-400/80"} />
             {testing ? "Testing..." : testResult === "success" ? (
@@ -341,32 +339,35 @@ export function ProviderDetailView({
             ) : (
               <span className="text-xs text-red-400/80">Connection failed</span>
             )}
-          </button>
+          </Button>
 
-          <button
+          <Button
+            variant="primary"
+            size="sm"
             onClick={handleSaveKey}
             disabled={!apiKey}
-            className="px-3 py-1.5 text-xs font-medium rounded-lg transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500/20"
           >
             Save
-          </button>
+          </Button>
         </div>
       </div>
 
       <Modal open={confirmRemove} onClose={() => setConfirmRemove(false)} title="Remove API Key" description={`Are you sure you want to remove the ${providerInfo.displayName} API key?`}>
         <div className="flex justify-end gap-2 pt-2">
-          <button
+          <Button
+            variant="secondary"
+            size="sm"
             onClick={() => setConfirmRemove(false)}
-            className="px-3 py-1.5 text-xs font-medium rounded-lg transition-all cursor-pointer bg-white/[0.04] text-[#E8EAF0]/60 border border-white/[0.06] hover:bg-white/[0.08]"
           >
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="danger"
+            size="sm"
             onClick={handleDeleteKey}
-            className="px-3 py-1.5 text-xs font-medium rounded-lg transition-all cursor-pointer bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20"
           >
             Remove
-          </button>
+          </Button>
         </div>
       </Modal>
     </>

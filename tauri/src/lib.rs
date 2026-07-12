@@ -115,6 +115,32 @@ pub fn run() {
             );
             app.manage(app_state);
 
+            // ── Platform-specific window customization ──
+            let window = app.get_webview_window("main")
+                .ok_or_else(|| anyhow::anyhow!("Main window not found"))?;
+
+            #[cfg(target_os = "macos")]
+            {
+                use tauri::TitleBarStyle;
+                window.set_title_bar_style(TitleBarStyle::Transparent);
+
+                use objc2_app_kit::{NSColor, NSWindow};
+                let ns_window_ptr = window.ns_window().unwrap() as *mut NSWindow;
+                let ns_window = unsafe { &*ns_window_ptr };
+                let bg_color = NSColor::colorWithRed_green_blue_alpha(
+                    10.0 / 255.0,
+                    13.0 / 255.0,
+                    20.0 / 255.0,
+                    1.0,
+                );
+                ns_window.setBackgroundColor(Some(&bg_color));
+            }
+
+            #[cfg(not(target_os = "macos"))]
+            {
+                window.set_decorations(false)?;
+            }
+
             // Spawn aurora-agent sidecar asynchronously on startup
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -179,6 +205,7 @@ pub fn run() {
             aurora_commands::select_folder,
             aurora_commands::select_file,
             aurora_commands::create_path,
+            aurora_commands::path_exists,
             aurora_commands::watch_files,
             aurora_commands::watch_directory,
             aurora_commands::watch_git,

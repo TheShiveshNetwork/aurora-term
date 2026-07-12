@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from "uuid";
 import { system } from "./ipc";
 import { useSessionStore } from "../stores/useSessionStore";
+import { isGitViewWindow, openDiffTabInMainWindow } from "./gitDiffBridge";
 
 export async function getFileDiffAtCommit(
   cwd: string,
@@ -14,14 +15,14 @@ export async function getFileDiffAtCommit(
   return [oldContent, newContent];
 }
 
-export function openDiffTab(
+export async function openDiffTab(
   addTab: (tab: any) => void,
   setActiveTabId: (id: string) => void,
   filePath: string,
   hash: string,
   oldContent: string,
   newContent: string
-): void {
+): Promise<void> {
   const existing = useSessionStore.getState().tabs.find(
     t => t.type === "diff" && t.filePath === filePath && t.diffCommitHash === hash
   );
@@ -29,15 +30,21 @@ export function openDiffTab(
 
   const fileName = filePath.split(/[\\/]/).pop() || filePath;
   const id = uuidv4();
-  addTab({
+  const payload = {
     id,
     name: `Diff: ${fileName} @ ${hash.slice(0, 7)}`,
-    type: "diff",
+    type: "diff" as const,
     filePath,
     diffOldContent: oldContent,
     diffNewContent: newContent,
     diffCommitHash: hash,
     created_at: Date.now(),
-  });
-  setActiveTabId(id);
+  };
+
+  if (isGitViewWindow()) {
+    await openDiffTabInMainWindow(payload);
+  } else {
+    addTab(payload);
+    setActiveTabId(id);
+  }
 }

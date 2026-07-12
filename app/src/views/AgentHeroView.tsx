@@ -1,7 +1,10 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Terminal, Mic, Paperclip, Plus, ChevronDown } from "lucide-react";
-import { useHasApiKeyConfigured, ProviderSetupPrompt } from "./ProviderSetupPrompt";
-import { useVoiceInput } from "../../hooks/useVoiceInput";
+import { Terminal, Mic, Paperclip, Plus, ChevronDown, ArrowUp } from "lucide-react";
+import { useHasApiKeyConfigured, ProviderSetupPrompt } from "../components/agents/ProviderSetupPrompt";
+import { useVoiceInput } from "../hooks/useVoiceInput";
+import { AgentPromptInput, AttachedFile } from "../components/agents/AgentPromptInput";
+import { system } from "../lib/ipc";
+import { MenuView, MenuViewItem } from "../components/ui/MenuView";
 
 // ── Phrases ───────────────────────────────────────────────────────────────
 const PHRASES = [
@@ -87,12 +90,39 @@ function ChipIcon({ type }: { type: string }) {
   }
 }
 
-export function AgentHeroView({ onSend }: { onSend?: (text: string) => void }) {
+export function AgentHeroView({
+  onSend,
+  selectedModel,
+  onModelChange,
+  sessionName,
+  onNewSession,
+  onRenameSession,
+}: {
+  onSend?: (text: string, files?: AttachedFile[]) => void;
+  selectedModel?: string;
+  onModelChange?: (model: string) => void;
+  sessionName: string;
+  onNewSession?: () => void;
+  onRenameSession?: (newTitle: string) => void;
+}) {
   const hasApiKey = useHasApiKeyConfigured();
-  const outerRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
-  const sendBtnRef = useRef<HTMLButtonElement>(null);
   const [input, setInput] = useState("");
+  const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
+  const [showMenu, setShowMenu] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [tempTitle, setTempTitle] = useState(sessionName);
+
+  useEffect(() => {
+    setTempTitle(sessionName);
+  }, [sessionName]);
+
+  const saveRename = () => {
+    if (tempTitle.trim()) {
+      onRenameSession?.(tempTitle.trim());
+    }
+    setIsEditing(false);
+  };
 
   const { isListening, toggleListening } = useVoiceInput({
     onTranscript: (text) => setInput(text),
@@ -139,25 +169,6 @@ export function AgentHeroView({ onSend }: { onSend?: (text: string) => void }) {
     }
   }, [phraseIdx]);
 
-  // ── Merged Animation Loop: wave + glare in a single rAF callback ──────────
-  useEffect(() => {
-    let running = true;
-    const tick = () => {
-      if (!running) return;
-      if (document.visibilityState === "visible") {
-        waveTRef.current += 0.036;
-        letterElsRef.current.forEach((s, i) => {
-          if (s) s.style.transform = `translateY(${Math.sin(waveTRef.current + i * 0.35) * 1.5}px)`;
-        });
-        curAngleRef.current = lerpAngleDeg(curAngleRef.current, targetAngleRef.current, focusedRef.current ? 0.22 : 0.04);
-        if (outerRef.current) setGlare(outerRef.current, curAngleRef.current);
-      }
-      rafIdRef.current = requestAnimationFrame(tick);
-    };
-    rafIdRef.current = requestAnimationFrame(tick);
-    return () => { running = false; cancelAnimationFrame(rafIdRef.current); };
-  }, []);
-
   const handleFocus = useCallback(() => {
     focusedRef.current = true;
     if (taRef.current) targetAngleRef.current = calculatePerimeterAngle(taRef.current);
@@ -172,8 +183,7 @@ export function AgentHeroView({ onSend }: { onSend?: (text: string) => void }) {
     if (taRef.current) targetAngleRef.current = calculatePerimeterAngle(taRef.current);
   }, []);
 
-  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const val = e.target.value;
+  const handleValueChange = useCallback((val: string) => {
     setInput(val);
 
     // Explicit frame cycle recalculation maps changes on typing/deletions instantly
@@ -181,17 +191,37 @@ export function AgentHeroView({ onSend }: { onSend?: (text: string) => void }) {
       handleCursorMove(); // Ensure border tracks on input change
       if (taRef.current) targetAngleRef.current = calculatePerimeterAngle(taRef.current);
     }, 0);
-    if (sendBtnRef.current) sendBtnRef.current.classList.toggle("has-text", val.trim().length > 0);
-  }, []);
+  }, [handleCursorMove]);
 
   const handleSend = useCallback(() => {
     const trimmed = input.trim();
     if (!trimmed) return;
-    onSend?.(trimmed);
+    onSend?.(trimmed, attachedFiles);
     setInput("");
+    setAttachedFiles([]);
     targetAngleRef.current = 225;
-    if (sendBtnRef.current) sendBtnRef.current.classList.remove("has-text");
-  }, [input, onSend]);
+  }, [input, attachedFiles, onSend]);
+
+  const handleAttachFileClick = async () => {
+    try {
+      const filePath = await system.selectFile();
+      if (!filePath) return;
+
+      const name = filePath.split(/[/\\]/).pop() || filePath;
+      const content = await system.readFileContent(filePath);
+
+      setAttachedFiles((prev) => {
+        if (prev.some((f) => f.path === filePath)) return prev;
+        return [...prev, { name, path: filePath, content }];
+      });
+    } catch (err) {
+      console.error("Failed to attach file:", err);
+    }
+  };
+
+  const handleRemoveFile = useCallback((idx: number) => {
+    setAttachedFiles((prev) => prev.filter((_, i) => i !== idx));
+  }, []);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); }
@@ -241,15 +271,51 @@ export function AgentHeroView({ onSend }: { onSend?: (text: string) => void }) {
         />
 
         <div className="w-full max-w-[680px] flex flex-col items-center relative z-10">
-          <div className="inline-flex items-center gap-[7px] bg-[rgba(80,90,200,0.18)] border border-[rgba(100,110,220,0.28)] rounded-full px-4 py-1.5 mb-6 select-none">
+          <div className="inline-flex items-center gap-[7px] bg-[rgba(80,90,200,0.18)] border border-[rgba(100,110,220,0.28)] rounded-full px-4 py-1.5 mb-2 select-none relative">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
               <path d="M8 1.5L9.4 6.6L14.5 8L9.4 9.4L8 14.5L6.6 9.4L1.5 8L6.6 6.6Z" fill="#8899ff" />
             </svg>
-            <span className="text-[13px] font-medium tracking-[0.01em] text-[#8899ff]">Aura Agent</span>
+            {isEditing ? (
+              <input
+                type="text"
+                className="bg-transparent border-none text-[13px] font-medium tracking-[0.01em] text-[#8899ff] focus:outline-none w-32 text-center"
+                value={tempTitle}
+                onChange={(e) => setTempTitle(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    saveRename();
+                  } else if (e.key === "Escape") {
+                    setIsEditing(false);
+                  }
+                }}
+                onBlur={saveRename}
+                autoFocus
+              />
+            ) : (
+              <div className="relative flex items-center">
+                <button
+                  onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
+                  className="text-[13px] font-medium tracking-[0.01em] text-[#8899ff] hover:text-[#a0b0ff] flex items-center gap-1 cursor-pointer select-none border-none bg-transparent"
+                >
+                  <span>{sessionName}</span>
+                  <ChevronDown size={12} />
+                </button>
+
+                <MenuView
+                  open={showMenu}
+                  onClose={() => setShowMenu(false)}
+                  className="absolute left-1/2 -translate-x-1/2 mt-6 w-40 z-[999]"
+                  style={{ pointerEvents: "auto" }}
+                >
+                  <MenuViewItem onClick={() => { setShowMenu(false); onNewSession?.(); }}>New Session</MenuViewItem>
+                  <MenuViewItem onClick={() => { setShowMenu(false); setIsEditing(true); }}>Rename Session</MenuViewItem>
+                </MenuView>
+              </div>
+            )}
           </div>
 
           {/* Headline component layout - explicitly given h-16 + py-4 padding space so lines never cut */}
-          <div className="flex items-center justify-center mb-[32px] min-h-[64px] text-[32px] font-semibold text-[rgba(255,255,255,0.9)] tracking-tight font-sans whitespace-pre overflow-visible">
+          <div className="flex items-center justify-center select-none min-h-[64px] text-[32px] font-semibold text-[rgba(255,255,255,0.9)] tracking-tight font-sans whitespace-pre overflow-visible">
             <span className="leading-[1.2]">{currentPhrase.before}</span>
             <span className="inline-grid relative overflow-visible align-baseline">
               <span
@@ -276,51 +342,26 @@ export function AgentHeroView({ onSend }: { onSend?: (text: string) => void }) {
             ))}
           </div>
 
-          <div ref={outerRef} className="w-full p-[1px] rounded-[14px] relative transition-all duration-75"
-            style={{ background: "conic-gradient(from 225deg, rgba(120,140,255,0.0) 0deg, rgba(120,140,255,0.0) 60deg, rgba(180,200,255,0.9) 120deg, rgba(120,140,255,0.0) 180deg, rgba(120,140,255,0.0) 360deg)" }}
-          >
-            <div className="bg-[#161929] rounded-[13px] relative overflow-hidden">
-              <textarea ref={taRef} value={input} onChange={handleInputChange}
-                onFocus={handleFocus} onBlur={handleBlur} onKeyUp={handleCursorMove}
-                onClick={handleCursorMove} onSelect={handleCursorMove} onKeyDown={handleKeyDown}
-                placeholder="Ask the agent to do something..." rows={1}
-                className="aurora-ta block w-full min-h-[80px] max-h-[200px] bg-transparent border-none outline-none resize-none text-[15px] leading-[1.6] text-[rgba(255,255,255,0.85)] px-5 pt-5 pb-2 font-sans overflow-y-auto scrollbar-thin placeholder:text-[rgba(255,255,255,0.22)]"
-              />
-              <div className="flex items-center gap-1.5 px-3 pb-[14px] pt-1.5">
-                <button className="flex items-center justify-center w-[34px] h-[34px] bg-[rgba(255,255,255,0.06)] border border-[rgba(255,255,255,0.10)] rounded-lg text-[rgba(255,255,255,0.55)] cursor-pointer transition-all duration-150 hover:bg-[rgba(255,255,255,0.10)]">
-                  <Plus size={18} />
-                </button>
-                <button className="inline-flex items-center gap-1.5 bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.09)] rounded-lg px-2.5 py-1.5 text-[13px] text-[rgba(255,255,255,0.58)] cursor-pointer font-sans whitespace-nowrap transition-all duration-150 hover:bg-[rgba(255,255,255,0.08)]">
-                  Claude Sonnet <ChevronDown size={12} />
-                </button>
-                <div className="flex-1" />
-                <button className="flex items-center justify-center w-8 h-8 bg-transparent border-none rounded-md text-[rgba(255,255,255,0.32)] cursor-pointer transition-colors duration-150 hover:text-[rgba(255,255,255,0.65)]">
-                  <Paperclip size={14} />
-                </button>
-                <button className="flex items-center justify-center w-8 h-8 bg-transparent border-none rounded-md text-[rgba(255,255,255,0.32)] cursor-pointer transition-colors duration-150 hover:text-[rgba(255,255,255,0.65)]">
-                  <Terminal size={14} />
-                </button>
-                <button 
-                  onClick={toggleListening}
-                  title={isListening ? "Listening... Click to stop" : "Voice Input"}
-                  className={`flex items-center justify-center w-8 h-8 border-none rounded-md cursor-pointer transition-colors duration-150 ${
-                    isListening 
-                      ? "bg-red-500/15 text-red-400 border border-red-500/20" 
-                      : "bg-transparent text-[rgba(255,255,255,0.32)] hover:text-[rgba(255,255,255,0.65)]"
-                  }`}
-                >
-                  <Mic size={14} className={isListening ? "animate-pulse" : ""} />
-                </button>
-                <button ref={sendBtnRef} onClick={handleSend} disabled={!input.trim()}
-                  className="flex items-center justify-center w-9 h-9 bg-[#4553d4] border-none rounded-lg cursor-pointer shrink-0 transition-all duration-150 hover:bg-[#5f6df0] disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                    <path d="M8 13V3" stroke="white" strokeWidth="1.8" strokeLinecap="round" />
-                    <path d="M3.5 7.5L8 3L12.5 7.5" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                </button>
-              </div>
-            </div>
+          <div className="w-full">
+            <AgentPromptInput
+              value={input}
+              onValueChange={handleValueChange}
+              onSubmit={handleSend}
+              isLoading={false}
+              attachedFiles={attachedFiles}
+              onRemoveFile={handleRemoveFile}
+              isListening={isListening}
+              toggleListening={toggleListening}
+              onAttachClick={handleAttachFileClick}
+              taRef={taRef}
+              onFocus={handleFocus}
+              onBlur={handleBlur}
+              onKeyUp={handleCursorMove}
+              onClick={handleCursorMove}
+              onSelect={handleCursorMove}
+              selectedModel={selectedModel}
+              onModelChange={onModelChange}
+            />
           </div>
         </div>
       </div>

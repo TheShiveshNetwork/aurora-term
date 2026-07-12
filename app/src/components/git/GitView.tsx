@@ -15,6 +15,7 @@ import { useDragResize } from "../../hooks/useDragResize";
 import { useSessionStore } from "../../stores/useSessionStore";
 import { useGitStore } from "../../stores/useGitStore";
 import { useGitWatcher } from "../../hooks/useGitWatcher";
+import { isGitViewWindow, openDiffTabInMainWindow } from "../../lib/gitDiffBridge";
 import { CommitDiffView } from "../editor/CommitDiffView";
 import { GitTree } from "../ui/GitTree";
 import { LoadingSpinner } from "../ui/LoadingSpinner";
@@ -85,12 +86,31 @@ export function GitView({ cwd, tabId }: GitViewProps) {
     }).catch(() => {});
   }, [cwd]);
 
-  // When branches load and no saved state exists, select all
+  // When branches load and no saved state exists, default to current + main/origin/main
   useEffect(() => {
     if (!hasSavedState.current && branches.length > 0 && checkedBranches.length === 0) {
-      setCheckedBranches(branches.map(b => b.name));
+      const current = branches.find(b => b.current)?.name;
+      const mainLike = branches.find(b => /^main$|^master$/.test(b.name))?.name
+        ?? branches.find(b => b.name === "origin/main" || b.name === "origin/master")?.name;
+      const defaults = new Set<string>();
+      if (current) defaults.add(current);
+      if (mainLike && mainLike !== current) defaults.add(mainLike);
+      if (defaults.size === 0) {
+        setCheckedBranches(branches.map(b => b.name));
+      } else {
+        setCheckedBranches([...defaults]);
+      }
     }
   }, [branches, checkedBranches.length]);
+
+  // Always ensure the current branch is selected when branches change
+  useEffect(() => {
+    if (branches.length === 0) return;
+    const current = branches.find(b => b.current)?.name;
+    if (current && !checkedBranches.includes(current)) {
+      setCheckedBranches(prev => [...prev, current]);
+    }
+  }, [branches]);
 
   // Persist checked branches whenever they change
   const persistCheckedBranches = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -514,8 +534,12 @@ export function GitView({ cwd, tabId }: GitViewProps) {
     try {
       const diff = await diffFn(cwd);
       const id = uuidv4();
-      addTab({ id, name: title, type: "diff", diffContent: diff, created_at: Date.now() });
-      setActiveTabId(id);
+      if (isGitViewWindow()) {
+        await openDiffTabInMainWindow({ id, name: title, type: "diff", diffContent: diff, created_at: Date.now() });
+      } else {
+        addTab({ id, name: title, type: "diff", diffContent: diff, created_at: Date.now() });
+        setActiveTabId(id);
+      }
     } catch (e) { console.error(e); }
   }, [cwd, tabs, addTab, setActiveTabId]);
 
@@ -563,8 +587,12 @@ export function GitView({ cwd, tabId }: GitViewProps) {
       }
       const id = uuidv4();
       const name = path.split(/[\\/]/).pop() || path;
-      addTab({ id, name, type: "diff", filePath: resolvedPath, diffContent: diff, created_at: Date.now() });
-      setActiveTabId(id);
+      if (isGitViewWindow()) {
+        await openDiffTabInMainWindow({ id, name, type: "diff", filePath: resolvedPath, diffContent: diff, created_at: Date.now() });
+      } else {
+        addTab({ id, name, type: "diff", filePath: resolvedPath, diffContent: diff, created_at: Date.now() });
+        setActiveTabId(id);
+      }
     } catch (e) { console.error(e); }
   }, [selectedFile, cwd, stagedFiles, tabs, addTab, setActiveTabId]);
 

@@ -36,7 +36,7 @@ export function FileTimeline({ filePath }: { filePath?: string }) {
     if (!cwdAbsolute || !filePath) return;
     try {
       const [oldContent, newContent] = await getFileDiffAtCommit(cwdAbsolute, filePath, hash);
-      openDiffTab(addTab, setActiveTabId, filePath, hash, oldContent, newContent);
+      await openDiffTab(addTab, setActiveTabId, filePath, hash, oldContent, newContent);
     } catch {
       // silent
     }

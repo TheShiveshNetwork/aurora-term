@@ -1,6 +1,6 @@
 import fastify from 'fastify';
 import { mastra, memoryLogs } from './mastra';
-import { auraMemory } from './agents/aura';
+import { auraMemory, getModelProvider } from './agents/aura';
 import { reviewSettings } from './tools';
 import { rootLogger } from './logger';
 
@@ -120,6 +120,7 @@ server.post('/api/step', async (request, _reply) => {
     mode,
     require_review_for_commands,
     require_review_for_writes,
+    model,
   } = request.body as any;
 
   const stepLog = log.child({
@@ -135,6 +136,7 @@ server.post('/api/step', async (request, _reply) => {
     exitCode: exit_code,
     requireReviewCommands: require_review_for_commands,
     requireReviewWrites: require_review_for_writes,
+    model,
   });
 
   if (last_output) {
@@ -172,7 +174,7 @@ server.post('/api/step', async (request, _reply) => {
   const startTime = Date.now();
 
   try {
-    const response = await agent.generate(prompt, {
+    const generateOptions: any = {
       memory: {
         thread: threadId,
         resource: RESOURCE_ID,
@@ -180,7 +182,15 @@ server.post('/api/step', async (request, _reply) => {
       requireToolApproval: true,
       maxSteps: 25,
       abortSignal: AbortSignal.timeout(120_000),
-    });
+    };
+
+    if (model) {
+      const activeProvider = process.env.ACTIVE_AI_PROVIDER || 'groq';
+      generateOptions.model = getModelProvider(activeProvider, model);
+      stepLog.info('Using model override', { provider: activeProvider, model });
+    }
+
+    const response = await agent.generate(prompt, generateOptions);
 
     const elapsed = Date.now() - startTime;
     stepLog.info('LLM response received', {

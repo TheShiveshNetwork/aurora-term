@@ -4,6 +4,7 @@ import { useOpenTabs, EDITOR_LIKE_TYPES } from "../../hooks/useOpenTabs";
 import { Tab } from "@aurora/types";
 import { MenuView, MenuViewItem, MenuViewSeparator } from "./MenuView";
 import { Button } from "./Button";
+import { StreamingText } from "./StreamingText";
 import { closeAllPopups, onClosePopups } from "../../lib/popups";
 import { system } from "../../lib/ipc";
 
@@ -51,7 +52,7 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
 
   const handleRenameSubmit = () => {
     if (renameTabId && renameValue.trim()) {
-      updateTab(renameTabId, { name: renameValue.trim() });
+      updateTab(renameTabId, { name: renameValue.trim(), manuallyRenamed: true });
     }
     setRenameTabId(null);
   };
@@ -283,7 +284,7 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
 
   return (
     <div
-      className="flex items-center w-full h-13 px-3 gap-2"
+      className="flex items-center w-full h-13.5 px-3 gap-2"
       style={{
         background: "#0A0D14",
         borderBottom: "1px solid rgba(255,255,255,0.05)",
@@ -361,12 +362,11 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
               ) : tab.type === "git" && (
                 <GitBranch size={14} className="shrink-0" />
               )}
-              <span
-                className={`truncate transition-all duration-200 ${isActive ? "text-on-surface" : ""} ${isExpanded ? "max-w-[160px] opacity-100" : "max-w-0 opacity-0 overflow-hidden"
-                  }`}
-              >
-                {tab.name}
-              </span>
+              <StreamingText
+                name={tab.name}
+                streaming={!!tab.streaming}
+                className={`truncate transition-all pr-3 duration-200 ${isActive ? "text-on-surface" : ""} ${isExpanded ? "max-w-[160px] opacity-100" : "max-w-0 !opacity-0 overflow-hidden"} ${tab.missing ? "line-through !opacity-50" : ""}`}
+              />
 
               <button
                 onClick={(e) => {
@@ -418,30 +418,30 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
         </button>
       )}
 
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            if (showAddMenu) {
-              setShowAddMenu(false);
-            } else if (e.shiftKey) {
-              closeAllPopups();
-              setShowAddMenu(true);
-            } else {
-              onAddTab("terminal");
-            }
-          }}
-          className="w-9 h-9 mt-1.5 self-start flex items-center justify-center rounded-[10px] transition-all cursor-pointer"
-          style={{
-            background: "rgba(255,255,255,0.04)",
-            border: "1px solid rgba(255,255,255,0.07)",
-            color: "rgba(232,234,240,0.5)",
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(79,140,255,0.10)"; e.currentTarget.style.color = "#4F8CFF"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.04)"; e.currentTarget.style.color = "rgba(232,234,240,0.5)"; }}
-          title="New Tab Options"
-        >
-          <Plus size={15} className={`transition-transform duration-200 ${showAddMenu ? "rotate-45" : ""}`} />
-        </button>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          if (showAddMenu) {
+            setShowAddMenu(false);
+          } else if (e.shiftKey) {
+            closeAllPopups();
+            setShowAddMenu(true);
+          } else {
+            onAddTab("terminal");
+          }
+        }}
+        className="w-9 h-9 mt-1.5 self-start flex items-center justify-center rounded-[10px] transition-all cursor-pointer"
+        style={{
+          background: "rgba(255,255,255,0.04)",
+          border: "1px solid rgba(255,255,255,0.07)",
+          color: "rgba(232,234,240,0.5)",
+        }}
+        onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(79,140,255,0.10)"; e.currentTarget.style.color = "#4F8CFF"; }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.04)"; e.currentTarget.style.color = "rgba(232,234,240,0.5)"; }}
+        title="New Tab Options"
+      >
+        <Plus size={15} className={`transition-transform duration-200 ${showAddMenu ? "rotate-45" : ""}`} />
+      </button>
 
       <MenuView
         variant="rightclick"
