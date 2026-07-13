@@ -15,7 +15,37 @@ pub async fn pty_spawn(
     let id = session_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let mut manager = state.pty_manager.lock().await;
     let sender = state.pty_event_sender.clone();
-    manager.spawn(id.clone(), shell, args, env, cwd, sender).await?;
+
+    let resolved_shell = if shell.is_empty() {
+        aurora_pty::shell::detect_default_shell()
+    } else {
+        #[cfg(not(target_os = "windows"))]
+        {
+            if shell == "powershell.exe" || shell == "pwsh" || shell == "bash" || shell == "zsh" {
+                aurora_pty::shell::detect_default_shell()
+            } else if !shell.contains('/') {
+                which::which(&shell)
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .unwrap_or_else(|_| aurora_pty::shell::detect_default_shell())
+            } else {
+                shell
+            }
+        }
+        #[cfg(target_os = "windows")]
+        {
+            if shell == "bash" || shell == "zsh" {
+                aurora_pty::shell::detect_default_shell()
+            } else if !shell.contains('\\') && !shell.contains('/') {
+                which::which(&shell)
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .unwrap_or_else(|_| aurora_pty::shell::detect_default_shell())
+            } else {
+                shell
+            }
+        }
+    };
+
+    manager.spawn(id.clone(), resolved_shell, args, env, cwd, sender).await?;
     Ok(id)
 }
 
