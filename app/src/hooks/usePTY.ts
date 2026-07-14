@@ -6,6 +6,7 @@ import { useSessionStore } from "../stores/useSessionStore";
 import { useBlockStore } from "../stores/useBlockStore";
 import { Tab } from "@aurora/types";
 import { cleanPtyData, stripAnsi } from "../lib/terminal/cleanup";
+import { getDefaultShellLaunch } from "../lib/shell";
 
 let listenersRegistered = false;
 let unregisterData: (() => void) | null = null;
@@ -62,8 +63,8 @@ export function usePTY() {
   }, []);
 
   const spawnSession = async (
-    shell: string = "powershell.exe",
-    args: string[] = [],
+    shell: string = getDefaultShellLaunch().shell,
+    args: string[] = getDefaultShellLaunch().args,
     env: Record<string, string> = {},
     cwd?: string,
     existingSessionId?: string

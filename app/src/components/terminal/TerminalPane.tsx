@@ -14,6 +14,7 @@ import { getRowHeight } from "../../lib/terminal/blockAnchors";
 import { stripAnsi, cleanPtyData } from "../../lib/terminal/cleanup";
 import { pty, system } from "../../lib/ipc";
 import { SquareTerminal } from "lucide-react";
+import { getDefaultShellLaunch } from "../../lib/shell";
 
 function findTrailingIncompleteEscape(data: string, lastAurora: number): number {
   let splitIndex = -1;
@@ -612,9 +613,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
 
       useBlockStore.getState().clearBlocks(sessionId);
 
-      const isWin = window.navigator.userAgent.includes("Windows");
-      const defaultShell = isWin ? "powershell.exe" : "bash";
-      const args = isWin ? ["-NoLogo"] : [];
+      const { shell: defaultShell, args } = getDefaultShellLaunch();
 
       await pty.spawn(defaultShell, args, {}, cwd, sessionId);
       console.log(`[TerminalPane ${sessionId}] Successfully restarted dead PTY session!`);
