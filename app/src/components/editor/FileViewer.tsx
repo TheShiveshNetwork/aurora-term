@@ -1,6 +1,11 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { EditorView } from "@codemirror/view";
-import type { Compartment } from "@codemirror/state";
+import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightSpecialChars, drawSelection, dropCursor, rectangularSelection, crosshairCursor, highlightActiveLine } from "@codemirror/view";
+import { EditorState, Prec, Compartment } from "@codemirror/state";
+import { autocompletion, completeAnyWord, closeBrackets, closeBracketsKeymap, completionKeymap } from "@codemirror/autocomplete";
+import { history, defaultKeymap, historyKeymap, indentWithTab } from "@codemirror/commands";
+import { foldGutter, indentOnInput, syntaxHighlighting, defaultHighlightStyle, bracketMatching, foldKeymap } from "@codemirror/language";
+import { highlightSelectionMatches, searchKeymap, selectSelectionMatches, SearchQuery, setSearchQuery } from "@codemirror/search";
+import { lintGutter, linter, lintKeymap } from "@codemirror/lint";
 import { listen } from "@tauri-apps/api/event";
 import { system, ai } from "../../lib/ipc";
 import { getLanguageExtension } from "../../lib/codeLang";
@@ -12,7 +17,7 @@ import { closeAllPopups } from "../../lib/popups";
 import { getEditorTheme, createThemeCompartment } from "./editorThemes";
 import { createMinimapExtension, toggleMinimap } from "./minimapExtension";
 import { getLinterSource } from "./linterSources";
-import { aiExtension, inlineCompletion } from "./aiExtensions";
+import { aiExtension, inlineCompletion, showAiEditInput } from "./aiExtensions";
 import { mergeConflictResolver } from "./mergeConflictExtension";
 import { SearchPanel } from "./SearchPanel";
 import { indentMarkersExtension } from "./indentMarkersExtension";
@@ -333,24 +338,10 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
 
         const ext = filePath.split(".").pop()?.toLowerCase() || "";
         const [
-          { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightSpecialChars, drawSelection, dropCursor, rectangularSelection, crosshairCursor, highlightActiveLine },
-          { EditorState, Prec, Compartment },
-          { autocompletion, completeAnyWord, closeBrackets, closeBracketsKeymap, completionKeymap },
-          { history, defaultKeymap, historyKeymap, indentWithTab },
-          { foldGutter, indentOnInput, syntaxHighlighting, defaultHighlightStyle, bracketMatching, foldKeymap },
-          { highlightSelectionMatches, searchKeymap, selectSelectionMatches, SearchQuery, setSearchQuery },
-          { lintGutter, linter, lintKeymap },
           content,
           languageExt,
           lintSource,
         ] = await Promise.all([
-          import("@codemirror/view"),
-          import("@codemirror/state"),
-          import("@codemirror/autocomplete"),
-          import("@codemirror/commands"),
-          import("@codemirror/language"),
-          import("@codemirror/search"),
-          import("@codemirror/lint"),
           system.readFileContent(filePath),
           getLanguageExtension(filePath),
           getLinterSource(ext),
@@ -825,10 +816,8 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
       if (detail && detail.tabId !== tabId) return;
       const view = viewRef.current;
       if (!view) return;
-      import("./aiExtensions").then(({ showAiEditInput }) => {
-        console.log("Imported showAiEditInput, calling it");
-        showAiEditInput(view);
-      });
+      console.log("Calling showAiEditInput");
+      showAiEditInput(view);
     };
 
     window.addEventListener("file-select-all", handler);

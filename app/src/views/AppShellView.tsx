@@ -1,6 +1,8 @@
 import { type SubmitEvent, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { openSettingsWindow } from "../lib/settings";
 import { v4 as uuidv4 } from "uuid";
 import { Tab } from "@aurora/types";
 
@@ -295,7 +297,6 @@ export function AppShellView() {
   const handleNewWindow = async () => {
     setShowMenuDropdown(false);
     try {
-      const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
       new WebviewWindow(`aurora_${Date.now()}`, {
         title: "Aurora Terminal",
         url: "/",
@@ -313,7 +314,6 @@ export function AppShellView() {
   const handleOpenSettings = async () => {
     setShowMenuDropdown(false);
     try {
-      const { openSettingsWindow } = await import("../lib/settings");
       await openSettingsWindow();
     } catch (error) {
       console.error("Failed to open settings window:", error);
