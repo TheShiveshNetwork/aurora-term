@@ -43,6 +43,7 @@ pub struct AgentApproveRequest {
     pub run_id: String,
     #[serde(rename = "toolCallId")]
     pub tool_call_id: Option<String>,
+    #[serde(rename = "resumeData", alias = "resume_data")]
     pub resume_data: Option<serde_json::Value>,
 }
 

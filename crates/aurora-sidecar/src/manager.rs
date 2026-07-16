@@ -88,17 +88,27 @@ impl SidecarManager {
             let mut exe_path = std::env::current_exe().map_err(|e| AppError::Sidecar(format!("Failed to get current executable path: {}", e)))?;
             exe_path.pop(); // get directory containing the executable
             
-            let binary_name = format!("aurora-agent-{}", TARGET_TRIPLE);
-            #[cfg(target_os = "windows")]
-            let binary_name = format!("{}.exe", binary_name);
-            let sidecar_path = exe_path.join(binary_name);
+            let base_name = "aurora-agent";
+            let triple_name = format!("{}-{}", base_name, TARGET_TRIPLE);
             
-            if !sidecar_path.exists() {
+            #[cfg(target_os = "windows")]
+            let (base_name_ext, triple_name_ext) = (format!("{}.exe", base_name), format!("{}.exe", triple_name));
+            #[cfg(not(target_os = "windows"))]
+            let (base_name_ext, triple_name_ext) = (base_name.to_string(), triple_name);
+            
+            let base_path = exe_path.join(&base_name_ext);
+            let triple_path = exe_path.join(&triple_name_ext);
+            
+            let sidecar_path = if base_path.exists() {
+                base_path
+            } else if triple_path.exists() {
+                triple_path
+            } else {
                 return Err(AppError::Sidecar(format!(
-                    "Compiled sidecar binary not found at {:?}",
-                    sidecar_path
+                    "Compiled sidecar binary not found (looked for {:?} and {:?})",
+                    base_path, triple_path
                 )));
-            }
+            };
             
             let mut c = tokio::process::Command::new(sidecar_path);
             c.args(["--port", &port.to_string()]);
