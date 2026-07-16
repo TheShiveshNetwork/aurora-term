@@ -20,7 +20,7 @@ export default function GitViewPage() {
         <div className="flex items-center gap-2">
           <GitBranch size={12} style={{ color: "rgba(232,234,240,0.4)" }} />
           <span className="text-xs font-semibold tracking-wider select-none" style={{ color: "rgba(232,234,240,0.4)" }}>
-            {projectName} Git View
+            {projectName} git
           </span>
         </div>
         <WindowControls />

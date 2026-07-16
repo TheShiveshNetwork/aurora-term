@@ -3,6 +3,7 @@ import { Command, ExternalLink, FileText, FolderOpen, History, Menu, PanelLeft, 
 import type { AppViewMode } from "../../stores/useAppShellStore";
 import { WindowControls } from "../ui/WindowControls";
 import { MenuView, MenuViewItem, MenuViewSeparator } from "../ui/MenuView";
+import { openSettingsWindow } from "../../lib/settings";
 
 import auroraIcon from "/static/aurora-icon.svg";
 import { SETTINGS_MANIFEST, categoryFor } from "../settings/settingsManifest";
@@ -456,9 +457,7 @@ function SearchBar({ collapsed, cwdAbsolute, onOpenFileAtPath }: { collapsed?: b
       if (s) {
         setFocused(false);
         setValue("");
-        import("../../lib/settings").then(({ openSettingsWindow }) =>
-          openSettingsWindow({ section: s.section, sub: s.subPage, element: s.elementId })
-        );
+        openSettingsWindow({ section: s.section, sub: s.subPage, element: s.elementId });
       }
     }
   };

@@ -1,8 +1,9 @@
 import { useMemo, useEffect, useRef, useState } from "react";
-import type { EditorView } from "@codemirror/view";
-import { Compartment } from "@codemirror/state";
+import { basicSetup, EditorView } from "codemirror";
+import { EditorState, Compartment } from "@codemirror/state";
 import type { Extension, Range } from "@codemirror/state";
-import type { Decoration, DecorationSet, ViewUpdate } from "@codemirror/view";
+import { EditorView as EditorViewClass, ViewPlugin, Decoration, lineNumbers } from "@codemirror/view";
+import type { DecorationSet, ViewUpdate } from "@codemirror/view";
 import { useSettingsStore } from "../../stores/useSettingsStore";
 import { getEditorTheme, createThemeCompartment, READONLY_EDITOR_THEME } from "./editorThemes";
 import { createMinimapExtension } from "./minimapExtension";
@@ -18,7 +19,7 @@ if (typeof document !== "undefined" && !document.getElementById(STYLE_ID)) {
     .aurora-diff-hdr  { background: rgba( 79, 140, 255, 0.08); display: block; color: rgba(79,140,255,0.7); }
     .aurora-collapsed { cursor: pointer; background: rgba(255,255,255,0.02); display: block; }
     .aurora-collapsed:hover { background: rgba(79, 140, 255, 0.06); }
-    .cm-gutters       { background: transparent !important; border-right: 1px solid rgba(232,234,240,0.06) !important; }
+    .cm-gutters       { background: transparent !important; }
     .cm-activeLineGutter { background: transparent !important; }
     .cm-activeLine    { background: rgba(255,255,255,0.022) !important; }
     .cm-minimap       { border-left: 1px solid rgba(232,234,240,0.05) !important; opacity: 0.72; }
@@ -193,115 +194,103 @@ export function CommitDiffView({
     viewRef.current = null;
     let cancelled = false;
 
-    Promise.all([
-      import("codemirror"),
-      import("@codemirror/state"),
-      import("@codemirror/view"),
-    ]).then(([
-      { EditorView, basicSetup },
-      { EditorState },
-      { EditorView: EditorViewClass, ViewPlugin, Decoration, lineNumbers },
-    ]) => {
-      if (cancelled) return;
+    const diffLinePlugin = ViewPlugin.fromClass(
+      class {
+        decorations: DecorationSet;
 
-      const diffLinePlugin = ViewPlugin.fromClass(
-        class {
-          decorations: DecorationSet;
-
-          constructor(view: EditorView) {
-            this.decorations = this.build(view);
-          }
-
-          update(u: ViewUpdate) {
-            if (u.docChanged || u.viewportChanged) {
-              this.decorations = this.build(u.view);
-            }
-          }
-
-          build(view: EditorView): DecorationSet {
-            const ranges: Range<Decoration>[] = [];
-
-            for (const { from, to } of view.visibleRanges) {
-              let pos = from;
-              while (pos <= to) {
-                const line = view.state.doc.lineAt(pos);
-                const first = line.text[0];
-
-                if (first === "+") {
-                  ranges.push(Decoration.line({ class: "aurora-diff-add" }).range(line.from));
-                } else if (first === "-") {
-                  ranges.push(Decoration.line({ class: "aurora-diff-del" }).range(line.from));
-                } else if (first === "@") {
-                  ranges.push(Decoration.line({ class: "aurora-diff-hdr" }).range(line.from));
-                } else if (first === "…") {
-                  ranges.push(Decoration.line({ class: "aurora-collapsed" }).range(line.from));
-                }
-
-                pos = line.to + 1;
-              }
-            }
-
-            return Decoration.set(ranges, true);
-          }
-        },
-        { decorations: (v) => v.decorations }
-      );
-
-      const customLineNumbers = lineNumbers({
-        formatNumber: (n: number) => {
-          const v = fileLineNumsRef.current[n - 1];
-          return v > 0 ? String(v) : "";
-        },
-      });
-
-      const collapsedClickHandler = EditorViewClass.domEventHandlers({
-        mousedown: (event: MouseEvent, view: EditorView) => {
-          if (!collapsibleRef.current) return false;
-          const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
-          if (pos === null) return false;
-          const line = view.state.doc.lineAt(pos);
-          if (!line.text.startsWith("… ")) return false;
-          const lineNr = line.number - 1;
-          const blockIdx = lineToBlockRef.current[lineNr];
-          if (blockIdx !== undefined && blockIdx >= 0) {
-            event.preventDefault();
-            setExpanded(prev => {
-              const next = new Set(prev);
-              if (next.has(blockIdx)) next.delete(blockIdx);
-              else next.add(blockIdx);
-              return next;
-            });
-            return true;
-          }
-          return false;
-        },
-      });
-
-      const view = new EditorView({
-        state: EditorState.create({
-          doc: collapsedText,
-          extensions: [
-            basicSetup,
-            createMinimapExtension(true),
-            diffLinePlugin,
-            EditorViewClass.editable.of(false),
-            EditorState.readOnly.of(true),
-            READONLY_EDITOR_THEME,
-            customLineNumbers,
-            collapsedClickHandler,
-            themeCompartmentRef.current.of([]),
-            wordWrapCompartmentRef.current.of(wordWrap ? EditorViewClass.lineWrapping : []),
-          ],
-        }),
-        parent: el,
-      });
-      viewRef.current = view;
-
-      getEditorTheme(editorTheme).then(theme => {
-        if (viewRef.current === view) {
-          view.dispatch({ effects: themeCompartmentRef.current.reconfigure(theme) });
+        constructor(view: EditorView) {
+          this.decorations = this.build(view);
         }
-      });
+
+        update(u: ViewUpdate) {
+          if (u.docChanged || u.viewportChanged) {
+            this.decorations = this.build(u.view);
+          }
+        }
+
+        build(view: EditorView): DecorationSet {
+          const ranges: Range<Decoration>[] = [];
+
+          for (const { from, to } of view.visibleRanges) {
+            let pos = from;
+            while (pos <= to) {
+              const line = view.state.doc.lineAt(pos);
+              const first = line.text[0];
+
+              if (first === "+") {
+                ranges.push(Decoration.line({ class: "aurora-diff-add" }).range(line.from));
+              } else if (first === "-") {
+                ranges.push(Decoration.line({ class: "aurora-diff-del" }).range(line.from));
+              } else if (first === "@") {
+                ranges.push(Decoration.line({ class: "aurora-diff-hdr" }).range(line.from));
+              } else if (first === "…") {
+                ranges.push(Decoration.line({ class: "aurora-collapsed" }).range(line.from));
+              }
+
+              pos = line.to + 1;
+            }
+          }
+
+          return Decoration.set(ranges, true);
+        }
+      },
+      { decorations: (v) => v.decorations }
+    );
+
+    const customLineNumbers = lineNumbers({
+      formatNumber: (n: number) => {
+        const v = fileLineNumsRef.current[n - 1];
+        return v > 0 ? String(v) : "";
+      },
+    });
+
+    const collapsedClickHandler = EditorViewClass.domEventHandlers({
+      mousedown: (event: MouseEvent, view: EditorView) => {
+        if (!collapsibleRef.current) return false;
+        const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+        if (pos === null) return false;
+        const line = view.state.doc.lineAt(pos);
+        if (!line.text.startsWith("… ")) return false;
+        const lineNr = line.number - 1;
+        const blockIdx = lineToBlockRef.current[lineNr];
+        if (blockIdx !== undefined && blockIdx >= 0) {
+          event.preventDefault();
+          setExpanded(prev => {
+            const next = new Set(prev);
+            if (next.has(blockIdx)) next.delete(blockIdx);
+            else next.add(blockIdx);
+            return next;
+          });
+          return true;
+        }
+        return false;
+      },
+    });
+
+    const view = new EditorView({
+      state: EditorState.create({
+        doc: collapsedText,
+        extensions: [
+          basicSetup,
+          createMinimapExtension(true),
+          diffLinePlugin,
+          EditorViewClass.editable.of(false),
+          EditorState.readOnly.of(true),
+          READONLY_EDITOR_THEME,
+          customLineNumbers,
+          collapsedClickHandler,
+          themeCompartmentRef.current.of([]),
+          wordWrapCompartmentRef.current.of(wordWrap ? EditorViewClass.lineWrapping : []),
+        ],
+      }),
+      parent: el,
+    });
+    viewRef.current = view;
+
+    getEditorTheme(editorTheme).then(theme => {
+      if (viewRef.current === view) {
+        view.dispatch({ effects: themeCompartmentRef.current.reconfigure(theme) });
+      }
     });
 
     return () => {
@@ -323,18 +312,16 @@ export function CommitDiffView({
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
-    import("@codemirror/view").then(({ EditorView }) => {
-      if (viewRef.current === view) {
-        view.dispatch({
-          effects: wordWrapCompartmentRef.current.reconfigure(wordWrap ? EditorView.lineWrapping : [])
-        });
-      }
-    });
+    if (viewRef.current === view) {
+      view.dispatch({
+        effects: wordWrapCompartmentRef.current.reconfigure(wordWrap ? EditorViewClass.lineWrapping : [])
+      });
+    }
   }, [wordWrap]);
 
   return (
     <div className="h-full w-full flex flex-col" style={{ background: "var(--surface-container-low, #12131a)", minHeight: 0 }}>
-      {showBreadcrumb && 
+      {showBreadcrumb &&
         <div className="py-2">
           <PathBreadcrumb filePath={filePath} commitHash={commitHash} />
         </div>

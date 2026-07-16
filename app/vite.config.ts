@@ -65,6 +65,15 @@ export default defineConfig(async () => ({
           if (id.includes("@xterm") || id.includes("xterm")) {
             return "xterm";
           }
+          if (id.includes("codemirror") || id.includes("@codemirror") || id.includes("@uiw/codemirror")) {
+            return "codemirror";
+          }
+          if (id.includes("lucide-react")) {
+            return "lucide";
+          }
+          if (id.includes("node_modules")) {
+            return "vendor";
+          }
         },
       },
     },

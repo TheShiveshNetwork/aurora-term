@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { EditorView } from "@codemirror/view";
+import { EditorSelection } from "@codemirror/state";
 import { setSearchQuery, SearchQuery, findNext, findPrevious, replaceAll, selectSelectionMatches, openSearchPanel, closeSearchPanel } from "@codemirror/search";
 import { X, ChevronDown, ArrowUp, ArrowDown, Combine } from "lucide-react";
 
@@ -112,7 +113,6 @@ export function SearchPanel({ view, onClose, initialFindText = "" }: SearchPanel
     if (findText) {
       const doc = view.state.doc.toString();
       const ranges: any[] = [];
-      const { EditorSelection } = await import("@codemirror/state");
 
       let pos = 0;
       while (true) {

@@ -1,6 +1,6 @@
 import { Agent } from '@mastra/core/agent';
 import { Memory } from '@mastra/memory';
-import { LibSQLStore } from '@mastra/libsql';
+import { InMemoryStore } from '@mastra/core/storage';
 import {
   readFileTool,
   listDirTool,
@@ -108,9 +108,8 @@ export function getModelProvider(
 // Shared Memory
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const memoryStorage = new LibSQLStore({
+export const memoryStorage = new InMemoryStore({
   id: 'aura-memory',
-  url: 'file:./aura-memory.db',
 });
 
 export const auraMemory = new Memory({

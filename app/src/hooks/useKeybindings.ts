@@ -1,6 +1,8 @@
 import { useEffect } from "react";
 import { useSessionStore } from "../stores/useSessionStore";
 import { useAppShellStore } from "../stores/useAppShellStore";
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { openSettingsWindow } from "../lib/settings";
 import { useSettingsStore, DEFAULT_KEYBINDINGS } from "../stores/useSettingsStore";
 import { usePTY } from "./usePTY";
 import { getDefaultShellLaunch } from "../lib/shell";
@@ -134,7 +136,6 @@ export function useKeybindings() {
         }
 
         case "new-window": {
-          const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
           try {
             new WebviewWindow(`aurora_${Date.now()}`, {
               title: "Aurora Terminal",
@@ -178,7 +179,6 @@ export function useKeybindings() {
           break;
 
         case "open-settings": {
-          const { openSettingsWindow } = await import("../lib/settings");
           openSettingsWindow().catch(console.error);
           break;
         }

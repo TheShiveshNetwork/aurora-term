@@ -291,7 +291,9 @@ server.post('/api/step', async (request, _reply) => {
 // ── Tool approval endpoints ──────────────────────────────────────────────
 
 server.post('/api/tool/approve', async (request, _reply) => {
-  const { agent_type, mode, runId, toolCallId, resumeData } = request.body as any;
+  const body = request.body as any;
+  const { agent_type, mode, runId, toolCallId } = body;
+  const resumeData = body.resumeData ?? body.resume_data;
 
   const toolLog = log.child({
     endpoint: 'tool/approve',

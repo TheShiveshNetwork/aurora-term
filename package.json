@@ -11,12 +11,14 @@
     "tauri:dev": "tauri dev --config tauri/tauri.conf.json",
     "tauri:build": "tauri build --config tauri/tauri.conf.json",
     "test": "pnpm --dir app test",
-    "typecheck": "pnpm --dir app typecheck"
+    "typecheck": "pnpm --dir app typecheck",
+    "size-audit": "tsx scripts/size-audit.ts"
   },
   "dependencies": {
     "@babel/runtime": "^8.0.0"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.1.0"
+    "@tauri-apps/cli": "^2.1.0",
+    "tsx": "^4.20.0"
   }
 }
