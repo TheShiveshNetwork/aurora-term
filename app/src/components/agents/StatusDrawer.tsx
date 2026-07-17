@@ -1,6 +1,8 @@
 import React from "react";
 import { FolderOpen, Terminal as TerminalIcon, FileCheck, Globe, Check, X, HelpCircle } from "lucide-react";
 import { useAgentStore, SessionAgentState } from "../../stores/useAgentStore";
+import { useSessionStore } from "../../stores/useSessionStore";
+import { system } from "../../lib/ipc";
 
 interface StatusTabButtonProps {
   isActive: boolean;
@@ -58,6 +60,52 @@ export function StatusDrawer({ sessionId, onApprove, onDecline, onSkip, onSubmit
   // Counts for badges
   const pendingFilesCount = filesChanged.filter((f) => f.status === "pending").length;
   const pendingTerminalsCount = queue.filter((q) => q.status === "pending" || q.status === "requires_action" || q.status === "running").length;
+
+  const sessionStore = useSessionStore();
+
+  const handleViewDiff = async (file: any) => {
+    try {
+      let oldContent = "";
+      const exists = await system.pathExists(file.path);
+      if (exists) {
+        oldContent = await system.readFileContent(file.path);
+      }
+
+      let newContent = "";
+      if (file.type === "write") {
+        newContent = file.newContent || "";
+      } else if (file.type === "patch" && file.search) {
+        newContent = oldContent.replace(file.search, file.replace || "");
+      }
+
+      const fileName = file.path.split(/[/\\]/).pop() || file.path;
+
+      const existingTab = sessionStore.tabs.find(
+        (t) => t.type === "diff" && t.filePath === file.path && t.diffCommitHash === "pending-agent-change"
+      );
+
+      if (existingTab) {
+        sessionStore.updateTab(existingTab.id, {
+          diffOldContent: oldContent,
+          diffNewContent: newContent,
+        });
+        sessionStore.setActiveTabId(existingTab.id);
+      } else {
+        sessionStore.addTab({
+          id: `diff-agent-${Date.now()}`,
+          name: `Diff: ${fileName}`,
+          type: "diff",
+          filePath: file.path,
+          diffOldContent: oldContent,
+          diffNewContent: newContent,
+          diffCommitHash: "pending-agent-change",
+          created_at: Date.now(),
+        });
+      }
+    } catch (err) {
+      console.error("Failed to load diff:", err);
+    }
+  };
 
   const toggleTab = (tab: "files" | "terminals" | "artifacts" | "browsers" | "questions") => {
     if (activeTab === tab) {
@@ -123,17 +171,28 @@ export function StatusDrawer({ sessionId, onApprove, onDecline, onSkip, onSubmit
                     {filesChanged.map((file, idx) => (
                       <div key={idx} className="flex flex-col p-2.5 rounded-lg border border-outline-variant/10 bg-on-surface-variant/5">
                         <div className="flex items-center justify-between">
-                          <span className="text-xs font-mono font-medium text-[#E8EAF0]">{file.path}</span>
-                          <span
-                            className={`text-[9px] font-bold tracking-wide px-1.5 py-0.5 rounded-sm ${file.status === "approved"
-                              ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                              : file.status === "rejected"
-                                ? "bg-red-500/10 text-red-400 border border-red-500/20"
-                                : "bg-blue-500/10 text-blue-400 border border-blue-500/20"
-                              }`}
-                          >
-                            {file.type || "change"} ({file.status})
+                          <span className="text-xs font-mono font-medium text-[#E8EAF0] truncate max-w-[65%]" title={file.path}>
+                            {file.path}
                           </span>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button
+                              onClick={() => handleViewDiff(file)}
+                              className="text-[10px] text-blue-400 hover:text-blue-300 font-semibold cursor-pointer underline mr-1"
+                              title="Compare changes"
+                            >
+                              View Diff
+                            </button>
+                            <span
+                              className={`text-[9px] font-bold tracking-wide px-1.5 py-0.5 rounded-sm ${file.status === "approved"
+                                ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                                : file.status === "rejected"
+                                  ? "bg-red-500/10 text-red-400 border border-red-500/20"
+                                  : "bg-blue-500/10 text-blue-400 border border-blue-500/20"
+                                }`}
+                            >
+                              {file.type || "change"} ({file.status})
+                            </span>
+                          </div>
                         </div>
 
                         {/* Search and Replace Patch Diffs */}
@@ -154,6 +213,25 @@ export function StatusDrawer({ sessionId, onApprove, onDecline, onSkip, onSubmit
                         {file.type === "write" && file.newContent && (
                           <div className="mt-2 text-[10px] font-mono bg-white/[0.02] border border-white/[0.02] rounded p-1.5 max-h-[80px] overflow-y-auto scrollbar-none text-white/70">
                             {file.newContent}
+                          </div>
+                        )}
+
+                        {file.status === "pending" && (
+                          <div className="flex items-center gap-1.5 mt-2.5 justify-end">
+                            <button
+                              onClick={onApprove}
+                              className="flex items-center gap-1 px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-500 text-[10px] font-bold text-white cursor-pointer transition-all shadow"
+                            >
+                              <Check size={10} />
+                              Accept
+                            </button>
+                            <button
+                              onClick={onDecline}
+                              className="flex items-center gap-1 px-2.5 py-1 rounded bg-white/5 hover:bg-white/10 text-[10px] font-bold text-white/70 cursor-pointer border border-white/10 transition-all"
+                            >
+                              <X size={10} />
+                              Reject
+                            </button>
                           </div>
                         )}
                       </div>

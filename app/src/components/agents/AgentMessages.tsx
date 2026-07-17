@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Check, Copy, ThumbsUp, ThumbsDown, ChevronRight, RotateCcw } from "lucide-react";
 import type { ChatMessage, ChainNode } from "../../stores/useAgentStore";
-import { renderMarkdown } from "../../lib/markdown";
+import { Markdown } from "../prompt-kit/markdown";
 import {
   MessageContent,
   MessageActions,
@@ -134,7 +134,9 @@ export function AgentResponseMessage({
         className={`w-full min-w-0 rounded-2xl px-0 py-3 text-[13px] leading-relaxed break-words select-text ${msg.isError ? "text-red-400" : "text-on-surface/90"
           }`}
       >
-        {renderMarkdown(msg.content)}
+        <Markdown className="prose prose-sm dark:prose-invert max-w-none">
+          {msg.content}
+        </Markdown>
       </div>
 
       {(onCopy || onLike || onDislike) && (
@@ -235,8 +237,8 @@ export function AgentTurnMessage({
     <div className={`flex flex-col ${className ?? ""}`}>
       {/* User message */}
       {isOverlay ? (
-        <div className="sticky self-end top-0 z-10 pb-2">
-          <UserMessage content={userMsg.content} overlay />
+        <div className="sticky flex w-full justify-end self-end top-0 z-10 pb-2">
+          <UserMessage content={userMsg.content} className="max-w-full" overlay />
         </div>
       ) : (
         <div className="flex justify-end pb-1">
@@ -299,16 +301,13 @@ export function AgentTurnMessage({
               className={`w-full min-w-0 text-[12.5px] leading-relaxed break-words select-text ${assistantMsg.isError ? "text-red-400" : "text-on-surface/90"
                 }`}
             >
-              {renderMarkdown(assistantMsg.content)}
+              <Markdown className="prose prose-sm dark:prose-invert max-w-none">
+                {assistantMsg.content}
+              </Markdown>
             </div>
 
             {/* Action bar — copy, like, dislike */}
             <div className="flex items-center justify-end gap-3 text-on-surface-variant/80">
-              {assistantMsg.durationMs !== undefined && assistantMsg.durationMs > 0 && (
-                <span className="text-[10px] text-on-surface-variant/30 mr-auto">
-                  Worked for {Math.round(assistantMsg.durationMs / 1000)}s
-                </span>
-              )}
               {onCopy && (
                 <button
                   onClick={() => onCopy(assistantMsg.content)}

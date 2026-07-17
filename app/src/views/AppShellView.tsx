@@ -683,6 +683,7 @@ export function AppShellView() {
                             />
                           ) : tab.type === "diff" ? (
                             <DiffWorkspaceView
+                              tabId={tab.id}
                               filePath={tab.filePath || ""}
                               oldContent={tab.diffOldContent || ""}
                               newContent={tab.diffNewContent || ""}

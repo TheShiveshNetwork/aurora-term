@@ -214,6 +214,17 @@ export function useAgentExecution(sessionId: string | null) {
           return;
         }
 
+        // Add chain node so file write/patch is visible in chain-of-thought
+        const filePath = step.args.path || "";
+        const fileShortName = filePath.split(/[\\/]/).pop() || filePath;
+        const fileNodeId = state.addChainNode(targetSessionId, {
+          type: "command",
+          label: step.tool_name === "write_file" ? `Write ${fileShortName}` : `Patch ${fileShortName}`,
+          subLabel: filePath,
+          status: "pending",
+        });
+        state.updateChainNode(targetSessionId, fileNodeId, { status: "active" });
+
         state.setPendingToolCall(targetSessionId, {
           runId: step.run_id,
           toolCallId: step.tool_call_id,
@@ -229,7 +240,26 @@ export function useAgentExecution(sessionId: string | null) {
           search: step.args.search,
           replace: step.args.replace,
         });
+        // Auto-open the Files tab so the user sees the pending change immediately
+        state.setActiveDrawerTab(targetSessionId, "files");
+        // Emit event to auto-open diff tab for review
+        window.dispatchEvent(new CustomEvent("aurora-agent-file-change", {
+          detail: {
+            path: step.args.path,
+            type: step.tool_name === "write_file" ? "write" : "patch",
+            newContent: step.args.content || "",
+            search: step.args.search,
+            replace: step.args.replace,
+          },
+        }));
       } else if (step.tool_name === "ask_user") {
+        // Add chain node for question
+        state.addChainNode(targetSessionId, {
+          type: "planning",
+          label: "Asking a clarifying question…",
+          subLabel: step.args.question || step.message,
+          status: "active",
+        });
         state.setPendingToolCall(targetSessionId, {
           runId: step.run_id,
           toolCallId: step.tool_call_id,
@@ -578,10 +608,22 @@ export function useAgentExecution(sessionId: string | null) {
             { approved: true }
           );
           
-          // Approve file changes status
+          // Approve file changes status and update chain node
           if (freshSession.filesChanged.length > 0) {
             const lastFile = freshSession.filesChanged[freshSession.filesChanged.length - 1];
             state.updateFileChangeStatus(targetSessionId, lastFile.path, "approved");
+            // Mark the chain node for this file as done
+            const fileNode = [...freshSession.chainNodes].reverse().find(
+              (n) => n.type === "command" && n.status === "active" &&
+                (n.label.startsWith("Write ") || n.label.startsWith("Patch "))
+            );
+            if (fileNode) {
+              state.updateChainNode(targetSessionId, fileNode.id, { status: "done" });
+            }
+            // Close the pending-agent-change diff tab for this file
+            window.dispatchEvent(new CustomEvent("aurora-close-agent-diff", {
+              detail: { path: lastFile.path },
+            }));
           }
         }
         
@@ -624,6 +666,18 @@ export function useAgentExecution(sessionId: string | null) {
         if (name !== "exec_command" && name !== "shell_terminal" && name !== "shell_developer" && freshSession.filesChanged.length > 0) {
           const lastFile = freshSession.filesChanged[freshSession.filesChanged.length - 1];
           state.updateFileChangeStatus(targetSessionId, lastFile.path, "rejected");
+          // Mark the chain node for this file as failed
+          const fileNode = [...freshSession.chainNodes].reverse().find(
+            (n) => n.type === "command" && n.status === "active" &&
+              (n.label.startsWith("Write ") || n.label.startsWith("Patch "))
+          );
+          if (fileNode) {
+            state.updateChainNode(targetSessionId, fileNode.id, { status: "failed" });
+          }
+          // Close the pending-agent-change diff tab for this file
+          window.dispatchEvent(new CustomEvent("aurora-close-agent-diff", {
+            detail: { path: lastFile.path },
+          }));
         }
         
         const stepResult = await system.agentDeclineTool(

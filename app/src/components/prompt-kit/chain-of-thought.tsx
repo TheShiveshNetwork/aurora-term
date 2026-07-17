@@ -125,7 +125,7 @@ export function ChainOfThought({ children, className }: ChainOfThoughtProps) {
   return (
     <div
       className={cn(
-        "space-y-0 border border-outline-variant/10 rounded-2xl bg-surface-container-low/20",
+        "space-y-0",
         className
       )}
     >
@@ -164,7 +164,7 @@ export const ChainOfThoughtStep = ({
     >
       {children}
       <div className="flex justify-start group-data-[last=true]:hidden">
-        <div className="bg-primary/20 ml-1.75 h-4 w-px" />
+        <div className="ml-1.75 h-4 w-px" />
       </div>
     </Collapsible>
   )
