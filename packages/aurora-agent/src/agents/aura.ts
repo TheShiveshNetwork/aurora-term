@@ -12,13 +12,56 @@ import {
   globTool,
   webFetchTool,
   askUserTool,
+  historySearchTool,
 } from '../tools';
 import { terminalShellTool, developerShellTool } from '../tools/shell';
-// Note: no shell tool imported for readonly agents — that's intentional.
+import * as fs from 'fs';
+import * as path from 'path';
+import { execSync } from 'child_process';
 
+function getDynamicInstructions(baseInstructions: string): string {
+  try {
+    const agentsMdPath = path.join(process.cwd(), 'AGENT.md');
+    if (fs.existsSync(agentsMdPath)) {
+      const agentsMd = fs.readFileSync(agentsMdPath, 'utf-8');
+      return `${baseInstructions}\n\n<system_reminder>\nPROJECT RULES (FROM AGENT.md):\n${agentsMd}\n</system_reminder>`;
+    }
+  } catch (err) {
+    console.error('Failed to load AGENT.md for instructions:', err);
+  }
+  return baseInstructions;
+}
 // ─────────────────────────────────────────────────────────────────────────────
 // Model Provider Helper
 // ─────────────────────────────────────────────────────────────────────────────
+
+function getInstalledOllamaModels(baseUrl: string): string[] {
+  try {
+    const url = baseUrl.replace(/\/v1\/?$/, '').replace(/\/$/, '');
+    const cmd = `curl -s "${url}/api/tags"`;
+    const response = execSync(cmd, { timeout: 1000 }).toString();
+    const data = JSON.parse(response);
+    if (data && Array.isArray(data.models)) {
+      return data.models.map((m: any) => m.name);
+    }
+  } catch (err) {
+    try {
+      const output = execSync('ollama list', { timeout: 1000 }).toString();
+      const lines = output.split('\n').slice(1);
+      const models: string[] = [];
+      for (const line of lines) {
+        const parts = line.trim().split(/\s+/);
+        if (parts[0]) {
+          models.push(parts[0]);
+        }
+      }
+      return models;
+    } catch (e) {
+      // Ignored
+    }
+  }
+  return [];
+}
 
 export function getModelProvider(
   providerName: string,
@@ -90,9 +133,42 @@ export function getModelProvider(
     };
   }
   if (normalized === 'ollama') {
+    const rawUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+    const cleanUrl = rawUrl.endsWith('/v1') ? rawUrl : `${rawUrl.replace(/\/$/, '')}/v1`;
+
+    let model = activeModel;
+    if (process.env.ACTIVE_AI_PROVIDER) {
+      if (tier === 'fast') {
+        model = process.env.ACTIVE_AI_MODEL_FAST || model;
+      } else if (tier === 'powerful') {
+        model = process.env.ACTIVE_AI_MODEL_POWERFUL || model;
+      } else {
+        model = process.env.ACTIVE_AI_MODEL_BALANCED || model;
+      }
+    }
+    if (!model) {
+      model = tier === 'fast' ? 'llama3.2:3b' : tier === 'powerful' ? 'llama3.1:70b' : 'llama3.1:8b';
+    }
+
+    const installed = getInstalledOllamaModels(rawUrl);
+    if (installed.length > 0) {
+      if (!installed.includes(model)) {
+        // Try to match prefix
+        const cleanModel = model.split(':')[0];
+        const match = installed.find(
+          (m) => m === cleanModel || m.startsWith(cleanModel) || m.split(':')[0] === cleanModel
+        );
+        if (match) {
+          model = match;
+        } else {
+          model = installed[0];
+        }
+      }
+    }
+
     return {
-      id: `openai/${activeModel ?? 'llama3.1:8b'}`,
-      url: process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434/v1',
+      id: `openai/${model}`,
+      url: cleanUrl,
       apiKey: 'empty',
     };
   }
@@ -138,7 +214,7 @@ export const auraMemory = new Memory({
 export const terminalAgent = new Agent({
   id: 'terminalAgent',
   name: 'Terminal Agent',
-  instructions: `You are the Terminal Agent for Aurora Terminal.
+  instructions: () => getDynamicInstructions(`You are the Terminal Agent for Aurora Terminal.
 Your primary purpose is running shell commands to accomplish user goals.
 
 OPERATING MODEL:
@@ -169,7 +245,7 @@ OUTPUT HANDLING:
 - If command output is empty, the command ran successfully with no output.
   Do NOT repeat it unless the user asks.
 - You can chain: list files → if too many results → grep for the specific term.
-`,
+`),
   model: getModelProvider('groq', 'llama-3.3-70b-versatile', 'balanced'),
   memory: auraMemory,
   tools: {
@@ -180,6 +256,7 @@ OUTPUT HANDLING:
     read_file: readFileTool,
     list_directory: listDirTool,
     ask_user: askUserTool,
+    history_search: historySearchTool,
   },
 });
 
@@ -194,7 +271,7 @@ OUTPUT HANDLING:
 export const developerPlanAgent = new Agent({
   id: 'developerPlanAgent',
   name: 'Developer Agent (Plan Mode)',
-  instructions: `You are the Software Developer Agent in PLAN mode for Aurora Terminal.
+  instructions: () => getDynamicInstructions(`You are the Software Developer Agent in PLAN mode for Aurora Terminal.
 Your job is to deeply understand the codebase and design a precise implementation strategy.
 
 OPERATING MODEL:
@@ -216,7 +293,7 @@ RESEARCH APPROACH:
 - Before planning, fully map the relevant parts of the codebase.
 - Cross-reference types, imports, and call sites so the plan is complete.
 - Prefer deep understanding over fast answers.
-`,
+`),
   model: getModelProvider('groq', 'llama-3.3-70b-versatile', 'powerful'),
   memory: auraMemory,
   tools: {
@@ -247,7 +324,7 @@ RESEARCH APPROACH:
 export const developerBuildAgent = new Agent({
   id: 'developerBuildAgent',
   name: 'Developer Agent (Build Mode)',
-  instructions: `You are the Software Developer Agent in BUILD mode for Aurora Terminal.
+  instructions: () => getDynamicInstructions(`You are the Software Developer Agent in BUILD mode for Aurora Terminal.
 Your job is to implement features, fix bugs, and verify the result.
 
 OPERATING MODEL — TOOL PRIORITY ORDER:
@@ -275,7 +352,7 @@ ERROR HANDLING:
 - If a shell command fails, read stderr carefully before retrying.
 - If a patch fails (context mismatch), re-read the file and recompute the patch.
 - Never guess — inspect first.
-`,
+`),
   model: getModelProvider('groq', 'llama-3.3-70b-versatile', 'powerful'),
   memory: auraMemory,
   tools: {

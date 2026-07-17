@@ -1,4 +1,4 @@
-use tauri::{command, State, Emitter};
+use tauri::{command, State, Emitter, Manager};
 use crate::state::AppState;
 use aurora_core::config::AppConfig;
 use aurora_core::AppError;
@@ -49,6 +49,16 @@ pub async fn config_save_global(
         config
     };
     let _ = app.emit("config_changed", merged.clone());
+
+    // Restart sidecar asynchronously to pick up new config/keys
+    let app_clone = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let state_ref = app_clone.state::<AppState>();
+        if let Err(e) = crate::sidecar_commands::spawn_sidecar_internal(app_clone.clone(), state_ref).await {
+            tracing::error!("Failed to restart sidecar on config save: {:?}", e);
+        }
+    });
+
     Ok(())
 }
 
@@ -70,6 +80,16 @@ pub async fn config_save_project(
     *merged = serde_json::from_value(gv)
         .map_err(|e| AppError::Config(format!("Deserialize error: {}", e)))?;
     let _ = app.emit("config_changed", merged.clone());
+
+    // Restart sidecar asynchronously to pick up new config/keys
+    let app_clone = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let state_ref = app_clone.state::<AppState>();
+        if let Err(e) = crate::sidecar_commands::spawn_sidecar_internal(app_clone.clone(), state_ref).await {
+            tracing::error!("Failed to restart sidecar on project config save: {:?}", e);
+        }
+    });
+
     Ok(())
 }
 

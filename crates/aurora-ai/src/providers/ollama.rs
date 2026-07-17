@@ -130,7 +130,24 @@ impl AiProvider for OllamaProvider {
             return Err(e);
         }
 
-        let model = self.model_for_tier(tier);
+        let mut model = self.model_for_tier(tier).to_string();
+        if let Ok(installed) = Self::list_models(&self.base_url).await {
+            let installed_ids: Vec<String> = installed.iter().map(|m| m.id.clone()).collect();
+            if !installed_ids.is_empty() && !installed_ids.contains(&model) {
+                // Try prefix match (e.g., model "llama3.1:8b" -> clean prefix "llama3.1")
+                let clean_model = model.split(':').next().unwrap_or("");
+                if let Some(matched) = installed_ids.iter().find(|m| {
+                    *m == clean_model
+                        || m.starts_with(clean_model)
+                        || m.split(':').next().unwrap_or("") == clean_model
+                }) {
+                    model = matched.clone();
+                } else {
+                    model = installed_ids[0].clone();
+                }
+            }
+        }
+
         let body = serde_json::json!({
             "model": model,
             "messages": messages,
