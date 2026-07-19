@@ -28,6 +28,7 @@ import {
   askUserTool,
   terminalShellTool,
   developerShellTool,
+  historySearchTool,
 } from '../tools';
 
 import { ConsoleLogger, createCustomTransport } from '@mastra/core/logger';
@@ -105,5 +106,6 @@ export const mastra = new Mastra({
     ask_user: askUserTool,
     shell_terminal: terminalShellTool,
     shell_developer: developerShellTool,
+    history_search: historySearchTool,
   },
 });

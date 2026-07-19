@@ -15,6 +15,7 @@ import { StatusDrawer } from "../components/agents/StatusDrawer";
 import { AgentPromptInput, AttachedFile } from "../components/agents/AgentPromptInput";
 import { useVoiceInput } from "../hooks/useVoiceInput";
 import { system } from "../lib/ipc";
+import { useSessionStore } from "../stores/useSessionStore";
 
 // Import prompt-kit components
 import {
@@ -197,6 +198,72 @@ export function AgentView() {
       }
     }
   };
+
+  // Auto-open a diff tab when the developer agent proposes a file write/patch
+  useEffect(() => {
+    const handler = async (e: Event) => {
+      const { path, type, newContent, search, replace } = (e as CustomEvent).detail;
+      if (!path) return;
+      const fileName = path.split(/[/\\]/).pop() || path;
+      try {
+        let oldContent = "";
+        const exists = await system.pathExists(path);
+        if (exists) {
+          oldContent = await system.readFileContent(path);
+        }
+        let resolvedNew = newContent || "";
+        if (type === "patch" && search) {
+          resolvedNew = oldContent.replace(search, replace || "");
+        }
+        const sessionStore = useSessionStore.getState();
+        const existingTab = sessionStore.tabs.find(
+          (t) => t.type === "diff" && t.filePath === path && t.diffCommitHash === "pending-agent-change"
+        );
+        if (existingTab) {
+          sessionStore.updateTab(existingTab.id, {
+            diffOldContent: oldContent,
+            diffNewContent: resolvedNew,
+          });
+          sessionStore.setActiveTabId(existingTab.id);
+        } else {
+          const tabId = `diff-agent-${Date.now()}`;
+          sessionStore.addTab({
+            id: tabId,
+            name: `⚙ Draft: ${fileName}`,
+            type: "diff",
+            filePath: path,
+            diffOldContent: oldContent,
+            diffNewContent: resolvedNew,
+            diffCommitHash: "pending-agent-change",
+            created_at: Date.now(),
+          });
+          // Explicitly set as active tab even if another tab is open
+          sessionStore.setActiveTabId(tabId);
+        }
+      } catch (err) {
+        console.warn("Failed to auto-open agent diff:", err);
+      }
+    };
+    window.addEventListener("aurora-agent-file-change", handler);
+    return () => window.removeEventListener("aurora-agent-file-change", handler);
+  }, []);
+
+  // Close pending-agent-change diff tabs after approve/reject
+  useEffect(() => {
+    const closeHandler = (e: Event) => {
+      const { path } = (e as CustomEvent).detail;
+      if (!path) return;
+      const sessionStore = useSessionStore.getState();
+      const tab = sessionStore.tabs.find(
+        (t) => t.type === "diff" && t.filePath === path && t.diffCommitHash === "pending-agent-change"
+      );
+      if (tab) {
+        sessionStore.removeTab(tab.id);
+      }
+    };
+    window.addEventListener("aurora-close-agent-diff", closeHandler);
+    return () => window.removeEventListener("aurora-close-agent-diff", closeHandler);
+  }, []);
 
   const showEmptyState = chatHistory.length === 0 && !isThinking;
 

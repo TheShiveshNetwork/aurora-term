@@ -80,13 +80,34 @@ jobs:
       - name: install frontend dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Extract version from tag
+        id: version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            VERSION=$(node -e "console.log(JSON.parse(require('fs').readFileSync('tauri/tauri.conf.json','utf8')).version)")
+            echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Patch tauri.conf.json version
+        shell: bash
+        run: |
+          node -e "
+            const fs = require('fs');
+            const c = JSON.parse(fs.readFileSync('tauri/tauri.conf.json','utf8'));
+            c.version = '${{ steps.version.outputs.VERSION }}';
+            fs.writeFileSync('tauri/tauri.conf.json', JSON.stringify(c,null,2) + '\n');
+          "
+
       - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: './tauri'
-          tagName: v__VERSION__
-          releaseName: 'Aurora v__VERSION__'
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Aurora ${{ github.ref_name }}'
           releaseBody: 'See the assets to download this version and install.'
           releaseDraft: true
           prerelease: false

@@ -92,6 +92,89 @@ server.setErrorHandler((error, _request, reply) => {
   });
 });
 
+// ── Context Compaction Helper ──────────────────────────────────────────────
+async function compactThreadIfNeeded(threadId: string, agent: any, stepLog: any) {
+  try {
+    const recalled = await auraMemory.recall({ threadId });
+    if (recalled && recalled.messages && recalled.messages.length > 0) {
+      let totalLength = 0;
+      for (const msg of recalled.messages) {
+        if (msg.content) {
+          if (msg.content.parts && Array.isArray(msg.content.parts)) {
+            for (const part of msg.content.parts) {
+              if (part.type === 'text') {
+                totalLength += part.text?.length || 0;
+              } else if (part.type === 'tool-invocation') {
+                totalLength += JSON.stringify(part.toolInvocation).length;
+              } else {
+                totalLength += JSON.stringify(part).length;
+              }
+            }
+          } else {
+            totalLength += JSON.stringify(msg.content).length;
+          }
+        }
+      }
+      const totalTokens = Math.ceil(totalLength / 4);
+
+      if (totalTokens > 16000) {
+        stepLog.info('History token size exceeds threshold, compacting...', { totalTokens, threadId });
+        
+        // Format transcript
+        const transcript = recalled.messages
+          .map(m => {
+            let textContent = '';
+            if (m.content) {
+              if (m.content.parts && Array.isArray(m.content.parts)) {
+                textContent = m.content.parts
+                  .map((p: any) => (p.type === 'text' ? p.text : JSON.stringify(p)))
+                  .join('\n');
+              } else {
+                textContent = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+              }
+            }
+            return `${m.role.toUpperCase()}: ${textContent}`;
+          })
+          .join('\n\n');
+        
+        const compactionPrompt = `You are a context compaction agent. Summarize the following terminal and developer session transcript. Preserve all key details: current working directory (CWD), previous actions, outcomes, file paths modified, errors encountered, and any pending checklist items. Be extremely concise but precise. Do not lose context.
+        
+        Transcript:
+        ${transcript}`;
+        
+        // Generate summary using the current agent
+        const summaryResponse = await agent.generate(compactionPrompt);
+        const summaryText = summaryResponse.text || 'Compacted history.';
+        
+        // Delete thread and recreate with summary
+        await auraMemory.deleteThread(threadId);
+        await auraMemory.saveMessages({
+          messages: [
+            {
+              role: 'system',
+              content: {
+                format: 2,
+                parts: [
+                  {
+                    type: 'text',
+                    text: `[SESSION CONTEXT COMPACTED]\nBelow is a summary of the session history so far. Use it to guide your actions:\n\n${summaryText}`
+                  }
+                ]
+              },
+              createdAt: new Date(),
+              id: `compacted-${Date.now()}`,
+              threadId,
+            } as any
+          ]
+        });
+        stepLog.info('History compacted successfully.', { threadId });
+      }
+    }
+  } catch (err: any) {
+    stepLog.error('Compaction failed', { error: err.message, stack: err.stack });
+  }
+}
+
 // ── onRequest hook — log every incoming request ──────────────────────────
 server.addHook('onRequest', async (request) => {
   log.debug('Incoming request', {
@@ -188,6 +271,10 @@ server.post('/api/step', async (request, _reply) => {
       const activeProvider = process.env.ACTIVE_AI_PROVIDER || 'groq';
       generateOptions.model = getModelProvider(activeProvider, model);
       stepLog.info('Using model override', { provider: activeProvider, model });
+    }
+
+    if (threadId) {
+      await compactThreadIfNeeded(threadId, agent, stepLog);
     }
 
     const response = await agent.generate(prompt, generateOptions);
@@ -311,7 +398,7 @@ server.post('/api/tool/approve', async (request, _reply) => {
   try {
     const response = await agent.resumeGenerate(
       { approved: true, ...resumeData },
-      { runId, toolCallId, maxSteps: 25 }
+      { runId, toolCallId, maxSteps: 25, abortSignal: AbortSignal.timeout(120_000) }
     );
 
     const elapsed = Date.now() - startTime;
@@ -389,7 +476,7 @@ server.post('/api/tool/decline', async (request, _reply) => {
   try {
     const response = await agent.resumeGenerate(
       { approved: false },
-      { runId, toolCallId, maxSteps: 25 }
+      { runId, toolCallId, maxSteps: 25, abortSignal: AbortSignal.timeout(120_000) }
     );
 
     const elapsed = Date.now() - startTime;
@@ -541,6 +628,10 @@ server.post('/api/chat', async (request, _reply) => {
   const startTime = Date.now();
 
   try {
+    if (threadId) {
+      await compactThreadIfNeeded(threadId, agent, chatLog);
+    }
+
     const response = await agent.generate(
       `Chat message (respond conversationally, NOT as a command): ${message}`,
       {

@@ -131,12 +131,6 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
   const resizeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastColsRef = useRef<number>(0);
   const lastRowsRef = useRef<number>(0);
-  const lastTransitionTimeRef = useRef<number>(0);
-
-  // Sync transition time on alternate active state change
-  useEffect(() => {
-    lastTransitionTimeRef.current = Date.now();
-  }, [isAlternateActive]);
 
   // Debounced PTY resize helper to prevent Windows ConPTY deadlocks/crashes from rapid concurrent resizes
   const debouncedResize = useMemo(() => {
@@ -208,37 +202,21 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
     if (!xtermRef.current) return;
 
     let isDisposed = false;
-    let lastAlternateBufferState = useSessionStore.getState().alternateBufferActive[sessionId] || false;
 
+    // Update store state when xterm's native buffer changes — no force-writing escape sequences.
+    // xterm.js handles \x1b[?1049h/l natively; we only track state for the UI layer.
     const syncAlternateBufferState = (active: boolean) => {
-      const currentXtermAlternate = termRef.current?.buffer?.active?.type === "alternate";
-      if (lastAlternateBufferState === active && currentXtermAlternate === active) return;
+      const current = useSessionStore.getState().alternateBufferActive[sessionId] || false;
+      if (current === active) return;
 
-      lastAlternateBufferState = active;
-      console.log(`[TerminalPane ${sessionId}] Alternate buffer transition: ${!active} -> ${active}`);
+      console.log(`[TerminalPane ${sessionId}] Alternate buffer transition: ${current} -> ${active}`);
       useSessionStore.getState().setAlternateBufferActive(sessionId, active);
 
-      if (!active && currentXtermAlternate) {
-        console.log(`[TerminalPane ${sessionId}] Forcing xterm buffer type to normal`);
-        termRef.current?.write("\x1b[?1049l");
-      } else if (active && !currentXtermAlternate) {
-        console.log(`[TerminalPane ${sessionId}] Forcing xterm buffer type to alternate`);
-        termRef.current?.write("\x1b[?1049h");
-      }
-
-      // When exiting alternate buffer, ensure any running block is finalized and state cleared.
+      // When exiting alternate buffer, restore focus but do NOT finalize the running block.
+      // Block finalization is handled by the CWD sentinel (shell prompt) or PTY exit event —
+      // alternate buffer transitions happen for TUI subprocesses (less, vim, spinners) that
+      // may be nested inside a still-running parent command.
       if (!active) {
-        console.log(`[TerminalPane ${sessionId}] Resetting mouse tracking on alternate buffer exit`);
-        termRef.current?.write("\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l");
-
-        const runningId = useBlockStore.getState().runningBlockId[sessionId];
-        if (runningId) {
-          console.log(`[TerminalPane ${sessionId}] Finalizing running block on alternate buffer exit`);
-          useBlockStore.getState().finalizeBlock(sessionId, runningId, 0);
-        }
-        useBlockStore.getState().setRunningBlockId(sessionId, null);
-        useBlockStore.getState().setCommandOutputReceived(sessionId, false);
-        // Restore focus to input.
         requestAnimationFrame(() => {
           if (isDisposed) return;
           window.dispatchEvent(
@@ -344,25 +322,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
           if (cols > 0 && rows > 0 && (cols !== lastColsRef.current || rows !== lastRowsRef.current)) {
             lastColsRef.current = cols;
             lastRowsRef.current = rows;
-
-            const timeSinceTransition = Date.now() - lastTransitionTimeRef.current;
-            const isTransitioning = timeSinceTransition < 500;
-            if (isTransitioning) {
-              const remainingTime = 500 - timeSinceTransition + 50;
-              if ((term as any)._deferredResizeTimer) {
-                clearTimeout((term as any)._deferredResizeTimer);
-              }
-              (term as any)._deferredResizeTimer = setTimeout(() => {
-                if (!isDisposed) {
-                  debouncedResize(cols, rows);
-                }
-              }, remainingTime);
-            } else {
-              if ((term as any)._deferredResizeTimer) {
-                clearTimeout((term as any)._deferredResizeTimer);
-              }
-              debouncedResize(cols, rows);
-            }
+            debouncedResize(cols, rows);
           }
         } catch (err) {
           console.warn("Resize fit failed:", err);
@@ -567,9 +527,6 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
       }
       termRef.current = null;
       ro.disconnect();
-      if ((term as any)._deferredResizeTimer) {
-        clearTimeout((term as any)._deferredResizeTimer);
-      }
       try {
         term.dispose();
       } catch (err) {

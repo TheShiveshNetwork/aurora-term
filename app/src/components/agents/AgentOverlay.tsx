@@ -119,13 +119,13 @@ function CommandApprovalCard({ command, explanation, onApprove, onSkip, isRunnin
       className="mx-4 mb-3 rounded-[14px] overflow-hidden animate-fadeIn"
       style={{
         background: "rgba(15,19,26,0.95)",
-        border: "1px solid rgba(255,200,60,0.20)",
+        // border: "1px solid rgba(255,200,60,0.20)",
         boxShadow: "0 4px 24px rgba(0,0,0,0.35), 0 0 0 1px rgba(255,200,60,0.08)",
       }}
     >
-      <div className="flex items-center gap-2 px-3 py-2">
-        <Terminal size={11} className="text-amber-400/80 shrink-0" />
-        <span className="text-[10px] font-bold tracking-widest text-amber-400/70">
+      <div className="flex items-center gap-2 px-3 py-1 mt-2">
+        {/* <Terminal size={11} className="text-amber-400/80 shrink-0" /> */}
+        <span className="text-[12px] font-bold tracking-widest text-amber-400/70">
           Awaiting Approval
         </span>
       </div>

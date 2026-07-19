@@ -13,8 +13,8 @@ function CodeBlock({ children, className, ...props }: CodeBlockProps) {
   return (
     <div
       className={cn(
-        "not-prose flex w-full flex-col overflow-clip border",
-        "border-border bg-card text-card-foreground rounded-xl",
+        // Removed overflow-x-auto from here so the background container can handle it
+        "not-prose w-full border border-white/[0.06] rounded-sm overflow-hidden",
         className
       )}
       {...props}
@@ -34,7 +34,7 @@ export type CodeBlockCodeProps = {
 function CodeBlockCode({
   code,
   language = "tsx",
-  theme = "github-light",
+  theme = "github-dark",
   className,
   ...props
 }: CodeBlockCodeProps) {
@@ -53,21 +53,27 @@ function CodeBlockCode({
     highlight()
   }, [code, language, theme])
 
-  const classNames = cn(
-    "w-full overflow-x-auto text-[13px] [&>pre]:px-4 [&>pre]:py-4",
-    className
-  )
-
-  // SSR fallback: render plain code if not hydrated yet
+  // Added `overflow-x-auto` to the outer wrappers below, and ensured 
+  // the pre tag inside uses `w-max min-w-full` so it stretches the background.
   return highlightedHtml ? (
     <div
-      className={classNames}
+      className={cn(
+        "w-full min-w-full bg-[#0D1117] text-on-surface text-[13px] overflow-x-auto",
+        "[&>pre]:m-0 [&>pre]:w-max [&>pre]:min-w-full [&>pre]:px-4 [&>pre]:py-3 [&>pre]:text-[13px] [&>pre]:leading-relaxed",
+        className
+      )}
       dangerouslySetInnerHTML={{ __html: highlightedHtml }}
       {...props}
     />
   ) : (
-    <div className={classNames} {...props}>
-      <pre>
+    <div
+      className={cn(
+        "w-full min-w-full bg-[#0D1117] text-on-surface text-[13px] overflow-x-auto",
+        className
+      )}
+      {...props}
+    >
+      <pre className="m-0 w-max min-w-full px-4 py-3 text-[13px] leading-relaxed">
         <code>{code}</code>
       </pre>
     </div>

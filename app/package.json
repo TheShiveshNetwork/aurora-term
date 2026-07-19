@@ -38,6 +38,7 @@
     "@replit/codemirror-indentation-markers": "^6.5.3",
     "@replit/codemirror-minimap": "^0.5.2",
     "@replit/codemirror-vim": "^6.3.0",
+    "@tailwindcss/typography": "^0.5.20",
     "@tauri-apps/api": "^2.1.1",
     "@tauri-apps/plugin-notification": "^2.3.3",
     "@uiw/codemirror-theme-atomone": "^4.25.10",

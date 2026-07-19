@@ -8,27 +8,26 @@ interface PathBreadcrumbProps {
 
 export function PathBreadcrumb({ filePath, commitHash, onOpenFile }: PathBreadcrumbProps) {
   if (!filePath) return null;
-  const parts = filePath.replace(/\\/g, "/").split("/").filter(Boolean);
+  const normalized = filePath.replace(/\\/g, "/");
+  const parts = normalized.split("/").filter(Boolean);
 
   return (
-    <div
-      className="flex items-center px-3 shrink-0 text-xs font-mono"
-    >
-      {parts.map((part, i) => (
-        <React.Fragment key={i}>
-          {i > 0 && <span>/</span>}
-          <span
-            className={i < parts.length - 1 && onOpenFile ? "cursor-pointer hover:text-[#E8EAF0]" : ""}
-            onClick={() => {
-              if (i < parts.length - 1 && onOpenFile) {
-                onOpenFile(parts.slice(0, i + 1).join("/"));
-              }
-            }}
-          >
-            {part}
-          </span>
-        </React.Fragment>
-      ))}
+    <div className="flex items-center px-3 shrink-0 text-xs font-mono">
+      {parts.map((part, i) => {
+        const isLast = i === parts.length - 1;
+        return (
+          <React.Fragment key={i}>
+            {i > 0 && <span className="text-on-surface-variant/40">/</span>}
+            <span
+              className={isLast && onOpenFile ? "cursor-pointer hover:text-[#E8EAF0] hover:underline" : ""}
+              style={!isLast ? { color: "rgba(232,234,240,0.45)" } : undefined}
+              onClick={isLast ? () => onOpenFile?.(normalized) : undefined}
+            >
+              {part}
+            </span>
+          </React.Fragment>
+        );
+      })}
       {commitHash && (
         <span
           className="ml-auto text-[10px] font-mono px-1.5 py-0.5 rounded"

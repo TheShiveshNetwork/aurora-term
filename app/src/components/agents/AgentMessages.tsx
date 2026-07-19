@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
-import { Check, Copy, ThumbsUp, ThumbsDown, ChevronRight, RotateCcw } from "lucide-react";
+import { Check, Copy, ThumbsUp, ThumbsDown, ChevronRight, Undo2 } from "lucide-react";
 import type { ChatMessage, ChainNode } from "../../stores/useAgentStore";
-import { renderMarkdown } from "../../lib/markdown";
+import { Markdown } from "../prompt-kit/markdown";
 import {
   MessageContent,
   MessageActions,
@@ -77,24 +77,68 @@ export interface UserMessageProps {
   content: string;
   className?: string;
   overlay?: boolean;
+  onCopy?: (content: string) => void;
+  onRevert?: () => void;
 }
 
-export function UserMessage({ content, className, overlay }: UserMessageProps) {
+export function UserMessage({ content, className, overlay, onCopy, onRevert }: UserMessageProps) {
   if (overlay) {
     return (
-      <div className={`w-full max-w-[200px] self-end ${className ?? ""}`}>
-        <div className="rounded-[14px] px-4 py-3 text-[13px] font-medium leading-relaxed select-text bg-on-surface-variant/20 border border-outline text-on-surface">
+      <div className={`w-full max-w-[200px] self-end group ${className ?? ""}`}>
+        <div className="relative rounded-[14px] px-4 py-3 text-[13px] font-medium leading-relaxed select-text bg-[#0D1117] text-on-surface border border-white/[0.06]">
           {content}
+          <div className="absolute bottom-1.5 right-1.5 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+            {onCopy && (
+              <button
+                onClick={() => onCopy(content)}
+                className="p-1 rounded-md hover:bg-white/[0.08] text-on-surface-variant/50 hover:text-on-surface/80 transition-colors cursor-pointer"
+                title="Copy message"
+              >
+                <Copy size={12} />
+              </button>
+            )}
+            {onRevert && (
+              <button
+                onClick={onRevert}
+                className="p-1 rounded-md hover:bg-white/[0.08] text-on-surface-variant/50 hover:text-on-surface/80 transition-colors cursor-pointer"
+                title="Revert"
+              >
+                <Undo2 size={12} />
+              </button>
+            )}
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className={`flex flex-col items-end max-w-[70%] min-w-0 ${className ?? ""}`}>
-      <MessageContent className="w-full min-w-0 bg-on-surface-variant/20 border border-outline text-on-surface rounded-2xl px-4 py-3 text-[14px] leading-relaxed break-words">
-        {content}
-      </MessageContent>
+    <div className={`flex flex-col items-end max-w-[70%] min-w-0 group ${className ?? ""}`}>
+      <div className="relative w-full">
+        <MessageContent className="w-full min-w-0 bg-[#0D1117] text-on-surface border border-white/[0.06] rounded-2xl px-4 py-3 text-[14px] leading-relaxed break-words">
+          {content}
+        </MessageContent>
+        <div className="absolute bottom-1.5 right-1.5 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+          {onCopy && (
+            <button
+              onClick={() => onCopy(content)}
+              className="p-1 rounded-md hover:bg-white/[0.08] text-on-surface-variant/50 hover:text-on-surface/80 transition-colors cursor-pointer"
+              title="Copy message"
+            >
+              <Copy size={12} />
+            </button>
+          )}
+          {onRevert && (
+            <button
+              onClick={onRevert}
+              className="p-1 rounded-md hover:bg-white/[0.08] text-on-surface-variant/50 hover:text-on-surface/80 transition-colors cursor-pointer"
+              title="Revert"
+            >
+              <Undo2 size={12} />
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -134,7 +178,9 @@ export function AgentResponseMessage({
         className={`w-full min-w-0 rounded-2xl px-0 py-3 text-[13px] leading-relaxed break-words select-text ${msg.isError ? "text-red-400" : "text-on-surface/90"
           }`}
       >
-        {renderMarkdown(msg.content)}
+        <Markdown className="prose prose-sm max-w-none">
+          {msg.content}
+        </Markdown>
       </div>
 
       {(onCopy || onLike || onDislike) && (
@@ -235,12 +281,12 @@ export function AgentTurnMessage({
     <div className={`flex flex-col ${className ?? ""}`}>
       {/* User message */}
       {isOverlay ? (
-        <div className="sticky self-end top-0 z-10 pb-2">
-          <UserMessage content={userMsg.content} overlay />
+        <div className="sticky flex w-full justify-end self-end top-0 z-10 pb-2">
+          <UserMessage content={userMsg.content} className="max-w-full" overlay onCopy={onCopy} />
         </div>
       ) : (
         <div className="flex justify-end pb-1">
-          <UserMessage content={userMsg.content} />
+          <UserMessage content={userMsg.content} onCopy={onCopy} onRevert={isLastTurn ? onRetry : undefined} />
         </div>
       )}
 
@@ -299,16 +345,13 @@ export function AgentTurnMessage({
               className={`w-full min-w-0 text-[12.5px] leading-relaxed break-words select-text ${assistantMsg.isError ? "text-red-400" : "text-on-surface/90"
                 }`}
             >
-              {renderMarkdown(assistantMsg.content)}
+              <Markdown className="prose prose-sm max-w-none">
+                {assistantMsg.content}
+              </Markdown>
             </div>
 
             {/* Action bar — copy, like, dislike */}
             <div className="flex items-center justify-end gap-3 text-on-surface-variant/80">
-              {assistantMsg.durationMs !== undefined && assistantMsg.durationMs > 0 && (
-                <span className="text-[10px] text-on-surface-variant/30 mr-auto">
-                  Worked for {Math.round(assistantMsg.durationMs / 1000)}s
-                </span>
-              )}
               {onCopy && (
                 <button
                   onClick={() => onCopy(assistantMsg.content)}

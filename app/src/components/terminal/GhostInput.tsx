@@ -66,7 +66,7 @@ export function GhostInput({
 
   const { navigateUp, navigateDown, reset } = useHistoryNavigation(history);
 
-  const uniqueHistory = [...new Set(history.filter(Boolean).map(cmd => cmd.replace(/`+$/, '')))];
+  const uniqueHistory = [...new Set(history.filter(Boolean).map(cmd => cmd.replace(/[`\\]+$/, '').trim()))];
 
   const ghost = computeGhost(value, uniqueHistory);
 

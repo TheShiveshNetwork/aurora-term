@@ -120,7 +120,10 @@ pub async fn agent_plan_step(
         sidecar.port().ok_or_else(|| AppError::Sidecar("aurora-agent is not running".to_string()))?
     };
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(130))
+        .build()
+        .map_err(|e| AppError::Sidecar(format!("Failed to create HTTP client: {}", e)))?;
     let url = format!("http://127.0.0.1:{}/api/step", port);
 
     let request_payload = AgentStepRequest {
@@ -167,7 +170,10 @@ pub async fn agent_approve_tool(
         sidecar.port().ok_or_else(|| AppError::Sidecar("aurora-agent is not running".to_string()))?
     };
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(130))
+        .build()
+        .map_err(|e| AppError::Sidecar(format!("Failed to create HTTP client: {}", e)))?;
     let url = format!("http://127.0.0.1:{}/api/tool/approve", port);
 
     let request_payload = AgentApproveRequest {
@@ -208,7 +214,10 @@ pub async fn agent_decline_tool(
         sidecar.port().ok_or_else(|| AppError::Sidecar("aurora-agent is not running".to_string()))?
     };
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(130))
+        .build()
+        .map_err(|e| AppError::Sidecar(format!("Failed to create HTTP client: {}", e)))?;
     let url = format!("http://127.0.0.1:{}/api/tool/decline", port);
 
     let request_payload = AgentDeclineRequest {
@@ -244,7 +253,10 @@ pub async fn agent_get_logs(
         sidecar.port().ok_or_else(|| AppError::Sidecar("aurora-agent is not running".to_string()))?
     };
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(130))
+        .build()
+        .map_err(|e| AppError::Sidecar(format!("Failed to create HTTP client: {}", e)))?;
     let url = format!("http://127.0.0.1:{}/api/logs", port);
 
     let response = client.get(&url)
@@ -277,7 +289,10 @@ pub async fn agent_chat(
         sidecar.port().ok_or_else(|| AppError::Sidecar("aurora-agent is not running".to_string()))?
     };
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(130))
+        .build()
+        .map_err(|e| AppError::Sidecar(format!("Failed to create HTTP client: {}", e)))?;
     let url = format!("http://127.0.0.1:{}/api/chat", port);
 
     let request_payload = AgentChatRequest {
@@ -318,7 +333,10 @@ pub async fn ai_edit_code(
         sidecar.port().ok_or_else(|| AppError::Sidecar("aurora-agent is not running".to_string()))?
     };
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(130))
+        .build()
+        .map_err(|e| AppError::Sidecar(format!("Failed to create HTTP client: {}", e)))?;
     let url = format!("http://127.0.0.1:{}/api/edit-code", port);
 
     let request_payload = AiEditCodeRequest {
@@ -356,7 +374,10 @@ pub async fn ai_inline_complete(
         sidecar.port().ok_or_else(|| AppError::Sidecar("aurora-agent is not running".to_string()))?
     };
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(130))
+        .build()
+        .map_err(|e| AppError::Sidecar(format!("Failed to create HTTP client: {}", e)))?;
     let url = format!("http://127.0.0.1:{}/api/inline-complete", port);
 
     let request_payload = AiInlineCompleteRequest {
