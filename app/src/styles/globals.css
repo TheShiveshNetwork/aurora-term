@@ -1,6 +1,7 @@
 @import url("https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap");
 @import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap");
 @import "tailwindcss";
+@plugin "@tailwindcss/typography";
 
 @theme {
   /* ── Background Layers ──────────────────────────────────────────── */
@@ -514,4 +515,167 @@ body {
   background-color: var(--surface-container-low, #12131a) !important;
   border-left: 1px solid rgba(232, 234, 240, 0.05) !important;
   border-right: 1px solid rgba(232, 234, 240, 0.05) !important;
+}
+
+/* ── 20. Agent Chat Markdown Prose Overrides ────────────────────── */
+.prose {
+  color: #E8EAF0;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.prose :where(h1):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  font-size: 1.4em;
+  font-weight: 700;
+  color: #E8EAF0;
+  margin-top: 1.2em;
+  margin-bottom: 0.5em;
+  line-height: 1.3;
+}
+
+.prose :where(h2):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  font-size: 1.2em;
+  font-weight: 650;
+  color: #E8EAF0;
+  margin-top: 1em;
+  margin-bottom: 0.4em;
+  line-height: 1.35;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.prose :where(h3):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  font-size: 1.05em;
+  font-weight: 600;
+  color: #E8EAF0;
+  margin-top: 0.8em;
+  margin-bottom: 0.3em;
+  line-height: 1.4;
+}
+
+.prose :where(h4):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  font-size: 0.95em;
+  font-weight: 600;
+  color: rgba(232, 234, 240, 0.9);
+  margin-top: 0.6em;
+  margin-bottom: 0.2em;
+}
+
+.prose :where(p):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  margin-top: 0.5em;
+  margin-bottom: 0.5em;
+  color: rgba(232, 234, 240, 0.85);
+}
+
+.prose :where(ul):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  margin-top: 0.4em;
+  margin-bottom: 0.4em;
+  padding-left: 1.4em;
+}
+
+.prose :where(ol):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  margin-top: 0.4em;
+  margin-bottom: 0.4em;
+  padding-left: 1.4em;
+}
+
+.prose :where(li):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  margin-top: 0.15em;
+  margin-bottom: 0.15em;
+  color: rgba(232, 234, 240, 0.85);
+}
+
+.prose :where(ul > li):not(:where([class~="not-prose"], [class~="not-prose"] *))::marker {
+  color: rgba(232, 234, 240, 0.35);
+}
+
+.prose :where(ol > li):not(:where([class~="not-prose"], [class~="not-prose"] *))::marker {
+  color: rgba(232, 234, 240, 0.35);
+}
+
+.prose :where(blockquote):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  border-left-color: rgba(79, 140, 255, 0.4);
+  background: rgba(79, 140, 255, 0.05);
+  padding: 0.5em 1em;
+  border-radius: 0 6px 6px 0;
+  margin-top: 0.6em;
+  margin-bottom: 0.6em;
+  color: rgba(232, 234, 240, 0.75);
+  font-style: normal;
+}
+
+.prose :where(code):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.88em;
+}
+
+.prose :where(a):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  color: #4F8CFF;
+  text-decoration: none;
+}
+
+.prose :where(a):not(:where([class~="not-prose"], [class~="not-prose"] *)):hover {
+  text-decoration: underline;
+}
+
+.prose :where(strong):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  color: #E8EAF0;
+  font-weight: 600;
+}
+
+.prose :where(em):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  color: rgba(232, 234, 240, 0.9);
+}
+
+.prose :where(hr):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  border-color: rgba(255, 255, 255, 0.06);
+  margin-top: 1.2em;
+  margin-bottom: 1.2em;
+}
+
+.prose :where(table):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  font-size: 0.85em;
+  border-collapse: collapse;
+}
+
+.prose :where(th):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  background: rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 0.4em 0.8em;
+  font-weight: 600;
+  color: #E8EAF0;
+}
+
+.prose :where(td):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  padding: 0.4em 0.8em;
+  color: rgba(232, 234, 240, 0.85);
+}
+
+.prose :where(tr):not(:where([class~="not-prose"], [class~="not-prose"] *)):hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.prose :where(pre):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  overflow: visible;
+}
+
+.prose :where(code):not(:where([class~="not-prose"], [class~="not-prose"] *)):not(pre code) {
+  background: #1A2230;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 4px;
+  padding: 0.15em 0.35em;
+}
+
+.prose :where(.contains-task-list):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  list-style: none;
+  padding-left: 0;
+}
+
+.prose :where(input[type="checkbox"]):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  margin-right: 0.4em;
+  accent-color: #4F8CFF;
 }

@@ -161,7 +161,7 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
     };
   }, []);
 
-  // Smooth scroll and center active tab
+  // Smooth scroll active tab's right edge to the container's right edge
   useEffect(() => {
     if (!activeTabId) return;
     const t = setTimeout(() => {
@@ -175,10 +175,10 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
       const activeLeft = activeEl.offsetLeft;
       const activeWidth = activeEl.clientWidth;
 
-      const targetScrollLeft = activeLeft - (containerWidth / 2) + (activeWidth / 2);
+      const targetScrollLeft = activeLeft + activeWidth - containerWidth;
 
       container.scrollTo({
-        left: targetScrollLeft,
+        left: Math.max(0, targetScrollLeft),
         behavior: "smooth",
       });
     }, 50);

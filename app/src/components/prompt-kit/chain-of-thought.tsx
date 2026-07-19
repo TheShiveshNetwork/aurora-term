@@ -37,14 +37,14 @@ export const ChainOfThoughtTrigger = ({
 }: ChainOfThoughtTriggerProps) => (
   <CollapsibleTrigger
     className={cn(
-      "group text-on-surface-variant/50 hover:text-on-surface-variant/70 flex cursor-pointer items-center justify-start gap-1 text-left text-[11px] font-medium transition-colors",
+      "group text-on-surface-variant/50 hover:text-on-surface-variant/70 flex cursor-pointer items-center justify-start gap-1 text-left text-[11px] font-medium transition-colors min-w-0",
       className
     )}
     {...props}
   >
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2 min-w-0">
       {leftIcon ? (
-        <span className="relative inline-flex size-4 items-center justify-center">
+        <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
           <span
             className={cn(
               "transition-opacity",
@@ -58,14 +58,14 @@ export const ChainOfThoughtTrigger = ({
           )}
         </span>
       ) : (
-        <span className="relative inline-flex size-4 items-center justify-center">
+        <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
           <Circle className="size-2.5 fill-current" />
         </span>
       )}
-      <span>{children}</span>
+      <span className="min-w-0 whitespace-normal break-words">{children}</span>
     </div>
     {!leftIcon && (
-      <ChevronDown className="size-3.5 transition-transform group-data-[state=open]:rotate-180" />
+      <ChevronDown className="size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-180" />
     )}
   </CollapsibleTrigger>
 )
@@ -105,7 +105,7 @@ export const ChainOfThoughtCommand = ({
 }: ChainOfThoughtCommandProps) => (
   <pre
     className={cn(
-      "mt-2 p-2 rounded-lg bg-black/40 border border-outline-variant/10 text-[11px] font-mono overflow-x-auto text-emerald-300/90 leading-normal select-text",
+      "mt-2 p-2 rounded-sm border border-white/[0.06] bg-[#0D1117] text-[11px] font-mono overflow-x-auto text-on-surface/80 leading-normal select-text",
       className
     )}
     {...props}
