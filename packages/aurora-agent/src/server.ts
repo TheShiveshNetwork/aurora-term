@@ -398,7 +398,7 @@ server.post('/api/tool/approve', async (request, _reply) => {
   try {
     const response = await agent.resumeGenerate(
       { approved: true, ...resumeData },
-      { runId, toolCallId, maxSteps: 25 }
+      { runId, toolCallId, maxSteps: 25, abortSignal: AbortSignal.timeout(120_000) }
     );
 
     const elapsed = Date.now() - startTime;
@@ -476,7 +476,7 @@ server.post('/api/tool/decline', async (request, _reply) => {
   try {
     const response = await agent.resumeGenerate(
       { approved: false },
-      { runId, toolCallId, maxSteps: 25 }
+      { runId, toolCallId, maxSteps: 25, abortSignal: AbortSignal.timeout(120_000) }
     );
 
     const elapsed = Date.now() - startTime;

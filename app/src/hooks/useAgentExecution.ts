@@ -271,6 +271,22 @@ export function useAgentExecution(sessionId: string | null) {
           role: "assistant",
           content: step.args.question || step.message || "A clarifying question has been asked",
         });
+      } else {
+        // Fallback: auto-approve any unrecognized tool suspension
+        // (e.g., read_file, grep_search, list_directory, search_files, glob, web_fetch)
+        // These tools execute directly in the sidecar and don't need frontend PTY approval.
+        console.warn(`Auto-approving unrecognized tool suspension: ${step.tool_name}`, step);
+        state.resumeTask(targetSessionId);
+        const stepResult = await system.agentApproveTool(
+          useAgentStore.getState().sessions[targetSessionId]?.agentType || "terminal",
+          useAgentStore.getState().sessions[targetSessionId]?.agentMode || "build",
+          step.run_id,
+          step.tool_call_id,
+          { approved: true }
+        );
+        state.setPendingToolCall(targetSessionId, null);
+        await handleStepResult(targetSessionId, taskId, stepResult);
+        return;
       }
       return;
     }
