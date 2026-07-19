@@ -529,7 +529,7 @@ export function GitView({ cwd, tabId }: GitViewProps) {
   }, [cwd, tabs, addTab, setActiveTabId]);
 
   const handleOpenDiff = useCallback(async (diffFn: (cwd: string, path?: string) => Promise<string>, title: string) => {
-    const existing = tabs.find(t => t.type === "diff" && t.name === title);
+    const existing = useSessionStore.getState().tabs.find(t => t.type === "diff" && t.name === title);
     if (existing) { setActiveTabId(existing.id); return; }
     try {
       const diff = await diffFn(cwd);
@@ -541,7 +541,7 @@ export function GitView({ cwd, tabId }: GitViewProps) {
         setActiveTabId(id);
       }
     } catch (e) { console.error(e); }
-  }, [cwd, tabs, addTab, setActiveTabId]);
+  }, [cwd, addTab, setActiveTabId]);
 
   const handleSelectFile = useCallback(async (entry: GitStatusEntry, staged?: boolean) => {
     const path = entry.path;
@@ -575,7 +575,7 @@ export function GitView({ cwd, tabId }: GitViewProps) {
     const path = selectedFile;
     if (!path) return;
     const resolvedPath = cwd ? `${cwd}/${path}`.replace(/\/\//g, "/") : path;
-    const existing = tabs.find(t => t.type === "diff" && t.filePath === resolvedPath && !t.diffCommitHash);
+    const existing = useSessionStore.getState().tabs.find(t => t.type === "diff" && t.filePath === resolvedPath && !t.diffCommitHash);
     if (existing) { setActiveTabId(existing.id); return; }
     try {
       const isStaged = stagedFiles.some(e => e.path === path);
@@ -594,7 +594,7 @@ export function GitView({ cwd, tabId }: GitViewProps) {
         setActiveTabId(id);
       }
     } catch (e) { console.error(e); }
-  }, [selectedFile, cwd, stagedFiles, tabs, addTab, setActiveTabId]);
+  }, [selectedFile, cwd, stagedFiles, addTab, setActiveTabId]);
 
   const handleOpenOrFocusFile = useCallback((filePath: string) => {
     handleOpenFile(filePath);

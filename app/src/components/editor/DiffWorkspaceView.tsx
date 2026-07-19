@@ -10,6 +10,7 @@ interface DiffWorkspaceViewProps {
   oldContent: string;
   newContent: string;
   commitHash: string;
+  onOpenFile?: (filePath: string) => void;
 }
 
 // When commitHash === "pending-agent-change" this is an agent diff —
@@ -20,6 +21,7 @@ export function DiffWorkspaceView({
   oldContent,
   newContent,
   commitHash,
+  onOpenFile,
 }: DiffWorkspaceViewProps) {
   const fileName = filePath.split(/[/\\]/).pop() || filePath;
   const isAgentDiff = commitHash === "pending-agent-change";
@@ -79,6 +81,7 @@ export function DiffWorkspaceView({
           oldLabel={isAgentDiff ? `Original — ${fileName}` : `${commitHash.slice(0, 7)}~1 — ${fileName}`}
           newLabel={isAgentDiff ? `Agent Draft — ${fileName}` : `${commitHash.slice(0, 7)} — ${fileName}`}
           commitHash={commitHash}
+          onOpenFile={onOpenFile}
         />
       </div>
     </div>

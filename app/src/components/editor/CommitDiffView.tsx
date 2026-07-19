@@ -149,12 +149,14 @@ export function CommitDiffView({
   filePath = "",
   showBreadcrumb = true,
   collapsible = false,
+  onOpenFile,
 }: {
   diff: string;
   commitHash: string;
   filePath?: string;
   showBreadcrumb?: boolean;
   collapsible?: boolean;
+  onOpenFile?: (filePath: string) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -323,7 +325,7 @@ export function CommitDiffView({
     <div className="h-full w-full flex flex-col" style={{ background: "var(--surface-container-low, #12131a)", minHeight: 0 }}>
       {showBreadcrumb &&
         <div className="py-2">
-          <PathBreadcrumb filePath={filePath} commitHash={commitHash} />
+          <PathBreadcrumb filePath={filePath} commitHash={commitHash} onOpenFile={onOpenFile} />
         </div>
       }
       <div

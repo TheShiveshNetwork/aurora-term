@@ -212,15 +212,11 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
       console.log(`[TerminalPane ${sessionId}] Alternate buffer transition: ${current} -> ${active}`);
       useSessionStore.getState().setAlternateBufferActive(sessionId, active);
 
-      // When exiting alternate buffer, finalize any running block and restore focus.
+      // When exiting alternate buffer, restore focus but do NOT finalize the running block.
+      // Block finalization is handled by the CWD sentinel (shell prompt) or PTY exit event —
+      // alternate buffer transitions happen for TUI subprocesses (less, vim, spinners) that
+      // may be nested inside a still-running parent command.
       if (!active) {
-        const runningId = useBlockStore.getState().runningBlockId[sessionId];
-        if (runningId) {
-          console.log(`[TerminalPane ${sessionId}] Finalizing running block on alternate buffer exit`);
-          useBlockStore.getState().finalizeBlock(sessionId, runningId, 0);
-        }
-        useBlockStore.getState().setRunningBlockId(sessionId, null);
-        useBlockStore.getState().setCommandOutputReceived(sessionId, false);
         requestAnimationFrame(() => {
           if (isDisposed) return;
           window.dispatchEvent(

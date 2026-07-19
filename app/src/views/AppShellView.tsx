@@ -114,6 +114,16 @@ export function AppShellView() {
   useEffect(() => {
     const unlisten = listen<GitDiffTabPayload>(GIT_DIFF_TAB_EVENT, (event) => {
       const payload = event.payload;
+      const existing = useSessionStore.getState().tabs.find(
+        t => t.type === "diff" && (
+          (payload.filePath && t.filePath === payload.filePath && !t.diffCommitHash) ||
+          (!payload.filePath && t.name === payload.name)
+        )
+      );
+      if (existing) {
+        useSessionStore.getState().setActiveTabId(existing.id);
+        return;
+      }
       useSessionStore.getState().addTab(payload);
       useSessionStore.getState().setActiveTabId(payload.id);
     });
@@ -680,6 +690,13 @@ export function AppShellView() {
                               commitHash={tab.diffCommitHash || ""}
                               filePath={tab.filePath || ""}
                               collapsible={true}
+                              onOpenFile={(path) => {
+                                const base = projectDir || cwdAbsolute;
+                                const isAbs = /^[A-Z]:[/\\]|^[/\\]|^~/i.test(path);
+                                const abs = isAbs ? path : (base ? `${base}/${path}`.replace(/\/\//g, "/") : path);
+                                openFile(abs, base);
+                                setViewMode("file");
+                              }}
                             />
                           ) : tab.type === "diff" ? (
                             <DiffWorkspaceView
@@ -688,6 +705,13 @@ export function AppShellView() {
                               oldContent={tab.diffOldContent || ""}
                               newContent={tab.diffNewContent || ""}
                               commitHash={tab.diffCommitHash || ""}
+                              onOpenFile={(path) => {
+                                const base = projectDir || cwdAbsolute;
+                                const isAbs = /^[A-Z]:[/\\]|^[/\\]|^~/i.test(path);
+                                const abs = isAbs ? path : (base ? `${base}/${path}`.replace(/\/\//g, "/") : path);
+                                openFile(abs, base);
+                                setViewMode("file");
+                              }}
                             />
                           ) : tab.type === "git" ? (
                             <GitView cwd={projectDir || cwdAbsolute} tabId={tab.id} />
