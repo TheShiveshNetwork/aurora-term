@@ -42,66 +42,72 @@ impl OllamaProvider {
         }
     }
 
-    /// Fetch available models from Ollama.
-    /// Calls `/api/tags` to list, then `/api/show` per model to detect tool capability.
+    /// Fetch available models from Ollama (HTTP API + CLI output).
     pub async fn list_models(base_url: &str) -> Result<Vec<ModelInfo>, AppError> {
         let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(15))
+            .timeout(std::time::Duration::from_secs(10))
             .build()
             .map_err(|e| AppError::Ai(format!("Failed to build HTTP client: {}", e)))?;
 
-        let tags_url = format!("{}/api/tags", base_url.trim_end_matches('/'));
-        let res = client
-            .get(&tags_url)
-            .send()
-            .await
-            .map_err(|e| AppError::Ai(format!("Failed to connect to Ollama: {}", e)))?;
+        let mut models = Vec::new();
+        let mut model_ids = std::collections::HashSet::new();
 
-        if !res.status().is_success() {
-            return Err(AppError::Ai("Ollama service is not running".to_string()));
+        // 1. Fetch from HTTP API /api/tags
+        let tags_url = format!("{}/api/tags", base_url.trim_end_matches('/'));
+        if let Ok(res) = client.get(&tags_url).send().await {
+            if res.status().is_success() {
+                if let Ok(body) = res.json::<Value>().await {
+                    if let Some(list) = body["models"].as_array() {
+                        for item in list {
+                            let name = item["name"].as_str().unwrap_or("").to_string();
+                            if name.is_empty() || model_ids.contains(&name) {
+                                continue;
+                            }
+                            model_ids.insert(name.clone());
+                            let parameter_size = item["details"]["parameter_size"].as_str().unwrap_or("").to_string();
+                            let display_name = if parameter_size.is_empty() {
+                                name.clone()
+                            } else {
+                                format!("{} ({})", name, parameter_size)
+                            };
+
+                            models.push(ModelInfo {
+                                id: name.clone(),
+                                display_name,
+                                supports_tools: true,
+                                max_tokens: None,
+                                context_window: None,
+                            });
+                        }
+                    }
+                }
+            }
         }
 
-        let body: Value = res.json().await
-            .map_err(|e| AppError::Ai(format!("Failed to parse Ollama tags: {}", e)))?;
-
-        let mut models = Vec::new();
-        if let Some(list) = body["models"].as_array() {
-            for item in list {
-                let name = item["name"].as_str().unwrap_or("").to_string();
-                if name.is_empty() {
-                    continue;
-                }
-                let parameter_size = item["details"]["parameter_size"].as_str().unwrap_or("").to_string();
-                let display_name = if parameter_size.is_empty() {
-                    name.clone()
-                } else {
-                    format!("{} ({})", name, parameter_size)
-                };
-
-                // Check capabilities via /api/show
-                let supports_tools = {
-                    let show_url = format!("{}/api/show", base_url.trim_end_matches('/'));
-                    let show_body = serde_json::json!({"model": &name});
-                    match client.post(&show_url).json(&show_body).send().await {
-                        Ok(resp) => match resp.json::<Value>().await {
-                            Ok(show_data) => show_data["capabilities"]
-                                .as_array()
-                                .map(|caps| caps.iter().any(|c| c.as_str() == Some("tools")))
-                                .unwrap_or(false),
-                            Err(_) => false,
-                        },
-                        Err(_) => false,
+        // 2. Also run `ollama list` command if available to include all CLI-listed local and cloud models
+        if let Ok(output) = std::process::Command::new("ollama").arg("list").output() {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                for line in stdout.lines().skip(1) {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if let Some(&name) = parts.first() {
+                        if !name.is_empty() && !model_ids.contains(name) {
+                            model_ids.insert(name.to_string());
+                            models.push(ModelInfo {
+                                id: name.to_string(),
+                                display_name: name.to_string(),
+                                supports_tools: true,
+                                max_tokens: None,
+                                context_window: None,
+                            });
+                        }
                     }
-                };
-
-                models.push(ModelInfo {
-                    id: name.clone(),
-                    display_name,
-                    supports_tools,
-                    max_tokens: None,
-                    context_window: None,
-                });
+                }
             }
+        }
+
+        if models.is_empty() {
+            return Err(AppError::Ai("No Ollama models found. Please ensure Ollama is running or pull a model.".to_string()));
         }
 
         Ok(models)

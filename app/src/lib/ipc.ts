@@ -32,6 +32,7 @@ export interface ProviderConfig {
   fast_model: string;
   balanced_model: string;
   powerful_model: string;
+  selected_model: string | null;
   base_url: string | null;
 }
 

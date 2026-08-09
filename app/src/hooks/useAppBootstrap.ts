@@ -81,6 +81,7 @@ export function applyAppConfig(cfg: AppConfig) {
         fastModel: p.fast_model,
         balancedModel: p.balanced_model,
         powerfulModel: p.powerful_model,
+        selectedModel: p.selected_model ?? "",
         baseUrl: p.base_url ?? undefined,
       });
     }

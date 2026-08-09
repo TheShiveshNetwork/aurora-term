@@ -9,6 +9,7 @@ export interface ProviderConfig {
   fastModel: string;
   balancedModel: string;
   powerfulModel: string;
+  selectedModel?: string;
   baseUrl?: string;
 }
 

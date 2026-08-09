@@ -20,58 +20,64 @@ fn build_provider(
     match provider_name {
         "anthropic" => {
             let key = KeychainManager::get_api_key("anthropic")?;
+            let (fast, balanced, powerful) = config.ai.anthropic.effective_models();
             Ok(Box::new(AnthropicProvider::new(
                 key,
-                config.ai.anthropic.fast_model.clone(),
-                config.ai.anthropic.balanced_model.clone(),
-                config.ai.anthropic.powerful_model.clone(),
+                fast,
+                balanced,
+                powerful,
             )))
         }
         "openai" => {
             let key = KeychainManager::get_api_key("openai")?;
+            let (fast, balanced, powerful) = config.ai.openai.effective_models();
             Ok(Box::new(OpenAiCompatProvider::new(
                 key,
                 config.ai.openai.base_url.clone(),
-                config.ai.openai.fast_model.clone(),
-                config.ai.openai.balanced_model.clone(),
-                config.ai.openai.powerful_model.clone(),
+                fast,
+                balanced,
+                powerful,
             )))
         }
         "gemini" => {
             let key = KeychainManager::get_api_key("gemini")?;
+            let (fast, balanced, powerful) = config.ai.gemini.effective_models();
             Ok(Box::new(GeminiProvider::new(
                 key,
-                config.ai.gemini.fast_model.clone(),
-                config.ai.gemini.balanced_model.clone(),
-                config.ai.gemini.powerful_model.clone(),
+                fast,
+                balanced,
+                powerful,
             )))
         }
         "nvidia" => {
             let key = KeychainManager::get_api_key("nvidia")?;
+            let (fast, balanced, powerful) = config.ai.nvidia.effective_models();
             Ok(Box::new(OpenAiCompatProvider::new(
                 key,
                 config.ai.nvidia.base_url.clone(),
-                config.ai.nvidia.fast_model.clone(),
-                config.ai.nvidia.balanced_model.clone(),
-                config.ai.nvidia.powerful_model.clone(),
+                fast,
+                balanced,
+                powerful,
             )))
         }
         "ollama" => {
+            let (fast, balanced, powerful) = config.ai.ollama.effective_models();
             Ok(Box::new(OllamaProvider::new(
                 config.ai.ollama.base_url.clone(),
-                config.ai.ollama.fast_model.clone(),
-                config.ai.ollama.balanced_model.clone(),
-                config.ai.ollama.powerful_model.clone(),
+                fast,
+                balanced,
+                powerful,
             )))
         }
         "groq" => {
             let key = KeychainManager::get_api_key("groq")?;
+            let (fast, balanced, powerful) = config.ai.groq.effective_models();
             Ok(Box::new(OpenAiCompatProvider::new(
                 key,
                 config.ai.groq.base_url.clone(),
-                config.ai.groq.fast_model.clone(),
-                config.ai.groq.balanced_model.clone(),
-                config.ai.groq.powerful_model.clone(),
+                fast,
+                balanced,
+                powerful,
             )))
         }
         _ => Err(AppError::Ai(format!("Unknown provider: {}", provider_name))),

@@ -29,6 +29,7 @@ import { FileUpload, FileUploadContent } from "../components/prompt-kit/file-upl
 
 // Import agent components
 import { AgentTurnMessage } from "../components/agents";
+import { CommandApprovalCard } from "../components/agents/CommandApprovalCard";
 import type { ChatMessage } from "../stores/useAgentStore";
 
 export function AgentView() {
@@ -98,6 +99,7 @@ export function AgentView() {
   const {
     startTask,
     status,
+    queue,
     chatHistory,
     retryTask,
     approveAndRunPending,
@@ -267,15 +269,25 @@ export function AgentView() {
 
   const showEmptyState = chatHistory.length === 0 && !isThinking;
 
-  // Pair chat history into turns (user + optional assistant)
-  const turns: Array<{ user: ChatMessage; assistant: ChatMessage | null }> = [];
-  for (let idx = 0; idx < chatHistory.length; idx++) {
+  // Pair chat history into turns, supporting standalone assistant messages/errors
+  const turns: Array<{ user: ChatMessage | null; assistant: ChatMessage | null }> = [];
+  let idx = 0;
+  while (idx < chatHistory.length) {
     const msg = chatHistory[idx];
     if (msg.role === "user") {
       const next = chatHistory[idx + 1];
-      const assistant = next?.role === "assistant" ? next : null;
-      turns.push({ user: msg, assistant });
-      if (assistant) idx++;
+      if (next?.role === "assistant") {
+        turns.push({ user: msg, assistant: next });
+        idx += 2;
+      } else {
+        turns.push({ user: msg, assistant: null });
+        idx += 1;
+      }
+    } else if (msg.role === "assistant") {
+      turns.push({ user: null, assistant: msg });
+      idx += 1;
+    } else {
+      idx += 1;
     }
   }
   const lastTurnIndex = turns.length - 1;
@@ -435,7 +447,7 @@ export function AgentView() {
                       const isLastTurn = idx === lastTurnIndex;
                       return (
                         <AgentTurnMessage
-                          key={turn.user.id}
+                          key={turn.user?.id || turn.assistant?.id || `turn-${idx}`}
                           userMsg={turn.user}
                           assistantMsg={turn.assistant}
                           isThinking={isLastTurn && isThinking}
@@ -478,6 +490,21 @@ export function AgentView() {
                 {/* Input Area */}
                 <div className="shrink-0 pb-3 px-5 w-full">
                   <div className="max-w-[900px] mx-auto w-full flex flex-col overflow-visible">
+                    {/* Command Approval Card when awaiting approval */}
+                    {status === "paused" && (function () {
+                      const pendingCmd = queue.find((c) => c.status === "requires_action");
+                      if (!pendingCmd) return null;
+                      return (
+                        <CommandApprovalCard
+                          className="mb-3"
+                          command={pendingCmd.command}
+                          explanation={pendingCmd.explanation}
+                          onApprove={approveAndRunPending}
+                          onSkip={skipPending}
+                        />
+                      );
+                    })()}
+
                     {/* Status Drawer inside Input container */}
                     {targetSessionId && showStatusDrawer && (
                       <StatusDrawer

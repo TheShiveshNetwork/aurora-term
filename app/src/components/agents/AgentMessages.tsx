@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Check, Copy, ThumbsUp, ThumbsDown, ChevronRight, Undo2 } from "lucide-react";
+import { Check, Copy, ThumbsUp, ThumbsDown, ChevronRight, Undo2, RotateCw } from "lucide-react";
 import type { ChatMessage, ChainNode } from "../../stores/useAgentStore";
 import { Markdown } from "../prompt-kit/markdown";
 import {
@@ -229,7 +229,7 @@ export function AgentResponseMessage({
 // ── Agent Turn Message ─────────────────────────────────────────────────────
 
 export interface AgentTurnMessageProps {
-  userMsg: ChatMessage;
+  userMsg: ChatMessage | null;
   assistantMsg: ChatMessage | null;
   isThinking: boolean;
   isLastTurn: boolean;
@@ -280,14 +280,16 @@ export function AgentTurnMessage({
   return (
     <div className={`flex flex-col ${className ?? ""}`}>
       {/* User message */}
-      {isOverlay ? (
-        <div className="sticky flex w-full justify-end self-end top-0 z-10 pb-2">
-          <UserMessage content={userMsg.content} className="max-w-full" overlay onCopy={onCopy} />
-        </div>
-      ) : (
-        <div className="flex justify-end pb-1">
-          <UserMessage content={userMsg.content} onCopy={onCopy} onRevert={isLastTurn ? onRetry : undefined} />
-        </div>
+      {userMsg && (
+        isOverlay ? (
+          <div className="sticky flex w-full justify-end self-end top-0 z-10 pb-2">
+            <UserMessage content={userMsg.content} className="max-w-full" overlay onCopy={onCopy} />
+          </div>
+        ) : (
+          <div className="flex justify-end pb-1">
+            <UserMessage content={userMsg.content} onCopy={onCopy} onRevert={isLastTurn ? onRetry : undefined} />
+          </div>
+        )
       )}
 
       {/* Response area */}
@@ -395,7 +397,7 @@ export function AgentTurnMessage({
                   onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(79,140,255,0.16)")}
                   onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(79,140,255,0.10)")}
                 >
-                  <RotateCcw size={11} />
+                  <RotateCw size={11} />
                   Retry
                 </button>
               </div>

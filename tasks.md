@@ -55,6 +55,8 @@ TODO
 
 39. token usage optimization
 
+40. make the command prose scrollable y when its too large and make the ui of the thing stick to the bottom
+
 37. Operating systems compatibility (only test where it is working)
 42. session management (creating new session, compaction, etc)
 38. Sessions store for the workspace

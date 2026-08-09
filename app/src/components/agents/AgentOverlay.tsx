@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
   X,
-  RotateCcw,
+  RotateCw,
   Code2,
   Search,
   ShieldCheck,
@@ -56,7 +56,7 @@ function TurnMessageWrapper({
   maxSteps,
   retryTask,
 }: {
-  turn: { user: ChatMessage; assistant: ChatMessage | null };
+  turn: { user: ChatMessage | null; assistant: ChatMessage | null };
   isLastTurn: boolean;
   isThinking: boolean;
   chainNodes: any[];
@@ -104,82 +104,7 @@ function NoApiKeysOrEmpty() {
   );
 }
 
-// ── Command Approval Card ─────────────────────────────────────────────────
-interface CommandApprovalCardProps {
-  command: string;
-  explanation?: string;
-  onApprove: () => void;
-  onSkip: () => void;
-  isRunning: boolean;
-}
-
-function CommandApprovalCard({ command, explanation, onApprove, onSkip, isRunning }: CommandApprovalCardProps) {
-  return (
-    <div
-      className="mx-4 mb-3 rounded-[14px] overflow-hidden animate-fadeIn"
-      style={{
-        background: "rgba(15,19,26,0.95)",
-        // border: "1px solid rgba(255,200,60,0.20)",
-        boxShadow: "0 4px 24px rgba(0,0,0,0.35), 0 0 0 1px rgba(255,200,60,0.08)",
-      }}
-    >
-      <div className="flex items-center gap-2 px-3 py-1 mt-2">
-        {/* <Terminal size={11} className="text-amber-400/80 shrink-0" /> */}
-        <span className="text-[12px] font-bold tracking-widest text-amber-400/70">
-          Awaiting Approval
-        </span>
-      </div>
-
-      <div className="px-3 pt-1 pb-2">
-        {explanation && (
-          <p className="text-[11px] text-on-surface/50 mb-2 leading-relaxed">{explanation}</p>
-        )}
-        <code
-          className="block font-mono text-[12px] leading-relaxed break-all select-text"
-          style={{
-            background: "rgba(255,255,255,0.04)",
-            border: "1px solid rgba(255,255,255,0.07)",
-            borderRadius: 8,
-            padding: "8px 10px",
-            color: "rgba(180,220,255,0.90)",
-          }}
-        >
-          {command}
-        </code>
-      </div>
-
-      <div className="flex gap-2 px-3 pb-3">
-        <button
-          onClick={onSkip}
-          disabled={isRunning}
-          className="w-full flex items-center justify-center gap-1.5 text-[11px] font-bold py-2 px-3 rounded-[9px] transition-all cursor-pointer disabled:opacity-50"
-          style={{
-            background: "rgba(255,255,255,0.04)",
-            border: "1px solid rgba(255,255,255,0.09)",
-            color: "rgba(232,234,240,0.40)",
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.08)"; e.currentTarget.style.color = "rgba(232,234,240,0.70)"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.04)"; e.currentTarget.style.color = "rgba(232,234,240,0.40)"; }}
-          title="Skip this command"
-        >
-          <X size={12} />
-          Skip
-        </button>
-        <button
-          onClick={onApprove}
-          disabled={isRunning}
-          className="w-full flex items-center justify-center bg-amber-400/70 hover:bg-amber-400/75 transition-colors text-black gap-1.5 text-[11px] font-bold py-2 rounded-[9px] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {isRunning ? (
-            <><span className="w-3 h-3 border border-emerald-400/60 border-t-emerald-400 rounded-full animate-spin" />Running…</>
-          ) : (
-            <><Play size={10} fill="currentColor" />Approve & Run</>
-          )}
-        </button>
-      </div>
-    </div>
-  );
-}
+import { CommandApprovalCard } from "./CommandApprovalCard";
 
 interface AgentOverlayProps {
   sessionId: string | null;
@@ -276,15 +201,25 @@ export function AgentOverlay({ sessionId, onClose }: AgentOverlayProps) {
     await declinePending();
   }, [declinePending]);
 
-  // Group chat history into turns
-  const turns: Array<{ user: ChatMessage; assistant: ChatMessage | null }> = [];
-  for (let idx = 0; idx < chatHistory.length; idx++) {
+  // Group chat history into turns, supporting standalone assistant messages/errors
+  const turns: Array<{ user: ChatMessage | null; assistant: ChatMessage | null }> = [];
+  let idx = 0;
+  while (idx < chatHistory.length) {
     const msg = chatHistory[idx];
     if (msg.role === "user") {
       const next = chatHistory[idx + 1];
-      const assistant = next?.role === "assistant" ? next : null;
-      turns.push({ user: msg, assistant });
-      if (assistant) idx++;
+      if (next?.role === "assistant") {
+        turns.push({ user: msg, assistant: next });
+        idx += 2;
+      } else {
+        turns.push({ user: msg, assistant: null });
+        idx += 1;
+      }
+    } else if (msg.role === "assistant") {
+      turns.push({ user: null, assistant: msg });
+      idx += 1;
+    } else {
+      idx += 1;
     }
   }
   const lastTurnIndex = turns.length - 1;
@@ -327,7 +262,7 @@ export function AgentOverlay({ sessionId, onClose }: AgentOverlayProps) {
           const isLastTurn = idx === lastTurnIndex;
           return (
             <TurnMessageWrapper
-              key={turn.user.id}
+              key={turn.user?.id || turn.assistant?.id || `turn-${idx}`}
               turn={turn}
               isLastTurn={isLastTurn}
               isThinking={isLastTurn && isThinking}
@@ -370,7 +305,7 @@ export function AgentOverlay({ sessionId, onClose }: AgentOverlayProps) {
             onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; e.currentTarget.style.color = "#E8EAF0"; }}
             onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "rgba(232,234,240,0.4)"; }}
           >
-            <RotateCcw size={10} />
+            <RotateCw size={10} />
             Clear session
           </button>
         </div>

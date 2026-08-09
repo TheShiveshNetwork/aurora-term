@@ -10,7 +10,7 @@ import { listen } from "@tauri-apps/api/event";
 import { system, ai } from "../../lib/ipc";
 import { getLanguageExtension } from "../../lib/codeLang";
 import { isImageFile } from "../../lib/fileUtils";
-import { AlertCircle, Loader, Maximize2, Minimize2, Minus, Plus, RotateCcw, GitMerge } from "lucide-react";
+import { AlertCircle, Loader, Maximize2, Minimize2, Minus, Plus, RotateCw, GitMerge } from "lucide-react";
 import { useSessionStore } from "../../stores/useSessionStore";
 import { useSettingsStore } from "../../stores/useSettingsStore";
 import { closeAllPopups } from "../../lib/popups";
@@ -505,13 +505,13 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
             const mEnd = tab.scrollToMatchEnd ?? 0;
             const startPos = Math.min(lineInfo.from + mStart, lineInfo.to);
             const endPos = Math.min(lineInfo.from + mEnd, lineInfo.to);
-            
+
             view.dispatch({
               selection: { anchor: startPos, head: endPos },
               scrollIntoView: true
             });
             view.focus();
-            
+
             updateTab(tabId, {
               scrollToLine: undefined,
               scrollToMatchStart: undefined,
@@ -561,13 +561,13 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
         const mEnd = tab.scrollToMatchEnd ?? 0;
         const startPos = Math.min(lineInfo.from + mStart, lineInfo.to);
         const endPos = Math.min(lineInfo.from + mEnd, lineInfo.to);
-        
+
         view.dispatch({
           selection: { anchor: startPos, head: endPos },
           scrollIntoView: true
         });
         view.focus();
-        
+
         updateTab(tabId, {
           scrollToLine: undefined,
           scrollToMatchStart: undefined,
@@ -1016,7 +1016,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
                 onClick={resetZoom}
                 className="p-1 rounded hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface ml-2"
               >
-                <RotateCcw size={14} />
+                <RotateCw size={14} />
               </button>
             </div>
             {imageSrc && (

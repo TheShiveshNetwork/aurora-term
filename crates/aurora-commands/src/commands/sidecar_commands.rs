@@ -456,9 +456,10 @@ pub async fn spawn_sidecar_internal(
             _ => &config.ai.groq,
         };
         envs.push(("ACTIVE_AI_PROVIDER".to_string(), config.ai.active_provider.clone()));
-        envs.push(("ACTIVE_AI_MODEL_FAST".to_string(), provider_config.fast_model.clone()));
-        envs.push(("ACTIVE_AI_MODEL_BALANCED".to_string(), provider_config.balanced_model.clone()));
-        envs.push(("ACTIVE_AI_MODEL_POWERFUL".to_string(), provider_config.powerful_model.clone()));
+        let (fast, balanced, powerful) = provider_config.effective_models();
+        envs.push(("ACTIVE_AI_MODEL_FAST".to_string(), fast));
+        envs.push(("ACTIVE_AI_MODEL_BALANCED".to_string(), balanced));
+        envs.push(("ACTIVE_AI_MODEL_POWERFUL".to_string(), powerful));
     }
 
     // ── Logging configuration for the sidecar process ──────────────────
