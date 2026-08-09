@@ -44,6 +44,9 @@ export const SETTINGS_MANIFEST: SettingsManifestEntry[] = [
   { id: "editorTheme", label: "Editor Theme", description: "CodeMirror editor color theme", elementId: "setting-editor-theme", section: "general", subPage: "appearance" },
   // ── Keybindings ──
   { id: "keybindings", label: "Keybindings", description: "Terminal keybinding mode", elementId: "setting-keybindings", section: "general", subPage: "keybindings" },
+  { id: "cloud", label: "Cloud Sync & Updates", description: "Settings sync, sign-in, and update notifications", elementId: "setting-cloud-api-base-url", section: "general", subPage: "cloud" },
+  { id: "auto-sync", label: "Auto Sync", description: "Push/pull settings on a schedule", elementId: "setting-cloud-auto-sync", section: "general", subPage: "cloud" },
+  { id: "updates", label: "Check for Updates", description: "Release update notifications", elementId: "setting-updates-enabled", section: "general", subPage: "cloud" },
   // ── AI ──
   { id: "ai-providers", label: "AI Providers", description: "Select and configure AI providers", elementId: "setting-ai-providers", section: "agent", subPage: "ai" },
   { id: "default-provider", label: "Default Provider", description: "Set default AI provider", elementId: "setting-default-provider", section: "agent", subPage: "ai" },

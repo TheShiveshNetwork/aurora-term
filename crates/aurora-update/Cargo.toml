@@ -1,0 +1,20 @@
+# ══════════════════════════════════════════════════════════
+# crates/aurora-update/Cargo.toml
+# Update notifications driven by the backend's GitHub Releases
+# proxy (`{api_base}/v1/update/latest`). No updater plugin —
+# clicking the badge opens the release page in the browser.
+# No Tauri types.
+# ══════════════════════════════════════════════════════════
+[package]
+name    = "aurora-update"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+aurora-core = { workspace = true }
+aurora-cloud = { workspace = true }
+semver      = { workspace = true }
+tracing     = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

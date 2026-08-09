@@ -63,12 +63,24 @@ export interface EditorConfig {
   indent_markers: boolean;
 }
 
+export interface CloudConfig {
+  auto_sync: boolean;
+  api_base_url: string;
+}
+
+export interface UpdatesConfig {
+  enabled: boolean;
+  check_interval_hours: number;
+}
+
 export interface AppConfig {
   terminal: TerminalConfig;
   ai: AiConfig;
   keybindings: KeybindingsConfig;
   appearance: AppearanceConfig;
   editor: EditorConfig;
+  cloud: CloudConfig;
+  updates: UpdatesConfig;
 }
 
 export const pty = {
@@ -150,6 +162,59 @@ export const state = {
     invoke<void>("state_set_workspace_cwd", { path }),
   updateCheckedBranches: (projectDir: string, branches: string[]) =>
     invoke<void>("state_update_checked_branches", { projectDir, branches }),
+};
+
+// ─── Cloud sync types mirrored from Rust side ───────────────────────────
+export type SyncStatus =
+  | "synced"
+  | "pushed"
+  | "pulled"
+  | "conflict"
+  | "signed_out"
+  | "disabled";
+
+export interface SyncResult {
+  status: SyncStatus;
+  remote_payload: AppConfig | null;
+  remote_version: string | null;
+  remote_updated_at: string | null;
+}
+
+export type SyncAction = "keep_local" | "keep_cloud" | "merge";
+
+export interface AuthStatus {
+  signed_in: boolean;
+  email: string | null;
+}
+
+export type UpdateStatus = "available" | "up_to_date" | "disabled" | "failed";
+
+export interface UpdateInfo {
+  status: UpdateStatus;
+  available: boolean;
+  current_version: string;
+  latest_version: string;
+  url: string | null;
+  notes: string | null;
+  published_at: string | null;
+  dismissed: boolean;
+}
+
+export const cloud = {
+  authStatus: () => invoke<AuthStatus>("cloud_auth_status"),
+  signInPassword: (email: string, password: string) =>
+    invoke<AuthStatus>("cloud_sign_in_password", { email, password }),
+  signInOAuth: (provider: string) =>
+    invoke<AuthStatus>("cloud_sign_in_oauth", { provider }),
+  signOut: () => invoke<void>("cloud_sign_out"),
+  syncNow: (config: AppConfig) => invoke<SyncResult>("cloud_sync_now", { config }),
+  resolveConflict: (action: SyncAction, config: AppConfig, remoteVersion: string) =>
+    invoke<SyncResult>("cloud_resolve_conflict", { action, config, remoteVersion }),
+};
+
+export const update = {
+  check: () => invoke<UpdateInfo>("update_check"),
+  dismiss: (version: string) => invoke<void>("update_dismiss", { version }),
 };
 
 export interface FileNode {

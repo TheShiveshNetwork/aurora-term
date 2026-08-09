@@ -15,6 +15,34 @@ fn default_git_gui_mode() -> String {
     "tab".to_string()
 }
 
+fn default_update_interval_hours() -> u32 {
+    24
+}
+
+/// Cloud sync preferences. `api_base_url` points at the Aurora backend
+/// (a Supabase Edge Function) that holds the service-role key — the app
+/// itself never bundles any Supabase secrets. An empty URL disables cloud
+/// features.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct CloudConfig {
+    #[serde(default)]
+    pub auto_sync: bool,
+    #[serde(default)]
+    pub api_base_url: String,
+}
+
+/// Update notification preferences. The app checks the GitHub Releases
+/// feed through the backend proxy (`/v1/update/latest`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UpdatesConfig {
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_update_interval_hours")]
+    pub check_interval_hours: u32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct AppConfig {
@@ -23,6 +51,10 @@ pub struct AppConfig {
     pub keybindings: KeybindingsConfig,
     pub appearance: AppearanceConfig,
     pub editor: EditorConfig,
+    #[serde(default)]
+    pub cloud: CloudConfig,
+    #[serde(default)]
+    pub updates: UpdatesConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -227,6 +259,14 @@ impl Default for AppConfig {
                 ai_code_completion: true,
                 ai_suggestions: true,
                 indent_markers: true,
+            },
+            cloud: CloudConfig {
+                auto_sync: false,
+                api_base_url: String::new(),
+            },
+            updates: UpdatesConfig {
+                enabled: true,
+                check_interval_hours: 24,
             },
         }
     }
