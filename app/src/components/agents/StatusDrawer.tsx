@@ -285,10 +285,12 @@ export function StatusDrawer({ sessionId, onApprove, onDecline, onSkip, onSubmit
                             : "border-outline-variant/10 bg-on-surface-variant/5"
                             }`}
                         >
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-mono font-medium text-[#E8EAF0]">{cmd.command}</span>
+                          <div className="flex items-start justify-between gap-2">
+                            <pre className="text-xs font-mono font-medium text-[#E8EAF0] max-h-28 overflow-y-auto scrollbar-thin whitespace-pre-wrap break-all select-text flex-1 min-w-0 p-1.5 rounded bg-black/20 border border-white/5">
+                              {cmd.command}
+                            </pre>
                             <span
-                              className={`text-[9px] font-bold tracking-wide px-1.5 py-0.5 rounded-sm ${cmd.status === "success"
+                              className={`text-[9px] font-bold tracking-wide px-1.5 py-0.5 rounded-sm shrink-0 ${cmd.status === "success"
                                 ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
                                 : cmd.status === "error"
                                   ? "bg-red-500/10 text-red-400 border border-red-500/20"

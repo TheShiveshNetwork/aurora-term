@@ -51,8 +51,13 @@ export function ProviderDetailView({
   const fastModel = config.fast_model || "";
   const balancedModel = config.balanced_model || "";
   const powerfulModel = config.powerful_model || "";
+  const selectedModel = config.selected_model || "";
   const baseUrl = config.base_url || "";
   const hasBaseUrl = config.base_url !== null && config.base_url !== undefined;
+
+  // Single model drives all tiers. Fall back to balanced for display until the
+  // user explicitly picks a model in the dropdown below.
+  const effectiveModel = selectedModel || balancedModel || fastModel || powerfulModel;
 
   const modelOptions = useMemo<ComboboxOption[]>(
     () => models.map((m) => ({ id: m.id, label: m.display_name })),
@@ -251,11 +256,11 @@ export function ProviderDetailView({
           </div>
         )}
 
-        {/* Model Overrides */}
+        {/* Model */}
         <div>
           <div className="flex items-center justify-between mb-1.5">
             <label className="text-xs font-medium text-[#E8EAF0]/50 tracking-wider">
-              Model Overrides
+              Model
             </label>
             <Button
               variant="ghost"
@@ -282,47 +287,23 @@ export function ProviderDetailView({
               {models.length} model{models.length !== 1 ? "s" : ""} available
             </div>
           )}
-          <div className="grid grid-cols-3 gap-2">
-            <div>
-              <label className="text-[10px] text-[#E8EAF0]/40 block mb-0.5">Fast</label>
+          <div className="flex items-center gap-2">
+            <div className="flex-1">
               <Input
                 variant="select"
-                value={fastModel}
+                value={effectiveModel}
                 options={modelOptions}
-                placeholder="Fast model ID"
+                placeholder="Model ID"
                 onChange={(val) => updateDraft((d) => {
                   const p = (d.config.ai as any)[name];
-                  if (p) p.fast_model = val;
-                })}
-              />
-            </div>
-            <div>
-              <label className="text-[10px] text-[#E8EAF0]/40 block mb-0.5">Balanced</label>
-              <Input
-                variant="select"
-                value={balancedModel}
-                options={modelOptions}
-                placeholder="Balanced model ID"
-                onChange={(val) => updateDraft((d) => {
-                  const p = (d.config.ai as any)[name];
-                  if (p) p.balanced_model = val;
-                })}
-              />
-            </div>
-            <div>
-              <label className="text-[10px] text-[#E8EAF0]/40 block mb-0.5">Powerful</label>
-              <Input
-                variant="select"
-                value={powerfulModel}
-                options={modelOptions}
-                placeholder="Powerful model ID"
-                onChange={(val) => updateDraft((d) => {
-                  const p = (d.config.ai as any)[name];
-                  if (p) p.powerful_model = val;
+                  if (p) p.selected_model = val;
                 })}
               />
             </div>
           </div>
+          <p className="text-[10px] text-[#E8EAF0]/30 mt-1.5">
+            This single model is used for all AI features in both the agent view and terminal view.
+          </p>
         </div>
 
         {/* Actions */}

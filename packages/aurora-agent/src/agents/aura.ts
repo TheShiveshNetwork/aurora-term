@@ -38,15 +38,24 @@ function getDynamicInstructions(baseInstructions: string): string {
 function getInstalledOllamaModels(baseUrl: string): string[] {
   try {
     const url = baseUrl.replace(/\/v1\/?$/, '').replace(/\/$/, '');
-    const cmd = `curl -s "${url}/api/tags"`;
-    const response = execSync(cmd, { timeout: 1000 }).toString();
+    const nodeScript = `
+      const http = require('http');
+      const req = http.get('${url}/api/tags', (res) => {
+        let data = '';
+        res.on('data', c => data += c);
+        res.on('end', () => { process.stdout.write(data); process.exit(0); });
+      });
+      req.on('error', () => process.exit(1));
+      req.setTimeout(2500, () => { req.destroy(); process.exit(1); });
+    `;
+    const response = execSync(`node -e "${nodeScript.replace(/\n/g, ' ')}"`, { timeout: 3000 }).toString();
     const data = JSON.parse(response);
     if (data && Array.isArray(data.models)) {
       return data.models.map((m: any) => m.name);
     }
   } catch (err) {
     try {
-      const output = execSync('ollama list', { timeout: 1000 }).toString();
+      const output = execSync('ollama list', { timeout: 3000 }).toString();
       const lines = output.split('\n').slice(1);
       const models: string[] = [];
       for (const line of lines) {
@@ -61,6 +70,27 @@ function getInstalledOllamaModels(baseUrl: string): string[] {
     }
   }
   return [];
+}
+
+// Cache installed Ollama models per base URL so we don't spawn a node
+// subprocess on every request (getInstalledOllamaModels uses execSync).
+const installedOllamaModelsCache: { baseUrl: string; models: string[]; fetchedAt: number } = {
+  baseUrl: '',
+  models: [],
+  fetchedAt: 0,
+};
+const OLLAMA_CACHE_TTL_MS = 10_000;
+
+function getInstalledOllamaModelsCached(baseUrl: string): string[] {
+  const now = Date.now();
+  if (installedOllamaModelsCache.baseUrl === baseUrl && now - installedOllamaModelsCache.fetchedAt < OLLAMA_CACHE_TTL_MS) {
+    return installedOllamaModelsCache.models;
+  }
+  const models = getInstalledOllamaModels(baseUrl);
+  installedOllamaModelsCache.baseUrl = baseUrl;
+  installedOllamaModelsCache.models = models;
+  installedOllamaModelsCache.fetchedAt = now;
+  return models;
 }
 
 export function getModelProvider(
@@ -82,53 +112,58 @@ export function getModelProvider(
     }
   }
 
+  if (!activeProvider || activeProvider.trim() === '') {
+    throw new Error('No AI provider selected. Please select a provider in Settings → AI.');
+  }
+
   const normalized = activeProvider.toLowerCase();
+  const selectedModel = (activeModel || '').trim();
+
+  if (!selectedModel) {
+    throw new Error(`No model selected for provider '${activeProvider}'. Please select a model in Settings → AI.`);
+  }
 
   if (normalized === 'groq') {
-    // llama-3.3-70b-versatile is the most capable available Groq model.
-    // The old llama3-groq-70b-8192-tool-use-preview was decommissioned.
-    // Tool calling correctness is enforced via the rich shell.txt description
-    // template that provides clear role-aware tool-use guidance to the model.
     return {
-      id: `groq/${activeModel ?? 'llama-3.3-70b-versatile'}`,
+      id: `groq/${selectedModel}`,
       apiKey: process.env.GROQ_API_KEY,
     };
   }
   if (normalized === 'gpt-oss') {
     return {
-      id: `openai/${activeModel ?? 'gpt-4o-mini'}`,
+      id: `openai/${selectedModel}`,
       url: process.env.GPT_OSS_BASE_URL ?? 'http://localhost:11434/v1',
       apiKey: process.env.GPT_OSS_API_KEY ?? 'empty',
     };
   }
   if (normalized === 'kimi') {
     return {
-      id: `openai/${activeModel ?? 'kimi-k2'}`,
+      id: `openai/${selectedModel}`,
       url: 'https://api.moonshot.cn/v1',
       apiKey: process.env.KIMI_API_KEY ?? 'empty',
     };
   }
   if (normalized === 'anthropic') {
     return {
-      id: `anthropic/${activeModel ?? 'claude-3-5-sonnet-latest'}`,
+      id: `anthropic/${selectedModel}`,
       apiKey: process.env.ANTHROPIC_API_KEY,
     };
   }
   if (normalized === 'gemini' || normalized === 'google') {
     return {
-      id: `google/${activeModel ?? 'gemini-1.5-pro'}`,
+      id: `google/${selectedModel}`,
       apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
     };
   }
   if (normalized === 'openai') {
     return {
-      id: `openai/${activeModel ?? 'gpt-4o-mini'}`,
+      id: `openai/${selectedModel}`,
       apiKey: process.env.OPENAI_API_KEY,
     };
   }
   if (normalized === 'nvidia') {
     return {
-      id: `nvidia/${activeModel ?? 'meta/llama-3.1-405b-instruct'}`,
+      id: `nvidia/${selectedModel}`,
       apiKey: process.env.NVIDIA_API_KEY,
     };
   }
@@ -136,46 +171,27 @@ export function getModelProvider(
     const rawUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
     const cleanUrl = rawUrl.endsWith('/v1') ? rawUrl : `${rawUrl.replace(/\/$/, '')}/v1`;
 
-    let model = activeModel;
-    if (process.env.ACTIVE_AI_PROVIDER) {
-      if (tier === 'fast') {
-        model = process.env.ACTIVE_AI_MODEL_FAST || model;
-      } else if (tier === 'powerful') {
-        model = process.env.ACTIVE_AI_MODEL_POWERFUL || model;
-      } else {
-        model = process.env.ACTIVE_AI_MODEL_BALANCED || model;
-      }
-    }
-    if (!model) {
-      model = tier === 'fast' ? 'llama3.2:3b' : tier === 'powerful' ? 'llama3.1:70b' : 'llama3.1:8b';
-    }
-
-    const installed = getInstalledOllamaModels(rawUrl);
-    if (installed.length > 0) {
-      if (!installed.includes(model)) {
-        // Try to match prefix
-        const cleanModel = model.split(':')[0];
-        const match = installed.find(
-          (m) => m === cleanModel || m.startsWith(cleanModel) || m.split(':')[0] === cleanModel
-        );
-        if (match) {
-          model = match;
-        } else {
-          model = installed[0];
-        }
-      }
+    // Fall back to an installed model if the configured one isn't available,
+    // mirroring the Rust OllamaProvider. Prevents "model not found" errors.
+    let resolvedModel = selectedModel;
+    const installed = getInstalledOllamaModelsCached(rawUrl);
+    if (installed.length > 0 && !installed.includes(resolvedModel)) {
+      const cleanModel = resolvedModel.split(':')[0];
+      const matched = installed.find(
+        (m) => m === cleanModel || m.startsWith(cleanModel) || m.split(':')[0] === cleanModel
+      );
+      resolvedModel = matched || installed[0];
     }
 
     return {
-      id: `openai/${model}`,
+      id: `openai/${resolvedModel}`,
       url: cleanUrl,
       apiKey: 'empty',
     };
   }
 
-  // Fallback
   return {
-    id: `groq/${activeModel ?? 'llama-3.3-70b-versatile'}`,
+    id: `openai/${selectedModel}`,
     apiKey: process.env.GROQ_API_KEY,
   };
 }

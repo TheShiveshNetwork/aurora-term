@@ -31,6 +31,7 @@ import { GIT_DIFF_TAB_EVENT, type GitDiffTabPayload } from "../lib/gitDiffBridge
 import { TerminalWorkspaceView } from "./TerminalWorkspaceView";
 import { NewWindowView } from "./NewWindowView";
 import { getDefaultShellLaunch, isWindowsPlatform } from "../lib/shell";
+import { fileNameFromPath } from "../lib/pathUtils";
 import { classifyInput, setAvailableCommands, type ShellType } from "../lib/nlClassifier";
 import { closeAllPopups, onClosePopups } from "../lib/popups";
 
@@ -63,6 +64,7 @@ export function AppShellView() {
     projectDirLabel,
     cwd,
     cwdAbsolute,
+    sessionCwds,
     shellHistory,
     interactedSessions,
     isCwdLoading,
@@ -251,6 +253,11 @@ export function AppShellView() {
   const activeFilePath = (activeTab?.type === "file" || activeTab?.type === "diff") ? activeTab.filePath : undefined;
   const pendingTab = pendingCloseTabId ? tabs.find((tab) => tab.id === pendingCloseTabId) || null : null;
   const hasInteracted = activeTabId ? Boolean(interactedSessions[activeTabId]) : false;
+
+  const inputCwdAbsolute = targetSessionId
+    ? sessionCwds[targetSessionId] || projectDir || cwdAbsolute
+    : projectDir || cwdAbsolute;
+  const inputCwdLabel = inputCwdAbsolute ? fileNameFromPath(inputCwdAbsolute) : "";
 
 
   const handleSelectFolderDirectly = (path: string) => {
@@ -734,7 +741,7 @@ export function AppShellView() {
               {chatInputOpen && activeTab?.type === "terminal" && !isAlternateActive && (
                 <CommandInputBar
                   sessionId={targetSessionId}
-                  cwd={cwd}
+                  cwd={inputCwdLabel}
                   isLoading={isCwdLoading}
                   isRunning={isRunning}
                   value={activeCommandInput}
@@ -755,7 +762,7 @@ export function AppShellView() {
                 <CommandInputBar
                   variant="prompt"
                   sessionId={null}
-                  cwd={cwd}
+                  cwd={inputCwdLabel}
                   isLoading={false}
                   isRunning={false}
                   value={activeCommandInput}

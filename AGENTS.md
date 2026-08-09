@@ -286,15 +286,17 @@ Never store raw terminal output in React state. xterm.js owns the buffer. `useBl
 
 ### Provider → Model Mapping (defaults, all overridable in config)
 
-| Provider | Fast | Balanced | Powerful |
-|---|---|---|---|
-| Anthropic | `claude-haiku-4-5-20251015` | `claude-sonnet-4-6-20260217` | `claude-opus-4-7-20260416` |
-| OpenAI | `gpt-5-mini` | `gpt-5.4-mini` | `gpt-5.5` |
-| Gemini | `gemini-3.1-flash-lite` | `gemini-3.5-flash` | `gemini-3.1-pro` |
-| NVIDIA NIM | `meta/llama-3.1-8b-instruct` | `meta/llama-4-scout-17b-16e-instruct` | `meta/llama-3.1-405b-instruct` |
-| Ollama | `llama3.2:3b` | `llama3.1:8b` | `llama3.1:70b` |
+Each provider has a single default model. A `selected_model` override on a provider applies that one model to every task tier (Fast/Balanced/Powerful); otherwise the tier defaults below are used.
 
-Model IDs are read from `AppConfig`, never hardcoded in Rust source. Users can override any tier.
+| Provider | Default Model |
+|---|---|
+| Anthropic | `claude-sonnet-4-6-20260217` |
+| OpenAI | `gpt-5.4-mini` |
+| Gemini | `gemini-3.5-flash` |
+| NVIDIA NIM | `meta/llama-3.1-8b-instruct` |
+| Ollama | `llama3.2:3b` |
+
+Model IDs are read from `AppConfig`, never hardcoded in Rust source. Users can override any provider's model via the Settings → AI → Model dropdown.
 
 ### AiProvider Trait
 ```rust

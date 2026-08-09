@@ -1,9 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, useContext } from "react";
 import { SettingsContext, SectionTitle } from "./SettingsShared";
-import { Pencil, RotateCcw, Search, X } from "lucide-react";
+import { Pencil, RotateCw, Search, X } from "lucide-react";
 import { DEFAULT_KEYBINDINGS, KeybindingDef } from "../../stores/useSettingsStore";
 import { Button } from "../ui/Button";
 import { Modal } from "../ui/Modal";
+
+// Shared grid template for header + rows so columns align exactly.
+// Command is the flexible column (minmax(0, Xfr)); the others scale
+// proportionally with the container width (fr shares) while keeping a
+// usable minimum. The "When" column only exists at sm+ (4 tracks below,
+// 5 tracks at sm+), matching the `hidden sm:block` cells.
+const tableGrid =
+  "grid grid-cols-[24px_minmax(0,4fr)_minmax(96px,1.8fr)_minmax(52px,1fr)] sm:grid-cols-[24px_minmax(0,4fr)_minmax(96px,1.8fr)_minmax(64px,1.2fr)_minmax(52px,1fr)]";
 
 export default function KeybindingsSettingsView() {
   const context = useContext(SettingsContext);
@@ -120,12 +128,12 @@ export default function KeybindingsSettingsView() {
 
       <div className="rounded-lg border border-white/6 overflow-hidden">
         <div className="overflow-x-auto w-full" style={{ scrollbarWidth: "thin" }}>
-          <div className="flex items-center overflow-hidden text-[11px] font-semibold uppercase tracking-wider px-3 py-2 select-none bg-white/3 text-on-surface/35 border-b border-white/6">
-            <div className="w-6 shrink-0" />
-            <div className="">Command</div>
-            <div className="w-[110px] shrink-0 text-left">Keybinding</div>
-            <div className="w-[80px] shrink-0 text-left hidden sm:block">When</div>
-            <div className="w-[60px] shrink-0 text-left">Source</div>
+          <div className={`items-center overflow-hidden text-[11px] font-semibold uppercase tracking-wider px-3 py-2 select-none bg-white/3 text-on-surface/35 border-b border-white/6 ${tableGrid}`}>
+            <div className="w-6" />
+            <div className="min-w-0 truncate">Command</div>
+            <div className="min-w-0 truncate">Keybinding</div>
+            <div className="min-w-0 truncate hidden sm:block">When</div>
+            <div className="min-w-0 truncate">Source</div>
           </div>
 
           <div className="w-full overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
@@ -138,32 +146,32 @@ export default function KeybindingsSettingsView() {
                 const keys = getKeys(kb);
                 const source = getSource(kb);
                 return (
-                  <div key={kb.id} className="flex items-center overflow-hidden text-[12px] px-3 py-2 group transition-colors border-b border-white/4">
+                  <div key={kb.id} className={`items-center overflow-hidden text-[12px] px-3 py-2 group transition-colors border-b border-white/4 ${tableGrid}`}>
                     <Button
                       variant="ghost"
                       size="icon"
                       onClick={() => setEditingId(kb.id)}
-                      className="w-6 h-6 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity mr-1"
+                      className="w-6 h-6 opacity-0 group-hover:opacity-100 transition-opacity"
                       title="Edit keybinding"
                     >
                       <Pencil size={11} />
                     </Button>
 
-                    <div className="w-full truncate flex-1 text-on-surface">
+                    <div className="min-w-0 truncate text-on-surface">
                       {kb.command}
                     </div>
 
-                    <div className="w-[110px] shrink-0 flex justify-start">
-                      <kbd className="px-1.5 py-0.5 rounded text-[11px] font-mono bg-primary/10 text-primary border border-primary/15">
+                    <div className="min-w-0 flex justify-start">
+                      <kbd className="min-w-0 max-w-full truncate px-1.5 py-0.5 rounded text-[11px] font-mono bg-primary/10 text-primary border border-primary/15">
                         {keys}
                       </kbd>
                     </div>
 
-                    <div className="w-[80px] shrink-0 text-left text-[11px] text-on-surface/40 hidden sm:block">
+                    <div className="min-w-0 truncate text-left text-[11px] text-on-surface/40 hidden sm:block">
                       {kb.when}
                     </div>
 
-                    <div className="w-[60px] shrink-0 flex justify-start">
+                    <div className="min-w-0 flex justify-start">
                       {source === "changed" ? (
                         <span className="text-[11px] px-1.5 py-0.5 rounded font-medium bg-[rgba(255,183,77,0.1)] text-[#FFB74D]">
                           Changed
@@ -292,7 +300,7 @@ function KeyCaptureModal({
             size="sm"
             onClick={onReset}
           >
-            <RotateCcw size={12} />
+            <RotateCw size={12} />
             Reset
           </Button>
         )}

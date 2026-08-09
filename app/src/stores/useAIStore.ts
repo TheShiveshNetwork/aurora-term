@@ -31,6 +31,7 @@ export const useAIStore = create<AIStore>((set) => ({
       fastModel: "llama-3.2-3b-preview",
       balancedModel: "llama-3.3-70b-versatile",
       powerfulModel: "deepseek-r1-distill-llama-70b",
+      selectedModel: "",
     },
     anthropic: {
       name: "anthropic",
@@ -39,6 +40,7 @@ export const useAIStore = create<AIStore>((set) => ({
       fastModel: "claude-haiku-4-5-20251015",
       balancedModel: "claude-sonnet-4-6-20260217",
       powerfulModel: "claude-opus-4-7-20260416",
+      selectedModel: "",
     },
     openai: {
       name: "openai",
@@ -47,6 +49,7 @@ export const useAIStore = create<AIStore>((set) => ({
       fastModel: "gpt-5-mini",
       balancedModel: "gpt-5.4-mini",
       powerfulModel: "gpt-5.5",
+      selectedModel: "",
     },
     gemini: {
       name: "gemini",
@@ -55,14 +58,16 @@ export const useAIStore = create<AIStore>((set) => ({
       fastModel: "gemini-3.1-flash-lite",
       balancedModel: "gemini-3.5-flash",
       powerfulModel: "gemini-3.1-pro",
+      selectedModel: "",
     },
     nvidia: {
       name: "nvidia",
       enabled: false,
       hasApiKey: false,
       fastModel: "meta/llama-3.1-8b-instruct",
-      balancedModel: "meta/llama-4-scout-17b-16e-instruct",
-      powerfulModel: "meta/llama-3.1-405b-instruct",
+      balancedModel: "meta/llama-3.1-8b-instruct",
+      powerfulModel: "meta/llama-3.1-8b-instruct",
+      selectedModel: "",
       baseUrl: "https://integrate.api.nvidia.com/v1",
     },
     ollama: {
@@ -70,8 +75,9 @@ export const useAIStore = create<AIStore>((set) => ({
       enabled: false,
       hasApiKey: true, // Local doesn't need key
       fastModel: "llama3.2:3b",
-      balancedModel: "llama3.1:8b",
-      powerfulModel: "llama3.1:70b",
+      balancedModel: "llama3.2:3b",
+      powerfulModel: "llama3.2:3b",
+      selectedModel: "",
       baseUrl: "http://localhost:11434",
     },
   },
