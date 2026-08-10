@@ -179,6 +179,33 @@ export function AppShellView() {
     }
   }, [isCommandRunning, isAiRunning, activeTabId, handleStopCurrentCommand]);
 
+  // Command history for the input bar: this session's executed blocks (chronological)
+  // merged with the shell's history. Dedupe keeping the most recent occurrence and
+  // order oldest → newest so ArrowUp starts at the newest entry without repeats.
+  const commandHistory = useMemo(() => {
+    const blockCommands = activeTabBlocks
+      .filter((block) => block.command && block.command !== "init-aurora")
+      .map((block) => block.command as string);
+
+    const newestFirst: string[] = [];
+    const seen = new Set<string>();
+    const pushUnique = (raw: string) => {
+      const clean = raw.replace(/[`\\]+$/, "").trim();
+      if (!clean) return;
+      const key = clean.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      newestFirst.push(clean);
+    };
+
+    // Blocks (this session) are more recent than identical entries in the shell
+    // history, so scan them first. shellHistory is newest-first from read_shell_history.
+    for (let i = blockCommands.length - 1; i >= 0; i--) pushUnique(blockCommands[i]);
+    for (const cmd of shellHistory) pushUnique(cmd);
+
+    return [...newestFirst].reverse();
+  }, [activeTabBlocks, shellHistory]);
+
   const shellType: ShellType = useMemo(() => isWindowsPlatform() ? "powershell" : "bash", []);
   const inputMode = useMemo(() => classifyInput(activeCommandInput, shellType), [activeCommandInput, shellType]);
 
@@ -737,18 +764,17 @@ export function AppShellView() {
                 </div>
               </div>
 
-              {/* Terminal view: command variant (default) */}
-              {chatInputOpen && activeTab?.type === "terminal" && !isAlternateActive && (
+              {/* Terminal view: command variant (default) — keep the bar (Stop only) visible
+                  while a command runs even if it enters the alternate screen buffer */}
+              {chatInputOpen && activeTab?.type === "terminal" && (!isAlternateActive || isRunning) && (
                 <CommandInputBar
                   sessionId={targetSessionId}
                   cwd={inputCwdLabel}
                   isLoading={isCwdLoading}
                   isRunning={isRunning}
                   value={activeCommandInput}
-                  history={[
-                    ...activeTabBlocks.filter((block) => block.command && block.command !== "init-aurora").map((block) => block.command as string),
-                    ...shellHistory.slice().reverse(),
-                  ]}
+                  history={commandHistory}
+                  hideCwdBreadcrumb={hasInteracted}
                   onChange={setCommandInput}
                   onSubmit={(e, files) => handleInterceptedSubmit(e, handleExecuteCommand, false, files)}
                   onStop={handleStop}

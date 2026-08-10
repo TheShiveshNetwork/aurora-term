@@ -132,7 +132,7 @@ export function GhostInput({
 
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        const newValue = navigateDown();
+        const newValue = navigateDown(value);
         onChange(newValue);
         return;
       }

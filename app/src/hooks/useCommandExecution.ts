@@ -41,7 +41,7 @@ export function useCommandExecution(tabs: Tab[], activeTabId: string | null) {
     return activeTabBlocks.find((block) => block.id === activeRunningBlockId) || null;
   }, [activeRunningBlockId, activeTabBlocks]);
 
-  const isCommandRunning = activeRunningBlock?.status === "running";
+  const isCommandRunning = Boolean(activeRunningBlockId);
   const isAlternateActive = activeTabId ? alternateBufferActive[activeTabId] || false : false;
 
   const setInput = useCallback((value: string | ((previous: string) => string)) => {
@@ -54,11 +54,15 @@ export function useCommandExecution(tabs: Tab[], activeTabId: string | null) {
 
   useEffect(() => {
     if (!activeTabId || !activeRunningBlockId) return;
+    // If the running block was cleared (e.g. `cls` while a command still runs),
+    // the command is still in flight — keep the running state so the Stop button
+    // stays visible until the block is explicitly finalized.
+    if (!activeRunningBlock) return;
     if (activeRunningBlock?.status === "running") return;
 
     useBlockStore.getState().setRunningBlockId(activeTabId, null);
     useBlockStore.getState().setCommandOutputReceived(activeTabId, false);
-  }, [activeRunningBlock?.status, activeRunningBlockId, activeTabId]);
+  }, [activeRunningBlock?.status, activeRunningBlock, activeRunningBlockId, activeTabId]);
 
   useEffect(() => {
     if (!isCommandRunning && activeTab?.type === "terminal") {
