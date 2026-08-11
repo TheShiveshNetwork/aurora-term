@@ -8,6 +8,7 @@ import React, {
   SubmitEvent,
 } from "react";
 import { useBlockStore } from "../../stores/useBlockStore";
+import { useSessionStore } from "../../stores/useSessionStore";
 import { pty } from "../../lib/ipc";
 import type { InputMode } from "../../lib/nlClassifier";
 import { useHistoryNavigation } from "../../hooks/useHistoryNavigation";
@@ -52,6 +53,10 @@ export function GhostInput({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const mirrorRef = useRef<HTMLSpanElement>(null);
   const textMetricsClass = "font-code-base text-sm font-normal leading-[22px]";
+
+  const runningBlockId = useBlockStore((s) => (sessionId ? s.runningBlockId[sessionId] : null));
+  const sessionBusy = useSessionStore((s) => (sessionId ? s.sessionBusy[sessionId] : false));
+  const isTerminalRunning = !!runningBlockId || sessionBusy;
 
   useEffect(() => {
     const handleFocus = (e: Event) => {
@@ -99,6 +104,7 @@ export function GhostInput({
         if (sessionId && runningBlockId) {
           e.preventDefault();
           pty.write(sessionId, "\u0003").catch(console.error);
+          useSessionStore.getState().setSessionBusy(sessionId, false);
 
           useBlockStore.getState().updateBlock(sessionId, runningBlockId, {
             status: "cancelled",
@@ -213,12 +219,17 @@ export function GhostInput({
   }, []);
 
   const handleFormSubmit = useCallback((e: React.SubmitEvent<HTMLFormElement>) => {
+    if (isTerminalRunning) {
+      e.preventDefault();
+      pty.write(sessionId!, "\r").catch(console.error);
+      return;
+    }
     reset();
     onSubmit(e);
-  }, [reset, onSubmit]);
+  }, [reset, onSubmit, isTerminalRunning, sessionId]);
 
   return (
-    <form onSubmit={handleFormSubmit} className={`flex items-start ${className}`} onClick={handleWrapperClick}>
+    <form onSubmit={handleFormSubmit} className={`ghost-input flex items-start ${className}`} onClick={handleWrapperClick}>
       <div className="relative flex-1 flex items-start overflow-hidden">
         <span
           ref={mirrorRef}
@@ -234,14 +245,15 @@ export function GhostInput({
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          placeholder={placeholder}
+          disabled={isTerminalRunning}
+          placeholder={isTerminalRunning ? "Command running — type directly in the terminal" : placeholder}
           autoComplete="off"
           autoCorrect="off"
           autoCapitalize="off"
           spellCheck={false}
           rows={1}
           wrap="soft"
-          className={`aurora-ta w-full bg-transparent border-none focus:ring-0 mt-4 pb-1 px-5 placeholder:text-outline/80 outline-none text-on-surface relative z-10 resize-none overflow-x-hidden whitespace-pre-wrap break-words ${textMetricsClass} ${inputClassName}`}
+          className={`aurora-ta w-full bg-transparent border-none focus:ring-0 mt-4 pb-1 px-5 placeholder:text-outline/80 outline-none text-on-surface relative z-10 resize-none overflow-x-hidden whitespace-pre-wrap break-words disabled:opacity-50 disabled:cursor-not-allowed ${textMetricsClass} ${inputClassName}`}
           style={{ caretColor: "var(--color-primary)", maxHeight: `${TA_MAX_HEIGHT}px` }}
         />
 

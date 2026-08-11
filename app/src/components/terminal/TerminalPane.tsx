@@ -12,6 +12,7 @@ import { buildXtermTheme } from "../../lib/xtermTheme";
 import { getRowHeight } from "../../lib/terminal/blockAnchors";
 
 import { stripAnsi, cleanPtyData } from "../../lib/terminal/cleanup";
+import { mapKeyToPtyData, isGlobalAppShortcut, enterToPtyData } from "../../lib/terminal/keymap";
 import { pty, system } from "../../lib/ipc";
 import { SquareTerminal } from "lucide-react";
 import { getDefaultShellLaunch } from "../../lib/shell";
@@ -120,7 +121,12 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
 
   // Subscribe only to the runningBlockId of this session to keep execution states in sync
   const runningBlockId = useBlockStore((state) => state.runningBlockId[sessionId]);
-  const isCommandRunning = !!runningBlockId;
+  // sessionBusy is the authoritative "a command is actually running in the shell"
+  // flag, driven by the Rust process watchdog (pty_busy event) which polls the
+  // shell's process tree. It is NOT cleared by prompt sentinels — only by the
+  // watchdog, session exit, or restart.
+  const sessionBusy = useSessionStore((state) => state.sessionBusy[sessionId] || false);
+  const isCommandRunning = !!runningBlockId || sessionBusy;
   const isAlternateActive = useSessionStore((state) => state.alternateBufferActive[sessionId] || false);
   const theme = useSettingsStore((state) => state.theme);
 
@@ -250,13 +256,43 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
     // 2. Instantiate addons
     const fit = new FitAddon();
     const search = new SearchAddon();
-    const weblinks = new WebLinksAddon();
+    // Links open only on Ctrl/Cmd+Click (Windows/macOS convention), leaving
+    // plain clicks free for text selection. xterm passes the MouseEvent through
+    // to the handler, and the opener plugin opens the URL in the default browser.
+    const weblinks = new WebLinksAddon(
+      (event: MouseEvent, uri: string) => {
+        if (event.ctrlKey || event.metaKey) {
+          system.openExternalUrl(uri).catch((err) => {
+            console.warn(`Failed to open link "${uri}":`, err);
+          });
+        }
+      },
+    );
     fitRef.current = fit;
 
     term.loadAddon(fit);
     term.loadAddon(search);
     term.loadAddon(weblinks);
     term.open(xtermRef.current);
+
+    // Intercept modified Enter (Shift/Ctrl/Alt+Enter) before xterm collapses it
+    // to \r. TUI apps like opencode need the disambiguated CSI-u sequence
+    // (\x1b[13;2u etc.) to distinguish Shift+Enter from Enter.
+    term.attachCustomKeyEventHandler((e: globalThis.KeyboardEvent) => {
+      if (e.key !== "Enter") return true;
+      const hasMod = e.shiftKey || e.ctrlKey || e.altKey || e.metaKey;
+      if (!hasMod) return true;
+
+      const canForward =
+        useSessionStore.getState().sessionBusy[sessionId] ||
+        useBlockStore.getState().runningBlockId[sessionId] ||
+        useSessionStore.getState().alternateBufferActive[sessionId];
+
+      if (canForward) {
+        pty.write(sessionId, enterToPtyData(e)).catch(console.error);
+      }
+      return false;
+    });
 
     // Load WebGL addon for GPU hardware-accelerated rendering if visible
     if (isVisibleRef.current) {
@@ -280,6 +316,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
     // Connect xterm onData to PTY write for interactive sub-processes
     const dataDisposable = term.onData((data) => {
       if (
+        useSessionStore.getState().sessionBusy[sessionId] ||
         useBlockStore.getState().runningBlockId[sessionId] ||
         useSessionStore.getState().alternateBufferActive[sessionId]
       ) {
@@ -372,6 +409,8 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
 
             if (cwdValue) {
               console.log(`[TerminalPane ${sessionId}] Captured shell sentinel: ${cwdValue}`);
+              // The shell printed a fresh prompt. The process watchdog reports
+              // busy=false independently; here we only finalize the block.
               setCwd(cwdValue);
               setIsCwdLoading(false);
               syncAlternateBufferState(false);
@@ -486,6 +525,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
       if (isDisposed) return;
       const code = (e as CustomEvent<number>).detail;
       console.warn(`[TerminalPane ${sessionId}] PTY session exited with code: ${code}`);
+      useSessionStore.getState().setSessionBusy(sessionId, false);
       setIsSessionDead(true);
       setSessionExitCode(code);
       if (termRef.current) {
@@ -555,6 +595,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
       setSessionExitCode(null);
 
       useSessionStore.getState().setAlternateBufferActive(sessionId, false);
+      useSessionStore.getState().setSessionBusy(sessionId, false);
       useBlockStore.getState().setRunningBlockId(sessionId, null);
       useBlockStore.getState().setCommandOutputReceived(sessionId, false);
 
@@ -607,6 +648,55 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
     }
   }, [isCommandRunning, isAlternateActive]);
 
+  // ── When a command is running, route keystrokes to the PTY directly so
+  //    interactive prompts work even if focus is not on the xterm textarea
+  //    (e.g. focus is on the disabled input bar area or the app chrome).
+  useEffect(() => {
+    if (!isCommandRunning || !isVisible) return;
+
+    const handleGlobalKeyDown = (e: globalThis.KeyboardEvent) => {
+      const activeEl = document.activeElement;
+      if (!activeEl) return;
+      if (activeEl.classList.contains("xterm-helper-textarea")) return;
+      if (activeEl.closest(".cm-editor")) return;
+      const el = activeEl as HTMLElement;
+      if (el.isContentEditable) return;
+      const tag = el.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || tag === "BUTTON" || tag === "A") return;
+      const role = el.getAttribute("role");
+      if (role === "button" || role === "textbox" || role === "combobox" || role === "searchbox") return;
+      if (el.closest('[role="button"],[contenteditable="true"]')) return;
+
+      // Never hijack app-level Global shortcuts (Ctrl+P, Ctrl+T, ...)
+      if (isGlobalAppShortcut(e)) return;
+
+      // Ctrl/Cmd+V pastes into the terminal when focus drifted
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v" && !e.altKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        navigator.clipboard
+          .readText()
+          .then((text) => {
+            if (text) pty.write(sessionId, text).catch(console.error);
+          })
+          .catch(() => {});
+        termRef.current?.focus();
+        return;
+      }
+
+      const data = mapKeyToPtyData(e);
+      if (data) {
+        e.preventDefault();
+        e.stopPropagation();
+        pty.write(sessionId, data).catch(console.error);
+        termRef.current?.focus();
+      }
+    };
+
+    window.addEventListener("keydown", handleGlobalKeyDown, true);
+    return () => window.removeEventListener("keydown", handleGlobalKeyDown, true);
+  }, [isCommandRunning, isVisible, sessionId]);
+
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -623,6 +713,9 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
     <div
       ref={containerRef}
       onKeyDownCapture={handleKeyDownCapture}
+      onPointerDown={() => {
+        if (isCommandRunning) termRef.current?.focus();
+      }}
       onContextMenu={handleContextMenu}
       className="relative flex flex-col h-full w-full"
       style={{

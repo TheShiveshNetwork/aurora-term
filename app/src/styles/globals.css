@@ -392,6 +392,16 @@ body {
   width: 100%;
 }
 
+/* Disable JetBrains Mono coding ligatures in the command input bar. The font's
+   `--` ligature merges two dashes into a single en-dash glyph, making the first
+   dash of flags like `--version` appear missing. Applies to the textarea plus
+   the mirror/ghost spans so width measurement stays consistent. */
+.ghost-input,
+.ghost-input * {
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0, "clig" 0, "dlig" 0;
+}
+
 /* ── 13. Output Renderer ─────────────────────────────────────────── */
 .output-renderer {
   cursor: text;

@@ -23,7 +23,7 @@ aurora-commands = { path = "crates/aurora-commands" }
 
 
 # Serialization
-serde      = { version = "1.0", features = ["derive"] }
+serde      = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 toml       = "0.8"
 

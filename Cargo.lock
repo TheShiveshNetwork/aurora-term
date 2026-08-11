@@ -443,6 +443,7 @@ dependencies = [
  "aurora-core",
  "portable-pty",
  "serde",
+ "sysinfo",
  "tokio",
  "which",
 ]

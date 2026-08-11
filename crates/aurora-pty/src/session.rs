@@ -16,6 +16,13 @@ pub enum PtyEvent {
         session_id: std::sync::Arc<str>,
         exit_code: i32,
     },
+    /// A foreground process inside the shell started (busy = true) or finished
+    /// (busy = false). Emitted by the process watchdog — the authoritative
+    /// "is a command actually running in this shell" signal.
+    Busy {
+        session_id: std::sync::Arc<str>,
+        busy: bool,
+    },
 }
 
 pub struct PtySession {

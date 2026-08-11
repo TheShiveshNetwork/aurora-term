@@ -35,6 +35,12 @@ fn start_pty_event_bridge(
                                 "exit_code": exit_code,
                             }));
                         }
+                        Some(PtyEvent::Busy { session_id, busy }) => {
+                            let _ = app_handle.emit("pty_busy", serde_json::json!({
+                                "session_id": &*session_id,
+                                "busy": busy,
+                            }));
+                        }
                         None => {
                             for (session_id, buffered) in buffers {
                                 if !buffered.is_empty() {

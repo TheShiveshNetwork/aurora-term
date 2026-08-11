@@ -17,6 +17,7 @@ tokio        = { workspace = true }
 portable-pty = { workspace = true }
 serde  = { workspace = true }
 which  = { workspace = true }
+sysinfo = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

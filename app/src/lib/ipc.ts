@@ -71,6 +71,11 @@ export interface AppConfig {
   editor: EditorConfig;
 }
 
+export interface PtyBusyEvent {
+  session_id: string;
+  busy: boolean;
+}
+
 export const pty = {
   spawn: (shell: string, args: string[], env: Record<string, string>, cwd?: string, sessionId?: string) =>
     invoke<string>("pty_spawn", { shell, args, env, cwd, sessionId }),
@@ -356,6 +361,8 @@ export const system = {
     }),
   revealInExplorer: (path: string) =>
     invoke<void>("reveal_in_explorer", { path }),
+  openExternalUrl: (url: string) =>
+    invoke<void>("plugin:opener|open_url", { url }),
   getCwdInfo: (cwd: string) =>
     invoke<{ git_branch: string | null }>("get_cwd_info", { cwd }),
   getGitBranch: (cwd: string) =>

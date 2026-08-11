@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use aurora_core::AppError;
 use crate::session::{PtySession, PtyEvent, start_reader_loop};
+use crate::watchdog::start_process_watchdog;
 
 #[derive(Default)]
 pub struct PtyManager {
@@ -63,13 +64,19 @@ impl PtyManager {
             .take_writer()
             .map_err(|e| AppError::Pty(format!("Failed to take writer: {}", e)))?;
 
-        let _child = pair
+        let shell_pid = pair
             .slave
             .spawn_command(cmd)
-            .map_err(|e| AppError::Pty(format!("Failed to spawn shell command: {}", e)))?;
+            .map_err(|e| AppError::Pty(format!("Failed to spawn shell command: {}", e)))?
+            .process_id()
+            .unwrap_or(0);
 
         // Start reader loop with channel-based event delivery
+        let watchdog_sender = event_sender.clone();
         start_reader_loop(reader, session_id.clone(), event_sender);
+        if shell_pid != 0 {
+            start_process_watchdog(session_id.clone(), shell_pid, watchdog_sender);
+        }
 
         let session = PtySession::new(session_id.clone(), pair.master, writer);
         self.sessions.insert(session_id, session);

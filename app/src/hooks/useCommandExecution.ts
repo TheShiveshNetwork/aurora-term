@@ -41,7 +41,15 @@ export function useCommandExecution(tabs: Tab[], activeTabId: string | null) {
     return activeTabBlocks.find((block) => block.id === activeRunningBlockId) || null;
   }, [activeRunningBlockId, activeTabBlocks]);
 
-  const isCommandRunning = activeRunningBlock?.status === "running";
+  // The Stop button / input bar must stay "running" for the WHOLE lifetime of a
+  // foreground process. The block may be finalized or timed out by the agent
+  // while the process is still alive, so we OR in the process watchdog flag
+  // (sessionBusy), which is the authoritative shell-busy signal.
+  const targetSessionBusy = useSessionStore((state) =>
+    targetSessionId ? state.sessionBusy[targetSessionId] || false : false
+  );
+
+  const isCommandRunning = activeRunningBlock?.status === "running" || targetSessionBusy;
   const isAlternateActive = activeTabId ? alternateBufferActive[activeTabId] || false : false;
 
   const setInput = useCallback((value: string | ((previous: string) => string)) => {
@@ -136,20 +144,24 @@ export function useCommandExecution(tabs: Tab[], activeTabId: string | null) {
         finished_at: Date.now(),
         output_summary: `Error writing command to shell: ${error}`,
       });
+      useSessionStore.getState().setSessionBusy(targetId, false);
       useBlockStore.getState().setRunningBlockId(targetId, null);
     }
   }, [activeCommandInput, activeTabId, addBlock, clearCommandInput, clearSessionInteracted, markSessionInteracted, setIsCwdLoading, tabs, updateBlock]);
 
   const handleStopCurrentCommand = useCallback(() => {
-    if (!targetSessionId || !activeRunningBlockId || !isCommandRunning) return;
+    if (!targetSessionId || !isCommandRunning) return;
 
     pty.write(targetSessionId, "\u0003").catch(console.error);
-    useBlockStore.getState().updateBlock(targetSessionId, activeRunningBlockId, {
-      status: "cancelled",
-      finished_at: Date.now(),
-    });
-    useBlockStore.getState().setRunningBlockId(targetSessionId, null);
-    useBlockStore.getState().setCommandOutputReceived(targetSessionId, false);
+    useSessionStore.getState().setSessionBusy(targetSessionId, false);
+    if (activeRunningBlockId) {
+      useBlockStore.getState().updateBlock(targetSessionId, activeRunningBlockId, {
+        status: "cancelled",
+        finished_at: Date.now(),
+      });
+      useBlockStore.getState().setRunningBlockId(targetSessionId, null);
+      useBlockStore.getState().setCommandOutputReceived(targetSessionId, false);
+    }
   }, [activeRunningBlockId, isCommandRunning, targetSessionId]);
 
   return {

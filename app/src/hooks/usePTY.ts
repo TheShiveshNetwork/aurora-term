@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { v4 as uuidv4 } from "uuid";
-import { preloadFileContent, pty } from "../lib/ipc";
+import { preloadFileContent, pty, PtyBusyEvent } from "../lib/ipc";
 import { useSessionStore } from "../stores/useSessionStore";
 import { useBlockStore } from "../stores/useBlockStore";
 import { Tab } from "@aurora/types";
@@ -11,6 +11,7 @@ import { getDefaultShellLaunch } from "../lib/shell";
 let listenersRegistered = false;
 let unregisterData: (() => void) | null = null;
 let unregisterExit: (() => void) | null = null;
+let unregisterBusy: (() => void) | null = null;
 
 function registerPtyListeners() {
   if (listenersRegistered) return;
@@ -52,6 +53,17 @@ function registerPtyListeners() {
       );
     }
   ).then((unsub) => { unregisterExit = unsub; });
+
+  // Authoritative busy signal from the Rust process watchdog: it walks the
+  // shell's process tree, so it stays "busy" for the entire lifetime of a
+  // foreground command (unlike the prompt sentinel, which is prompt-render only).
+  getCurrentWindow().listen<PtyBusyEvent>(
+    "pty_busy",
+    (event) => {
+      const { session_id, busy } = event.payload;
+      useSessionStore.getState().setSessionBusy(session_id, busy);
+    }
+  ).then((unsub) => { unregisterBusy = unsub; });
 }
 
 export function usePTY() {
