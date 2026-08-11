@@ -11,6 +11,7 @@ import { useBlockStore } from "../../stores/useBlockStore";
 import { pty } from "../../lib/ipc";
 import type { InputMode } from "../../lib/nlClassifier";
 import { useHistoryNavigation } from "../../hooks/useHistoryNavigation";
+import { SlashMenu, SlashMenuHandle } from "./SlashMenu";
 
 function computeGhost(input: string, history: string[]): string {
   if (!input.trim()) return "";
@@ -51,6 +52,7 @@ export function GhostInput({
 }: GhostInputProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const mirrorRef = useRef<HTMLSpanElement>(null);
+  const slashMenuRef = useRef<SlashMenuHandle>(null);
   const textMetricsClass = "font-code-base text-sm font-normal leading-[22px]";
 
   useEffect(() => {
@@ -92,8 +94,46 @@ export function GhostInput({
     return true;
   }, [ghost, onChange, value]);
 
+  const handleInsertSlash = useCallback(
+    (text: string) => {
+      onChange(text);
+      reset();
+      requestAnimationFrame(() => {
+        inputRef.current?.setSelectionRange(text.length, text.length);
+      });
+    },
+    [onChange, reset]
+  );
+
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
+      // Slash-command menu takes priority while it is open
+      const slashOpen = slashMenuRef.current?.isOpen();
+      if (slashOpen) {
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          slashMenuRef.current?.move(1);
+          return;
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          slashMenuRef.current?.move(-1);
+          return;
+        }
+        if (e.key === "Escape") {
+          e.preventDefault();
+          slashMenuRef.current?.close();
+          return;
+        }
+        if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
+          if ((slashMenuRef.current?.count() ?? 0) > 0) {
+            e.preventDefault();
+            slashMenuRef.current?.selectHighlighted();
+            return;
+          }
+        }
+      }
+
       if (e.key === "c" && e.ctrlKey) {
         const runningBlockId = sessionId ? useBlockStore.getState().runningBlockId[sessionId] : null;
         if (sessionId && runningBlockId) {
@@ -132,7 +172,7 @@ export function GhostInput({
 
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        const newValue = navigateDown();
+        const newValue = navigateDown(value);
         onChange(newValue);
         return;
       }
@@ -234,6 +274,7 @@ export function GhostInput({
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
+          onBlur={() => slashMenuRef.current?.close()}
           placeholder={placeholder}
           autoComplete="off"
           autoCorrect="off"
@@ -254,6 +295,8 @@ export function GhostInput({
             {ghost}
           </span>
         )}
+
+        <SlashMenu ref={slashMenuRef} value={value} inputRef={inputRef} onInsert={handleInsertSlash} />
       </div>
     </form>
   );

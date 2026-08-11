@@ -50,6 +50,7 @@ function TurnMessageWrapper({
   turn,
   isLastTurn,
   isThinking,
+  thinking,
   chainNodes,
   durationSecs,
   stepCount,
@@ -59,6 +60,7 @@ function TurnMessageWrapper({
   turn: { user: ChatMessage | null; assistant: ChatMessage | null };
   isLastTurn: boolean;
   isThinking: boolean;
+  thinking?: string;
   chainNodes: any[];
   durationSecs: number;
   stepCount: number;
@@ -76,6 +78,7 @@ function TurnMessageWrapper({
       isThinking={isThinking}
       isLastTurn={isLastTurn}
       chainNodes={chainNodes}
+      thinking={isLastTurn ? thinking : undefined}
       durationSecs={durationSecs}
       stepCount={stepCount}
       maxSteps={maxSteps}
@@ -105,6 +108,7 @@ function NoApiKeysOrEmpty() {
 }
 
 import { CommandApprovalCard } from "./CommandApprovalCard";
+import { QuestionApprovalCard } from "./QuestionApprovalCard";
 
 interface AgentOverlayProps {
   sessionId: string | null;
@@ -118,9 +122,12 @@ export function AgentOverlay({ sessionId, onClose }: AgentOverlayProps) {
     stepCount,
     maxSteps,
     chainNodes,
+    thinking,
     activeSubagent,
     approveAndRunPending,
     declinePending,
+    submitAnswer,
+    pendingToolCall,
     clearTask,
     retryTask,
     chatHistory,
@@ -266,6 +273,7 @@ export function AgentOverlay({ sessionId, onClose }: AgentOverlayProps) {
               turn={turn}
               isLastTurn={isLastTurn}
               isThinking={isLastTurn && isThinking}
+              thinking={thinking}
               chainNodes={turn.assistant?.chainNodes || (isLastTurn ? chainNodes : [])}
               durationSecs={durationSecs}
               stepCount={stepCount}
@@ -277,6 +285,15 @@ export function AgentOverlay({ sessionId, onClose }: AgentOverlayProps) {
 
         <div ref={bottomRef} className="h-2" />
       </div>
+
+      {/* Question Approval Card */}
+      {isPaused && pendingToolCall?.name === "ask_user" && (
+        <QuestionApprovalCard
+          question={pendingToolCall.args?.question || "The agent has a clarifying question."}
+          onAnswer={submitAnswer}
+          onSkip={handleSkip}
+        />
+      )}
 
       {/* Command Approval Card */}
       {isPaused && pendingApprovalCmd && (

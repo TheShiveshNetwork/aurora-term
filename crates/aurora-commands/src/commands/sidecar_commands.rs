@@ -45,6 +45,8 @@ pub struct AgentApproveRequest {
     pub tool_call_id: Option<String>,
     #[serde(rename = "resumeData", alias = "resume_data")]
     pub resume_data: Option<serde_json::Value>,
+    #[serde(rename = "sessionId")]
+    pub session_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -55,6 +57,8 @@ pub struct AgentDeclineRequest {
     pub run_id: String,
     #[serde(rename = "toolCallId")]
     pub tool_call_id: Option<String>,
+    #[serde(rename = "sessionId")]
+    pub session_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -97,6 +101,81 @@ pub struct AiInlineCompleteRequest {
 pub struct AiInlineCompleteResponse {
     pub status: String,
     pub completion: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AgentBtwRequest {
+    pub session_id: Option<String>,
+    pub message: String,
+    pub model: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AgentBtwResponse {
+    pub status: String,
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SkillInfo {
+    pub name: String,
+    pub path: String,
+    pub source: String,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct McpInfo {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub entry_type: String,
+    pub command: Option<String>,
+    pub args: Option<Vec<String>>,
+    pub url: Option<String>,
+    pub description: Option<String>,
+    pub source: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AgentSkillsResponse {
+    pub status: String,
+    pub project: Vec<SkillInfo>,
+    pub global: Vec<SkillInfo>,
+    pub total: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AgentMcpResponse {
+    pub status: String,
+    pub project: Vec<McpInfo>,
+    pub global: Vec<McpInfo>,
+    pub total: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AgentFileSelection {
+    pub path: String,
+    #[serde(rename = "startLine")]
+    pub start_line: i64,
+    #[serde(rename = "endLine")]
+    pub end_line: i64,
+    pub text: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AgentFileContextRequest {
+    pub paths: Vec<String>,
+    pub cwd: Option<String>,
+    #[serde(rename = "preview_chars")]
+    pub preview_chars: Option<u64>,
+    pub selection: Option<AgentFileSelection>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AgentFileContextResponse {
+    pub status: String,
+    pub context: Option<String>,
+    pub message: Option<String>,
 }
 
 /// Calls the local aurora-agent sidecar and returns a structured step response.
@@ -164,6 +243,7 @@ pub async fn agent_approve_tool(
     run_id: String,
     tool_call_id: Option<String>,
     resume_data: Option<serde_json::Value>,
+    session_id: Option<String>,
 ) -> Result<AgentStepResponse, AppError> {
     let port = {
         let sidecar = state.sidecar.lock().await;
@@ -182,6 +262,7 @@ pub async fn agent_approve_tool(
         run_id,
         tool_call_id,
         resume_data,
+        session_id,
     };
 
     let response = client.post(&url)
@@ -208,6 +289,7 @@ pub async fn agent_decline_tool(
     mode: Option<String>,
     run_id: String,
     tool_call_id: Option<String>,
+    session_id: Option<String>,
 ) -> Result<AgentStepResponse, AppError> {
     let port = {
         let sidecar = state.sidecar.lock().await;
@@ -225,6 +307,7 @@ pub async fn agent_decline_tool(
         mode,
         run_id,
         tool_call_id,
+        session_id,
     };
 
     let response = client.post(&url)
@@ -258,6 +341,38 @@ pub async fn agent_get_logs(
         .build()
         .map_err(|e| AppError::Sidecar(format!("Failed to create HTTP client: {}", e)))?;
     let url = format!("http://127.0.0.1:{}/api/logs", port);
+
+    let response = client.get(&url)
+        .send()
+        .await
+        .map_err(|e| AppError::Sidecar(format!("Failed to contact aurora-agent: {}", e)))?;
+
+    if !response.status().is_success() {
+        return Err(AppError::Sidecar(format!("aurora-agent API returned error status: {}", response.status())));
+    }
+
+    let response_data = response.json::<serde_json::Value>()
+        .await
+        .map_err(|e| AppError::Sidecar(format!("Failed to parse aurora-agent response: {}", e)))?;
+
+    Ok(response_data)
+}
+
+#[command]
+pub async fn agent_get_thinking(
+    state: State<'_, AppState>,
+    thread: String,
+) -> Result<serde_json::Value, AppError> {
+    let port = {
+        let sidecar = state.sidecar.lock().await;
+        sidecar.port().ok_or_else(|| AppError::Sidecar("aurora-agent is not running".to_string()))?
+    };
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| AppError::Sidecar(format!("Failed to create HTTP client: {}", e)))?;
+    let url = format!("http://127.0.0.1:{}/api/thinking?thread={}", port, thread);
 
     let response = client.get(&url)
         .send()
@@ -314,6 +429,170 @@ pub async fn agent_chat(
     }
 
     let response_data = response.json::<AgentChatResponse>()
+        .await
+        .map_err(|e| AppError::Sidecar(format!("Failed to parse aurora-agent response: {}", e)))?;
+
+    Ok(response_data)
+}
+
+#[command]
+pub async fn agent_btw(
+    state: State<'_, AppState>,
+    session_id: Option<String>,
+    message: String,
+    model: Option<String>,
+) -> Result<AgentBtwResponse, AppError> {
+    let port = {
+        let sidecar = state.sidecar.lock().await;
+        sidecar.port().ok_or_else(|| AppError::Sidecar("aurora-agent is not running".to_string()))?
+    };
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+        .map_err(|e| AppError::Sidecar(format!("Failed to create HTTP client: {}", e)))?;
+    let url = format!("http://127.0.0.1:{}/api/btw", port);
+
+    let request_payload = AgentBtwRequest {
+        session_id,
+        message,
+        model,
+    };
+
+    let response = client.post(&url)
+        .json(&request_payload)
+        .send()
+        .await
+        .map_err(|e| AppError::Sidecar(format!("Failed to contact aurora-agent: {}", e)))?;
+
+    if !response.status().is_success() {
+        return Err(AppError::Sidecar(format!("aurora-agent API returned error status: {}", response.status())));
+    }
+
+    let response_data = response.json::<AgentBtwResponse>()
+        .await
+        .map_err(|e| AppError::Sidecar(format!("Failed to parse aurora-agent response: {}", e)))?;
+
+    Ok(response_data)
+}
+
+#[command]
+pub async fn agent_skills(
+    state: State<'_, AppState>,
+    cwd: Option<String>,
+) -> Result<AgentSkillsResponse, AppError> {
+    let port = {
+        let sidecar = state.sidecar.lock().await;
+        sidecar.port().ok_or_else(|| AppError::Sidecar("aurora-agent is not running".to_string()))?
+    };
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| AppError::Sidecar(format!("Failed to create HTTP client: {}", e)))?;
+    let base = format!("http://127.0.0.1:{}/api/skills", port);
+    let url = match cwd {
+        Some(cwd) if !cwd.trim().is_empty() => {
+            reqwest::Url::parse_with_params(&base, &[("cwd", cwd.trim())])
+                .map_err(|e| AppError::Sidecar(format!("Failed to build skills URL: {}", e)))?
+                .to_string()
+        }
+        _ => base,
+    };
+
+    let response = client.get(&url)
+        .send()
+        .await
+        .map_err(|e| AppError::Sidecar(format!("Failed to contact aurora-agent: {}", e)))?;
+
+    if !response.status().is_success() {
+        return Err(AppError::Sidecar(format!("aurora-agent API returned error status: {}", response.status())));
+    }
+
+    let response_data = response.json::<AgentSkillsResponse>()
+        .await
+        .map_err(|e| AppError::Sidecar(format!("Failed to parse aurora-agent response: {}", e)))?;
+
+    Ok(response_data)
+}
+
+#[command]
+pub async fn agent_mcp(
+    state: State<'_, AppState>,
+    cwd: Option<String>,
+) -> Result<AgentMcpResponse, AppError> {
+    let port = {
+        let sidecar = state.sidecar.lock().await;
+        sidecar.port().ok_or_else(|| AppError::Sidecar("aurora-agent is not running".to_string()))?
+    };
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| AppError::Sidecar(format!("Failed to create HTTP client: {}", e)))?;
+    let base = format!("http://127.0.0.1:{}/api/mcp", port);
+    let url = match cwd {
+        Some(cwd) if !cwd.trim().is_empty() => {
+            reqwest::Url::parse_with_params(&base, &[("cwd", cwd.trim())])
+                .map_err(|e| AppError::Sidecar(format!("Failed to build mcp URL: {}", e)))?
+                .to_string()
+        }
+        _ => base,
+    };
+
+    let response = client.get(&url)
+        .send()
+        .await
+        .map_err(|e| AppError::Sidecar(format!("Failed to contact aurora-agent: {}", e)))?;
+
+    if !response.status().is_success() {
+        return Err(AppError::Sidecar(format!("aurora-agent API returned error status: {}", response.status())));
+    }
+
+    let response_data = response.json::<AgentMcpResponse>()
+        .await
+        .map_err(|e| AppError::Sidecar(format!("Failed to parse aurora-agent response: {}", e)))?;
+
+    Ok(response_data)
+}
+
+#[command]
+pub async fn agent_file_context(
+    state: State<'_, AppState>,
+    paths: Vec<String>,
+    cwd: Option<String>,
+    preview_chars: Option<u64>,
+    selection: Option<AgentFileSelection>,
+) -> Result<AgentFileContextResponse, AppError> {
+    let port = {
+        let sidecar = state.sidecar.lock().await;
+        sidecar.port().ok_or_else(|| AppError::Sidecar("aurora-agent is not running".to_string()))?
+    };
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| AppError::Sidecar(format!("Failed to create HTTP client: {}", e)))?;
+    let url = format!("http://127.0.0.1:{}/api/file/context", port);
+
+    let request_payload = AgentFileContextRequest {
+        paths,
+        cwd,
+        preview_chars,
+        selection,
+    };
+
+    let response = client.post(&url)
+        .json(&request_payload)
+        .send()
+        .await
+        .map_err(|e| AppError::Sidecar(format!("Failed to contact aurora-agent: {}", e)))?;
+
+    if !response.status().is_success() {
+        return Err(AppError::Sidecar(format!("aurora-agent API returned error status: {}", response.status())));
+    }
+
+    let response_data = response.json::<AgentFileContextResponse>()
         .await
         .map_err(|e| AppError::Sidecar(format!("Failed to parse aurora-agent response: {}", e)))?;
 

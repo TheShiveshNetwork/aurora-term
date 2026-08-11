@@ -158,11 +158,25 @@ pub async fn get_git_log(cwd: String, max_count: Option<u32>, skip: Option<u32>,
     // Build log args — with optional branch filter
     let cc1 = cwd.clone(); let ls = limit_str.clone(); let brs = branches.clone(); let sk = skip_val.to_string();
     let log_h = tokio::task::spawn_blocking(move || {
+        // Validate each requested ref resolves (branches can be deleted/renamed
+        // while still persisted in UI state). A single stale ref would make
+        // `git log <ref>...` fail with `fatal: ambiguous argument` and blank
+        // the whole graph, so drop unresolvable names and fall back to --all.
+        let mut valid_brs: Vec<String> = Vec::new();
+        for b in &brs {
+            let resolves = run_git(&["rev-parse", "--verify", "--quiet", b], Some(&cc1))
+                .ok()
+                .is_some_and(|s| !s.trim().is_empty());
+            if resolves {
+                valid_brs.push(b.clone());
+            }
+        }
+
         let mut args = vec!["log"];
-        if brs.is_empty() {
+        if valid_brs.is_empty() {
             args.push("--all");
         } else {
-            for b in &brs {
+            for b in &valid_brs {
                 args.push(b.as_str());
             }
         }

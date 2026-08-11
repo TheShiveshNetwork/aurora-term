@@ -22,6 +22,7 @@ interface CommandInputBarProps {
   isRunning: boolean;
   value: string;
   history: string[];
+  hideCwdBreadcrumb?: boolean;
   onChange: (value: string | ((previous: string) => string)) => void;
   onSubmit: (event: SubmitEvent<HTMLFormElement>, attachedFiles: AttachedFile[]) => void;
   onStop?: () => void;
@@ -37,6 +38,7 @@ export function CommandInputBar({
   isRunning,
   value,
   history,
+  hideCwdBreadcrumb = false,
   onChange,
   onSubmit,
   onStop,
@@ -97,7 +99,7 @@ export function CommandInputBar({
         }}
       >
         {/* CWD breadcrumb */}
-        {!isPrompt && (
+        {!isPrompt && !hideCwdBreadcrumb && (
           <div
             className="flex items-center justify-between px-4 py-1.5 select-none"
             style={{

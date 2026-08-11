@@ -112,6 +112,18 @@ export function GitView({ cwd, tabId }: GitViewProps) {
     }
   }, [branches]);
 
+  // Prune stale checked branches once the real list loads. Deleted/renamed
+  // branches stay persisted forever otherwise and make the git graph show
+  // "No commits yet" (the Rust layer now also ignores unresolvable refs).
+  useEffect(() => {
+    if (branches.length === 0) return;
+    const validNames = new Set(branches.map(b => b.name));
+    setCheckedBranches(prev => {
+      const pruned = prev.filter(n => validNames.has(n) || n.startsWith("origin/"));
+      return pruned.length === prev.length ? prev : pruned;
+    });
+  }, [branches]);
+
   // Persist checked branches whenever they change
   const persistCheckedBranches = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => {
