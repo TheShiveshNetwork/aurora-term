@@ -15,6 +15,7 @@ import { StatusDrawer } from "../components/agents/StatusDrawer";
 import { AgentPromptInput, AttachedFile } from "../components/agents/AgentPromptInput";
 import { useVoiceInput } from "../hooks/useVoiceInput";
 import { system } from "../lib/ipc";
+import { resolveSlashCommand } from "../lib/agentSlash";
 import { useSessionStore } from "../stores/useSessionStore";
 
 // Import prompt-kit components
@@ -30,6 +31,7 @@ import { FileUpload, FileUploadContent } from "../components/prompt-kit/file-upl
 // Import agent components
 import { AgentTurnMessage } from "../components/agents";
 import { CommandApprovalCard } from "../components/agents/CommandApprovalCard";
+import { QuestionApprovalCard } from "../components/agents/QuestionApprovalCard";
 import type { ChatMessage } from "../stores/useAgentStore";
 
 export function AgentView() {
@@ -107,9 +109,11 @@ export function AgentView() {
     skipPending,
     submitAnswer,
     chainNodes,
+    thinking,
     stepCount,
     maxSteps,
     activeSubagent,
+    pendingToolCall,
   } = useAgentExecution(targetSessionId);
 
   const sessionState = targetSessionId ? sessions[targetSessionId] || CONST_DEFAULT_SESSION_STATE : CONST_DEFAULT_SESSION_STATE;
@@ -124,7 +128,7 @@ export function AgentView() {
     }
   }, [targetSessionId]);
 
-  const handleSend = useCallback(() => {
+  const handleSend = useCallback(async () => {
     const trimmed = input.trim();
     if (!trimmed || isThinking) return;
 
@@ -133,6 +137,24 @@ export function AgentView() {
 
     if (sessionState.pendingToolCall?.name === "ask_user") {
       submitAnswer(trimmed);
+      return;
+    }
+
+    // Slash-command dispatch (/skills /mcp /btw /file)
+    const slash = await resolveSlashCommand(trimmed, {
+      cwd: useAppShellStore.getState().projectDir || useAppShellStore.getState().cwdAbsolute,
+      sessionId: targetSessionId,
+      model: selectedModel,
+      isTaskRunning: isThinking,
+    });
+    if (slash.handled) {
+      if (slash.assistantMessage && targetSessionId) {
+        const store = useAgentStore.getState();
+        store.addChatMessage(targetSessionId, { role: "user", content: trimmed, agentType: "developer" });
+        store.addChatMessage(targetSessionId, { role: "assistant", content: slash.assistantMessage, agentType: "developer" });
+      } else if (slash.goal && targetSessionId) {
+        startTask(slash.goal, "developer", selectedModel);
+      }
       return;
     }
 
@@ -149,9 +171,26 @@ export function AgentView() {
     }
   }, [input, isThinking, attachedFiles, startTask, selectedModel, sessionState.pendingToolCall, submitAnswer, targetSessionId]);
 
-  const handleHeroSend = useCallback((text: string, files?: AttachedFile[]) => {
+  const handleHeroSend = useCallback(async (text: string, files?: AttachedFile[]) => {
     if (isThinking) return;
     useAppShellStore.getState().setViewMode("agent");
+
+    const slash = await resolveSlashCommand(text, {
+      cwd: useAppShellStore.getState().projectDir || useAppShellStore.getState().cwdAbsolute,
+      sessionId: targetSessionId,
+      model: selectedModel,
+      isTaskRunning: isThinking,
+    });
+    if (slash.handled) {
+      if (slash.assistantMessage && targetSessionId) {
+        const store = useAgentStore.getState();
+        store.addChatMessage(targetSessionId, { role: "user", content: text, agentType: "developer" });
+        store.addChatMessage(targetSessionId, { role: "assistant", content: slash.assistantMessage, agentType: "developer" });
+      } else if (slash.goal && targetSessionId) {
+        startTask(slash.goal, "developer", selectedModel);
+      }
+      return;
+    }
 
     let finalPrompt = text;
     if (files && files.length > 0) {
@@ -453,6 +492,7 @@ export function AgentView() {
                           isThinking={isLastTurn && isThinking}
                           isLastTurn={isLastTurn}
                           chainNodes={turn.assistant?.chainNodes || (isLastTurn ? chainNodes : [])}
+                          thinking={isLastTurn ? thinking : undefined}
                           durationSecs={0}
                           stepCount={isLastTurn ? stepCount : 0}
                           maxSteps={isLastTurn ? maxSteps : 0}
@@ -504,6 +544,16 @@ export function AgentView() {
                         />
                       );
                     })()}
+
+                    {/* Clarifying Question Card */}
+                    {status === "paused" && pendingToolCall?.name === "ask_user" && (
+                      <QuestionApprovalCard
+                        className="mb-3"
+                        question={pendingToolCall.args?.question || "The agent has a clarifying question."}
+                        onAnswer={submitAnswer}
+                        onSkip={skipPending}
+                      />
+                    )}
 
                     {/* Status Drawer inside Input container */}
                     {targetSessionId && showStatusDrawer && (

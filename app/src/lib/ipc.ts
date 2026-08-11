@@ -249,6 +249,48 @@ export interface AgentChatResult {
   message?: string;
 }
 
+export interface AgentBtwResult {
+  status: string;
+  message?: string;
+}
+
+export interface AgentSkillInfo {
+  name: string;
+  path: string;
+  source: "project" | "global";
+  description?: string;
+}
+
+export interface AgentMcpInfo {
+  name: string;
+  type: string;
+  command?: string;
+  args?: string[];
+  url?: string;
+  description?: string;
+  source: "project" | "global";
+}
+
+export interface AgentSkillsResult {
+  status: string;
+  project: AgentSkillInfo[];
+  global: AgentSkillInfo[];
+  total: number;
+}
+
+export interface AgentMcpResult {
+  status: string;
+  project: AgentMcpInfo[];
+  global: AgentMcpInfo[];
+  total: number;
+}
+
+export interface AgentFileContextResult {
+  status: string;
+  context?: string;
+  message?: string;
+}
+
 export interface GitCommit {
   hash: string;
   parents: string[];
@@ -382,7 +424,8 @@ export const system = {
     mode: string | undefined,
     runId: string,
     toolCallId: string | undefined,
-    resumeData?: any
+    resumeData?: any,
+    sessionId?: string
   ) =>
     invoke<AgentStepResult>("agent_approve_tool", {
       agentType,
@@ -390,21 +433,26 @@ export const system = {
       runId,
       toolCallId,
       resumeData,
+      sessionId,
     }),
   agentDeclineTool: (
     agentType: string | undefined,
     mode: string | undefined,
     runId: string,
-    toolCallId: string | undefined
+    toolCallId: string | undefined,
+    sessionId?: string
   ) =>
     invoke<AgentStepResult>("agent_decline_tool", {
       agentType,
       mode,
       runId,
       toolCallId,
+      sessionId,
     }),
   agentGetLogs: () =>
     invoke<{ status: string; logs: Array<{ timestamp: number; type: string; content: string }> }>("agent_get_logs"),
+  agentGetThinking: (thread: string) =>
+    invoke<{ status: string; thinking: string }>("agent_get_thinking", { thread }),
   agentChat: (
     message: string,
     sessionId?: string,
@@ -418,6 +466,32 @@ export const system = {
       message,
       agentType,
       mode,
+    }),
+  agentBtw: (
+    message: string,
+    sessionId?: string,
+    model?: string
+  ) =>
+    invoke<AgentBtwResult>("agent_btw", {
+      sessionId,
+      message,
+      model,
+    }),
+  agentSkills: (cwd?: string) =>
+    invoke<AgentSkillsResult>("agent_skills", { cwd }),
+  agentMcp: (cwd?: string) =>
+    invoke<AgentMcpResult>("agent_mcp", { cwd }),
+  agentFileContext: (
+    paths: string[],
+    cwd?: string,
+    previewChars?: number,
+    selection?: { path: string; startLine: number; endLine: number; text: string } | null
+  ) =>
+    invoke<AgentFileContextResult>("agent_file_context", {
+      paths,
+      cwd,
+      previewChars,
+      selection,
     }),
   revealInExplorer: (path: string) =>
     invoke<void>("reveal_in_explorer", { path }),

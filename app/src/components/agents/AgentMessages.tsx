@@ -234,6 +234,7 @@ export interface AgentTurnMessageProps {
   isThinking: boolean;
   isLastTurn: boolean;
   chainNodes: ChainNode[];
+  thinking?: string;
   durationSecs: number;
   stepCount: number;
   maxSteps: number;
@@ -252,6 +253,7 @@ export function AgentTurnMessage({
   isThinking,
   isLastTurn,
   chainNodes,
+  thinking = "",
   durationSecs,
   stepCount,
   maxSteps,
@@ -332,11 +334,16 @@ export function AgentTurnMessage({
             </div>
 
             {/* Collapsible chain of thought */}
-            {detailsOpen && chainNodes.length > 0 && (
+            {(detailsOpen && chainNodes.length > 0) || (detailsOpen && isThinking && thinking) ? (
               <div className="py-2 space-y-3 border-l border-outline-variant/15 ml-3 text-[11px] text-on-surface-variant/80 leading-normal animate-fadeIn">
-                <AgentChainOfThought nodes={chainNodes} />
+                {isThinking && thinking && (
+                  <div className="whitespace-pre-wrap break-words text-[11px] leading-relaxed text-on-surface-variant/70 select-text max-h-56 overflow-y-auto pr-1">
+                    {thinking.trim()}
+                  </div>
+                )}
+                {chainNodes.length > 0 && <AgentChainOfThought nodes={chainNodes} />}
               </div>
-            )}
+            ) : null}
           </div>
         )}
 

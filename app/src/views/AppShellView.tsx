@@ -33,6 +33,7 @@ import { NewWindowView } from "./NewWindowView";
 import { getDefaultShellLaunch, isWindowsPlatform } from "../lib/shell";
 import { fileNameFromPath } from "../lib/pathUtils";
 import { classifyInput, setAvailableCommands, type ShellType } from "../lib/nlClassifier";
+import { resolveSlashCommand } from "../lib/agentSlash";
 import { closeAllPopups, onClosePopups } from "../lib/popups";
 
 import { FileWorkspaceView } from "./FileWorkspaceView";
@@ -222,6 +223,33 @@ export function AppShellView() {
     event.preventDefault();
     const input = activeCommandInput.trim();
     if (!input && attachedFiles.length === 0) return;
+
+    // Slash-command dispatch (/skills /mcp /btw /file) takes priority over
+    // NL/command classification.
+    const agentStatus = activeTabId
+      ? (useAgentStore.getState().sessions[activeTabId]?.status ?? "idle")
+      : "idle";
+    const slash = await resolveSlashCommand(input, {
+      cwd: cwdAbsolute,
+      sessionId: activeTabId,
+      isTaskRunning: agentStatus === "planning" || agentStatus === "executing" || agentStatus === "paused",
+    });
+    if (slash.handled) {
+      if (slash.assistantMessage) {
+        if (activeTabId) {
+          const store = useAgentStore.getState();
+          store.addChatMessage(activeTabId, { role: "user", content: input, agentType: "terminal" });
+          store.addChatMessage(activeTabId, { role: "assistant", content: slash.assistantMessage, agentType: "terminal" });
+        }
+        setCommandInput("");
+        setShowAiBar(true);
+      } else if (slash.goal) {
+        setCommandInput("");
+        setShowAiBar(true);
+        startTask(slash.goal, isFilePrompt ? undefined : "terminal");
+      }
+      return;
+    }
 
     // Explicit prefix overrides take priority over the classifier
     const hasExplicitNL = input.startsWith("? ") || input.startsWith("/ai ");
@@ -774,7 +802,7 @@ export function AppShellView() {
                   isRunning={isRunning}
                   value={activeCommandInput}
                   history={commandHistory}
-                  hideCwdBreadcrumb={hasInteracted}
+                  hideCwdBreadcrumb={false}
                   onChange={setCommandInput}
                   onSubmit={(e, files) => handleInterceptedSubmit(e, handleExecuteCommand, false, files)}
                   onStop={handleStop}
