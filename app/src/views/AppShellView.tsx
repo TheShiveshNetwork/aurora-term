@@ -33,6 +33,7 @@ import { NewWindowView } from "./NewWindowView";
 import { getDefaultShellLaunch, isWindowsPlatform } from "../lib/shell";
 import { fileNameFromPath } from "../lib/pathUtils";
 import { classifyInput, setAvailableCommands, type ShellType } from "../lib/nlClassifier";
+import { resolveSlashCommand } from "../lib/agentSlash";
 import { closeAllPopups, onClosePopups } from "../lib/popups";
 
 import { FileWorkspaceView } from "./FileWorkspaceView";
@@ -179,6 +180,33 @@ export function AppShellView() {
     }
   }, [isCommandRunning, isAiRunning, activeTabId, handleStopCurrentCommand]);
 
+  // Command history for the input bar: this session's executed blocks (chronological)
+  // merged with the shell's history. Dedupe keeping the most recent occurrence and
+  // order oldest → newest so ArrowUp starts at the newest entry without repeats.
+  const commandHistory = useMemo(() => {
+    const blockCommands = activeTabBlocks
+      .filter((block) => block.command && block.command !== "init-aurora")
+      .map((block) => block.command as string);
+
+    const newestFirst: string[] = [];
+    const seen = new Set<string>();
+    const pushUnique = (raw: string) => {
+      const clean = raw.replace(/[`\\]+$/, "").trim();
+      if (!clean) return;
+      const key = clean.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      newestFirst.push(clean);
+    };
+
+    // Blocks (this session) are more recent than identical entries in the shell
+    // history, so scan them first. shellHistory is newest-first from read_shell_history.
+    for (let i = blockCommands.length - 1; i >= 0; i--) pushUnique(blockCommands[i]);
+    for (const cmd of shellHistory) pushUnique(cmd);
+
+    return [...newestFirst].reverse();
+  }, [activeTabBlocks, shellHistory]);
+
   const shellType: ShellType = useMemo(() => isWindowsPlatform() ? "powershell" : "bash", []);
   const inputMode = useMemo(() => classifyInput(activeCommandInput, shellType), [activeCommandInput, shellType]);
 
@@ -195,6 +223,33 @@ export function AppShellView() {
     event.preventDefault();
     const input = activeCommandInput.trim();
     if (!input && attachedFiles.length === 0) return;
+
+    // Slash-command dispatch (/skills /mcp /btw /file) takes priority over
+    // NL/command classification.
+    const agentStatus = activeTabId
+      ? (useAgentStore.getState().sessions[activeTabId]?.status ?? "idle")
+      : "idle";
+    const slash = await resolveSlashCommand(input, {
+      cwd: cwdAbsolute,
+      sessionId: activeTabId,
+      isTaskRunning: agentStatus === "planning" || agentStatus === "executing" || agentStatus === "paused",
+    });
+    if (slash.handled) {
+      if (slash.assistantMessage) {
+        if (activeTabId) {
+          const store = useAgentStore.getState();
+          store.addChatMessage(activeTabId, { role: "user", content: input, agentType: "terminal" });
+          store.addChatMessage(activeTabId, { role: "assistant", content: slash.assistantMessage, agentType: "terminal" });
+        }
+        setCommandInput("");
+        setShowAiBar(true);
+      } else if (slash.goal) {
+        setCommandInput("");
+        setShowAiBar(true);
+        startTask(slash.goal, isFilePrompt ? undefined : "terminal");
+      }
+      return;
+    }
 
     // Explicit prefix overrides take priority over the classifier
     const hasExplicitNL = input.startsWith("? ") || input.startsWith("/ai ");
@@ -737,18 +792,17 @@ export function AppShellView() {
                 </div>
               </div>
 
-              {/* Terminal view: command variant (default) */}
-              {chatInputOpen && activeTab?.type === "terminal" && !isAlternateActive && (
+              {/* Terminal view: command variant (default) — keep the bar (Stop only) visible
+                  while a command runs even if it enters the alternate screen buffer */}
+              {chatInputOpen && activeTab?.type === "terminal" && (!isAlternateActive || isRunning) && (
                 <CommandInputBar
                   sessionId={targetSessionId}
                   cwd={inputCwdLabel}
                   isLoading={isCwdLoading}
                   isRunning={isRunning}
                   value={activeCommandInput}
-                  history={[
-                    ...activeTabBlocks.filter((block) => block.command && block.command !== "init-aurora").map((block) => block.command as string),
-                    ...shellHistory.slice().reverse(),
-                  ]}
+                  history={commandHistory}
+                  hideCwdBreadcrumb={false}
                   onChange={setCommandInput}
                   onSubmit={(e, files) => handleInterceptedSubmit(e, handleExecuteCommand, false, files)}
                   onStop={handleStop}

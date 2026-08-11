@@ -17,6 +17,8 @@ pub struct AppState {
     pub git_watcher: GitWatcher,
     pub sidecar: Arc<Mutex<aurora_sidecar::manager::SidecarManager>>,
     pub pty_event_sender: tokio::sync::mpsc::UnboundedSender<PtyEvent>,
+    pub cloud: Arc<Mutex<aurora_cloud::sync::SyncManager>>,
+    pub updates: Arc<Mutex<aurora_update::client::UpdateClient>>,
 }
 
 impl AppState {
@@ -26,6 +28,7 @@ impl AppState {
         ui_state_manager: UiStateManager,
         history_db: HistoryDb,
         pty_event_sender: tokio::sync::mpsc::UnboundedSender<PtyEvent>,
+        api_base_url: String,
     ) -> Self {
         let merged_config = config_manager.merged_config.clone();
         Self {
@@ -39,6 +42,12 @@ impl AppState {
             git_watcher: GitWatcher::new(),
             sidecar: Arc::new(Mutex::new(aurora_sidecar::manager::SidecarManager::new())),
             pty_event_sender,
+            cloud: Arc::new(Mutex::new(aurora_cloud::sync::SyncManager::new(
+                api_base_url.clone(),
+            ))),
+            updates: Arc::new(Mutex::new(aurora_update::client::UpdateClient::new(
+                api_base_url,
+            ))),
         }
     }
 }

@@ -43,6 +43,12 @@ export function applyAppConfig(cfg: AppConfig) {
   settings.setAiSuggestions(cfg.editor.ai_suggestions !== false);
   settings.setIndentMarkers(cfg.editor.indent_markers !== false);
 
+  // Cloud sync + update notifications
+  settings.setCloudAutoSync(cfg.cloud?.auto_sync ?? false);
+  settings.setCloudApiBaseUrl(cfg.cloud?.api_base_url ?? "");
+  settings.setUpdatesEnabled(cfg.updates?.enabled ?? true);
+  settings.setUpdatesIntervalHours(cfg.updates?.check_interval_hours ?? 24);
+
   // Keybindings
   const overrides: Record<string, string> = {};
   if (cfg.keybindings.mode === "vim") {

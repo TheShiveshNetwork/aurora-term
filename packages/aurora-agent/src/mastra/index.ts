@@ -5,6 +5,7 @@ import {
   developerPlanAgent,
   developerBuildAgent,
   codeCompletionAgent,
+  chatAgent,
   memoryStorage,
 } from '../agents/aura';
 import { agentTaskWorkflow } from '../workflows/tasks';
@@ -83,6 +84,7 @@ export const mastra = new Mastra({
     developerPlanAgent,
     developerBuildAgent,
     codeCompletionAgent,
+    chatAgent,
   },
   workflows: {
     agentTaskWorkflow,

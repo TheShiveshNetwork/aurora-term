@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Command, ExternalLink, FileText, FolderOpen, History, Menu, PanelLeft, PanelLeftClose, PanelRight, PanelRightClose, PanelBottom, PanelBottomClose, PinIcon, PinOff, Plus, Search, Settings, SplitSquareHorizontal, SquareTerminal, Terminal, User, GitBranch, File, Sliders } from "lucide-react";
+import { Command, ExternalLink, FileText, FolderOpen, History, Menu, PanelLeft, PanelLeftClose, PanelRight, PanelRightClose, PanelBottom, PanelBottomClose, PinIcon, PinOff, Plus, Search, Settings, SplitSquareHorizontal, SquareTerminal, Terminal, GitBranch, File, Sliders } from "lucide-react";
 import type { AppViewMode } from "../../stores/useAppShellStore";
 import { WindowControls } from "../ui/WindowControls";
 import { MenuView, MenuViewItem, MenuViewSeparator } from "../ui/MenuView";
 import { openSettingsWindow } from "../../lib/settings";
+import { AccountMenu } from "./AccountMenu";
 
 import auroraIcon from "/static/aurora-icon.svg";
 import { SETTINGS_MANIFEST, categoryFor } from "../settings/settingsManifest";
@@ -275,20 +276,7 @@ export function AppHeader({
             <Settings size={14} />
           </IconBtn>
 
-          <button
-            data-tauri-no-drag
-            className="p-0.5 rounded-full transition-all cursor-pointer mr-1 ml-0.5"
-            style={{ outline: "1px solid rgba(154,124,255,0.2)" }}
-            onMouseEnter={(e) => (e.currentTarget.style.outline = "2px solid rgba(154,124,255,0.35)")}
-            onMouseLeave={(e) => (e.currentTarget.style.outline = "1px solid rgba(154,124,255,0.2)")}
-          >
-            <div
-              className="w-7 h-7 rounded-full flex items-center justify-center"
-              style={{ background: "rgba(154,124,255,0.12)", color: "#9A7CFF" }}
-            >
-              <User size={13} />
-            </div>
-          </button>
+          <AccountMenu />
         </div>
         <div id="window-controls" data-tauri-no-drag className="flex h-full items-center shrink-0">
           <WindowControls />

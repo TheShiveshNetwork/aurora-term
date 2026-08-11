@@ -104,6 +104,11 @@ pub fn run() {
                     aurora_core::config::AppConfig::default()
                 });
 
+            // Cloud/update managers are constructed from the configured API
+            // base URL (empty = disabled). They stay in sync with config via
+            // the commands themselves.
+            let api_base_url = config_manager.merged_config.cloud.api_base_url.clone();
+
             // Initialize History Database on startup
             let history_db = HistoryDb::new(Some(config_dir))?;
 
@@ -118,6 +123,7 @@ pub fn run() {
                 ui_state_manager,
                 history_db,
                 pty_sender,
+                api_base_url,
             );
             app.manage(app_state);
 
@@ -249,10 +255,25 @@ pub fn run() {
             aurora_commands::agent_approve_tool,
             aurora_commands::agent_decline_tool,
             aurora_commands::agent_chat,
+            aurora_commands::agent_btw,
+            aurora_commands::agent_skills,
+            aurora_commands::agent_mcp,
+            aurora_commands::agent_file_context,
             aurora_commands::ai_edit_code,
             aurora_commands::ai_inline_complete,
             aurora_commands::agent_get_logs,
+            aurora_commands::agent_get_thinking,
             aurora_commands::get_available_commands,
+            // Cloud commands
+            aurora_commands::cloud_auth_status,
+            aurora_commands::cloud_sign_in_password,
+            aurora_commands::cloud_sign_in_oauth,
+            aurora_commands::cloud_sign_out,
+            aurora_commands::cloud_sync_now,
+            aurora_commands::cloud_resolve_conflict,
+            // Update commands
+            aurora_commands::update_check,
+            aurora_commands::update_dismiss,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

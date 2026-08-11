@@ -19,6 +19,44 @@ function truncateOutput(output: string): string {
   return `[Output truncated: ${output.length} characters total]\n\nFirst ${HEAD_TAIL_CHARS} characters:\n${output.slice(0, HEAD_TAIL_CHARS)}\n\nLast ${HEAD_TAIL_CHARS} characters:\n${output.slice(-HEAD_TAIL_CHARS)}`;
 }
 
+// ── Active file context builder ───────────────────────────────────────────
+// Returns context for the SINGLE file open in the active tab only — never
+// every open file in the window. The sidecar injects a short preview plus a
+// directive to use read_file for full contents, and patch_file/write_file to
+// edit. If the user has lines selected in the editor, the selection is sent
+// too so the agent knows exactly which lines are being referenced. Returns
+// null when the session has no active file tab.
+async function buildFileContext(sessionId: string | null): Promise<string | null> {
+  if (!sessionId) return null;
+  const activeTab = useSessionStore.getState().tabs.find((t) => t.id === sessionId);
+  if (!activeTab?.filePath) return null;
+
+  const shell = useAppShellStore.getState();
+  const cwd = shell.projectDir || shell.cwdAbsolute;
+
+  try {
+    const res = await system.agentFileContext(
+      [activeTab.filePath],
+      cwd || undefined,
+      undefined,
+      activeTab.selection && activeTab.selection.text.trim()
+        ? {
+            path: activeTab.filePath,
+            startLine: activeTab.selection.startLine,
+            endLine: activeTab.selection.endLine,
+            text: activeTab.selection.text,
+          }
+        : null
+    );
+    if (res.status === "completed" && res.context) {
+      return res.context;
+    }
+  } catch (err) {
+    console.warn("Failed to build file context:", err);
+  }
+  return null;
+}
+
 // ── Sensitive command detection ───────────────────────────────────────────
 function isSensitiveCommand(cmd: string): boolean {
   const lower = cmd.toLowerCase().trim();
@@ -138,7 +176,8 @@ export function useAgentExecution(sessionId: string | null) {
             useAgentStore.getState().sessions[targetSessionId]?.agentMode || "build",
             step.run_id,
             step.tool_call_id,
-            { approved: true, stdout: lastResult.output, stderr: lastResult.stderr, exitCode: 0 }
+            { approved: true, stdout: lastResult.output, stderr: lastResult.stderr, exitCode: 0 },
+            targetSessionId
           );
           state.setPendingToolCall(targetSessionId, null);
           await handleStepResult(targetSessionId, taskId, stepResult);
@@ -173,7 +212,8 @@ export function useAgentExecution(sessionId: string | null) {
             useAgentStore.getState().sessions[targetSessionId]?.agentMode || "build",
             step.run_id,
             step.tool_call_id,
-            { approved: true, stdout: result?.output || "", stderr: "", exitCode: result?.exitCode ?? 0 }
+            { approved: true, stdout: result?.output || "", stderr: "", exitCode: result?.exitCode ?? 0 },
+            targetSessionId
           );
           state.setPendingToolCall(targetSessionId, null);
           await handleStepResult(targetSessionId, taskId, stepResult);
@@ -207,7 +247,8 @@ export function useAgentExecution(sessionId: string | null) {
             useAgentStore.getState().sessions[targetSessionId]?.agentMode || "build",
             step.run_id,
             step.tool_call_id,
-            { approved: true }
+            { approved: true },
+            targetSessionId
           );
           state.setPendingToolCall(targetSessionId, null);
           await handleStepResult(targetSessionId, taskId, stepResult);
@@ -282,7 +323,8 @@ export function useAgentExecution(sessionId: string | null) {
           useAgentStore.getState().sessions[targetSessionId]?.agentMode || "build",
           step.run_id,
           step.tool_call_id,
-          { approved: true }
+          { approved: true },
+          targetSessionId
         );
         state.setPendingToolCall(targetSessionId, null);
         await handleStepResult(targetSessionId, taskId, stepResult);
@@ -406,10 +448,16 @@ export function useAgentExecution(sessionId: string | null) {
     const requireReviewForWrites = cfg.ai.require_review_for_writes;
 
     try {
+      let goal: string | null = lastOutput === undefined ? originalGoal : null;
+      if (goal) {
+        const fileCtx = await buildFileContext(targetSessionId);
+        if (fileCtx) goal = `${goal}\n\n[FILE CONTEXT]\n${fileCtx}`;
+      }
+
       const step = await system.agentPlanStep(
         taskId,
         targetSessionId,
-        lastOutput === undefined ? originalGoal : null,
+        goal,
         lastOutput || null,
         exitCode !== undefined ? exitCode : null,
         agentType,
@@ -565,6 +613,7 @@ export function useAgentExecution(sessionId: string | null) {
 
     state.addChatMessage(targetSessionId, { role: "user", content: goal, agentType: type });
     state.startTask(targetSessionId, taskId, goal);
+    state.setThinking(targetSessionId, "");
     state.setAgentType(targetSessionId, type);
     state.setAgentMode(targetSessionId, mode);
     if (customModel) {
@@ -612,7 +661,8 @@ export function useAgentExecution(sessionId: string | null) {
             freshSession.agentMode,
             runId,
             toolCallId,
-            { approved: true, stdout: result?.output || "", stderr: "", exitCode: result?.exitCode ?? 0 }
+            { approved: true, stdout: result?.output || "", stderr: "", exitCode: result?.exitCode ?? 0 },
+            targetSessionId
           );
         } else {
           // File write / patch approved
@@ -621,7 +671,8 @@ export function useAgentExecution(sessionId: string | null) {
             freshSession.agentMode,
             runId,
             toolCallId,
-            { approved: true }
+            { approved: true },
+            targetSessionId
           );
           
           // Approve file changes status and update chain node
@@ -700,7 +751,8 @@ export function useAgentExecution(sessionId: string | null) {
           freshSession.agentType,
           freshSession.agentMode,
           runId,
-          toolCallId
+          toolCallId,
+          targetSessionId
         );
         state.setPendingToolCall(targetSessionId, null);
         await handleStepResult(targetSessionId, freshSession.taskId!, stepResult);
@@ -754,7 +806,8 @@ export function useAgentExecution(sessionId: string | null) {
         freshSession.agentMode,
         runId,
         toolCallId,
-        { approved: true, answer }
+        { approved: true, answer },
+        targetSessionId
       );
       await handleStepResult(targetSessionId, freshSession.taskId!, stepResult);
     } catch (e) {
@@ -793,7 +846,21 @@ export function useAgentExecution(sessionId: string | null) {
       }).catch(() => {});
     }, 1500);
 
-    return () => clearInterval(intervalId);
+    // Poll live "thinking" stream while the agent is working.
+    const pollThinking = () => {
+      system.agentGetThinking(sessionId).then((res) => {
+        if (res && res.status === "ok" && typeof res.thinking === "string") {
+          useAgentStore.getState().setThinking(sessionId, res.thinking);
+        }
+      }).catch(() => {});
+    };
+    pollThinking();
+    const thinkingIntervalId = setInterval(pollThinking, 300);
+
+    return () => {
+      clearInterval(intervalId);
+      clearInterval(thinkingIntervalId);
+    };
   }, [sessionId, sessionState.status]);
 
   // ── retryTask ────────────────────────────────────────────────────────────
@@ -828,6 +895,7 @@ export function useAgentExecution(sessionId: string | null) {
     maxSteps: sessionState.maxSteps,
     chainNodes: sessionState.chainNodes,
     agentLogs: sessionState.agentLogs,
+    thinking: sessionState.thinking,
     activeSubagent: sessionState.activeSubagent,
     chatHistory: sessionState.chatHistory,
     pendingToolCall: sessionState.pendingToolCall,

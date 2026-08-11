@@ -478,6 +478,17 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
               updateTab(tabId, { dirty: isDirty, fileContent: currentContent, everChanged: true });
               setHasConflicts(/^<<<<<<< .+/m.test(currentContent) && /^>>>>>>> .+/m.test(currentContent));
             }
+            if (update.selectionSet) {
+              const sel = update.state.selection.main;
+              if (!sel.empty) {
+                const fromLine = update.state.doc.lineAt(sel.from).number;
+                const toLine = update.state.doc.lineAt(sel.to).number;
+                const text = update.state.sliceDoc(sel.from, sel.to);
+                updateTab(tabId, { selection: { startLine: fromLine, endLine: toLine, text } });
+              } else {
+                updateTab(tabId, { selection: null });
+              }
+            }
           }),
         ];
 

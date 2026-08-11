@@ -77,6 +77,10 @@ interface SettingsStore {
   aiCodeCompletion: boolean;
   aiSuggestions: boolean;
   indentMarkers: boolean;
+  cloudAutoSync: boolean;
+  cloudApiBaseUrl: string;
+  updatesEnabled: boolean;
+  updatesIntervalHours: number;
 
   setTheme: (theme: "dark" | "light") => void;
   setMode: (mode: EditorMode) => void;
@@ -97,6 +101,10 @@ interface SettingsStore {
   setAiCodeCompletion: (enabled: boolean) => void;
   setAiSuggestions: (enabled: boolean) => void;
   setIndentMarkers: (enabled: boolean) => void;
+  setCloudAutoSync: (enabled: boolean) => void;
+  setCloudApiBaseUrl: (url: string) => void;
+  setUpdatesEnabled: (enabled: boolean) => void;
+  setUpdatesIntervalHours: (hours: number) => void;
 }
 
 export const useSettingsStore = create<SettingsStore>((set) => ({
@@ -119,6 +127,10 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
   aiCodeCompletion: true,
   aiSuggestions: true,
   indentMarkers: true,
+  cloudAutoSync: false,
+  cloudApiBaseUrl: "",
+  updatesEnabled: true,
+  updatesIntervalHours: 24,
 
   setTheme: (theme) => {
     set({ theme });
@@ -140,6 +152,10 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
   setAiCodeCompletion: (aiCodeCompletion) => set({ aiCodeCompletion }),
   setAiSuggestions: (aiSuggestions) => set({ aiSuggestions }),
   setIndentMarkers: (indentMarkers) => set({ indentMarkers }),
+  setCloudAutoSync: (cloudAutoSync) => set({ cloudAutoSync }),
+  setCloudApiBaseUrl: (cloudApiBaseUrl) => set({ cloudApiBaseUrl }),
+  setUpdatesEnabled: (updatesEnabled) => set({ updatesEnabled }),
+  setUpdatesIntervalHours: (updatesIntervalHours) => set({ updatesIntervalHours }),
   setKeybindingOverride: (id, keys) => set((state) => ({ keybindingOverrides: { ...state.keybindingOverrides, [id]: keys } })),
   resetKeybindingOverride: (id) => set((state) => {
     const { [id]: _, ...rest } = state.keybindingOverrides;

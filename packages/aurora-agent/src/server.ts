@@ -1,14 +1,37 @@
 import fastify from 'fastify';
 import { mastra, memoryLogs } from './mastra';
 import { auraMemory, getModelProvider } from './agents/aura';
+import { listSkills, listMcps, parseFileContext, formatFileContexts, formatSelectionContext, FileContext } from './slash';
 import { reviewSettings } from './tools';
 import { rootLogger } from './logger';
+import { resetThinking, getThinking, onChunkCapture } from './thinking';
 
 const server = fastify({ logger: false });
 const log = rootLogger.child({ service: 'server' });
 
 // ── Constants ─────────────────────────────────────────────────────────────
 const RESOURCE_ID = 'aurora-user';
+
+// ── Per-thread execution lock ─────────────────────────────────────────────
+// Mastra stores thread history in a shared InMemoryStore. Two concurrent
+// `generate`/`resumeGenerate` calls on the same thread (e.g. the normal step
+// loop plus an out-of-band `/api/btw` question) can race and corrupt the
+// thread. We serialize all LLM work per thread.
+const threadLocks = new Map<string, Promise<unknown>>();
+
+function withThreadLock<T>(threadId: string, fn: () => Promise<T>): Promise<T> {
+  const prev = threadLocks.get(threadId) ?? Promise.resolve();
+  const next = prev.then(fn, fn);
+  // Keep the chain alive even if `fn` rejects; callers still observe `next`.
+  threadLocks.set(
+    threadId,
+    next.then(
+      () => undefined,
+      () => undefined,
+    ),
+  );
+  return next;
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -191,6 +214,18 @@ server.get('/api/logs', async () => {
   return { status: 'ok', logs: memoryLogs };
 });
 
+// ── /api/thinking — live streaming "thinking" text for a thread ───────────
+// Returns whatever the agent has streamed so far (text/reasoning deltas +
+// tool-call announcements) for the given thread. Polled by the frontend while
+// a task is running; empty string means "no thinking captured yet".
+server.get('/api/thinking', async (request, _reply) => {
+  const { thread } = (request.query as any) || {};
+  if (!thread || typeof thread !== 'string') {
+    return { status: 'error', message: 'thread query param is required' };
+  }
+  return { status: 'ok', thinking: getThinking(thread) };
+});
+
 // ── /api/step — single planning step in the agentic feedback loop ─────────
 server.post('/api/step', async (request, _reply) => {
   const {
@@ -257,110 +292,121 @@ server.post('/api/step', async (request, _reply) => {
   const startTime = Date.now();
 
   try {
-    const generateOptions: any = {
-      memory: {
-        thread: threadId,
-        resource: RESOURCE_ID,
-      },
-      requireToolApproval: true,
-      maxSteps: 25,
-      abortSignal: AbortSignal.timeout(120_000),
-    };
-
-    if (model) {
-      const activeProvider = process.env.ACTIVE_AI_PROVIDER || 'groq';
-      generateOptions.model = getModelProvider(activeProvider, model);
-      stepLog.info('Using model override', { provider: activeProvider, model });
-    }
-
-    if (threadId) {
-      await compactThreadIfNeeded(threadId, agent, stepLog);
-    }
-
-    const response = await agent.generate(prompt, generateOptions);
-
-    const elapsed = Date.now() - startTime;
-    stepLog.info('LLM response received', {
-      elapsedMs: elapsed,
-      finishReason: response.finishReason,
-      textLength: response.text?.length,
-      textPreview: response.text?.slice(0, 500) + (response.text?.length > 500 ? '...' : ''),
-      usage: response.usage,
-    });
-
-    // Log full response details at debug level for troubleshooting
-    logFullResponse(stepLog, response);
-
-    // Handle generation errors (tool call failures, LLM errors, etc.)
-    if (response.finishReason === 'error' || response.error) {
-      const errMsg = response.error?.message || response.text || 'Generation failed';
-      stepLog.error('LLM generation error', {
-        finishReason: response.finishReason,
-        error: response.error?.message,
-        errorStack: response.error?.stack,
-      });
-      return {
-        status: 'error',
-        message: `Agent error: ${errMsg}. Please try rephrasing your request.`,
-      };
-    }
-
-    // Handle tripwire (content filter triggers)
-    if (response.tripwire) {
-      stepLog.warn('Content tripwire triggered', {
-        reason: response.tripwire.reason,
-        retry: response.tripwire.retry,
-      });
-      if (response.tripwire.retry) {
-        stepLog.info('Tripwire requested retry — will retry');
+    // Serialize per-thread so an out-of-band /api/btw question never runs
+    // concurrently with the task's own generation loop on the same thread.
+    const stepResult = await withThreadLock(threadId, async () => {
+      // A fresh goal starts a new task — clear the previous thinking stream.
+      if (goal) {
+        resetThinking(threadId);
       }
-      return {
-        status: 'error',
-        message: `Generation was blocked: ${response.tripwire.reason || 'Content policy violation'}. Please adjust your request.`,
-      };
-    }
 
-    // Handle suspended tool calls
-    if (response.finishReason === 'suspended') {
-      const toolName = response.suspendPayload?.toolName;
-      const toolArgs = response.suspendPayload?.args;
-      stepLog.info('Tool call suspended — awaiting user approval', {
-        toolName,
-        toolArgs,
-        runId: response.runId,
-        toolCallId: response.suspendPayload?.toolCallId,
-        toolCallsInResponse: response.toolCalls?.map((tc: any) => ({ name: tc.toolName, args: tc.args })),
+      const generateOptions: any = {
+        memory: {
+          thread: threadId,
+          resource: RESOURCE_ID,
+        },
+        requireToolApproval: true,
+        maxSteps: 25,
+        abortSignal: AbortSignal.timeout(120_000),
+        onChunk: onChunkCapture(threadId),
+      };
+
+      if (model) {
+        const activeProvider = process.env.ACTIVE_AI_PROVIDER || 'groq';
+        generateOptions.model = getModelProvider(activeProvider, model);
+        stepLog.info('Using model override', { provider: activeProvider, model });
+      }
+
+      if (threadId) {
+        await compactThreadIfNeeded(threadId, agent, stepLog);
+      }
+
+      const response = await agent.generate(prompt, generateOptions);
+
+      const elapsed = Date.now() - startTime;
+      stepLog.info('LLM response received', {
+        elapsedMs: elapsed,
+        finishReason: response.finishReason,
+        textLength: response.text?.length,
+        textPreview: response.text?.slice(0, 500) + (response.text?.length > 500 ? '...' : ''),
+        usage: response.usage,
       });
 
-      return {
-        status: 'requires_approval',
-        runId: response.runId,
-        toolCallId: response.suspendPayload?.toolCallId,
-        toolName,
-        args: toolArgs,
-      };
-    }
+      // Log full response details at debug level for troubleshooting
+      logFullResponse(stepLog, response);
 
-    // Check for tool-level errors (tools that executed but failed)
-    const failedToolResults = response.toolResults?.filter((tr: any) => tr.isError);
-    if (failedToolResults?.length > 0) {
-      const failedNames = failedToolResults.map((tr: any) => tr.toolName).join(', ');
-      stepLog.warn('Tool execution errors in response', {
-        failedTools: failedToolResults.map((tr: any) => ({
-          toolName: tr.toolName,
-          error: tr.error,
-        })),
+      // Handle generation errors (tool call failures, LLM errors, etc.)
+      if (response.finishReason === 'error' || response.error) {
+        const errMsg = response.error?.message || response.text || 'Generation failed';
+        stepLog.error('LLM generation error', {
+          finishReason: response.finishReason,
+          error: response.error?.message,
+          errorStack: response.error?.stack,
+        });
+        return {
+          status: 'error',
+          message: `Agent error: ${errMsg}. Please try rephrasing your request.`,
+        };
+      }
+
+      // Handle tripwire (content filter triggers)
+      if (response.tripwire) {
+        stepLog.warn('Content tripwire triggered', {
+          reason: response.tripwire.reason,
+          retry: response.tripwire.retry,
+        });
+        if (response.tripwire.retry) {
+          stepLog.info('Tripwire requested retry — will retry');
+        }
+        return {
+          status: 'error',
+          message: `Generation was blocked: ${response.tripwire.reason || 'Content policy violation'}. Please adjust your request.`,
+        };
+      }
+
+      // Handle suspended tool calls
+      if (response.finishReason === 'suspended') {
+        const toolName = response.suspendPayload?.toolName;
+        const toolArgs = response.suspendPayload?.args;
+        stepLog.info('Tool call suspended — awaiting user approval', {
+          toolName,
+          toolArgs,
+          runId: response.runId,
+          toolCallId: response.suspendPayload?.toolCallId,
+          toolCallsInResponse: response.toolCalls?.map((tc: any) => ({ name: tc.toolName, args: tc.args })),
+        });
+
+        return {
+          status: 'requires_approval',
+          runId: response.runId,
+          toolCallId: response.suspendPayload?.toolCallId,
+          toolName,
+          args: toolArgs,
+        };
+      }
+
+      // Check for tool-level errors (tools that executed but failed)
+      const failedToolResults = response.toolResults?.filter((tr: any) => tr.isError);
+      if (failedToolResults?.length > 0) {
+        const failedNames = failedToolResults.map((tr: any) => tr.toolName).join(', ');
+        stepLog.warn('Tool execution errors in response', {
+          failedTools: failedToolResults.map((tr: any) => ({
+            toolName: tr.toolName,
+            error: tr.error,
+          })),
+        });
+        // Don't return error here — the LLM may have handled it in-text
+      }
+
+      stepLog.info('Parsing LLM response for step result', {
+        rawTextLength: response.text?.length,
       });
-      // Don't return error here — the LLM may have handled it in-text
-    }
 
-    stepLog.info('Parsing LLM response for step result', {
-      rawTextLength: response.text?.length,
+      const result = parseAuraResponse(response.text);
+      stepLog.info('Step result parsed', { status: result.status, messageLength: result.message?.length, messagePreview: result.message?.slice(0, 200) });
+      return result;
     });
-
-    const result = parseAuraResponse(response.text);
-    stepLog.info('Step result parsed', { status: result.status, messageLength: result.message?.length, messagePreview: result.message?.slice(0, 200) });
-    return result;
+    return stepResult;
   } catch (error: any) {
     const elapsed = Date.now() - startTime;
     stepLog.error('Agent step threw exception', {
@@ -379,7 +425,7 @@ server.post('/api/step', async (request, _reply) => {
 
 server.post('/api/tool/approve', async (request, _reply) => {
   const body = request.body as any;
-  const { agent_type, mode, runId, toolCallId } = body;
+  const { agent_type, mode, runId, toolCallId, session_id } = body;
   const resumeData = body.resumeData ?? body.resume_data;
 
   const toolLog = log.child({
@@ -388,6 +434,7 @@ server.post('/api/tool/approve', async (request, _reply) => {
     mode,
     runId,
     toolCallId,
+    sessionId: session_id,
   });
 
   toolLog.info('Tool approval request', { resumeDataKeys: resumeData ? Object.keys(resumeData) : undefined, resumeData });
@@ -396,9 +443,19 @@ server.post('/api/tool/approve', async (request, _reply) => {
   const startTime = Date.now();
 
   try {
-    const response = await agent.resumeGenerate(
-      { approved: true, ...resumeData },
-      { runId, toolCallId, maxSteps: 25, abortSignal: AbortSignal.timeout(120_000) }
+    // Serialize with other work on the same thread (e.g. /api/btw).
+    const threadKey = session_id || runId || 'agent-view';
+    const response = await withThreadLock(threadKey, async () =>
+      agent.resumeGenerate(
+        { approved: true, ...resumeData },
+        {
+          runId,
+          toolCallId,
+          maxSteps: 25,
+          abortSignal: AbortSignal.timeout(120_000),
+          onChunk: onChunkCapture(threadKey),
+        }
+      )
     );
 
     const elapsed = Date.now() - startTime;
@@ -458,7 +515,7 @@ server.post('/api/tool/approve', async (request, _reply) => {
 });
 
 server.post('/api/tool/decline', async (request, _reply) => {
-  const { agent_type, mode, runId, toolCallId } = request.body as any;
+  const { agent_type, mode, runId, toolCallId, session_id } = request.body as any;
 
   const toolLog = log.child({
     endpoint: 'tool/decline',
@@ -466,6 +523,7 @@ server.post('/api/tool/decline', async (request, _reply) => {
     mode,
     runId,
     toolCallId,
+    sessionId: session_id,
   });
 
   toolLog.info('Tool decline request');
@@ -474,9 +532,19 @@ server.post('/api/tool/decline', async (request, _reply) => {
   const startTime = Date.now();
 
   try {
-    const response = await agent.resumeGenerate(
-      { approved: false },
-      { runId, toolCallId, maxSteps: 25, abortSignal: AbortSignal.timeout(120_000) }
+    // Serialize with other work on the same thread (e.g. /api/btw).
+    const threadKey = session_id || runId || 'agent-view';
+    const response = await withThreadLock(threadKey, async () =>
+      agent.resumeGenerate(
+        { approved: false },
+        {
+          runId,
+          toolCallId,
+          maxSteps: 25,
+          abortSignal: AbortSignal.timeout(120_000),
+          onChunk: onChunkCapture(threadKey),
+        }
+      )
     );
 
     const elapsed = Date.now() - startTime;
@@ -636,6 +704,7 @@ server.post('/api/chat', async (request, _reply) => {
       `Chat message (respond conversationally, NOT as a command): ${message}`,
       {
         memory: { thread: threadId, resource: RESOURCE_ID },
+        onChunk: onChunkCapture(threadId),
       }
     );
     const elapsed = Date.now() - startTime;
@@ -658,6 +727,147 @@ server.post('/api/chat', async (request, _reply) => {
   } catch (error: any) {
     chatLog.error('Chat threw exception', { error: error.message, stack: error.stack });
     return { status: 'error', message: error.message || 'Chat error' };
+  }
+});
+
+// ── /api/btw — out-of-band question while a task runs in the background ───
+// Uses the chatAgent, which has NO tools. It can never suspend, never queue a
+// command, and never write into the task's thread (no `memory` is passed), so
+// asking "btw, how does X work?" never corrupts or interrupts the running task.
+server.post('/api/btw', async (request, _reply) => {
+  const { session_id, message, model } = request.body as any;
+  const btwLog = log.child({ endpoint: 'btw', sessionId: session_id });
+
+  if (!message?.trim()) {
+    btwLog.warn('btw request with empty message');
+    return { status: 'error', message: 'No message provided' };
+  }
+
+  btwLog.info('btw request', { messageLength: message.length, messagePreview: message.slice(0, 100) });
+
+  const startTime = Date.now();
+
+  try {
+    const agent = mastra.getAgent('chatAgent');
+    const generateOptions: any = {
+      maxSteps: 1,
+      abortSignal: AbortSignal.timeout(45_000),
+    };
+    if (model) {
+      const activeProvider = process.env.ACTIVE_AI_PROVIDER || 'groq';
+      generateOptions.model = getModelProvider(activeProvider, model);
+    }
+    const response = await agent.generate(message, generateOptions);
+    const elapsed = Date.now() - startTime;
+
+    btwLog.info('btw response', {
+      elapsedMs: elapsed,
+      textLength: response.text?.length,
+      textPreview: response.text?.slice(0, 200),
+    });
+
+    if (response.finishReason === 'error' || response.error) {
+      const errMsg = response.error?.message || response.text || 'Generation failed';
+      btwLog.error('btw generation error', { error: response.error?.message });
+      return { status: 'error', message: `btw error: ${errMsg}` };
+    }
+
+    return { status: 'completed', message: response.text || '' };
+  } catch (error: any) {
+    btwLog.error('btw threw exception', { error: error.message, stack: error.stack });
+    return { status: 'error', message: error.message || 'btw error' };
+  }
+});
+
+// ── /api/file/context — build FILE CONTEXT block for open files ───────────
+// Accepts a list of absolute paths and returns a prompt-ready `[FILE CONTEXT]`
+// block (metadata + preview only — never the full file contents). Used by the
+// `/file` slash command and by the step loop to keep open editor files in scope.
+server.post('/api/file/context', async (request, _reply) => {
+  const { paths, cwd, preview_chars, selection } = request.body as any;
+  const fcLog = log.child({ endpoint: 'file/context' });
+
+  const filePaths: string[] = Array.isArray(paths) ? paths.filter((p) => typeof p === 'string') : [];
+  if (!filePaths.length) {
+    return { status: 'completed', context: '' };
+  }
+
+  fcLog.info('Building file context', { fileCount: filePaths.length, cwd, hasSelection: Boolean(selection) });
+
+  const root = typeof cwd === 'string' && cwd.trim() ? cwd : process.cwd();
+  const prevCwd = process.cwd();
+  if (root !== prevCwd) {
+    try {
+      process.chdir(root);
+    } catch {
+      // Keep current cwd if the requested one is invalid
+    }
+  }
+  try {
+    const contexts = filePaths
+      .map((p) => parseFileContext(p, preview_chars ? { previewChars: Number(preview_chars) } : undefined))
+      .filter((ctx): ctx is FileContext => ctx !== null);
+    const block = formatFileContexts(contexts);
+    const parts = [block];
+    if (
+      selection &&
+      typeof selection === 'object' &&
+      typeof selection.text === 'string' &&
+      selection.text.trim()
+    ) {
+      parts.push(formatSelectionContext({
+        path: typeof selection.path === 'string' ? selection.path : filePaths[0],
+        startLine: Number(selection.startLine) || 1,
+        endLine: Number(selection.endLine) || Number(selection.startLine) || 1,
+        text: selection.text,
+      }));
+    }
+    const context = parts.filter(Boolean).join('\n\n');
+    fcLog.info('File context built', { included: contexts.length, chars: context.length });
+    return { status: 'completed', context, files: contexts };
+  } catch (error: any) {
+    fcLog.error('File context failed', { error: error.message });
+    return { status: 'error', message: error.message || 'Failed to build file context' };
+  } finally {
+    if (root !== prevCwd) {
+      try {
+        process.chdir(prevCwd);
+      } catch {
+        // ignore
+      }
+    }
+  }
+});
+
+// ── /api/skills — enumerate discoverable agent skills ─────────────────────
+server.get('/api/skills', async (request, _reply) => {
+  const { cwd } = (request.query as any) || {};
+  const skillsLog = log.child({ endpoint: 'skills' });
+  try {
+    const result = listSkills(cwd || undefined);
+    const projectCount = result.project.length;
+    const globalCount = result.global.length;
+    skillsLog.info('Skills listed', { projectCount, globalCount });
+    return { status: 'ok', ...result, total: projectCount + globalCount };
+  } catch (error: any) {
+    skillsLog.error('Skills listing failed', { error: error.message });
+    return { status: 'error', message: error.message || 'Failed to list skills' };
+  }
+});
+
+// ── /api/mcp — enumerate configured MCP servers ───────────────────────────
+server.get('/api/mcp', async (request, _reply) => {
+  const { cwd } = (request.query as any) || {};
+  const mcpLog = log.child({ endpoint: 'mcp' });
+  try {
+    const result = listMcps(cwd || undefined);
+    const projectCount = result.project.length;
+    const globalCount = result.global.length;
+    mcpLog.info('MCP servers listed', { projectCount, globalCount });
+    return { status: 'ok', ...result, total: projectCount + globalCount };
+  } catch (error: any) {
+    mcpLog.error('MCP listing failed', { error: error.message });
+    return { status: 'error', message: error.message || 'Failed to list MCP servers' };
   }
 });
 

@@ -7,6 +7,7 @@ import AISettingsView from "./AISettingsView";
 import PermissionsSettingsView from "./PermissionsSettingsView";
 import KeybindingsSettingsView from "./KeybindingsSettingsView";
 import AboutSettingsView from "./AboutSettingsView";
+import CloudSettingsView from "./CloudSettingsView";
 import { ProviderDetailView } from "./ProviderDetailView";
 import { Breadcrumbs, SettingsContext, DraftSettings } from "./SettingsShared";
 import { ProviderName } from "@aurora/types";
@@ -48,6 +49,7 @@ const SECTIONS: Section[] = [
       { id: "workspace", label: "Workspace", view: <WorkspaceSettingsView /> },
       { id: "appearance", label: "Appearance", view: <AppearanceSettingsView /> },
       { id: "keybindings", label: "Keybindings", view: <KeybindingsSettingsView /> },
+      { id: "cloud", label: "Cloud & Updates", view: <CloudSettingsView /> },
     ],
   },
   {

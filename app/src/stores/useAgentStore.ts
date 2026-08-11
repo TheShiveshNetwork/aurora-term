@@ -53,6 +53,7 @@ export interface SessionAgentState {
   logs: string[];
   agentLogs: AgentLog[];
   chainNodes: ChainNode[];
+  thinking: string;
   lastMessage: string | null;
   activeSubagent: string | null;
   chatHistory: ChatMessage[];
@@ -107,6 +108,7 @@ export const CONST_DEFAULT_SESSION_STATE: SessionAgentState = {
   logs: [],
   agentLogs: [],
   chainNodes: [],
+  thinking: "",
   lastMessage: null,
   activeSubagent: null,
   chatHistory: [],
@@ -150,6 +152,7 @@ interface AgentStore {
   addLog: (sessionId: string, log: string) => void;
   addAgentLog: (sessionId: string, type: AgentLog["type"], content: string, subagent?: string) => void;
   setAgentLogs: (sessionId: string, logs: AgentLog[]) => void;
+  setThinking: (sessionId: string, thinking: string) => void;
 
   addChainNode: (sessionId: string, node: Omit<ChainNode, "id">) => string;
   updateChainNode: (sessionId: string, id: string, updates: Partial<ChainNode>) => void;
@@ -382,6 +385,9 @@ export const useAgentStore = create<AgentStore>((set) => ({
 
   setAgentLogs: (sessionId, logs) =>
     updateSession(set, sessionId, { agentLogs: logs }),
+
+  setThinking: (sessionId, thinking) =>
+    updateSession(set, sessionId, { thinking }),
 
   addChainNode: (sessionId, node) => {
     const id = genId();

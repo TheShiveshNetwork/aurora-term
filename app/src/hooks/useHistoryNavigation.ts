@@ -19,14 +19,14 @@ export function useHistoryNavigation(history: string[]) {
     return entries[newIndex];
   }, []);
 
-  const navigateDown = useCallback(() => {
+  const navigateDown = useCallback((currentValue: string) => {
     const idx = indexRef.current;
     const entries = historyRef.current;
-    if (entries.length === 0 || idx === -1) return "";
+    if (entries.length === 0 || idx === -1) return currentValue;
     const newIndex = idx + 1;
     if (newIndex >= entries.length) {
       indexRef.current = -1;
-      return "";
+      return draftRef.current;
     }
     indexRef.current = newIndex;
     return entries[newIndex];

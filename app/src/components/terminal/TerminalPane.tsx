@@ -249,6 +249,19 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
       cursorWidth: 1,
       theme: buildXtermTheme(),
       disableStdin: true, // Decoupled input
+      attachCustomKeyEventHandler: (event: KeyboardEvent) => {
+        // xterm's evaluateKeyboardEvent collapses Ctrl+Enter into the same \r
+        // byte as plain Enter (only Alt+Enter differs), so alternate-screen
+        // apps (less, vim, htop) can't distinguish it. Emit a distinct CSI-u
+        // sequence (key 13 = Enter, modifier 5 = Ctrl) instead so they can.
+        if (event.type === "keydown" && event.ctrlKey && event.key === "Enter") {
+          if (useSessionStore.getState().alternateBufferActive[sessionId]) {
+            pty.write(sessionId, "\x1b[13;5u").catch(console.error);
+            return false;
+          }
+        }
+        return true;
+      },
     });
 
     termRef.current = term;
@@ -378,6 +391,8 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
     let frameId = 0;
     let leftoverBuffer = "";
     let failsafeTimeout: ReturnType<typeof setTimeout> | null = null;
+    let clearResetTimer: ReturnType<typeof setTimeout> | null = null;
+    let localClearPending = false;
 
     const flushBuffer = () => {
       if (isDisposed) return;
@@ -404,10 +419,20 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
           const inAlt = useSessionStore.getState().alternateBufferActive[sessionId] || false;
 
           if (!inAlt) {
-            const { cwdValue, cleanData: stripped, exitCode } = cleanPtyData(cleanData);
+            const { cwdValue, cleanData: stripped, exitCode } = cleanPtyData(cleanData, { collapseClearWalk: localClearPending });
             cleanData = stripped;
 
             if (cwdValue) {
+              if (clearResetTimer) {
+                clearTimeout(clearResetTimer);
+              }
+              // Keep the clear-walk collapse armed for a short grace window so a
+              // second walk chunk arriving in a later pty read (split stream) is
+              // still collapsed. It only targets consecutive `\x1b[K\r\n` runs,
+              // which are unique to the WinPS clear walk.
+              clearResetTimer = setTimeout(() => {
+                localClearPending = false;
+              }, 250);
               console.log(`[TerminalPane ${sessionId}] Captured shell sentinel: ${cwdValue}`);
               // The shell printed a fresh prompt. The process watchdog reports
               // busy=false independently; here we only finalize the block.
@@ -442,10 +467,16 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
 
                 const inAltFailsafe = useSessionStore.getState().alternateBufferActive[sessionId] || false;
                 if (!inAltFailsafe) {
-                  const { cwdValue: failsafeCwdValue, cleanData: failsafeStripped, exitCode: failsafeExitCode } = cleanPtyData(failsafeData);
+                  const { cwdValue: failsafeCwdValue, cleanData: failsafeStripped, exitCode: failsafeExitCode } = cleanPtyData(failsafeData, { collapseClearWalk: localClearPending });
                   failsafeData = failsafeStripped;
 
                   if (failsafeCwdValue) {
+                    if (clearResetTimer) {
+                      clearTimeout(clearResetTimer);
+                    }
+                    clearResetTimer = setTimeout(() => {
+                      localClearPending = false;
+                    }, 250);
                     setCwd(failsafeCwdValue);
                     setIsCwdLoading(false);
                     syncAlternateBufferState(false);
@@ -506,6 +537,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
       if (term) {
         term.clear();
         term.write("\x1b[3J\x1b[H\x1b[2J");
+        localClearPending = true;
       }
     };
 
@@ -585,6 +617,9 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
       }
       if (failsafeTimeout) {
         clearTimeout(failsafeTimeout);
+      }
+      if (clearResetTimer) {
+        clearTimeout(clearResetTimer);
       }
     };
   }, [sessionId, debouncedResize]);

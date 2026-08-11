@@ -33,7 +33,7 @@ export function useCommandExecution(tabs: Tab[], activeTabId: string | null) {
   const alternateBufferActive = useSessionStore((state) => state.alternateBufferActive);
 
   const activeCommandInput = activeTabId ? commandInputs[activeTabId] ?? "" : "";
-  
+
   const activeTabBlocks = useBlockStore(useCallback((state) => (targetSessionId ? state.blocks[targetSessionId] : undefined) || EMPTY_BLOCKS, [targetSessionId]));
 
   const activeRunningBlock = useMemo(() => {
@@ -62,11 +62,15 @@ export function useCommandExecution(tabs: Tab[], activeTabId: string | null) {
 
   useEffect(() => {
     if (!activeTabId || !activeRunningBlockId) return;
+    // If the running block was cleared (e.g. `cls` while a command still runs),
+    // the command is still in flight — keep the running state so the Stop button
+    // stays visible until the block is explicitly finalized.
+    if (!activeRunningBlock) return;
     if (activeRunningBlock?.status === "running") return;
 
     useBlockStore.getState().setRunningBlockId(activeTabId, null);
     useBlockStore.getState().setCommandOutputReceived(activeTabId, false);
-  }, [activeRunningBlock?.status, activeRunningBlockId, activeTabId]);
+  }, [activeRunningBlock?.status, activeRunningBlock, activeRunningBlockId, activeTabId]);
 
   useEffect(() => {
     if (!isCommandRunning && activeTab?.type === "terminal") {
