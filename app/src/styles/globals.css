@@ -205,12 +205,6 @@ body {
 .has-tabs-scrollbar {
   overflow-x: auto !important;
   overflow-y: hidden !important;
-  scroll-snap-type: x mandatory;
-  scroll-behavior: smooth;
-}
-
-.has-tabs-scrollbar .safari-tab {
-  scroll-snap-align: start;
 }
 
 /* Hard reset default scroll bounds for targeted layout structures */

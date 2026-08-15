@@ -157,9 +157,7 @@ pub struct EditorConfig {
     #[serde(default = "default_enabled")]
     pub word_wrap: bool,
     #[serde(default = "default_enabled")]
-    pub ai_code_completion: bool,
-    #[serde(default = "default_enabled")]
-    pub ai_suggestions: bool,
+    pub ai_live_suggestions: bool,
     #[serde(default = "default_enabled")]
     pub indent_markers: bool,
 }
@@ -256,8 +254,7 @@ impl Default for AppConfig {
                 show_minimap: true,
                 git_gui_mode: "tab".to_string(),
                 word_wrap: true,
-                ai_code_completion: true,
-                ai_suggestions: true,
+                ai_live_suggestions: true,
                 indent_markers: true,
             },
             cloud: CloudConfig {

@@ -159,10 +159,6 @@ export function AppShellView() {
     activeTabId ? (state.sessions[activeTabId]?.status ?? "idle") : "idle"
   );
   const isAiRunning = agentStatus === "planning" || agentStatus === "executing" || agentStatus === "paused";
-  // The send button is disabled (spinner) only while the model is producing a
-  // response (planning) or awaiting approval (paused). While commands are
-  // executing in the terminal, sending stays enabled and routes to AI only.
-  const aiResponding = agentStatus === "planning" || agentStatus === "paused";
   const isRunning = isCommandRunning || isAiRunning;
 
   const handleStop = useCallback(() => {
@@ -817,8 +813,7 @@ export function AppShellView() {
                   sessionId={targetSessionId}
                   cwd={inputCwdLabel}
                   isLoading={isCwdLoading}
-                  isRunning={isCommandRunning}
-                  aiBusy={aiResponding}
+                  isRunning={isRunning}
                   value={activeCommandInput}
                   history={commandHistory}
                   hideCwdBreadcrumb={false}
@@ -837,7 +832,7 @@ export function AppShellView() {
                   sessionId={null}
                   cwd={inputCwdLabel}
                   isLoading={false}
-                  isRunning={false}
+                  isRunning={isRunning}
                   value={activeCommandInput}
                   history={[]}
                   onChange={setCommandInput}
@@ -975,12 +970,6 @@ export function AppShellView() {
         }}
         onRunFile={() => {
           window.dispatchEvent(new CustomEvent("file-run", { detail: { tabId: activeTabId, filePath: contextMenu?.filePath } }));
-          clearContextMenu();
-        }}
-        onAiImprovement={() => {
-          if (activeTabId) {
-            window.dispatchEvent(new CustomEvent("file-ai-improvement", { detail: { tabId: activeTabId } }));
-          }
           clearContextMenu();
         }}
       />

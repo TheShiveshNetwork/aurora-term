@@ -717,26 +717,16 @@ Command runs → PTY output accumulates in BlockStore (unbounded)
 
 ---
 
-## 20. AI Code Completion in CodeMirror Editor
+## 20. AI Live Suggestions in CodeMirror Editor
 
 ### 20.1 Architecture (Custom Implementation)
 
 The app uses a **custom CodeMirror extension** (`app/src/components/editor/aiExtensions.ts`) instead of the `@marimo-team/codemirror-ai` package. This gives full control over UI, removes unused features, and eliminates peer-dependency warnings.
 
 **Exports:**
-- `aiExtension(options: AiOptions)` — inline edit flow: select code → floating "Edit with AI" button / Ctrl+L → inline input widget → generate via sidecar → accept/reject with diff decorations.
 - `inlineCompletion(options: InlineCompleteOptions)` — ghost text completions: 600ms debounce after each keystroke, Tab to accept, Esc to dismiss.
-- `acceptAiEdit: Command` / `rejectAiEdit: Command` — accept/reject the last AI edit programmatically.
 
 ### 20.2 How It Works
-
-**Inline Edit Flow:**
-1. User selects code → a floating "Edit with AI" tooltip appears above the selection
-2. User clicks the button or presses **Ctrl+L** → an inline input widget renders at cursor with a text field
-3. User types editing instructions → presses "Generate" / Enter → `opts.prompt()` fires via sidecar proxy
-4. Sidecar receives `POST /api/edit-code` → user's Mastra agent returns the edited code
-5. Result replaces the selection → old code shown with strikethrough + accept/reject bar
-6. User presses **Ctrl+Y** (accept) or **Ctrl+U** (reject) to finalize
 
 **Inline Completion Flow:**
 1. On each keystroke, a 600ms debounce timer starts
@@ -750,21 +740,14 @@ The app uses a **custom CodeMirror extension** (`app/src/components/editor/aiExt
 All AI-related styling lives in `EditorView.baseTheme()` inside `aiExtensions.ts` — never in global CSS. This keeps styles scoped to CodeMirror and avoids specificity battles. The dark glass-morphism theme uses the same color palette as the rest of the app.
 
 Class prefix conventions:
-- `cm-ai-trigger` / `cm-ai-trigger-btn` — floating "Edit with AI" button
-- `cm-ai-inp` / `cm-ai-inp-container` — inline editing input widget
-- `cm-ai-gen` / `cm-ai-cancel` / `cm-ai-loading` — generate/cancel/loading in the input row
-- `cm-ai-sel-line` — highlighted selection line during editing
-- `cm-old-code-wrap` / `cm-old-code-text` — old code strikethrough block after accepting
-- `cm-accept-reject-bar` / `cm-ar-btn` / `cm-ar-accept` / `cm-ar-reject` — floating accept/reject buttons
 - `cm-ghost-text` — inline completion ghost text
 
 ### 20.4 Sidecar Proxy Pattern
 
-Both edit and completion hit the sidecar's Fastify server — never directly calling a Rust LLM provider. This avoids duplicating provider logic and env-var injection:
+The completion feature hits the sidecar's Fastify server — never directly calling a Rust LLM provider. This avoids duplicating provider logic and env-var injection:
 
 | Frontend IPC | Rust Command | Sidecar Endpoint |
 |---|---|---|
-| `ai.editCode(opts)` | `ai_edit_code` | `POST /api/edit-code` |
 | `ai.inlineComplete(opts)` | `ai_inline_complete` | `POST /api/inline-complete` |
 
 Each Rust command in `crates/aurora-commands/src/commands/sidecar_commands.rs` follows the same pattern: get `state.sidecar.lock().await.port()`, then `reqwest::Client` POST to `http://127.0.0.1:{port}/api/<endpoint>`.
@@ -772,25 +755,23 @@ Each Rust command in `crates/aurora-commands/src/commands/sidecar_commands.rs` f
 ### 20.5 IPC Contract
 
 ```typescript
-// In app/src/lib/ipc.ts — added:
-ai.editCode(opts: { codeBefore, codeSelection, codeAfter, prompt }) → string
-ai.inlineComplete(opts: { beforeCursor, afterCursor, language }) → string
+// In app/src/lib/ipc.ts:
+ai.inlineComplete(opts: { beforeCursor, language }) → string
 ```
 
 ### 20.6 Configuration
 
-- **Setting**: `EditorConfig.ai_code_completion` (Rust) → `useSettingsStore.aiCodeCompletion` (Zustand) — boolean, default `true`.
+- **Settings**: `EditorConfig.ai_live_suggestions` → `useSettingsStore.aiLiveSuggestions` — single toggle for ghost-text inline suggestions in the file view, default `true`.
 - **Hydration**: `useAppBootstrap` reads from config on startup.
 - **Toggle**: Settings UI in `EditorSettingsView.tsx`.
-- **Conditional loading**: `FileViewer.tsx` checks the setting before adding `aiExtension` and `inlineCompletion` to the extension list.
+- **Conditional loading**: `FileViewer.tsx` adds `inlineCompletion` only when `ai_live_suggestions`.
+- **Default settings source**: all shipped defaults live in `app/src/lib/defaultSettings.ts` (`DEFAULT_SETTINGS`) for the frontend and `AppConfig::default()` in `crates/aurora-core/src/config.rs` for Rust. Keep both in sync.
 
 ### 20.7 Key Behaviors
 
 - Inline completions use the **Fast** tier model and send only context-before-cursor to keep latency low.
 - A new `AbortController` cancels stale fetch requests on each keystroke.
-- `StateEffect.define` / `StateField` pattern used for all reactive UI state (input visibility, completion decorations, loading state) — never React state for CodeMirror widget logic.
-- The `TriggerView` plugin (a `ViewPlugin` with `dom` element) manages Show/hide of the "Edit with AI" button based on selection state; hides automatically when the input widget or completion shows.
-- The `OldCodeWidget` renders a floating accept/reject bar positioned above the old code block using `Decoration.widget({block: true})`.
+- `StateEffect.define` / `StateField` pattern used for all reactive UI state (completion decorations) — never React state for CodeMirror widget logic.
 
 ---
 

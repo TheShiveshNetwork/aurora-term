@@ -39,7 +39,6 @@ export const KEYBINDING_IDS = {
   terminalSearch: "terminal-search",
   voiceInput: "voice-input",
   toggleWordWrap: "toggle-word-wrap",
-  aiSuggestions: "ai-suggestions",
 } as const;
 
 export type KeybindingId = (typeof KEYBINDING_IDS)[keyof typeof KEYBINDING_IDS];
@@ -85,7 +84,6 @@ export const DEFAULT_KEYBINDINGS: KeybindingDef[] = [
   { id: KEYBINDING_IDS.terminalSearch, command: "Search Terminal", keys: "Ctrl+Shift+F", when: "Terminal" },
   { id: KEYBINDING_IDS.voiceInput, command: "Toggle Voice Input", keys: "Ctrl+Alt+M", when: "Global" },
   { id: KEYBINDING_IDS.toggleWordWrap, command: "Toggle Word Wrap", keys: "Alt+Z", when: "Editor" },
-  { id: KEYBINDING_IDS.aiSuggestions, command: "AI Suggestions and Improvements", keys: "Ctrl+L", when: "Editor" },
 ];
 
 /**

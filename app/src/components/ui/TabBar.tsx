@@ -319,10 +319,16 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
           const isOver = overIdx === index && !isDragging;
           const isExpanded = viewMode === "file" ? EDITOR_LIKE_TYPES.includes(tab.type) : tab.type === "terminal";
           const isPinned = tab.pinned;
+          // Separator renders in between two adjacent tabs ONLY when both are
+          // inactive — never before the first tab, after the last, or beside
+          // the active tab. `order: index` keeps it glued to its tab so flex
+          // ordering (tabs use `order: index`) can't bunch them together.
+          const nextTab = sortedTabs[index + 1];
+          const hasSeparator = !!nextTab && !isActive && nextTab.id !== activeTabId;
 
           return (
+            <React.Fragment key={tab.id}>
             <div
-              key={tab.id}
               data-tab-id={tab.id}
               onMouseDown={(e) => handleMouseDown(e, index)}
               onClick={() => {
@@ -365,7 +371,7 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
               <StreamingText
                 name={tab.name}
                 streaming={!!tab.streaming}
-                className={`truncate transition-all pr-3 duration-200 ${isActive ? "text-on-surface" : ""} ${isExpanded ? "max-w-[160px] opacity-100" : "max-w-0 !opacity-0 overflow-hidden"} ${tab.missing ? "line-through !opacity-50" : ""}`}
+                className={`truncate transition-all duration-200 ${isActive ? "pr-3 text-on-surface" : "pr-0"} ${isExpanded ? "max-w-[160px] opacity-100" : "max-w-0 !opacity-0 overflow-hidden"} ${tab.missing ? "line-through !opacity-50" : ""}`}
               />
 
               <button
@@ -373,7 +379,7 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
                   e.stopPropagation();
                   onKillTab(tab.id);
                 }}
-                className={`absolute right-1.5 shrink-0 transition-all duration-200 hover:bg-surface-variant/40 rounded p-0.5 text-on-surface-variant/40 hover:text-on-surface-variant ${isExpanded ? "opacity-100" : "opacity-0 pointer-events-none"
+                className={`absolute right-1.5 shrink-0 transition-all duration-200 hover:bg-surface-variant/40 rounded p-0.5 text-on-surface-variant/40 hover:text-on-surface-variant ${isExpanded ? "" : "opacity-0 pointer-events-none"
                   } flex items-center justify-center`}
                 style={{ width: "20px", height: "20px" }}
               >
@@ -383,10 +389,17 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
                     <X size={14} className="hidden group-hover:block" />
                   </>
                 ) : (
-                  <X size={14} />
+                  <X size={14} className={`transition-opacity duration-200 ${isActive ? "" : "opacity-0 group-hover:opacity-100"}`} />
                 )}
               </button>
             </div>
+            {hasSeparator && (
+              <div
+                className="shrink-0 w-px"
+                style={{ height: "25px", marginTop: "5px", background: "rgba(255,255,255,0.06)", order: index }}
+              />
+            )}
+            </React.Fragment>
           );
         })}
 

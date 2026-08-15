@@ -632,53 +632,6 @@ Completion:`;
   }
 });
 
-// ── /api/edit-code — AI inline code editing, no tools, no memory ───────────
-server.post('/api/edit-code', async (request, _reply) => {
-  const { prompt, code_before, code_after, selection } = request.body as any;
-  const editLog = log.child({ endpoint: 'edit-code' });
-
-  if (!prompt?.trim()) {
-    editLog.warn('Edit request with empty prompt');
-    return { status: 'error', message: 'No prompt provided' };
-  }
-
-  editLog.info('Edit request', { promptLength: prompt.length, hasSelection: !!selection });
-
-  const agent = mastra.getAgent('codeCompletionAgent');
-  const startTime = Date.now();
-
-  const content = `You are an AI code editor. Your ONLY job is to modify the code based on the user's instruction.
-Respond with ONLY the final modified code. No explanations. No markdown wrappers. No backticks.
-
-Code before cursor:
-\`\`\`
-${code_before}
-\`\`\`
-
-Selected code${selection ? `:\n\`\`\`\n${selection}\n\`\`\`` : ': (no selection, edit based on cursor context)'}
-
-${code_after ? `Code after cursor:\n\`\`\`\n${code_after}\n\`\`\`` : ''}
-
-User instruction: ${prompt}`;
-
-  try {
-    const response = await agent.generate(content);
-    const elapsed = Date.now() - startTime;
-    editLog.info('Edit response', { elapsedMs: elapsed });
-
-    if (response.finishReason === 'error' || response.error) {
-      const errMsg = response.error?.message || response.text || 'Edit generation failed';
-      editLog.error('Edit generation error', { error: response.error?.message });
-      return { status: 'error', message: `Edit error: ${errMsg}` };
-    }
-
-    return { status: 'completed', code: response.text };
-  } catch (error: any) {
-    editLog.error('Edit threw exception', { error: error.message, stack: error.stack });
-    return { status: 'error', message: error.message || 'Edit error' };
-  }
-});
-
 // ── /api/chat — conversational, no command planning ───────────────────────
 server.post('/api/chat', async (request, _reply) => {
   const { session_id, task_id, message, agent_type, mode } = request.body as any;

@@ -17,7 +17,7 @@ import { closeAllPopups } from "../../lib/popups";
 import { getEditorTheme, createThemeCompartment } from "./editorThemes";
 import { createMinimapExtension, toggleMinimap } from "./minimapExtension";
 import { getLinterSource } from "./linterSources";
-import { aiExtension, inlineCompletion, showAiEditInput } from "./aiExtensions";
+import { inlineCompletion } from "./aiExtensions";
 import { mergeConflictResolver } from "./mergeConflictExtension";
 import { SearchPanel } from "./SearchPanel";
 import { indentMarkersExtension } from "./indentMarkersExtension";
@@ -82,8 +82,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
   const showMinimap = useSettingsStore((s) => s.showMinimap);
   const setShowMinimap = useSettingsStore((s) => s.setShowMinimap);
   const wordWrap = useSettingsStore((s) => s.wordWrap);
-  const aiCodeCompletion = useSettingsStore((s) => s.aiCodeCompletion);
-  const aiSuggestions = useSettingsStore((s) => s.aiSuggestions);
+  const aiLiveSuggestions = useSettingsStore((s) => s.aiLiveSuggestions);
   const indentMarkers = useSettingsStore((s) => s.indentMarkers);
   const [editorZoom, setEditorZoom] = useState(13);
   const wordWrapCompartmentRef = useRef<Compartment | null>(null);
@@ -438,20 +437,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
           lintGutter(),
           ...(lintSource ? [linter(lintSource)] : []),
           keymap.of(lintKeymap),
-          ...(() => { console.log("Configuring editor, aiSuggestions status:", aiSuggestions); return []; })(),
-          ...(aiSuggestions ? [
-            ...aiExtension({
-              prompt: async ({ prompt, selection, codeBefore, codeAfter }) => {
-                const response = await ai.editCode(prompt, codeBefore, codeAfter, selection);
-                if (response.status !== "completed" || !response.code) {
-                  throw new Error(response.message ?? "Failed to edit code");
-                }
-                return response.code;
-              },
-              onError: (error) => console.error("AI edit error:", error),
-            }),
-          ] : []),
-          ...(aiCodeCompletion ? [
+          ...(aiLiveSuggestions ? [
             ...inlineCompletion({
               fetchFn: async (state, _signal, _view) => {
                 const cursorPos = state.selection.main.head;
@@ -565,7 +551,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
       }
       updateTab(tabId, { dirty: false });
     };
-  }, [filePath, tabId, updateTab, isImage, imageMimeType, aiSuggestions, aiCodeCompletion]);
+  }, [filePath, tabId, updateTab, isImage, imageMimeType, aiLiveSuggestions]);
 
   // Separate useEffect to handle scrolling to a line on tab selection/navigation
   useEffect(() => {
@@ -827,16 +813,6 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
       }).catch(console.error);
     };
 
-    const handleAiImprovement = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      console.log("FileViewer handleAiImprovement received event", { detail, tabId, hasView: !!viewRef.current });
-      if (detail && detail.tabId !== tabId) return;
-      const view = viewRef.current;
-      if (!view) return;
-      console.log("Calling showAiEditInput");
-      showAiEditInput(view);
-    };
-
     window.addEventListener("file-select-all", handler);
     window.addEventListener("file-paste", handlePaste);
     window.addEventListener("file-copy-line", handleCopyLine);
@@ -850,7 +826,6 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
     window.addEventListener("file-change-all-occurrences", handleChangeAllOccurrences);
     window.addEventListener("file-format-document", handleFormatDocumentEvent);
     window.addEventListener("file-run", handleRunFile);
-    window.addEventListener("file-ai-improvement", handleAiImprovement);
     return () => {
       window.removeEventListener("file-select-all", handler);
       window.removeEventListener("file-paste", handlePaste);
@@ -865,7 +840,6 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
       window.removeEventListener("file-change-all-occurrences", handleChangeAllOccurrences);
       window.removeEventListener("file-format-document", handleFormatDocumentEvent);
       window.removeEventListener("file-run", handleRunFile);
-      window.removeEventListener("file-ai-improvement", handleAiImprovement);
     };
   }, [tabId, filePath, updateTab]);
 

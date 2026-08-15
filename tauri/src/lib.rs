@@ -259,7 +259,6 @@ pub fn run() {
             aurora_commands::agent_skills,
             aurora_commands::agent_mcp,
             aurora_commands::agent_file_context,
-            aurora_commands::ai_edit_code,
             aurora_commands::ai_inline_complete,
             aurora_commands::agent_get_logs,
             aurora_commands::agent_get_thinking,

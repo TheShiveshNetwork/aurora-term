@@ -20,7 +20,6 @@ interface CommandInputBarProps {
   cwd: string;
   isLoading: boolean;
   isRunning: boolean;
-  aiBusy?: boolean;
   value: string;
   history: string[];
   hideCwdBreadcrumb?: boolean;
@@ -37,7 +36,6 @@ export function CommandInputBar({
   cwd,
   isLoading,
   isRunning,
-  aiBusy = false,
   value,
   history,
   hideCwdBreadcrumb = false,
@@ -76,9 +74,9 @@ export function CommandInputBar({
 
   const handleFormSubmit = (e: SubmitEvent<HTMLFormElement>, forceAi = false) => {
     e.preventDefault();
-    // While an AI response is pending the send button is disabled — pressing
-    // Enter must behave the same way and not submit either.
-    if (aiBusy) return;
+    // While a command/AI run is in progress the send button becomes a stop
+    // button — pressing Enter must behave the same way and not submit either.
+    if (isRunning) return;
     onSubmit(e, attachedFiles, forceAi);
     setAttachedFiles([]);
   };
@@ -178,44 +176,23 @@ export function CommandInputBar({
                 <Mic size={14} />
                 : <X size={14} />}
             </IconButton>
-            {isRunning && (
-              <button
-                onClick={onStop}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold rounded-[10px] transition-all cursor-pointer"
-                style={{
-                  background: "rgba(255,107,107,0.08)",
-                  border: "1px solid rgba(255,107,107,0.20)",
-                  color: "#FF6B6B",
-                }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,107,107,0.14)")}
-                onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,107,107,0.08)")}
-                title="Stop Command (Ctrl+C)"
-              >
-                <Square size={10} />
-                Stop
-              </button>
-            )}
-            {isPrompt ? (
-              <button
-                onClick={(e) => handleFormSubmit(e as any)}
-                disabled={!value.trim() && attachedFiles.length === 0}
-                className="flex items-center justify-center w-8 h-8 bg-[#4553d4] border-none rounded-sm cursor-pointer shrink-0 transition-all duration-150 hover:bg-[#5f6df0] disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Send Prompt"
-              >
-                <ArrowUp size={14} className="text-white" />
-              </button>
-            ) : (
-              <button
-                onClick={(e) => handleFormSubmit(e as any, true)}
-                disabled={aiBusy || (!value.trim() && attachedFiles.length === 0)}
-                className="flex items-center justify-center w-8 h-8 bg-[#4553d4] border-none rounded-sm cursor-pointer shrink-0 transition-all duration-150 hover:bg-[#5f6df0] disabled:opacity-50 disabled:cursor-not-allowed"
-                title={aiBusy ? "Sending to AI…" : "Send to AI"}
-              >
-                {aiBusy
-                  ? <RefreshCw size={14} className="text-white animate-spin" />
-                  : <ArrowUp size={14} className="text-white" />}
-              </button>
-            )}
+            <button
+              onClick={(e) => {
+                if (isRunning) {
+                  e.preventDefault();
+                  onStop?.();
+                  return;
+                }
+                handleFormSubmit(e as any, !isPrompt);
+              }}
+              disabled={!isRunning && !value.trim() && attachedFiles.length === 0}
+              className="flex items-center justify-center w-8 h-8 bg-[#4553d4] border-none rounded-sm cursor-pointer shrink-0 transition-all duration-150 hover:bg-[#5f6df0] disabled:opacity-50 disabled:cursor-not-allowed"
+              title={isRunning ? "Stop Command" : isPrompt ? "Send Prompt" : "Send to AI"}
+            >
+              {isRunning
+                ? <Square size={14} className="text-white" />
+                : <ArrowUp size={14} className="text-white" />}
+            </button>
           </div>
         </div>
       </div>

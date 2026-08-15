@@ -40,8 +40,7 @@ export function applyAppConfig(cfg: AppConfig) {
   settings.setShowMinimap(cfg.editor.show_minimap);
   settings.setGitGuiMode(cfg.editor.git_gui_mode as "tab" | "window");
   settings.setWordWrap(cfg.editor.word_wrap !== false);
-  settings.setAiCodeCompletion(cfg.editor.ai_code_completion !== false);
-  settings.setAiSuggestions(cfg.editor.ai_suggestions !== false);
+  settings.setAiLiveSuggestions(cfg.editor.ai_live_suggestions !== false);
   settings.setIndentMarkers(cfg.editor.indent_markers !== false);
 
   // Cloud sync + update notifications

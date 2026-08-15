@@ -1,9 +1,9 @@
 import { create } from "zustand";
 import {
-  DEFAULT_KEYBINDINGS,
   type KeybindingDef,
   type KeybindingOverrides,
 } from "../lib/keybindings";
+import { DEFAULT_SETTINGS } from "../lib/defaultSettings";
 
 export { DEFAULT_KEYBINDINGS } from "../lib/keybindings";
 export type { KeybindingDef } from "../lib/keybindings";
@@ -42,8 +42,7 @@ interface SettingsStore {
   gitGuiMode: "tab" | "window";
   restoreTabs: boolean;
   wordWrap: boolean;
-  aiCodeCompletion: boolean;
-  aiSuggestions: boolean;
+  aiLiveSuggestions: boolean;
   indentMarkers: boolean;
   cloudAutoSync: boolean;
   cloudApiBaseUrl: string;
@@ -66,8 +65,7 @@ interface SettingsStore {
   setGitGuiMode: (mode: "tab" | "window") => void;
   setRestoreTabs: (restore: boolean) => void;
   setWordWrap: (wrap: boolean) => void;
-  setAiCodeCompletion: (enabled: boolean) => void;
-  setAiSuggestions: (enabled: boolean) => void;
+  setAiLiveSuggestions: (enabled: boolean) => void;
   setIndentMarkers: (enabled: boolean) => void;
   setCloudAutoSync: (enabled: boolean) => void;
   setCloudApiBaseUrl: (url: string) => void;
@@ -76,29 +74,7 @@ interface SettingsStore {
 }
 
 export const useSettingsStore = create<SettingsStore>((set) => ({
-  theme: "dark",
-  mode: "INSERT",
-  fontFamily: "JetBrains Mono",
-  fontSize: 14,
-  cursorStyle: "block",
-  cursorBlink: true,
-  compactUi: false,
-  showStatusbar: true,
-  blurSidebar: false,
-  editorTheme: "dracula",
-  showMinimap: true,
-  keybindings: DEFAULT_KEYBINDINGS,
-  keybindingOverrides: {},
-  gitGuiMode: "tab",
-  restoreTabs: true,
-  wordWrap: true,
-  aiCodeCompletion: true,
-  aiSuggestions: true,
-  indentMarkers: true,
-  cloudAutoSync: false,
-  cloudApiBaseUrl: "",
-  updatesEnabled: true,
-  updatesIntervalHours: 24,
+  ...DEFAULT_SETTINGS,
 
   setTheme: (theme) => {
     set({ theme });
@@ -117,8 +93,7 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
   setGitGuiMode: (gitGuiMode) => set({ gitGuiMode }),
   setRestoreTabs: (restoreTabs) => set({ restoreTabs }),
   setWordWrap: (wordWrap) => set({ wordWrap }),
-  setAiCodeCompletion: (aiCodeCompletion) => set({ aiCodeCompletion }),
-  setAiSuggestions: (aiSuggestions) => set({ aiSuggestions }),
+  setAiLiveSuggestions: (aiLiveSuggestions) => set({ aiLiveSuggestions }),
   setIndentMarkers: (indentMarkers) => set({ indentMarkers }),
   setCloudAutoSync: (cloudAutoSync) => set({ cloudAutoSync }),
   setCloudApiBaseUrl: (cloudApiBaseUrl) => set({ cloudApiBaseUrl }),
