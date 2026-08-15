@@ -89,6 +89,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
   const wordWrapCompartmentRef = useRef<Compartment | null>(null);
   const zoomCompartmentRef = useRef<Compartment | null>(null);
   const indentMarkersCompartmentRef = useRef<Compartment | null>(null);
+  const searchPanelCompartmentRef = useRef<Compartment | null>(null);
 
 
   const [imageSrc, setImageSrc] = useState("");
@@ -361,6 +362,10 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
           indentMarkersCompartmentRef.current = new Compartment();
         }
 
+        if (!searchPanelCompartmentRef.current) {
+          searchPanelCompartmentRef.current = new Compartment();
+        }
+
         initialContentRef.current = content.replace(/\r\n/g, "\n");
 
         const extensions: any[] = [
@@ -471,6 +476,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
           })),
           createMinimapExtension(showMinimap),
           indentMarkersCompartmentRef.current.of(indentMarkers ? indentMarkersExtension() : []),
+          searchPanelCompartmentRef.current.of([]),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
               const currentContent = update.state.doc.toString();
@@ -1069,6 +1075,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
                 view={viewRef.current}
                 onClose={() => { setShowSearch(false); setInitialFindText(""); }}
                 initialFindText={initialFindText}
+                searchPanelCompartment={searchPanelCompartmentRef.current}
               />
             )}
             <button

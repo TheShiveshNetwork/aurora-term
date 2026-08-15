@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { EditorView } from "@codemirror/view";
-import { EditorSelection } from "@codemirror/state";
+import { EditorView } from "@codemirror/view";
+import { EditorSelection, type Compartment } from "@codemirror/state";
 import { setSearchQuery, SearchQuery, findNext, findPrevious, replaceAll, selectSelectionMatches, openSearchPanel, closeSearchPanel } from "@codemirror/search";
 import { X, ChevronDown, ArrowUp, ArrowDown, Combine } from "lucide-react";
 
@@ -8,6 +8,7 @@ interface SearchPanelProps {
   view: EditorView;
   onClose: () => void;
   initialFindText?: string;
+  searchPanelCompartment?: Compartment | null;
 }
 
 function countMatches(view: EditorView, query: SearchQuery): number {
@@ -32,7 +33,7 @@ function currentMatchIndex(view: EditorView, query: SearchQuery): number {
   return closest === -1 && idx > 0 ? 1 : closest;
 }
 
-export function SearchPanel({ view, onClose, initialFindText = "" }: SearchPanelProps) {
+export function SearchPanel({ view, onClose, initialFindText = "", searchPanelCompartment }: SearchPanelProps) {
   const [findText, setFindText] = useState(initialFindText);
   const [replaceText, setReplaceText] = useState("");
   const [showReplace, setShowReplace] = useState(false);
@@ -40,6 +41,30 @@ export function SearchPanel({ view, onClose, initialFindText = "" }: SearchPanel
   const [matchTotal, setMatchTotal] = useState(0);
   const [caseSensitive, setCaseSensitive] = useState(false);
   const findRef = useRef<HTMLInputElement>(null);
+
+  // Refs so the doc-changed listener always sees the latest query
+  const findTextRef = useRef(findText);
+  findTextRef.current = findText;
+  const caseSensitiveRef = useRef(caseSensitive);
+  caseSensitiveRef.current = caseSensitive;
+
+  // Recompute match counts whenever the document changes (external file reload,
+  // in-editor edits) so the counter stays accurate with the current content.
+  useEffect(() => {
+    if (!searchPanelCompartment) return;
+    const listener = EditorView.updateListener.of((update) => {
+      if (!update.docChanged) return;
+      const text = findTextRef.current;
+      if (!text) return;
+      const query = new SearchQuery({ search: text, caseSensitive: caseSensitiveRef.current });
+      setMatchTotal(countMatches(update.view, query));
+      setMatchIdx(currentMatchIndex(update.view, query));
+    });
+    view.dispatch({ effects: searchPanelCompartment.reconfigure(listener) });
+    return () => {
+      view.dispatch({ effects: searchPanelCompartment.reconfigure([]) });
+    };
+  }, [view, searchPanelCompartment]);
 
   useEffect(() => {
     openSearchPanel(view);

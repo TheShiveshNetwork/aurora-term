@@ -3,6 +3,7 @@ import {
   Search, X, FileCode, ChevronRight, ChevronDown, CaseSensitive,
   ArrowUp, ArrowDown, Replace, Plus, Minus, Loader, MoreHorizontal,
 } from "lucide-react";
+import { listen } from "@tauri-apps/api/event";
 import { useSearchStore } from "../../stores/useSearchStore";
 import { Button } from "../ui/Button";
 import type { SearchResult } from "@aurora/types";
@@ -65,20 +66,44 @@ export function SearchInFiles({ onOpenFileAtPath, cwd }: SearchInFilesProps) {
     }
   }, [isOpen]);
 
+  // Live refresh: keep results in sync when files change on disk while the panel
+  // is open. Debounced so rapid writes coalesce into a single re-search.
+  useEffect(() => {
+    if (!isOpen) return;
+    let unlisten: (() => void) | null = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    listen("fs-tree-changed", () => {
+      const st = useSearchStore.getState();
+      if (!st.isOpen || !st.query.trim() || st.isSearching) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        const latest = useSearchStore.getState();
+        if (!latest.isOpen || !latest.query.trim() || latest.isSearching) return;
+        latest.refreshResults();
+      }, 400);
+    }).then((fn) => { unlisten = fn; });
+
+    return () => { unlisten?.(); if (timer) clearTimeout(timer); };
+  }, [isOpen]);
+
   // Debounced auto-search with cancellation of stale requests
   const prevQueryRef = useRef(query);
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
+    // Treat null / undefined / "" as an empty query
+    const trimmedQuery = typeof query === "string" ? query.trim() : "";
+
     // If query became empty after having content, reset to initial state
-    if (prevQueryRef.current && !query.trim()) {
+    if (prevQueryRef.current && !trimmedQuery) {
       useSearchStore.getState().clearResults();
       prevQueryRef.current = query;
       return;
     }
     prevQueryRef.current = query;
 
-    if (!query.trim()) {
+    if (!trimmedQuery) {
       useSearchStore.getState().setSearching(false);
       return;
     }
