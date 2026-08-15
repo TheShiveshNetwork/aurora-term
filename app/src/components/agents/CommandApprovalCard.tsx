@@ -29,7 +29,7 @@ export function CommandApprovalCard({
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2 shrink-0 border-b border-white/[0.04]">
         <Terminal size={12} className="text-amber-400/90 shrink-0" />
-        <span className="text-[11px] font-bold tracking-wider text-amber-400/90 uppercase">
+        <span className="text-[11px] font-bold tracking-wider text-amber-400/90">
           Awaiting Approval
         </span>
       </div>

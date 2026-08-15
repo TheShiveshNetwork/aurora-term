@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Command, ExternalLink, FileText, FolderOpen, History, Menu, PanelLeft, PanelLeftClose, PanelRight, PanelRightClose, PanelBottom, PanelBottomClose, PinIcon, PinOff, Plus, Search, Settings, SplitSquareHorizontal, SquareTerminal, Terminal, GitBranch, File, Sliders } from "lucide-react";
 import type { AppViewMode } from "../../stores/useAppShellStore";
+import { useSettingsStore } from "../../stores/useSettingsStore";
+import { KEYBINDING_IDS, getEffectiveKeybinding, getEffectiveKeybindings } from "../../lib/keybindings";
 import { WindowControls } from "../ui/WindowControls";
 import { MenuView, MenuViewItem, MenuViewSeparator } from "../ui/MenuView";
 import { openSettingsWindow } from "../../lib/settings";
@@ -23,6 +25,7 @@ interface AppHeaderProps {
   onOpenFolder: () => void;
   onOpenFile: () => void;
   onOpenRecentFile: (path: string) => void;
+  onOpenCommandPalette: () => void;
   onNewWindow: () => void;
   onNewTab: () => void;
   onCloseSession: () => void;
@@ -58,6 +61,7 @@ export function AppHeader({
   onOpenFolder,
   onOpenFile,
   onOpenRecentFile,
+  onOpenCommandPalette,
   onNewWindow,
   onNewTab,
   onCloseSession,
@@ -81,6 +85,9 @@ export function AppHeader({
 }: AppHeaderProps) {
   const headerRef = useRef<HTMLDivElement>(null);
   const [searchCollapsed, setSearchCollapsed] = useState(false);
+
+  const keybindingOverrides = useSettingsStore((state) => state.keybindingOverrides);
+  const effectiveKeybindings = useMemo(() => getEffectiveKeybindings(keybindingOverrides), [keybindingOverrides]);
 
   const measureSearchSpace = useCallback(() => {
     const header = headerRef.current;
@@ -136,19 +143,19 @@ export function AppHeader({
               className="absolute left-0 mt-1.5 w-60 z-[999]"
               style={{ pointerEvents: "auto" }}
             >
-              <MenuViewItem icon={<FolderOpen size={13} />} onClick={onOpenFolder} shortcut="Ctrl+O">Open Folder</MenuViewItem>
-              <MenuViewItem icon={<FileText size={13} />} onClick={onOpenFile} shortcut="Ctrl+P">Open File</MenuViewItem>
+              <MenuViewItem icon={<FolderOpen size={13} />} onClick={onOpenFolder} shortcut={effectiveKeybindings[KEYBINDING_IDS.openFolder]}>Open Folder</MenuViewItem>
+              <MenuViewItem icon={<FileText size={13} />} onClick={onOpenFile} shortcut={effectiveKeybindings[KEYBINDING_IDS.openFile]}>Open File</MenuViewItem>
               <MenuViewItem icon={<History size={13} />} disabled>Open Recent…</MenuViewItem>
               <MenuViewSeparator />
-              <MenuViewItem icon={<Plus size={13} />} onClick={onNewWindow} shortcut="Ctrl+Shift+N">New Window</MenuViewItem>
-              <MenuViewItem icon={<SquareTerminal size={13} />} onClick={onNewTab} shortcut="Ctrl+T" disabled>New Tab</MenuViewItem>
+              <MenuViewItem icon={<Plus size={13} />} onClick={onNewWindow} shortcut={effectiveKeybindings[KEYBINDING_IDS.newWindow]}>New Window</MenuViewItem>
+              <MenuViewItem icon={<SquareTerminal size={13} />} onClick={onNewTab} shortcut={effectiveKeybindings[KEYBINDING_IDS.newTerminalTab]} disabled>New Tab</MenuViewItem>
               <MenuViewSeparator />
               <MenuViewItem icon={<Terminal size={13} />} onClick={onCloseSession} disabled>Close Session</MenuViewItem>
               <MenuViewItem icon={<SplitSquareHorizontal size={13} />} onClick={onCloseTab} disabled>Close Tab</MenuViewItem>
               <MenuViewItem icon={<SplitSquareHorizontal size={13} />} onClick={onCloseOtherTabs} disabled>Close Other Tabs</MenuViewItem>
               <MenuViewSeparator />
-              <MenuViewItem icon={<Command size={13} />} onClick={onOpenSettings} shortcut="Ctrl+Shift+P">Command Palette</MenuViewItem>
-              <MenuViewItem icon={<Settings size={13} />} onClick={onOpenSettings} shortcut="Ctrl+,">Open Settings</MenuViewItem>
+              <MenuViewItem icon={<Command size={13} />} onClick={onOpenCommandPalette} shortcut={effectiveKeybindings[KEYBINDING_IDS.commandPalette]}>Command Palette</MenuViewItem>
+              <MenuViewItem icon={<Settings size={13} />} onClick={onOpenSettings} shortcut={effectiveKeybindings[KEYBINDING_IDS.openSettings]}>Open Settings</MenuViewItem>
               <MenuViewSeparator />
               <MenuViewItem icon={<ExternalLink size={13} />} onClick={onExit} danger>Exit</MenuViewItem>
             </MenuView>
@@ -182,19 +189,19 @@ export function AppHeader({
                 className="absolute left-0 mt-1.5 w-60 z-[999]"
                 style={{ pointerEvents: "auto" }}
               >
-                <MenuViewItem icon={<FolderOpen size={13} />} onClick={onOpenFolder} shortcut="Ctrl+O">Open Folder</MenuViewItem>
-                <MenuViewItem icon={<FileText size={13} />} onClick={onOpenFile} shortcut="Ctrl+P">Open File</MenuViewItem>
+                <MenuViewItem icon={<FolderOpen size={13} />} onClick={onOpenFolder} shortcut={effectiveKeybindings[KEYBINDING_IDS.openFolder]}>Open Folder</MenuViewItem>
+                <MenuViewItem icon={<FileText size={13} />} onClick={onOpenFile} shortcut={effectiveKeybindings[KEYBINDING_IDS.openFile]}>Open File</MenuViewItem>
                 <MenuViewItem icon={<History size={13} />} disabled>Open Recent…</MenuViewItem>
                 <MenuViewSeparator />
-                <MenuViewItem icon={<Plus size={13} />} onClick={onNewWindow} shortcut="Ctrl+Shift+N">New Window</MenuViewItem>
-                <MenuViewItem icon={<SquareTerminal size={13} />} onClick={onNewTab} shortcut="Ctrl+T">New Tab</MenuViewItem>
+                <MenuViewItem icon={<Plus size={13} />} onClick={onNewWindow} shortcut={effectiveKeybindings[KEYBINDING_IDS.newWindow]}>New Window</MenuViewItem>
+                <MenuViewItem icon={<SquareTerminal size={13} />} onClick={onNewTab} shortcut={effectiveKeybindings[KEYBINDING_IDS.newTerminalTab]}>New Tab</MenuViewItem>
                 <MenuViewSeparator />
                 <MenuViewItem icon={<Terminal size={13} />} onClick={onCloseSession}>Close Session</MenuViewItem>
                 <MenuViewItem icon={<SplitSquareHorizontal size={13} />} onClick={onCloseTab}>Close Tab</MenuViewItem>
                 <MenuViewItem icon={<SplitSquareHorizontal size={13} />} onClick={onCloseOtherTabs}>Close Other Tabs</MenuViewItem>
                 <MenuViewSeparator />
-                <MenuViewItem icon={<Command size={13} />} onClick={onOpenSettings} shortcut="Ctrl+Shift+P">Command Palette</MenuViewItem>
-              <MenuViewItem icon={<Settings size={13} />} onClick={onOpenSettings} shortcut="Ctrl+,">Open Settings</MenuViewItem>
+                <MenuViewItem icon={<Command size={13} />} onClick={onOpenCommandPalette} shortcut={effectiveKeybindings[KEYBINDING_IDS.commandPalette]}>Command Palette</MenuViewItem>
+              <MenuViewItem icon={<Settings size={13} />} onClick={onOpenSettings} shortcut={effectiveKeybindings[KEYBINDING_IDS.openSettings]}>Open Settings</MenuViewItem>
                 <MenuViewSeparator />
                 <MenuViewItem icon={<ExternalLink size={13} />} onClick={onExit} danger>Exit</MenuViewItem>
               </MenuView>
@@ -326,12 +333,23 @@ function ViewButton({
   );
 }
 
+function toRelativePath(absPath: string, base: string): string {
+  if (!base) return absPath;
+  const normalizedBase = base.replace(/[\\/]+$/, "");
+  if (!normalizedBase) return absPath;
+  if (absPath.toLowerCase().startsWith(normalizedBase.toLowerCase())) {
+    const rel = absPath.slice(normalizedBase.length).replace(/^[\\/]+/, "");
+    return rel ? rel.replace(/\\/g, "/") : absPath;
+  }
+  return absPath.replace(/\\/g, "/");
+}
+
 function SearchBar({ collapsed, cwdAbsolute, onOpenFileAtPath }: { collapsed?: boolean; cwdAbsolute: string; onOpenFileAtPath: (path: string) => void }) {
   const [focused, setFocused] = useState(false);
   const [value, setValue] = useState("");
   const [iconOpen, setIconOpen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(-1);
-  const [searchResults, setSearchResults] = useState<{ name: string; path: string; is_dir: boolean }[]>([]);
+  const [searchResults, setSearchResults] = useState<{ name: string; path: string; is_dir: boolean; relPath: string }[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -339,6 +357,9 @@ function SearchBar({ collapsed, cwdAbsolute, onOpenFileAtPath }: { collapsed?: b
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchSeq = useRef(0);
   const expanded = focused || value.length > 0;
+
+  const keybindingOverrides = useSettingsStore((state) => state.keybindingOverrides);
+  const commandPaletteKeys = getEffectiveKeybinding(KEYBINDING_IDS.commandPalette, keybindingOverrides);
 
   useEffect(() => {
     if (!collapsed) setIconOpen(false);
@@ -375,7 +396,7 @@ function SearchBar({ collapsed, cwdAbsolute, onOpenFileAtPath }: { collapsed?: b
       system.searchFiles(cwdAbsolute, trimmed)
         .then(nodes => {
           if (seq !== searchSeq.current) return;
-          setSearchResults(nodes.map(n => ({ name: n.name, path: n.path, is_dir: n.is_dir })));
+          setSearchResults(nodes.map(n => ({ name: n.name, path: n.path, is_dir: n.is_dir, relPath: toRelativePath(n.path, cwdAbsolute) })));
           setSearchLoading(false);
         })
         .catch(() => {
@@ -394,7 +415,7 @@ function SearchBar({ collapsed, cwdAbsolute, onOpenFileAtPath }: { collapsed?: b
     if (!query || !searchResults.length) return [];
     const seen = new Set<string>();
     return searchResults
-      .filter(f => f.is_dir && f.name.toLowerCase().includes(query) && !seen.has(f.name) && seen.add(f.name))
+      .filter(f => f.is_dir && (f.name.toLowerCase().includes(query) || f.relPath.toLowerCase().includes(query)) && !seen.has(f.name) && seen.add(f.name))
       .slice(0, 6);
   }, [query, searchResults]);
 
@@ -402,7 +423,7 @@ function SearchBar({ collapsed, cwdAbsolute, onOpenFileAtPath }: { collapsed?: b
     if (!query || !searchResults.length) return [];
     const seen = new Set<string>();
     return searchResults
-      .filter(f => !f.is_dir && f.name.toLowerCase().includes(query) && !seen.has(f.name) && seen.add(f.name))
+      .filter(f => !f.is_dir && (f.name.toLowerCase().includes(query) || f.relPath.toLowerCase().includes(query)) && !seen.has(f.name) && seen.add(f.name))
       .slice(0, 8);
   }, [query, searchResults]);
 
@@ -432,23 +453,117 @@ function SearchBar({ collapsed, cwdAbsolute, onOpenFileAtPath }: { collapsed?: b
     }
   }, [selectedIndex]);
 
+  const closeOverlay = () => {
+    setFocused(false);
+    if (collapsed && iconOpen) setIconOpen(false);
+    setValue("");
+  };
+
   const executeSelected = () => {
     if (selectedIndex < 0 || selectedIndex >= totalItems) return;
     if (selectedIndex < dirCount) {
       const d = matchedDirs[selectedIndex];
-      if (d) { setFocused(false); setValue(""); window.dispatchEvent(new CustomEvent("sidebar-open-in-new-tab", { detail: { path: d.path } })); }
+      if (d) { closeOverlay(); window.dispatchEvent(new CustomEvent("sidebar-open-in-new-tab", { detail: { path: d.path } })); }
     } else if (selectedIndex < dirCount + fileCount) {
       const f = matchedRegularFiles[selectedIndex - dirCount];
-      if (f) { setFocused(false); setValue(""); onOpenFileAtPath(f.path); }
+      if (f) { closeOverlay(); onOpenFileAtPath(f.path); }
     } else {
       const s = matchedSettings[selectedIndex - dirCount - fileCount];
       if (s) {
-        setFocused(false);
-        setValue("");
+        closeOverlay();
         openSettingsWindow({ section: s.section, sub: s.subPage, element: s.elementId });
       }
     }
   };
+
+  const resultSections = (close: () => void) => (
+    <>
+      {matchedDirs.length > 0 && (
+        <div>
+          <div className="flex items-center gap-2 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-on-surface/40 bg-white/3">
+            <Terminal size={11} />
+            Open terminal in
+          </div>
+          {matchedDirs.map((d, di) => {
+            const idx = di;
+            const isSelected = idx === selectedIndex;
+            return (
+              <button
+                key={d.path}
+                ref={isSelected ? selectedRef : undefined}
+                onClick={() => { close(); window.dispatchEvent(new CustomEvent("sidebar-open-in-new-tab", { detail: { path: d.path } })); }}
+                className={`flex items-center gap-2.5 w-full text-left px-3 py-2 text-[12px] transition-colors cursor-pointer text-on-surface ${isSelected ? "bg-primary-container" : "hover:bg-white/5"}`}
+                onMouseEnter={() => setSelectedIndex(idx)}
+              >
+                <FolderOpen size={13} className="shrink-0 text-primary/60" />
+                <span className="min-w-0 flex-1 truncate">{d.name}/</span>
+                <span className="ml-auto shrink-0 max-w-[45%] truncate text-[10px] font-mono text-on-surface/35">{d.relPath}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {(matchedDirs.length > 0 && (matchedRegularFiles.length > 0 || matchedSettings.length > 0)) && (
+        <div className="h-px mx-3 bg-white/6" />
+      )}
+      {matchedRegularFiles.length > 0 && (
+        <div>
+          <div className="flex items-center gap-2 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-on-surface/40 bg-white/3">
+            <File size={11} />
+            Files
+          </div>
+          {matchedRegularFiles.map((f, fi) => {
+            const idx = dirCount + fi;
+            const isSelected = idx === selectedIndex;
+            return (
+              <button
+                key={f.path}
+                ref={isSelected ? selectedRef : undefined}
+                onClick={() => { close(); onOpenFileAtPath(f.path); }}
+                className={`flex items-center gap-2.5 w-full text-left px-3 py-2 text-[12px] transition-colors cursor-pointer text-on-surface ${isSelected ? "bg-primary-container" : "hover:bg-white/5"}`}
+                onMouseEnter={() => setSelectedIndex(idx)}
+              >
+                <FileText size={13} className="shrink-0 text-on-surface/40" />
+                <span className="min-w-0 flex-1 truncate">{f.name}</span>
+                <span className="ml-auto shrink-0 max-w-[45%] truncate text-[10px] font-mono text-on-surface/35">{f.relPath}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {(matchedRegularFiles.length > 0 && matchedSettings.length > 0) && (
+        <div className="h-px mx-3 bg-white/6" />
+      )}
+      {matchedSettings.length > 0 && (
+        <div>
+          <div className="flex items-center gap-2 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-on-surface/40 bg-white/3">
+            <Sliders size={11} />
+            Settings
+          </div>
+          {matchedSettings.map((s, si) => {
+            const idx = dirCount + fileCount + si;
+            const isSelected = idx === selectedIndex;
+            return (
+              <button
+                key={s.id}
+                ref={isSelected ? selectedRef : undefined}
+                onClick={() => executeSelected()}
+                className={`flex items-center gap-2.5 w-full text-left px-3 py-2 text-[12px] transition-colors cursor-pointer text-on-surface ${isSelected ? "bg-primary-container" : "hover:bg-white/5"}`}
+                onMouseEnter={() => setSelectedIndex(idx)}
+              >
+                <Settings size={13} className="shrink-0 text-secondary/60" />
+                <div className="flex flex-col min-w-0">
+                  <span className="truncate">{s.label}</span>
+                  <span className="text-[11px] truncate text-on-surface/35">{s.description}</span>
+                </div>
+                <span className="ml-auto shrink-0 text-[10px] px-1.5 py-0.5 rounded-sm text-on-surface/25 bg-white/4">{categoryFor(s.section, s.subPage)}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </>
+  );
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     switch (e.key) {
@@ -493,18 +608,12 @@ function SearchBar({ collapsed, cwdAbsolute, onOpenFileAtPath }: { collapsed?: b
     return (
       <>
         <div data-search-bar className="flex-1 min-w-0" />
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center"
-          style={{ background: "rgba(0,0,0,0.3)" }}
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/30"
           onClick={() => { setIconOpen(false); setFocused(false); }}
         >
           <div className="w-full max-w-md px-4" onClick={(e) => e.stopPropagation()}>
             <div
-              className="flex items-center h-9 py-1 px-2 gap-3 rounded-md w-full"
-              style={{
-                background: "rgba(15,19,26,0.95)",
-                border: focused ? "1px solid rgba(79,140,255,0.3)" : "1px solid rgba(255,255,255,0.07)",
-                backdropFilter: "blur(12px)",
-              }}
+              className={`flex items-center h-9 py-1 px-2 gap-3 rounded-sm w-full border bg-surface/95 backdrop-blur-xl warp-input-glow ${focused ? "border-primary/30" : "border-outline"}`}
             >
               <Search size={14} className="shrink-0" style={{ color: focused ? "rgba(79,140,255,0.7)" : "rgba(232,234,240,0.3)" }} />
               <input
@@ -531,76 +640,10 @@ function SearchBar({ collapsed, cwdAbsolute, onOpenFileAtPath }: { collapsed?: b
             {showDropdown && (
               <div
                 ref={dropdownRef}
-                className="mt-1 rounded-lg overflow-hidden z-[9999] select-text"
-                style={{
-                  background: "#141822",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
-                  maxHeight: "320px",
-                }}
+                className="mt-1 max-h-[320px] overflow-y-auto rounded-sm bg-surface/90 backdrop-blur-xl border border-outline-variant/10 shadow-xl z-[9999] select-text"
+                style={{ scrollbarWidth: "thin" }}
               >
-                {matchedDirs.length > 0 && (
-                  <div>
-                    <div className="flex items-center gap-2 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider"
-                      style={{ color: "rgba(232,234,240,0.35)", background: "rgba(255,255,255,0.03)" }}>
-                      <Terminal size={11} />
-                      Open terminal in
-                    </div>
-                    {matchedDirs.map((d, di) => {
-                      const idx = di;
-                      const isSelected = idx === selectedIndex;
-                      return (
-                        <button
-                          key={d.path}
-                          ref={isSelected ? selectedRef : undefined}
-                          onClick={() => { setIconOpen(false); setValue(""); window.dispatchEvent(new CustomEvent("sidebar-open-in-new-tab", { detail: { path: d.path } })); }}
-                          className="flex items-center gap-2.5 w-full text-left px-3 py-2 text-[12px] transition-colors cursor-pointer"
-                          style={{
-                            color: "#E8EAF0",
-                            background: isSelected ? "rgba(79,140,255,0.15)" : "transparent",
-                          }}
-                          onMouseEnter={() => setSelectedIndex(idx)}
-                        >
-                          <FolderOpen size={13} style={{ color: "rgba(79,140,255,0.6)" }} />
-                          <span className="truncate">{d.name}/</span>
-                          <span className="ml-auto text-[10px] shrink-0" style={{ color: "rgba(232,234,240,0.3)" }}>New Terminal</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-                {(matchedDirs.length > 0 && (matchedRegularFiles.length > 0 || matchedSettings.length > 0)) && (
-                  <div className="h-px mx-3" style={{ background: "rgba(255,255,255,0.06)" }} />
-                )}
-                {matchedRegularFiles.length > 0 && (
-                  <div>
-                    <div className="flex items-center gap-2 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider"
-                      style={{ color: "rgba(232,234,240,0.35)", background: "rgba(255,255,255,0.03)" }}>
-                      <File size={11} />
-                      Files
-                    </div>
-                    {matchedRegularFiles.map((f, fi) => {
-                      const idx = dirCount + fi;
-                      const isSelected = idx === selectedIndex;
-                      return (
-                        <button
-                          key={f.path}
-                          ref={isSelected ? selectedRef : undefined}
-                          onClick={() => { setIconOpen(false); setValue(""); onOpenFileAtPath(f.path); }}
-                          className="flex items-center gap-2.5 w-full text-left px-3 py-2 text-[12px] transition-colors cursor-pointer"
-                          style={{
-                            color: "#E8EAF0",
-                            background: isSelected ? "rgba(79,140,255,0.15)" : "transparent",
-                          }}
-                          onMouseEnter={() => setSelectedIndex(idx)}
-                        >
-                          <FileText size={13} style={{ color: "rgba(232,234,240,0.4)" }} />
-                          <span className="truncate">{f.name}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
+                {resultSections(() => setIconOpen(false))}
               </div>
             )}
           </div>
@@ -613,11 +656,7 @@ function SearchBar({ collapsed, cwdAbsolute, onOpenFileAtPath }: { collapsed?: b
     <div data-search-bar data-tauri-no-drag className="flex-1 flex justify-center min-w-0">
       <div className="relative w-full" style={{ maxWidth: "400px" }}>
         <div
-          className="flex items-center h-9 py-1 px-2 gap-3 transition-all duration-200 warp-input-glow rounded-md w-full"
-          style={{
-            background: "rgba(255,255,255,0.03)",
-            border: focused ? "1px solid rgba(79,140,255,0.3)" : "1px solid rgba(255,255,255,0.07)",
-          }}
+          className={`flex items-center h-9 py-1 px-2 gap-3 transition-all duration-200 warp-input-glow rounded-sm w-full border bg-white/3 ${focused ? "border-primary/30" : "border-outline"}`}
         >
           <Search size={14} className="shrink-0" style={{ color: focused ? "rgba(79,140,255,0.7)" : "rgba(232,234,240,0.3)" }} />
           <input
@@ -647,7 +686,9 @@ function SearchBar({ collapsed, cwdAbsolute, onOpenFileAtPath }: { collapsed?: b
                 color: "rgba(232,234,240,0.35)",
               }}
             >
-              {"CTRL"} {"P"}
+              {commandPaletteKeys.split("+").map((part) => (
+                <span key={part}>{part}</span>
+              ))}
             </kbd>
           ) : null}
         </div>
@@ -655,112 +696,10 @@ function SearchBar({ collapsed, cwdAbsolute, onOpenFileAtPath }: { collapsed?: b
         {showDropdown && (
           <div
             ref={dropdownRef}
-            className="absolute top-full left-0 right-0 mt-1 rounded-lg overflow-hidden z-[999] select-text"
-            style={{
-              background: "#141822",
-              border: "1px solid rgba(255,255,255,0.08)",
-              boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
-              maxHeight: "320px",
-            }}
+            className="absolute top-full left-0 right-0 mt-1 max-h-[320px] overflow-y-auto rounded-sm bg-surface/90 backdrop-blur-xl border border-outline-variant/10 shadow-xl z-[999] select-text"
+            style={{ scrollbarWidth: "thin" }}
           >
-            {matchedDirs.length > 0 && (
-              <div>
-                <div className="flex items-center gap-2 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider"
-                  style={{ color: "rgba(232,234,240,0.35)", background: "rgba(255,255,255,0.03)" }}>
-                  <Terminal size={11} />
-                  Open terminal in
-                </div>
-                {matchedDirs.map((d, di) => {
-                  const idx = di;
-                  const isSelected = idx === selectedIndex;
-                  return (
-                    <button
-                      key={d.path}
-                      ref={isSelected ? selectedRef : undefined}
-                      onClick={() => { setFocused(false); setValue(""); window.dispatchEvent(new CustomEvent("sidebar-open-in-new-tab", { detail: { path: d.path } })); }}
-                      className="flex items-center gap-2.5 w-full text-left px-3 py-2 text-[12px] transition-colors cursor-pointer"
-                      style={{
-                        color: "#E8EAF0",
-                        background: isSelected ? "rgba(79,140,255,0.15)" : "transparent",
-                      }}
-                      onMouseEnter={() => setSelectedIndex(idx)}
-                    >
-                      <FolderOpen size={13} style={{ color: "rgba(79,140,255,0.6)" }} />
-                      <span className="truncate">{d.name}/</span>
-                      <span className="ml-auto text-[10px] shrink-0" style={{ color: "rgba(232,234,240,0.3)" }}>New Terminal</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-            {(matchedDirs.length > 0 && (matchedRegularFiles.length > 0 || matchedSettings.length > 0)) && (
-              <div className="h-px mx-3" style={{ background: "rgba(255,255,255,0.06)" }} />
-            )}
-            {matchedRegularFiles.length > 0 && (
-              <div>
-                <div className="flex items-center gap-2 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider"
-                  style={{ color: "rgba(232,234,240,0.35)", background: "rgba(255,255,255,0.03)" }}>
-                  <File size={11} />
-                  Files
-                </div>
-                {matchedRegularFiles.map((f, fi) => {
-                  const idx = dirCount + fi;
-                  const isSelected = idx === selectedIndex;
-                  return (
-                    <button
-                      key={f.path}
-                      ref={isSelected ? selectedRef : undefined}
-                      onClick={() => { setFocused(false); setValue(""); onOpenFileAtPath(f.path); }}
-                      className="flex items-center gap-2.5 w-full text-left px-3 py-2 text-[12px] transition-colors cursor-pointer"
-                      style={{
-                        color: "#E8EAF0",
-                        background: isSelected ? "rgba(79,140,255,0.15)" : "transparent",
-                      }}
-                      onMouseEnter={() => setSelectedIndex(idx)}
-                    >
-                      <FileText size={13} style={{ color: "rgba(232,234,240,0.4)" }} />
-                      <span className="truncate">{f.name}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-            {(matchedRegularFiles.length > 0 && matchedSettings.length > 0) && (
-              <div className="h-px mx-3" style={{ background: "rgba(255,255,255,0.06)" }} />
-            )}
-            {matchedSettings.length > 0 && (
-              <div>
-                <div className="flex items-center gap-2 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider"
-                  style={{ color: "rgba(232,234,240,0.35)", background: "rgba(255,255,255,0.03)" }}>
-                  <Sliders size={11} />
-                  Settings
-                </div>
-                {matchedSettings.map((s, si) => {
-                  const idx = dirCount + fileCount + si;
-                  const isSelected = idx === selectedIndex;
-                  return (
-                    <button
-                      key={s.id}
-                      ref={isSelected ? selectedRef : undefined}
-                      onClick={() => executeSelected()}
-                      className="flex items-center gap-2.5 w-full text-left px-3 py-2 text-[12px] transition-colors cursor-pointer"
-                      style={{
-                        color: "#E8EAF0",
-                        background: isSelected ? "rgba(79,140,255,0.15)" : "transparent",
-                      }}
-                      onMouseEnter={() => setSelectedIndex(idx)}
-                    >
-                      <Settings size={13} style={{ color: "rgba(154,124,255,0.6)" }} />
-                      <div className="flex flex-col min-w-0">
-                        <span className="truncate">{s.label}</span>
-                        <span className="text-[11px] truncate" style={{ color: "rgba(232,234,240,0.35)" }}>{s.description}</span>
-                      </div>
-                      <span className="ml-auto text-[10px] shrink-0 px-1.5 py-0.5 rounded" style={{ color: "rgba(232,234,240,0.25)", background: "rgba(255,255,255,0.04)" }}>{categoryFor(s.section, s.subPage)}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+            {resultSections(() => setFocused(false))}
           </div>
         )}
       </div>

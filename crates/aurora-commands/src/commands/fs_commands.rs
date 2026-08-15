@@ -154,7 +154,15 @@ pub fn search_files(root: String, query: String) -> Result<Vec<FileNode>, AppErr
             continue;
         }
 
-        if name.to_lowercase().contains(&query_lower) {
+        // Relative path (forward-slash normalized) so queries like
+        // `src/components/button` match files deeper in the tree.
+        let rel = path
+            .strip_prefix(&root_path)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .replace('\\', "/");
+
+        if name.to_lowercase().contains(&query_lower) || rel.to_lowercase().contains(&query_lower) {
             let is_dir = path.is_dir();
             results.push(FileNode {
                 name,

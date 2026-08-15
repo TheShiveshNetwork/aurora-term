@@ -20,7 +20,6 @@ export function useCommandExecution(tabs: Tab[], activeTabId: string | null) {
   const clearCommandInput = useAppShellStore((state) => state.clearCommandInput);
   const setIsCwdLoading = useAppShellStore((state) => state.setIsCwdLoading);
   const markSessionInteracted = useAppShellStore((state) => state.markSessionInteracted);
-  const clearSessionInteracted = useAppShellStore((state) => state.clearSessionInteracted);
 
   const activeTab = useMemo(() => tabs.find((tab) => tab.id === activeTabId) || null, [activeTabId, tabs]);
   const targetSessionId = activeTab?.type === "file"
@@ -96,20 +95,6 @@ export function useCommandExecution(tabs: Tab[], activeTabId: string | null) {
 
     clearCommandInput(activeTabId);
 
-    const cmdLower = cmd.trim().toLowerCase();
-    const clearFirstWord = cmdLower.split(/\s+/)[0];
-    if (clearFirstWord === "clear" || clearFirstWord === "cls" || cmdLower === "clear-host") {
-      useBlockStore.getState().clearBlocks(targetId);
-      clearSessionInteracted(targetId);
-
-      window.dispatchEvent(new CustomEvent("terminal-clear", { detail: { sessionId: targetId } }));
-
-      const isWindows = window.navigator.userAgent.toLowerCase().includes("windows");
-      const clearCommand = isWindows ? "cls\r" : "clear\r";
-      await pty.write(targetId, clearCommand);
-      return;
-    }
-
     const blockId = uuidv4();
     const newBlock: Block = {
       id: blockId,
@@ -151,13 +136,14 @@ export function useCommandExecution(tabs: Tab[], activeTabId: string | null) {
       useSessionStore.getState().setSessionBusy(targetId, false);
       useBlockStore.getState().setRunningBlockId(targetId, null);
     }
-  }, [activeCommandInput, activeTabId, addBlock, clearCommandInput, clearSessionInteracted, markSessionInteracted, setIsCwdLoading, tabs, updateBlock]);
+  }, [activeCommandInput, activeTabId, addBlock, clearCommandInput, markSessionInteracted, setIsCwdLoading, tabs, updateBlock]);
 
   const handleStopCurrentCommand = useCallback(() => {
     if (!targetSessionId || !isCommandRunning) return;
 
     pty.write(targetSessionId, "\u0003").catch(console.error);
     useSessionStore.getState().setSessionBusy(targetSessionId, false);
+
     if (activeRunningBlockId) {
       useBlockStore.getState().updateBlock(targetSessionId, activeRunningBlockId, {
         status: "cancelled",

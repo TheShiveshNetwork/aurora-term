@@ -20,11 +20,12 @@ interface CommandInputBarProps {
   cwd: string;
   isLoading: boolean;
   isRunning: boolean;
+  aiBusy?: boolean;
   value: string;
   history: string[];
   hideCwdBreadcrumb?: boolean;
   onChange: (value: string | ((previous: string) => string)) => void;
-  onSubmit: (event: SubmitEvent<HTMLFormElement>, attachedFiles: AttachedFile[]) => void;
+  onSubmit: (event: SubmitEvent<HTMLFormElement>, attachedFiles: AttachedFile[], forceAi?: boolean) => void;
   onStop?: () => void;
   onOpenAiBar?: () => void;
   variant?: Variant;
@@ -36,6 +37,7 @@ export function CommandInputBar({
   cwd,
   isLoading,
   isRunning,
+  aiBusy = false,
   value,
   history,
   hideCwdBreadcrumb = false,
@@ -72,9 +74,12 @@ export function CommandInputBar({
     }
   };
 
-  const handleFormSubmit = (e: SubmitEvent<HTMLFormElement>) => {
+  const handleFormSubmit = (e: SubmitEvent<HTMLFormElement>, forceAi = false) => {
     e.preventDefault();
-    onSubmit(e, attachedFiles);
+    // While an AI response is pending the send button is disabled — pressing
+    // Enter must behave the same way and not submit either.
+    if (aiBusy) return;
+    onSubmit(e, attachedFiles, forceAi);
     setAttachedFiles([]);
   };
 
@@ -161,7 +166,19 @@ export function CommandInputBar({
             inputMode={inputMode}
           />
           <div className="flex items-center gap-1.5 pr-3 py-3 self-end">
-            {isRunning ? (
+            <IconButton onClick={handleAttachFile} title="Attach File">
+              <Plus size={14} />
+            </IconButton>
+            <IconButton
+              onClick={toggleListening}
+              title={isListening ? "Listening... Click to stop" : "Voice Input"}
+              active={isListening}
+            >
+              {!isListening ?
+                <Mic size={14} />
+                : <X size={14} />}
+            </IconButton>
+            {isRunning && (
               <button
                 onClick={onStop}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold rounded-[10px] transition-all cursor-pointer"
@@ -177,31 +194,27 @@ export function CommandInputBar({
                 <Square size={10} />
                 Stop
               </button>
+            )}
+            {isPrompt ? (
+              <button
+                onClick={(e) => handleFormSubmit(e as any)}
+                disabled={!value.trim() && attachedFiles.length === 0}
+                className="flex items-center justify-center w-8 h-8 bg-[#4553d4] border-none rounded-sm cursor-pointer shrink-0 transition-all duration-150 hover:bg-[#5f6df0] disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Send Prompt"
+              >
+                <ArrowUp size={14} className="text-white" />
+              </button>
             ) : (
-              <>
-                <IconButton onClick={handleAttachFile} title="Attach File">
-                  <Plus size={14} />
-                </IconButton>
-                <IconButton
-                  onClick={toggleListening}
-                  title={isListening ? "Listening... Click to stop" : "Voice Input"}
-                  active={isListening}
-                >
-                  {!isListening ?
-                    <Mic size={14} />
-                    : <X size={14} />}
-                </IconButton>
-                {isPrompt && (
-                  <button
-                    onClick={(e) => handleFormSubmit(e as any)}
-                    disabled={!value.trim() && attachedFiles.length === 0}
-                    className="flex items-center justify-center w-8 h-8 bg-[#4553d4] border-none rounded-sm cursor-pointer shrink-0 transition-all duration-150 hover:bg-[#5f6df0] disabled:opacity-50 disabled:cursor-not-allowed"
-                    title="Send Prompt"
-                  >
-                    <ArrowUp size={14} className="text-white" />
-                  </button>
-                )}
-              </>
+              <button
+                onClick={(e) => handleFormSubmit(e as any, true)}
+                disabled={aiBusy || (!value.trim() && attachedFiles.length === 0)}
+                className="flex items-center justify-center w-8 h-8 bg-[#4553d4] border-none rounded-sm cursor-pointer shrink-0 transition-all duration-150 hover:bg-[#5f6df0] disabled:opacity-50 disabled:cursor-not-allowed"
+                title={aiBusy ? "Sending to AI…" : "Send to AI"}
+              >
+                {aiBusy
+                  ? <RefreshCw size={14} className="text-white animate-spin" />
+                  : <ArrowUp size={14} className="text-white" />}
+              </button>
             )}
           </div>
         </div>
