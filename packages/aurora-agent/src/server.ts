@@ -93,6 +93,23 @@ function withThreadLock<T>(threadId: string, fn: () => Promise<T>): Promise<T> {
   return next;
 }
 
+// ── Per-thread run-abort registry ─────────────────────────────────────────
+// Lets the frontend interrupt a generation (LLM step or tool resume) that is
+// still in flight — e.g. when the user hits "stop" while a tool call (a shell
+// command or a server-side read-only tool) is executing. Each run registers an
+// AbortController keyed by thread; `/api/run/stop` aborts it.
+const runAborts = new Map<string, AbortController>();
+
+function registerRunAbort(threadId: string): AbortController {
+  const ac = new AbortController();
+  runAborts.set(threadId, ac);
+  return ac;
+}
+
+function clearRunAbort(threadId: string): void {
+  runAborts.delete(threadId);
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────
 
 function selectAgent(agentType?: string, mode?: string) {
@@ -359,6 +376,8 @@ server.post('/api/step', async (request, _reply) => {
   });
 
   const startTime = Date.now();
+  const runAbort = registerRunAbort(threadId);
+  const runTimeout = setTimeout(() => runAbort.abort(), 120_000);
 
   try {
     // Serialize per-thread so an out-of-band /api/btw question never runs
@@ -379,7 +398,7 @@ server.post('/api/step', async (request, _reply) => {
         },
         requireToolApproval: true,
         maxSteps: 25,
-        abortSignal: AbortSignal.timeout(120_000),
+        abortSignal: runAbort.signal,
       };
 
       if (model) {
@@ -513,6 +532,9 @@ server.post('/api/step', async (request, _reply) => {
       status: 'error',
       message: `Agent error: ${error.message || 'Unknown error'}`,
     };
+  } finally {
+    clearTimeout(runTimeout);
+    clearRunAbort(threadId);
   }
 });
 
@@ -568,10 +590,12 @@ server.post('/api/tool/approve', async (request, _reply) => {
 
   const agent = selectAgent(agent_type, mode);
   const startTime = Date.now();
+  const threadKey = session_id || runId || 'agent-view';
+  const runAbort = registerRunAbort(threadKey);
+  const runTimeout = setTimeout(() => runAbort.abort(), 120_000);
 
   try {
     // Serialize with other work on the same thread (e.g. /api/btw).
-    const threadKey = session_id || runId || 'agent-view';
     beginStep(threadKey, 'execution');
     const response = await withThreadLock(threadKey, async () =>
       runStreaming(threadKey, () =>
@@ -581,7 +605,7 @@ server.post('/api/tool/approve', async (request, _reply) => {
             runId,
             toolCallId,
             maxSteps: 25,
-            abortSignal: AbortSignal.timeout(120_000),
+            abortSignal: runAbort.signal,
           }
         )
       )
@@ -647,6 +671,9 @@ server.post('/api/tool/approve', async (request, _reply) => {
       status: 'error',
       message: `Failed to approve and resume tool call: ${error.message || 'Unknown error'}`,
     };
+  } finally {
+    clearTimeout(runTimeout);
+    clearRunAbort(threadKey);
   }
 });
 
@@ -666,10 +693,12 @@ server.post('/api/tool/decline', async (request, _reply) => {
 
   const agent = selectAgent(agent_type, mode);
   const startTime = Date.now();
+  const threadKey = session_id || runId || 'agent-view';
+  const runAbort = registerRunAbort(threadKey);
+  const runTimeout = setTimeout(() => runAbort.abort(), 120_000);
 
   try {
     // Serialize with other work on the same thread (e.g. /api/btw).
-    const threadKey = session_id || runId || 'agent-view';
     beginStep(threadKey, 'execution');
     const response = await withThreadLock(threadKey, async () =>
       runStreaming(threadKey, () =>
@@ -679,7 +708,7 @@ server.post('/api/tool/decline', async (request, _reply) => {
             runId,
             toolCallId,
             maxSteps: 25,
-            abortSignal: AbortSignal.timeout(120_000),
+            abortSignal: runAbort.signal,
           }
         )
       )
@@ -729,7 +758,26 @@ server.post('/api/tool/decline', async (request, _reply) => {
       status: 'error',
       message: `Failed to decline and resume tool call: ${error.message || 'Unknown error'}`,
     };
+  } finally {
+    clearTimeout(runTimeout);
+    clearRunAbort(threadKey);
   }
+});
+
+// ── /api/run/stop — interrupt an in-flight generation (LLM step or tool
+// resume) for a thread. Used by the frontend "stop AI run" action so a running
+// tool call (shell command or server-side read-only tool) and the agent's
+// generation halt immediately instead of running to completion. This never
+// touches any terminal session — it only aborts the agent's own work. ──────
+server.post('/api/run/stop', async (request, _reply) => {
+  const { thread_id } = (request.body as any) || {};
+  if (thread_id && runAborts.has(thread_id)) {
+    runAborts.get(thread_id)!.abort();
+    clearRunAbort(thread_id);
+    log.info('Run stop requested', { threadId: thread_id });
+    return { status: 'ok', stopped: thread_id };
+  }
+  return { status: 'ok', stopped: null };
 });
 
 // ── /api/inline-complete — fast ghost text completion, no tools, no memory ─

@@ -223,6 +223,37 @@ pub async fn agent_plan_step(
     Ok(response_data)
 }
 
+/// Asks the aurora-agent sidecar to abort the in-flight generation (LLM step or
+/// tool resume) for a thread. Used by the frontend "stop AI run" action so a
+/// running tool call and the agent's generation halt immediately. This only
+/// signals the sidecar — it never touches any terminal session.
+#[command]
+pub async fn agent_stop_run(
+    state: State<'_, AppState>,
+    thread_id: String,
+) -> Result<(), AppError> {
+    let port = {
+        let sidecar = state.sidecar.lock().await;
+        sidecar
+            .port()
+            .ok_or_else(|| AppError::Sidecar("aurora-agent is not running".to_string()))?
+    };
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|e| AppError::Sidecar(format!("Failed to create HTTP client: {}", e)))?;
+    let url = format!("http://127.0.0.1:{}/api/run/stop", port);
+
+    let _ = client
+        .post(&url)
+        .json(&serde_json::json!({ "thread_id": thread_id }))
+        .send()
+        .await;
+
+    Ok(())
+}
+
 #[command]
 pub async fn agent_approve_tool(
     state: State<'_, AppState>,

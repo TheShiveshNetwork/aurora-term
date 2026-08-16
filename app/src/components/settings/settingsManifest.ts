@@ -42,7 +42,7 @@ export const SETTINGS_MANIFEST: SettingsManifestEntry[] = [
   { id: "aiLiveSuggestions", label: "AI Live Suggestions", description: "Show AI ghost-text suggestions while typing in the file view", elementId: "setting-ai-live-suggestions", section: "general", subPage: "editor" },
   // ── Appearance ──
   { id: "theme", label: "Theme", description: "Dark/Light theme", elementId: "setting-theme", section: "general", subPage: "appearance" },
-  { id: "editorTheme", label: "Editor Theme", description: "CodeMirror editor color theme", elementId: "setting-editor-theme", section: "general", subPage: "appearance" },
+  { id: "editorTheme", label: "Editor Theme", description: "Editor color theme", elementId: "setting-editor-theme", section: "general", subPage: "appearance" },
   // ── Keybindings ──
   { id: "keybindings", label: "Keybindings", description: "Terminal keybinding mode", elementId: "setting-keybindings", section: "general", subPage: "keybindings" },
   { id: "cloud", label: "Cloud Sync & Updates", description: "Settings sync, sign-in, and update notifications", elementId: "setting-cloud-api-base-url", section: "general", subPage: "cloud" },

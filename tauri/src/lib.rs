@@ -254,6 +254,7 @@ pub fn run() {
             aurora_commands::agent_plan_step,
             aurora_commands::agent_approve_tool,
             aurora_commands::agent_decline_tool,
+            aurora_commands::agent_stop_run,
             aurora_commands::agent_chat,
             aurora_commands::agent_btw,
             aurora_commands::agent_skills,

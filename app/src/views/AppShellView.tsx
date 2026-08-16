@@ -153,7 +153,7 @@ export function AppShellView() {
     targetSessionId,
   } = useCommandExecution(tabs, activeTabId);
 
-  const { startTask } = useAgentExecution(activeTabId);
+  const { startTask, stopAgentRun } = useAgentExecution(activeTabId);
 
   const agentStatus = useAgentStore((state) =>
     activeTabId ? (state.sessions[activeTabId]?.status ?? "idle") : "idle"
@@ -166,21 +166,11 @@ export function AppShellView() {
     handleStopCurrentCommand();
   }, [handleStopCurrentCommand]);
 
-  // Blue stop — stops the AI response/task only.
+  // Blue stop — stops the AI response/task, interrupting any running tool call,
+  // but never kills the terminal session (that is the red button's job).
   const handleStopAi = useCallback(() => {
-    if (!activeTabId) return;
-    const store = useAgentStore.getState();
-    store.setPendingToolCall(activeTabId, null);
-    store.setCurrentCommandIndex(activeTabId, -1);
-    store.failTask(activeTabId, "Cancelled by user");
-    const snap = store.sessions[activeTabId];
-    store.addChatMessage(activeTabId, {
-      role: "assistant",
-      content: "Task cancelled by user.",
-      chainNodes: snap?.chainNodes ?? [],
-      agentType: snap?.agentType,
-    });
-  }, [activeTabId]);
+    stopAgentRun();
+  }, [stopAgentRun]);
 
   // Command history for the input bar: this session's executed blocks (chronological)
   // merged with the shell's history. Dedupe keeping the most recent occurrence and

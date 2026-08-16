@@ -453,6 +453,8 @@ export const system = {
     invoke<{ status: string; logs: Array<{ timestamp: number; type: string; content: string }> }>("agent_get_logs"),
   agentGetThinking: (thread: string) =>
     invoke<{ status: string; thinking: string; planning: string; conclusion: string }>("agent_get_thinking", { thread }),
+  agentStopRun: (threadId: string) =>
+    invoke<void>("agent_stop_run", { threadId }),
   agentChat: (
     message: string,
     sessionId?: string,

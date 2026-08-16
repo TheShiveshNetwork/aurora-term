@@ -176,6 +176,11 @@ export function useAgentExecution(sessionId: string | null) {
 
   const lastCommandResultRef = useRef<{ command: string; exitCode: number; output: string; stderr: string }>({ command: "", exitCode: 0, output: "", stderr: "" });
 
+  // Tracks the PTY session a currently-running tool-call command is executing
+  // in, so a user-initiated stop can interrupt just that command (Ctrl-C) and
+  // leave the terminal session itself alive.
+  const runningToolPtySessionRef = useRef<string | null>(null);
+
   // ── Helper to cache command result after execution ─────────────────────────
   const cacheCommandResult = useCallback((cmd: string, result: { exitCode?: number; output?: string; stderr?: string } | undefined) => {
     lastCommandResultRef.current = {
@@ -537,9 +542,15 @@ export function useAgentExecution(sessionId: string | null) {
       );
 
       await handleStepResult(targetSessionId, taskId, step);
-    } catch (err: any) {
-      console.error("Agent plan step failed:", err);
-      const errMsg = formatTauriError(err);
+  } catch (err: any) {
+    // If the run was already stopped/cancelled (e.g. the sidecar aborted at the
+    // user's request), don't overwrite the "Cancelled by user" status/message.
+    const current = useAgentStore.getState().sessions[targetSessionId];
+    if (current && (current.status === "error" || current.status === "completed")) {
+      return;
+    }
+    console.error("Agent plan step failed:", err);
+    const errMsg = formatTauriError(err);
       const friendlyMsg = errMsg.includes("API key") || errMsg.includes("provider")
         ? "No AI provider configured. Please go to Settings → AI and add an API key."
         : errMsg.includes("timeout") || errMsg.includes("network")
@@ -584,6 +595,10 @@ export function useAgentExecution(sessionId: string | null) {
       useAgentStore.getState().addLog(targetSessionId, "Cannot run shell command: no terminal session open.");
       return { exitCode: -1, output: "No terminal session available. Open a terminal tab first." };
     }
+
+    // Remember which PTY session this tool call runs in so a stop can interrupt
+    // just this command without killing the terminal session.
+    runningToolPtySessionRef.current = ptySessionId;
 
     const state = useAgentStore.getState();
     const freshSession = state.sessions[targetSessionId] || defaultSessionState();
@@ -663,6 +678,8 @@ export function useAgentExecution(sessionId: string | null) {
       const errMsg = formatTauriError(err);
       state.failTask(targetSessionId, errMsg);
       throw err;
+    } finally {
+      runningToolPtySessionRef.current = null;
     }
   }, []);
 
@@ -991,6 +1008,53 @@ export function useAgentExecution(sessionId: string | null) {
     useAgentStore.getState().clearTask(targetSessionId);
   }, []);
 
+  // ── stopAgentRun ─────────────────────────────────────────────────────────
+  // Stops the entire AI run: interrupts any running tool-call command (Ctrl-C on
+  // its PTY session — the terminal session itself is left alive) and signals the
+  // sidecar to abort the in-flight generation. Mirrors the blue "stop AI" button.
+  const stopAgentRun = useCallback(() => {
+    const targetSessionId = sessionRef.current;
+    if (!targetSessionId) return;
+    const state = useAgentStore.getState();
+
+    // 1. Interrupt the running tool-call command (foreground process only).
+    const ptySessionId = runningToolPtySessionRef.current;
+    if (ptySessionId) {
+      pty.write(ptySessionId, "\u0003").catch(console.error);
+      const runningBlockId = useBlockStore.getState().runningBlockId[ptySessionId];
+      if (runningBlockId) {
+        useBlockStore.getState().updateBlock(ptySessionId, runningBlockId, {
+          status: "cancelled",
+          finished_at: Date.now(),
+        });
+        useBlockStore.getState().setRunningBlockId(ptySessionId, null);
+        useBlockStore.getState().setCommandOutputReceived(ptySessionId, false);
+      }
+      useSessionStore.getState().setSessionBusy(ptySessionId, false);
+      runningToolPtySessionRef.current = null;
+    }
+
+    // 2. Abort the in-flight sidecar generation (LLM step / tool resume).
+    system.agentStopRun(targetSessionId).catch(() => {});
+
+    // 3. Mark the run cancelled so the step loop halts. Guards in
+    //    handleStepResult / executeNextStep make any late result a no-op.
+    const snap = state.sessions[targetSessionId];
+    if (snap && snap.status !== "completed" && snap.status !== "error") {
+      state.failTask(targetSessionId, "Cancelled by user");
+    }
+    state.setPendingToolCall(targetSessionId, null);
+    state.setCurrentCommandIndex(targetSessionId, -1);
+    if (snap) {
+      state.addChatMessage(targetSessionId, {
+        role: "assistant",
+        content: "Task cancelled by user.",
+        chainNodes: snap.chainNodes ?? [],
+        agentType: snap.agentType,
+      });
+    }
+  }, []);
+
   return {
     startTask,
     retryTask,
@@ -999,6 +1063,7 @@ export function useAgentExecution(sessionId: string | null) {
     skipPending,
     clearTask,
     submitAnswer,
+    stopAgentRun,
     status: sessionState.status,
     queue: sessionState.queue,
     originalGoal: sessionState.originalGoal,
