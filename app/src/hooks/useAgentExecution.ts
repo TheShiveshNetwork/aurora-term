@@ -647,7 +647,17 @@ export function useAgentExecution(sessionId: string | null) {
 
       const result = await waitForBlockCompletion(ptySessionId, blockId);
       const durationMs = Date.now() - startedAt;
-      const cmdStatus = result.exitCode === 0 ? "success" : "error";
+
+      // If the user hit stop while this command was running, the run is already
+      // cancelled — don't resurrect a "done"/"success" state on the chain node
+      // or queue item. Keep it terminal-but-cancelled so no spinner/loader lingers.
+      const runStatus = useAgentStore.getState().sessions[targetSessionId]?.status;
+      const wasStopped = runStatus === "error" || runStatus === "completed";
+      const cmdStatus = wasStopped
+        ? "cancelled"
+        : result.exitCode === 0
+          ? "success"
+          : "error";
 
       state.updateCommandStatus(targetSessionId, index, cmdStatus, durationMs);
       state.addLog(targetSessionId, `Command finished with exit code ${result.exitCode} in ${durationMs}ms`);
@@ -659,7 +669,7 @@ export function useAgentExecution(sessionId: string | null) {
 
       if (chainNodeId) {
         state.updateChainNode(targetSessionId, chainNodeId, {
-          status: cmdStatus === "success" ? "done" : "failed",
+          status: wasStopped ? "failed" : cmdStatus === "success" ? "done" : "failed",
           durationMs,
         });
       }
@@ -1041,16 +1051,20 @@ export function useAgentExecution(sessionId: string | null) {
     //    handleStepResult / executeNextStep make any late result a no-op.
     const snap = state.sessions[targetSessionId];
     if (snap && snap.status !== "completed" && snap.status !== "error") {
-      state.failTask(targetSessionId, "Cancelled by user");
+      state.failTask(targetSessionId, "Cancelled by user", "info");
     }
+    // 4. Finalize any in-flight tool calls / queued commands so their loaders
+    //    and spinners are removed from the frontend immediately on stop.
+    useAgentStore.getState().finalizeInterruptedRun(targetSessionId);
     state.setPendingToolCall(targetSessionId, null);
     state.setCurrentCommandIndex(targetSessionId, -1);
-    if (snap) {
+    const finalSnap = useAgentStore.getState().sessions[targetSessionId];
+    if (finalSnap) {
       state.addChatMessage(targetSessionId, {
         role: "assistant",
         content: "Task cancelled by user.",
-        chainNodes: snap.chainNodes ?? [],
-        agentType: snap.agentType,
+        chainNodes: finalSnap.chainNodes ?? [],
+        agentType: finalSnap.agentType,
       });
     }
   }, []);

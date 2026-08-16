@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { formatTauriError } from "../lib/utils";
-import { notifyError } from "../lib/notify";
+import { notifyError, notifyInfo } from "../lib/notify";
 
 
 export interface ChatMessage {
@@ -149,7 +149,7 @@ interface AgentStore {
   pauseTask: (sessionId: string) => void;
   resumeTask: (sessionId: string) => void;
   completeTask: (sessionId: string, message: string) => void;
-  failTask: (sessionId: string, error: unknown) => void;
+  failTask: (sessionId: string, error: unknown, type?: "error" | "info") => void;
   clearTask: (sessionId: string) => void;
 
   setQueue: (sessionId: string, commands: { command: string; explanation: string }[]) => void;
@@ -180,6 +180,11 @@ interface AgentStore {
   setPendingToolCall: (sessionId: string, toolCall: SessionAgentState["pendingToolCall"]) => void;
   clearFileChanges: (sessionId: string) => void;
   setAgentModel: (sessionId: string, model: string | undefined) => void;
+  // Finalizes an interrupted run so no in-flight tool-call spinners/loaders
+  // persist on the frontend after the user hits stop. Converts any chain node
+  // still in `active`/`pending` and any queue command still in
+  // `running`/`requires_action`/`pending` to a terminal state.
+  finalizeInterruptedRun: (sessionId: string) => void;
   activeAgentSessionId: string | null;
   setActiveAgentSessionId: (id: string | null) => void;
   createAgentSession: (title?: string) => string;
@@ -406,11 +411,12 @@ export const useAgentStore = create<AgentStore>((set) => ({
       };
     }),
 
-  failTask: (sessionId, error) =>
+  failTask: (sessionId, error, type = "error") =>
     updateSession(set, sessionId, (prev) => {
       const raw = formatTauriError(error);
       const msg = sanitizeMessage(raw);
-      notifyError(msg);
+      if (type === "info") notifyInfo(msg);
+      else notifyError(msg);
       return {
         status: "error",
         lastMessage: msg,
@@ -572,4 +578,24 @@ export const useAgentStore = create<AgentStore>((set) => ({
 
   setAgentModel: (sessionId, model) =>
     updateSession(set, sessionId, { model }),
+
+  finalizeInterruptedRun: (sessionId) =>
+    updateSession(set, sessionId, (prev) => ({
+      // Any chain-of-thought node still spinning/waiting becomes terminal so the
+      // spinner (only shown for `active`) and stale `pending` cards disappear.
+      chainNodes: prev.chainNodes.map((n) =>
+        n.status === "active" || n.status === "pending"
+          ? { ...n, status: "failed" as const }
+          : n
+      ),
+      // Any queued command that never reached a terminal status is cancelled,
+      // clearing the Terminals-drawer "running"/"requires_action" loaders.
+      queue: prev.queue.map((c) =>
+        c.status === "running" || c.status === "requires_action" || c.status === "pending"
+          ? { ...c, status: "cancelled" as const }
+          : c
+      ),
+      pendingToolCall: null,
+      activeSubagent: null,
+    })),
 }));

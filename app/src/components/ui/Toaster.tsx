@@ -7,7 +7,7 @@ const STYLES: Record<
   { border: string; icon: JSX.Element; iconColor: string }
 > = {
   error: {
-    border: "border-red-500/40",
+    border: "border-red-500/10",
     icon: <AlertTriangle size={16} />,
     iconColor: "text-red-400",
   },
@@ -30,14 +30,14 @@ export function Toaster() {
   if (notifications.length === 0) return null;
 
   return (
-    <div className="pointer-events-none fixed right-4 top-4 z-[1000] flex w-[340px] max-w-[calc(100vw-2rem)] flex-col gap-2">
+    <div className="pointer-events-none fixed bottom-12 right-4 z-[9999] flex w-[340px] max-w-[calc(100vw-2rem)] flex-col gap-2">
       {notifications.map((n) => {
         const style = STYLES[n.type];
         return (
           <div
             key={n.id}
             role="alert"
-            className={`pointer-events-auto flex items-start gap-2.5 rounded-xl border ${style.border} bg-surface-container-high/95 px-3.5 py-3 shadow-lg shadow-black/30 backdrop-blur`}
+            className={`pointer-events-auto flex items-start gap-2.5 rounded-sm border ${style.border} bg-surface-container-high/95 px-3.5 py-3 shadow-lg shadow-black/30 backdrop-blur`}
           >
             <span className={`mt-0.5 shrink-0 ${style.iconColor}`}>
               {style.icon}
