@@ -95,6 +95,7 @@ function TreeNode({
   const [children, setChildren] = useState<FileNode[]>([]);
   const [loading, setLoading] = useState(false);
   const loadedRef = useRef(false);
+  const refreshSkipRef = useRef(true);
 
   const loadChildren = useCallback(async () => {
     if (loadedRef.current) return;
@@ -145,11 +146,16 @@ function TreeNode({
     setChildren([]);
   }, [collapseKey]); // eslint-disable-line
 
-  // Refresh
+  // Refresh — re-read children when an external/disk change happens (fs-tree-changed)
+  // or the user clicks the Refresh button. Skipped on initial mount so collapsed
+  // folders stay lazily loaded. Expanded folders re-fetch now; collapsed folders
+  // just drop their cached listing so a later expand re-reads from disk.
   useEffect(() => {
     if (!node.is_dir) return;
+    if (refreshSkipRef.current) { refreshSkipRef.current = false; return; }
     loadedRef.current = false;
     setChildren([]);
+    if (isOpen) loadChildren();
   }, [refreshKey]); // eslint-disable-line
 
   const handleClick = async (e: React.MouseEvent) => {
@@ -836,6 +842,9 @@ export function SidePanel({ collapsed, cwd, activeFilePath, onKillTab, onAddTab,
           const sorted = sortNodes(res);
           const serialized = JSON.stringify(sorted);
           if (serialized !== serializedRootRef.current) { serializedRootRef.current = serialized; setRootNodes(sorted); }
+          // Refresh any expanded subfolders too, so deletions/creations deeper in
+          // the tree are reflected live (not just the root level).
+          setRefreshKey((k) => k + 1);
         } catch { /* silent */ }
       }, 300);
     }).then((fn) => { unlisten = fn; });
