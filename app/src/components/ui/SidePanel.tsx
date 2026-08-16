@@ -96,13 +96,25 @@ function TreeNode({
   const [loading, setLoading] = useState(false);
   const loadedRef = useRef(false);
   const refreshSkipRef = useRef(true);
+  const serializedChildrenRef = useRef<string | null>(null);
 
   const loadChildren = useCallback(async () => {
     if (loadedRef.current) return;
     loadedRef.current = true;
-    setLoading(true);
+    // Only show the loading indicator on the very first read of this folder; on
+    // subsequent refreshes we swap the listing in place so the tree never flashes.
+    const firstLoad = serializedChildrenRef.current === null;
+    if (firstLoad) setLoading(true);
     try {
-      setChildren(await system.readDir(node.path));
+      const res = await system.readDir(node.path);
+      const sorted = sortNodes(res);
+      const serialized = JSON.stringify(sorted);
+      // Skip the state update when the listing is byte-for-byte identical. This
+      // stops the tree from flickering on a file-watcher event that has nothing
+      // to do with this particular folder.
+      if (serialized === serializedChildrenRef.current) return;
+      serializedChildrenRef.current = serialized;
+      setChildren(sorted);
     } catch (err) {
       console.error(err);
       loadedRef.current = false;
@@ -144,6 +156,7 @@ function TreeNode({
     setIsOpen(false);
     loadedRef.current = false;
     setChildren([]);
+    serializedChildrenRef.current = null;
   }, [collapseKey]); // eslint-disable-line
 
   // Refresh — re-read children when an external/disk change happens (fs-tree-changed)
@@ -154,7 +167,9 @@ function TreeNode({
     if (!node.is_dir) return;
     if (refreshSkipRef.current) { refreshSkipRef.current = false; return; }
     loadedRef.current = false;
-    setChildren([]);
+    // Re-read in place. Previously this cleared children to an empty array first,
+    // which made every expanded folder flash blank before re-populating on each
+    // file-watcher event — the source of the flicker.
     if (isOpen) loadChildren();
   }, [refreshKey]); // eslint-disable-line
 

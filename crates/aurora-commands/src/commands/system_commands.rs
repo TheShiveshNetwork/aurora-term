@@ -621,6 +621,20 @@ pub struct GitBranchInfo {
     pub commit_hash: String,
 }
 
+/// Prunes stale remote-tracking refs (e.g. branches deleted on the remote that
+/// still linger locally as `remotes/origin/<name>`). Best-effort: network or
+/// auth failures are swallowed so callers never error out. The frontend gates
+/// this behind a cooldown so it is not hammered on every UI interaction.
+#[command]
+pub async fn git_fetch_prune(cwd: String) -> Result<(), AppError> {
+    tokio::task::spawn_blocking(move || {
+        // `--prune` removes remote-tracking refs that no longer exist upstream;
+        // we don't fetch a specific remote so all configured remotes are pruned.
+        let _ = run_git(&["fetch", "--prune", "--quiet"], Some(&cwd));
+        Ok(())
+    }).await.map_err(|e| AppError::Io(e.to_string()))?
+}
+
 #[command]
 pub async fn git_branch_list_all(cwd: String) -> Result<Vec<GitBranchInfo>, AppError> {
     tokio::task::spawn_blocking(move || {
@@ -787,16 +801,46 @@ fn strip_diff_headers(output: &str) -> String {
     }
 }
 
+/// Diff a new (untracked) file against the empty tree so its full content shows
+/// as additions. `git diff --no-index` exits non-zero when the files differ (the
+/// normal case for a new file), so we capture stdout regardless of exit code.
+fn run_git_diff_noindex(cwd: &str, path: &str) -> Result<String, AppError> {
+    let mut cmd = Command::new("git");
+    cmd.args(["diff", "--no-index", "--", "/dev/null", path]);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+    cmd.current_dir(cwd);
+    let output = cmd
+        .output()
+        .map_err(|e| AppError::Io(e.to_string()))?;
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
 #[command]
 pub async fn git_diff_unstaged(cwd: String, path: Option<String>) -> Result<String, AppError> {
     tokio::task::spawn_blocking(move || {
-        let mut args: Vec<String> = vec!["diff".into()];
-        if let Some(p) = path {
-            args.push("--".into());
-            args.push(p);
-        }
-        let arg_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-        let raw = run_git_strict(&arg_refs, Some(&cwd))?;
+        let raw = match path {
+            Some(p) => {
+                // Untracked (new) files produce no output from `git diff`, so compare
+                // them against the empty file to render the full content as additions.
+                let is_untracked = run_git(
+                    &["ls-files", "--others", "--exclude-standard", "--", &p],
+                    Some(&cwd),
+                )
+                .map(|out| out.lines().any(|l| l.trim() == p))
+                .unwrap_or(false);
+
+                if is_untracked {
+                    run_git_diff_noindex(&cwd, &p)
+                } else {
+                    run_git_strict(&["diff", "--", &p], Some(&cwd))
+                }
+            }
+            None => run_git_strict(&["diff"], Some(&cwd)),
+        }?;
         Ok(strip_diff_headers(&raw))
     }).await.map_err(|e| AppError::Io(e.to_string()))?
 }

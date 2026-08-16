@@ -250,6 +250,7 @@ pub fn run() {
             aurora_commands::git_remote_list,
             aurora_commands::git_exec,
             aurora_commands::git_branch_list_all,
+            aurora_commands::git_fetch_prune,
             aurora_commands::git_is_repo,
             aurora_commands::agent_plan_step,
             aurora_commands::agent_approve_tool,

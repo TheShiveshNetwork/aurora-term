@@ -95,7 +95,7 @@ export function ChangesDiffView({ files, cwd, onClose, onOpenFile }: ChangesDiff
       {/* Header */}
       <div
         className="flex items-center justify-between px-3 py-2 shrink-0 border-b gap-1"
-        style={{ borderColor: "rgba(255,255,255,0.05)", minHeight: 28 }}
+        style={{ borderColor: "var(--color-outline-variant)", minHeight: 28 }}
       >
         <span className="text-[11px] truncate" style={{ color: "rgba(232,234,240,0.5)" }}>
           Changes
@@ -114,7 +114,7 @@ export function ChangesDiffView({ files, cwd, onClose, onOpenFile }: ChangesDiff
           const isExpanded = expanded[file.path];
 
           return (
-            <div key={file.path} className="border-b" style={{ borderColor: "rgba(255,255,255,0.04)" }}>
+            <div key={file.path} className="border-b" style={{ borderColor: "var(--color-outline-variant)" }}>
               {/* Collapse header */}
               <div
                 className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-white/[0.03] transition-colors"
@@ -162,7 +162,7 @@ export function ChangesDiffView({ files, cwd, onClose, onOpenFile }: ChangesDiff
 
               {/* Diff content (collapsible) */}
               {isExpanded && entry && (
-                <div className="border-t" style={{ borderColor: "rgba(255,255,255,0.04)" }}>
+                <div className="border-t" style={{ borderColor: "var(--color-outline-variant)" }}>
                   {entry.loading ? (
                     <div className="flex items-center justify-center py-4">
                       <LoadingSpinner size={12} inline className="opacity-40" />
@@ -193,7 +193,7 @@ export function ChangesDiffView({ files, cwd, onClose, onOpenFile }: ChangesDiff
       {Object.keys(entries).length > 0 && (
         <div
           className="shrink-0 px-3 py-2 border-t text-[10px]"
-          style={{ borderColor: "rgba(255,255,255,0.05)", color: "rgba(232,234,240,0.3)" }}
+          style={{ borderColor: "var(--color-outline-variant)", color: "rgba(232,234,240,0.3)" }}
         >
           {files.length} file{files.length !== 1 ? "s" : ""} changed
           {totalAdded > 0 && <span className="ml-1" style={{ color: "rgba(80,227,194,0.6)" }}>+{totalAdded}</span>}

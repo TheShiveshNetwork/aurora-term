@@ -547,6 +547,8 @@ export const system = {
     invoke<GitBranchInfo[]>("git_branch_list", { cwd }),
   gitBranchListAll: (cwd: string) =>
     invoke<GitBranchInfo[]>("git_branch_list_all", { cwd }),
+  gitFetchPrune: (cwd: string) =>
+    invoke<void>("git_fetch_prune", { cwd }),
   gitDiffUnstaged: (cwd: string, path?: string) =>
     invoke<string>("git_diff_unstaged", { cwd, path }),
   gitDiffStaged: (cwd: string, path?: string) =>
