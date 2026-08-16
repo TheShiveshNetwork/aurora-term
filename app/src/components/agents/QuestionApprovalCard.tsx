@@ -35,7 +35,7 @@ export function QuestionApprovalCard({
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2 shrink-0 border-b border-white/[0.04]">
         <HelpCircle size={12} className="text-blue-400/90 shrink-0" />
-        <span className="text-[11px] font-bold tracking-wider text-blue-400/90 uppercase">
+        <span className="text-[11px] font-bold tracking-wider text-blue-400/90">
           Clarifying Question
         </span>
       </div>

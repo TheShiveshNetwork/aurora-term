@@ -10,6 +10,7 @@ import { closeAllPopups } from "../lib/popups";
 import { useAppShellStore } from "../stores/useAppShellStore";
 import { useSessionStore } from "../stores/useSessionStore";
 import { useSettingsStore } from "../stores/useSettingsStore";
+import { KEYBINDING_IDS } from "../lib/keybindings";
 import { useAIStore } from "../stores/useAIStore";
 import { ProviderName, Tab, TabType } from "@aurora/types";
 
@@ -39,8 +40,7 @@ export function applyAppConfig(cfg: AppConfig) {
   settings.setShowMinimap(cfg.editor.show_minimap);
   settings.setGitGuiMode(cfg.editor.git_gui_mode as "tab" | "window");
   settings.setWordWrap(cfg.editor.word_wrap !== false);
-  settings.setAiCodeCompletion(cfg.editor.ai_code_completion !== false);
-  settings.setAiSuggestions(cfg.editor.ai_suggestions !== false);
+  settings.setAiLiveSuggestions(cfg.editor.ai_live_suggestions !== false);
   settings.setIndentMarkers(cfg.editor.indent_markers !== false);
 
   // Cloud sync + update notifications
@@ -54,13 +54,13 @@ export function applyAppConfig(cfg: AppConfig) {
   if (cfg.keybindings.mode === "vim") {
     // Only set non-default overrides
     if (cfg.keybindings.open_palette !== "ctrl+p")
-      overrides["command-palette"] = cfg.keybindings.open_palette;
+      overrides[KEYBINDING_IDS.commandPalette] = cfg.keybindings.open_palette;
     if (cfg.keybindings.open_ai_bar !== "ctrl+k")
-      overrides["toggle-ai-bar"] = cfg.keybindings.open_ai_bar;
+      overrides[KEYBINDING_IDS.toggleAiBar] = cfg.keybindings.open_ai_bar;
     if (cfg.keybindings.new_tab !== "ctrl+t")
-      overrides["new-tab"] = cfg.keybindings.new_tab;
+      overrides[KEYBINDING_IDS.newTerminalTab] = cfg.keybindings.new_tab;
     if (cfg.keybindings.close_tab !== "ctrl+w")
-      overrides["close-tab"] = cfg.keybindings.close_tab;
+      overrides[KEYBINDING_IDS.closeTab] = cfg.keybindings.close_tab;
     if (cfg.keybindings.split_h !== "ctrl+shift+d")
       overrides["split-horizontal"] = cfg.keybindings.split_h;
     if (cfg.keybindings.split_v !== "ctrl+shift+e")

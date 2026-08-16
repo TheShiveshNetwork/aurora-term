@@ -1,6 +1,7 @@
 import { Agent } from '@mastra/core/agent';
 import { Memory } from '@mastra/memory';
 import { InMemoryStore } from '@mastra/core/storage';
+import { auraResponseValidator } from '../processors/auraResponseValidator';
 import {
   readFileTool,
   listDirTool,
@@ -248,6 +249,19 @@ CONVERSATION:
 - For greetings or simple questions, respond conversationally without
   running any commands.
 
+RESPONSE FORMAT:
+- Respond with EXACTLY one JSON object and nothing else (no surrounding prose,
+  no markdown code fences).
+- While working, respond with:
+  {"status":"executing","command":"<shell command>","explanation":"<brief why>","planning":"<1 sentence on how you are approaching the query before this command>"}
+- When the goal is fully accomplished, respond with:
+  {"status":"completed","planning":"<1-2 sentence thinking about how you approached the query>","conclusion":"<1-2 sentence reflection such as 'I now have everything and will write the response'>","message":"<the complete answer for the user, formatted in markdown>"}
+- \`planning\` is your thinking about the query — it is streamed live into the UI's
+  planning step of the chain of thought. \`conclusion\` is your closing reflection —
+  streamed live into the UI's conclusion step. \`message\` holds the actual answer
+  and is the ONLY text rendered as your response. Never put the answer inside
+  \`planning\` or \`conclusion\`, and never put your thinking inside \`message\`.
+
 TOOL CALLING:
 - Always use the structured tool-calling interface provided by the system.
 - NEVER output raw function call syntax like <function=name> or <tool_call> tags.
@@ -286,6 +300,7 @@ SELECTED LINES:
     ask_user: askUserTool,
     history_search: historySearchTool,
   },
+  outputProcessors: [auraResponseValidator],
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -321,6 +336,17 @@ RESEARCH APPROACH:
 - Before planning, fully map the relevant parts of the codebase.
 - Cross-reference types, imports, and call sites so the plan is complete.
 - Prefer deep understanding over fast answers.
+
+RESPONSE FORMAT:
+- Respond with EXACTLY one JSON object and nothing else (no surrounding prose,
+  no markdown code fences).
+- When the plan is ready, respond with:
+  {"status":"completed","planning":"<1-2 sentence thinking about how you explored the codebase and the approach you formed>","conclusion":"<1-2 sentence reflection such as 'I now have a complete approach and will write the plan'>","message":"<the full plan, formatted in markdown>"}
+- \`planning\` is your thinking about the exploration — streamed live into the UI's
+  planning step. \`conclusion\` is your closing reflection — streamed live into the
+  UI's conclusion step. \`message\` holds the actual plan and is the ONLY text
+  rendered as your response. Never put the plan inside \`planning\` or
+  \`conclusion\`.
 `),
   model: getModelProvider('groq', 'llama-3.3-70b-versatile', 'powerful'),
   memory: auraMemory,
@@ -338,6 +364,7 @@ RESEARCH APPROACH:
     // ⚠️ No shell tool — intentional. Shell execution is blocked by omission.
     // ⚠️ No write_file, no patch_file — read-only contract enforced here.
   },
+  outputProcessors: [auraResponseValidator],
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -392,6 +419,18 @@ SELECTED LINES:
   exact lines shown there in the editor. Treat that selection as the scope of the
   request — inspect those lines first, and target edits to those specific lines
   only unless the user's goal clearly requires changing adjacent code.
+
+RESPONSE FORMAT:
+- Always respond with EXACTLY one JSON object and nothing outside it.
+  - While working, respond with:
+    {"status":"executing","command":"<shell command>","explanation":"<brief why>","planning":"<1 sentence on how you are approaching the task before this command>"}
+  - When the goal is fully accomplished, respond with:
+    {"status":"completed","planning":"<1-2 sentence thinking about how you approached the task>","conclusion":"<1-2 sentence reflection such as 'I now have everything I need and will write the response'>","message":"<the complete answer for the user, formatted in markdown>"}
+  - \`planning\` is your thinking about the task - streamed live into the UI's
+    planning step of the chain of thought. \`conclusion\` is a short transitional thought that is streamed live into the UI's
+  conclusion step of the chain of thought. \`message\` holds the actual answer.
+  Never put the answer inside \`conclusion\`, and never put the reflection inside
+  \`message\`.
 `),
   model: getModelProvider('groq', 'llama-3.3-70b-versatile', 'powerful'),
   memory: auraMemory,
@@ -412,6 +451,7 @@ SELECTED LINES:
     web_fetch: webFetchTool,
     ask_user: askUserTool,
   },
+  outputProcessors: [auraResponseValidator],
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

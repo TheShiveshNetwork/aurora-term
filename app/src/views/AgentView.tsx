@@ -109,7 +109,6 @@ export function AgentView() {
     skipPending,
     submitAnswer,
     chainNodes,
-    thinking,
     stepCount,
     maxSteps,
     activeSubagent,
@@ -492,7 +491,6 @@ export function AgentView() {
                           isThinking={isLastTurn && isThinking}
                           isLastTurn={isLastTurn}
                           chainNodes={turn.assistant?.chainNodes || (isLastTurn ? chainNodes : [])}
-                          thinking={isLastTurn ? thinking : undefined}
                           durationSecs={0}
                           stepCount={isLastTurn ? stepCount : 0}
                           maxSteps={isLastTurn ? maxSteps : 0}

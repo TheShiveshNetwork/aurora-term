@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { v4 as uuidv4 } from "uuid";
+import { notifyNative } from "../lib/osNotify";
 
 const ERROR_VARIANTS = ["Io", "Pty", "Ai", "Db", "Config", "Sidecar"] as const;
 
@@ -98,6 +99,11 @@ export const useNotificationStore = create<NotificationStore>((set) => ({
     }
 
     set((s) => ({ notifications: [...s.notifications, { id, title, message: text, type, duration }] }));
+
+    // Raise an OS-level (Tauri) notification alongside the in-app toast so the
+    // user always gets the alert, even when the app window is not focused.
+    void notifyNative({ title, body: text });
+
     if (duration > 0) {
       setTimeout(() => {
         set((s) => ({ notifications: s.notifications.filter((n) => n.id !== id) }));

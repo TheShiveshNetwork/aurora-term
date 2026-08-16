@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Check, Copy, ThumbsUp, ThumbsDown, ChevronRight, Undo2, RotateCw } from "lucide-react";
 import type { ChatMessage, ChainNode } from "../../stores/useAgentStore";
+import { formatDuration } from "../../lib/utils";
 import { Markdown } from "../prompt-kit/markdown";
 import {
   MessageContent,
@@ -85,7 +86,7 @@ export function UserMessage({ content, className, overlay, onCopy, onRevert }: U
   if (overlay) {
     return (
       <div className={`w-full max-w-[200px] self-end group ${className ?? ""}`}>
-        <div className="relative rounded-[14px] px-4 py-3 text-[13px] font-medium leading-relaxed select-text bg-[#0D1117] text-on-surface border border-white/[0.06]">
+        <div className="relative rounded-[14px] px-4 py-3 text-[13px] font-medium leading-relaxed select-text bg-[#1A2230] text-on-surface border border-white/[0.08]">
           {content}
           <div className="absolute bottom-1.5 right-1.5 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
             {onCopy && (
@@ -115,7 +116,7 @@ export function UserMessage({ content, className, overlay, onCopy, onRevert }: U
   return (
     <div className={`flex flex-col items-end max-w-[70%] min-w-0 group ${className ?? ""}`}>
       <div className="relative w-full">
-        <MessageContent className="w-full min-w-0 bg-[#0D1117] text-on-surface border border-white/[0.06] rounded-2xl px-4 py-3 text-[14px] leading-relaxed break-words">
+        <MessageContent className="w-full min-w-0 bg-[#1A2230] text-on-surface border border-white/[0.08] rounded-2xl px-4 py-3 text-[14px] leading-relaxed break-words">
           {content}
         </MessageContent>
         <div className="absolute bottom-1.5 right-1.5 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -187,7 +188,7 @@ export function AgentResponseMessage({
         <MessageActions className="w-full flex items-center justify-end gap-3 text-on-surface-variant/40 px-1">
           {msg.durationMs !== undefined && msg.durationMs > 0 && (
             <span className="text-[10px] text-on-surface-variant/30">
-              Worked for {Math.round(msg.durationMs / 1000)}s
+              Worked for {formatDuration(msg.durationMs)}
             </span>
           )}
           {onCopy && (
@@ -234,7 +235,6 @@ export interface AgentTurnMessageProps {
   isThinking: boolean;
   isLastTurn: boolean;
   chainNodes: ChainNode[];
-  thinking?: string;
   durationSecs: number;
   stepCount: number;
   maxSteps: number;
@@ -253,7 +253,6 @@ export function AgentTurnMessage({
   isThinking,
   isLastTurn,
   chainNodes,
-  thinking = "",
   durationSecs,
   stepCount,
   maxSteps,
@@ -273,9 +272,9 @@ export function AgentTurnMessage({
 
   const hasDetails = isThinking || chainNodes.length > 0 || (assistantMsg?.durationMs !== undefined && assistantMsg.durationMs > 0);
   const durationMs = assistantMsg?.durationMs;
-  const durationLabel = durationMs !== undefined && durationMs > 0
-    ? Math.round(durationMs / 1000)
-    : durationSecs;
+  // Use the stored turn duration (ms) when available; otherwise the live timer
+  // value (seconds) so an in-progress or chat turn still shows a real elapsed time.
+  const durMs = durationMs !== undefined && durationMs > 0 ? durationMs : durationSecs * 1000;
 
   const isOverlay = variant === "overlay";
 
@@ -321,7 +320,7 @@ export function AgentTurnMessage({
                   </div>
                 ) : (
                   <span className="font-medium text-on-surface-variant/70">
-                    Worked for {durationLabel}s
+                    Worked for {formatDuration(durMs)}
                   </span>
                 )}
               </div>
@@ -334,14 +333,9 @@ export function AgentTurnMessage({
             </div>
 
             {/* Collapsible chain of thought */}
-            {(detailsOpen && chainNodes.length > 0) || (detailsOpen && isThinking && thinking) ? (
+            {(detailsOpen && chainNodes.length > 0) ? (
               <div className="py-2 space-y-3 border-l border-outline-variant/15 ml-3 text-[11px] text-on-surface-variant/80 leading-normal animate-fadeIn">
-                {isThinking && thinking && (
-                  <div className="whitespace-pre-wrap break-words text-[11px] leading-relaxed text-on-surface-variant/70 select-text max-h-56 overflow-y-auto pr-1">
-                    {thinking.trim()}
-                  </div>
-                )}
-                {chainNodes.length > 0 && <AgentChainOfThought nodes={chainNodes} />}
+                <AgentChainOfThought nodes={chainNodes} />
               </div>
             ) : null}
           </div>

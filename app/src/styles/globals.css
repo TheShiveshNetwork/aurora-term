@@ -205,12 +205,6 @@ body {
 .has-tabs-scrollbar {
   overflow-x: auto !important;
   overflow-y: hidden !important;
-  scroll-snap-type: x mandatory;
-  scroll-behavior: smooth;
-}
-
-.has-tabs-scrollbar .safari-tab {
-  scroll-snap-align: start;
 }
 
 /* Hard reset default scroll bounds for targeted layout structures */
@@ -678,6 +672,13 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 4px;
   padding: 0.15em 0.35em;
+}
+
+/* Strip Tailwind Typography's default backtick pseudo-elements so inline code
+   renders as a styled single-line code span without literal ` characters. */
+.prose :where(code):not(:where([class~="not-prose"], [class~="not-prose"] *))::before,
+.prose :where(code):not(:where([class~="not-prose"], [class~="not-prose"] *))::after {
+  content: none;
 }
 
 .prose :where(.contains-task-list):not(:where([class~="not-prose"], [class~="not-prose"] *)) {

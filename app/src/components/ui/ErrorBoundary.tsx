@@ -1,61 +1,51 @@
-import React, { Component, ErrorInfo, ReactNode } from "react";
-import { AlertCircle, RotateCw } from "lucide-react";
+import React from "react";
+import { notifyError } from "../../lib/notify";
 
 interface Props {
-  children: ReactNode;
-  fallback?: ReactNode;
+  children: React.ReactNode;
 }
 
 interface State {
   hasError: boolean;
-  error: Error | null;
+  message: string;
 }
 
-export class ErrorBoundary extends Component<Props, State> {
-  public state: State = {
-    hasError: false,
-    error: null,
-  };
-
-  public static getDerivedStateFromError(error: Error): State {
-    return { hasError: true, error };
+export class ErrorBoundary extends React.Component<Props, State> {
+  constructor(props: Props) {
+    super(props);
+    this.state = { hasError: false, message: "" };
   }
 
-  public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error("ErrorBoundary caught an error:", error, errorInfo);
+  static getDerivedStateFromError(error: unknown): State {
+    const message = error instanceof Error ? error.message : String(error);
+    return { hasError: true, message };
   }
 
-  private handleReset = () => {
-    this.setState({ hasError: false, error: null });
-  };
+  componentDidCatch(error: unknown) {
+    notifyError(error instanceof Error ? error : String(error));
+  }
 
-  public render() {
+  render() {
     if (this.state.hasError) {
-      if (this.props.fallback) {
-        return this.props.fallback;
-      }
       return (
-        <div className="p-4 m-4 rounded-xl border border-red-500/20 bg-red-500/10 text-red-300 flex flex-col gap-3">
-          <div className="flex items-center gap-2 font-semibold text-xs text-red-400">
-            <AlertCircle size={14} />
-            <span>Component Error Occurred</span>
+        <div className="flex h-full w-full items-center justify-center bg-surface p-8">
+          <div className="max-w-md rounded-xl border border-red-500/40 bg-surface-container-high p-6 text-center">
+            <p className="text-sm font-semibold text-on-surface">
+              Something went wrong
+            </p>
+            <p className="mt-2 whitespace-pre-wrap break-words text-[12px] leading-snug text-on-surface-variant">
+              {this.state.message || "An unexpected error occurred."}
+            </p>
+            <button
+              onClick={() => this.setState({ hasError: false, message: "" })}
+              className="mt-4 rounded-lg border border-outline bg-surface-container px-3 py-1.5 text-[12px] text-on-surface transition-colors hover:bg-white/[0.06]"
+            >
+              Dismiss
+            </button>
           </div>
-          <p className="text-xs font-mono break-all opacity-80">
-            {this.state.error?.message || "An unexpected error occurred in the UI."}
-          </p>
-          <button
-            onClick={this.handleReset}
-            className="self-start flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-red-500/20 hover:bg-red-500/30 text-white transition-colors cursor-pointer"
-          >
-            <RotateCw size={12} />
-            Retry Component
-          </button>
         </div>
       );
     }
-
     return this.props.children;
   }
 }
-
-export default ErrorBoundary;

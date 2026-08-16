@@ -19,13 +19,15 @@ interface CommandInputBarProps {
   sessionId: string | null;
   cwd: string;
   isLoading: boolean;
-  isRunning: boolean;
+  isCommandRunning: boolean;
+  isAiRunning: boolean;
   value: string;
   history: string[];
   hideCwdBreadcrumb?: boolean;
   onChange: (value: string | ((previous: string) => string)) => void;
-  onSubmit: (event: SubmitEvent<HTMLFormElement>, attachedFiles: AttachedFile[]) => void;
-  onStop?: () => void;
+  onSubmit: (event: SubmitEvent<HTMLFormElement>, attachedFiles: AttachedFile[], forceAi?: boolean) => void;
+  onStopCommand?: () => void;
+  onStopAi?: () => void;
   onOpenAiBar?: () => void;
   variant?: Variant;
   inputMode?: InputMode;
@@ -35,13 +37,15 @@ export function CommandInputBar({
   sessionId,
   cwd,
   isLoading,
-  isRunning,
+  isCommandRunning,
+  isAiRunning,
   value,
   history,
   hideCwdBreadcrumb = false,
   onChange,
   onSubmit,
-  onStop,
+  onStopCommand,
+  onStopAi,
   onOpenAiBar,
   variant = "command",
   inputMode = "unknown",
@@ -72,9 +76,14 @@ export function CommandInputBar({
     }
   };
 
-  const handleFormSubmit = (e: SubmitEvent<HTMLFormElement>) => {
+  const handleFormSubmit = (e: SubmitEvent<HTMLFormElement>, forceAi = false) => {
     e.preventDefault();
-    onSubmit(e, attachedFiles);
+    // While the AI is producing a response the send button becomes a stop
+    // button — pressing Enter must behave the same way and not submit either.
+    // (A plain terminal command running does NOT block submission: it routes
+    // to AI instead, never to the shell.)
+    if (isAiRunning) return;
+    onSubmit(e, attachedFiles, forceAi);
     setAttachedFiles([]);
   };
 
@@ -161,48 +170,47 @@ export function CommandInputBar({
             inputMode={inputMode}
           />
           <div className="flex items-center gap-1.5 pr-3 py-3 self-end">
-            {isRunning ? (
+            <IconButton onClick={handleAttachFile} title="Attach File">
+              <Plus size={14} />
+            </IconButton>
+            <IconButton
+              onClick={toggleListening}
+              title={isListening ? "Listening... Click to stop" : "Voice Input"}
+              active={isListening}
+            >
+              {!isListening ?
+                <Mic size={14} />
+                : <X size={14} />}
+            </IconButton>
+            {/* Red stop — only while a command is executing on the terminal.
+                Stops the command itself, independent of any AI run. */}
+            {isCommandRunning && !isPrompt && (
               <button
-                onClick={onStop}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold rounded-[10px] transition-all cursor-pointer"
-                style={{
-                  background: "rgba(255,107,107,0.08)",
-                  border: "1px solid rgba(255,107,107,0.20)",
-                  color: "#FF6B6B",
-                }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,107,107,0.14)")}
-                onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,107,107,0.08)")}
-                title="Stop Command (Ctrl+C)"
+                type="button"
+                onClick={() => onStopCommand?.()}
+                title="Stop Command"
+                className="flex items-center justify-center w-8 h-8 bg-red-500/70 border-none rounded-sm cursor-pointer shrink-0 transition-all duration-150 hover:bg-red-500/90"
               >
-                <Square size={10} />
-                Stop
+                <Square size={14} className="text-white" />
               </button>
-            ) : (
-              <>
-                <IconButton onClick={handleAttachFile} title="Attach File">
-                  <Plus size={14} />
-                </IconButton>
-                <IconButton
-                  onClick={toggleListening}
-                  title={isListening ? "Listening... Click to stop" : "Voice Input"}
-                  active={isListening}
-                >
-                  {!isListening ?
-                    <Mic size={14} />
-                    : <X size={14} />}
-                </IconButton>
-                {isPrompt && (
-                  <button
-                    onClick={(e) => handleFormSubmit(e as any)}
-                    disabled={!value.trim() && attachedFiles.length === 0}
-                    className="flex items-center justify-center w-8 h-8 bg-[#4553d4] border-none rounded-sm cursor-pointer shrink-0 transition-all duration-150 hover:bg-[#5f6df0] disabled:opacity-50 disabled:cursor-not-allowed"
-                    title="Send Prompt"
-                  >
-                    <ArrowUp size={14} className="text-white" />
-                  </button>
-                )}
-              </>
             )}
+            <button
+              onClick={(e) => {
+                if (isAiRunning) {
+                  e.preventDefault();
+                  onStopAi?.();
+                  return;
+                }
+                handleFormSubmit(e as any, !isPrompt);
+              }}
+              disabled={!isAiRunning && !value.trim() && attachedFiles.length === 0}
+              className="flex items-center justify-center w-8 h-8 bg-[#4553d4] border-none rounded-sm cursor-pointer shrink-0 transition-all duration-150 hover:bg-[#5f6df0] disabled:opacity-50 disabled:cursor-not-allowed"
+              title={isAiRunning ? "Stop AI Response" : isPrompt ? "Send Prompt" : "Send to AI"}
+            >
+              {isAiRunning
+                ? <Square size={14} className="text-white" />
+                : <ArrowUp size={14} className="text-white" />}
+            </button>
           </div>
         </div>
       </div>

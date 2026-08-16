@@ -56,10 +56,6 @@ export function GhostInput({
   const slashMenuRef = useRef<SlashMenuHandle>(null);
   const textMetricsClass = "font-code-base text-sm font-normal leading-[22px]";
 
-  const runningBlockId = useBlockStore((s) => (sessionId ? s.runningBlockId[sessionId] : null));
-  const sessionBusy = useSessionStore((s) => (sessionId ? s.sessionBusy[sessionId] : false));
-  const isTerminalRunning = !!runningBlockId || sessionBusy;
-
   useEffect(() => {
     const handleFocus = (e: Event) => {
       const detail = (e as CustomEvent).detail;
@@ -259,14 +255,9 @@ export function GhostInput({
   }, []);
 
   const handleFormSubmit = useCallback((e: React.SubmitEvent<HTMLFormElement>) => {
-    if (isTerminalRunning) {
-      e.preventDefault();
-      pty.write(sessionId!, "\r").catch(console.error);
-      return;
-    }
     reset();
     onSubmit(e);
-  }, [reset, onSubmit, isTerminalRunning, sessionId]);
+  }, [reset, onSubmit]);
 
   return (
     <form onSubmit={handleFormSubmit} className={`ghost-input flex items-start ${className}`} onClick={handleWrapperClick}>
@@ -286,15 +277,14 @@ export function GhostInput({
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
           onBlur={() => slashMenuRef.current?.close()}
-          disabled={isTerminalRunning}
-          placeholder={isTerminalRunning ? "Command running — type directly in the terminal" : placeholder}
+          placeholder={placeholder}
           autoComplete="off"
           autoCorrect="off"
           autoCapitalize="off"
           spellCheck={false}
           rows={1}
           wrap="soft"
-          className={`aurora-ta w-full bg-transparent border-none focus:ring-0 mt-4 pb-1 px-5 placeholder:text-outline/80 outline-none text-on-surface relative z-10 resize-none overflow-x-hidden whitespace-pre-wrap break-words disabled:opacity-50 disabled:cursor-not-allowed ${textMetricsClass} ${inputClassName}`}
+          className={`aurora-ta w-full bg-transparent border-none focus:ring-0 mt-4 pb-1 px-5 placeholder:text-outline/80 outline-none text-on-surface relative z-10 resize-none overflow-x-hidden whitespace-pre-wrap break-words ${textMetricsClass} ${inputClassName}`}
           style={{ caretColor: "var(--color-primary)", maxHeight: `${TA_MAX_HEIGHT}px` }}
         />
 

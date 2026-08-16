@@ -1,4 +1,5 @@
-import { DEFAULT_KEYBINDINGS, useSettingsStore } from "../../stores/useSettingsStore";
+import { DEFAULT_KEYBINDINGS, getEffectiveKeybinding } from "../keybindings";
+import { useSettingsStore } from "../../stores/useSettingsStore";
 
 export interface KeyLike {
   key: string;
@@ -8,21 +9,12 @@ export interface KeyLike {
   metaKey: boolean;
 }
 
-// CSI-u modifier encoding (kitty keyboard protocol):
-//   1=none, 2=shift, 3=alt, 4=shift+alt, 5=ctrl, 6=ctrl+shift, 7=ctrl+alt, 8=ctrl+shift+alt
-function encodeEnterModifier(e: KeyLike): number {
-  let mod = 1;
-  if (e.shiftKey) mod += 1;
-  if (e.altKey) mod += 2;
-  if (e.ctrlKey || e.metaKey) mod += 4;
-  return mod;
-}
-
-// Modified Enter is disambiguated for TUIs (e.g. opencode reads \x1b[13;2u for
-// Shift+Enter and \x1b[13;5u for Ctrl+Enter). Plain Enter stays \r for shells.
+// Enter sent to the PTY, matching xterm's own default (evaluateKeyboardEvent):
+// plain \r regardless of Shift/Ctrl/Meta; only Alt+Enter is ESC-prefixed.
+// Modified Enter is deliberately NOT disambiguated via CSI-u — alternate-screen
+// apps like opencode expect a single newline for Shift+Enter/Ctrl+Enter.
 export function enterToPtyData(e: KeyLike): string {
-  const mod = encodeEnterModifier(e);
-  return mod === 1 ? "\r" : `\x1b[13;${mod}u`;
+  return e.altKey ? "\x1b\r" : "\r";
 }
 
 export function mapKeyToPtyData(e: KeyLike): string | null {
@@ -102,7 +94,7 @@ export function isGlobalAppShortcut(e: KeyLike): boolean {
   const overrides = useSettingsStore.getState().keybindingOverrides;
   return DEFAULT_KEYBINDINGS.some((kb) => {
     if (kb.when !== "Global") return false;
-    const bindingKeys = overrides[kb.id] || kb.keys;
+    const bindingKeys = getEffectiveKeybinding(kb.id, overrides);
     return normalizeKeyCombination(bindingKeys) === pressed;
   });
 }

@@ -42,7 +42,6 @@ import { DiffWorkspaceView } from "../components/editor/DiffWorkspaceView";
 import { CommitDiffView } from "../components/editor/CommitDiffView";
 import { GitView } from "../components/git/GitView";
 import { MergeWorkspaceView } from "./MergeWorkspaceView";
-import { NotificationContainer } from "../components/ui/NotificationContainer";
 
 export function AppShellView() {
   const { tabs, activeTabId, spawnSession, killSession, openFile, setActiveTabId } = useAppBootstrap();
@@ -153,7 +152,7 @@ export function AppShellView() {
     targetSessionId,
   } = useCommandExecution(tabs, activeTabId);
 
-  const { startTask } = useAgentExecution(activeTabId);
+  const { startTask, stopAgentRun } = useAgentExecution(activeTabId);
 
   const agentStatus = useAgentStore((state) =>
     activeTabId ? (state.sessions[activeTabId]?.status ?? "idle") : "idle"
@@ -161,24 +160,16 @@ export function AppShellView() {
   const isAiRunning = agentStatus === "planning" || agentStatus === "executing" || agentStatus === "paused";
   const isRunning = isCommandRunning || isAiRunning;
 
-  const handleStop = useCallback(() => {
-    if (isCommandRunning) {
-      handleStopCurrentCommand();
-    }
-    if (isAiRunning && activeTabId) {
-      const store = useAgentStore.getState();
-      store.setPendingToolCall(activeTabId, null);
-      store.setCurrentCommandIndex(activeTabId, -1);
-      store.failTask(activeTabId, "Cancelled by user");
-      const snap = store.sessions[activeTabId];
-      store.addChatMessage(activeTabId, {
-        role: "assistant",
-        content: "Task cancelled by user.",
-        chainNodes: snap?.chainNodes ?? [],
-        agentType: snap?.agentType,
-      });
-    }
-  }, [isCommandRunning, isAiRunning, activeTabId, handleStopCurrentCommand]);
+  // Red stop — stops the terminal command only.
+  const handleStopCommand = useCallback(() => {
+    handleStopCurrentCommand();
+  }, [handleStopCurrentCommand]);
+
+  // Blue stop — stops the AI response/task, interrupting any running tool call,
+  // but never kills the terminal session (that is the red button's job).
+  const handleStopAi = useCallback(() => {
+    stopAgentRun();
+  }, [stopAgentRun]);
 
   // Command history for the input bar: this session's executed blocks (chronological)
   // merged with the shell's history. Dedupe keeping the most recent occurrence and
@@ -218,17 +209,29 @@ export function AppShellView() {
     event: SubmitEvent<HTMLFormElement>,
     defaultSubmit: (e: SubmitEvent<HTMLFormElement>, commandOverride?: string) => void,
     isFilePrompt = false,
-    attachedFiles: AttachedFile[] = []
+    attachedFiles: AttachedFile[] = [],
+    forceAi = false
   ) => {
     event.preventDefault();
+
+    const agentStatus = activeTabId
+      ? (useAgentStore.getState().sessions[activeTabId]?.status ?? "idle")
+      : "idle";
+
+    // While the AI model is producing a response (or awaiting approval), no
+    // commands can be sent to the agent OR the terminal. The input stays
+    // typable; the blue send button shows the loading indicator and is
+    // disabled. This matches the send button's disabled state exactly so Enter
+    // can never submit while the button is disabled.
+    if (agentStatus === "planning" || agentStatus === "paused") {
+      return;
+    }
+
     const input = activeCommandInput.trim();
     if (!input && attachedFiles.length === 0) return;
 
     // Slash-command dispatch (/skills /mcp /btw /file) takes priority over
     // NL/command classification.
-    const agentStatus = activeTabId
-      ? (useAgentStore.getState().sessions[activeTabId]?.status ?? "idle")
-      : "idle";
     const slash = await resolveSlashCommand(input, {
       cwd: cwdAbsolute,
       sessionId: activeTabId,
@@ -253,8 +256,9 @@ export function AppShellView() {
 
     // Explicit prefix overrides take priority over the classifier
     const hasExplicitNL = input.startsWith("? ") || input.startsWith("/ai ");
-    // Route to agent if explicitly prefixed, or if classified as natural language
-    const isNlQuery = hasExplicitNL || isFilePrompt || (inputMode === "natural-language");
+    // The blue send button always routes to AI. While a terminal command is
+    // running, submitting also routes to AI directly — never to the shell.
+    const isNlQuery = forceAi || hasExplicitNL || isFilePrompt || isCommandRunning || (inputMode === "natural-language");
 
     if (isNlQuery) {
       const cleanGoal = hasExplicitNL
@@ -595,6 +599,7 @@ export function AppShellView() {
         onOpenFolder={handleOpenFolder}
         onOpenFile={handleOpenFile}
         onOpenRecentFile={handleOpenRecentFile}
+        onOpenCommandPalette={() => { closeAllPopups(); window.dispatchEvent(new CustomEvent("focus-search-bar")); }}
         onNewWindow={handleNewWindow}
         onNewTab={handleNewTab}
         onCloseSession={handleCloseSession}
@@ -799,31 +804,37 @@ export function AppShellView() {
                   sessionId={targetSessionId}
                   cwd={inputCwdLabel}
                   isLoading={isCwdLoading}
-                  isRunning={isRunning}
+                  isCommandRunning={isCommandRunning}
+                  isAiRunning={isAiRunning}
                   value={activeCommandInput}
                   history={commandHistory}
                   hideCwdBreadcrumb={false}
                   onChange={setCommandInput}
-                  onSubmit={(e, files) => handleInterceptedSubmit(e, handleExecuteCommand, false, files)}
-                  onStop={handleStop}
+                  onSubmit={(e, files, forceAi) => handleInterceptedSubmit(e, handleExecuteCommand, false, files, !!forceAi)}
+                  onStopCommand={handleStopCommand}
+                  onStopAi={handleStopAi}
                   onOpenAiBar={() => setShowAiBar(true)}
                   inputMode={inputMode}
                 />
               )}
 
-              {/* File view: prompt variant — AI-only, no classifier */}
+              {/* File view: prompt variant — AI-only, no classifier. No terminal
+                  commands show here (they run in the background), so only the
+                  blue AI-stop is ever visible. */}
               {fileChatInputOpen && activeTab?.type === "file" && (
                 <CommandInputBar
                   variant="prompt"
                   sessionId={null}
                   cwd={inputCwdLabel}
                   isLoading={false}
-                  isRunning={false}
+                  isCommandRunning={false}
+                  isAiRunning={isAiRunning}
                   value={activeCommandInput}
                   history={[]}
                   onChange={setCommandInput}
                   onSubmit={(e, files) => handleInterceptedSubmit(e, handleFileCommandSubmit, true, files)}
-                  onStop={handleStop}
+                  onStopCommand={handleStopCommand}
+                  onStopAi={handleStopAi}
                   onOpenAiBar={() => setShowAiBar(true)}
                 />
               )}
@@ -958,16 +969,9 @@ export function AppShellView() {
           window.dispatchEvent(new CustomEvent("file-run", { detail: { tabId: activeTabId, filePath: contextMenu?.filePath } }));
           clearContextMenu();
         }}
-        onAiImprovement={() => {
-          if (activeTabId) {
-            window.dispatchEvent(new CustomEvent("file-ai-improvement", { detail: { tabId: activeTabId } }));
-          }
-          clearContextMenu();
-        }}
       />
 
       <StatusBar noFolder={tabs.length === 0} />
-      <NotificationContainer />
     </div>
   );
 }

@@ -12,7 +12,7 @@ import { buildXtermTheme } from "../../lib/xtermTheme";
 import { getRowHeight } from "../../lib/terminal/blockAnchors";
 
 import { stripAnsi, cleanPtyData } from "../../lib/terminal/cleanup";
-import { mapKeyToPtyData, isGlobalAppShortcut, enterToPtyData } from "../../lib/terminal/keymap";
+import { mapKeyToPtyData, isGlobalAppShortcut } from "../../lib/terminal/keymap";
 import { pty, system } from "../../lib/ipc";
 import { SquareTerminal } from "lucide-react";
 import { getDefaultShellLaunch } from "../../lib/shell";
@@ -223,6 +223,18 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
       // alternate buffer transitions happen for TUI subprocesses (less, vim, spinners) that
       // may be nested inside a still-running parent command.
       if (!active) {
+        // Some TUIs (opencode, vim, less) enable mouse tracking modes
+        // (DECSET 1000/1002/1003/1004/1006) on entering the alternate buffer but
+        // never send the DECRST resets on exit. If they remain enabled, xterm
+        // keeps intercepting wheel/click/drag — scrollback won't scroll, text
+        // selection stays disabled, and right-click is forwarded to the PTY.
+        // Force-reset the modes so the primary buffer behaves normally again.
+        try {
+          termRef.current?.write("\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1004l\x1b[?1006l");
+        } catch {
+          // ignore write errors; the next buffer transition re-attempts
+        }
+
         requestAnimationFrame(() => {
           if (isDisposed) return;
           window.dispatchEvent(
@@ -249,19 +261,6 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
       cursorWidth: 1,
       theme: buildXtermTheme(),
       disableStdin: true, // Decoupled input
-      attachCustomKeyEventHandler: (event: KeyboardEvent) => {
-        // xterm's evaluateKeyboardEvent collapses Ctrl+Enter into the same \r
-        // byte as plain Enter (only Alt+Enter differs), so alternate-screen
-        // apps (less, vim, htop) can't distinguish it. Emit a distinct CSI-u
-        // sequence (key 13 = Enter, modifier 5 = Ctrl) instead so they can.
-        if (event.type === "keydown" && event.ctrlKey && event.key === "Enter") {
-          if (useSessionStore.getState().alternateBufferActive[sessionId]) {
-            pty.write(sessionId, "\x1b[13;5u").catch(console.error);
-            return false;
-          }
-        }
-        return true;
-      },
     });
 
     termRef.current = term;
@@ -287,25 +286,6 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
     term.loadAddon(search);
     term.loadAddon(weblinks);
     term.open(xtermRef.current);
-
-    // Intercept modified Enter (Shift/Ctrl/Alt+Enter) before xterm collapses it
-    // to \r. TUI apps like opencode need the disambiguated CSI-u sequence
-    // (\x1b[13;2u etc.) to distinguish Shift+Enter from Enter.
-    term.attachCustomKeyEventHandler((e: globalThis.KeyboardEvent) => {
-      if (e.key !== "Enter") return true;
-      const hasMod = e.shiftKey || e.ctrlKey || e.altKey || e.metaKey;
-      if (!hasMod) return true;
-
-      const canForward =
-        useSessionStore.getState().sessionBusy[sessionId] ||
-        useBlockStore.getState().runningBlockId[sessionId] ||
-        useSessionStore.getState().alternateBufferActive[sessionId];
-
-      if (canForward) {
-        pty.write(sessionId, enterToPtyData(e)).catch(console.error);
-      }
-      return false;
-    });
 
     // Load WebGL addon for GPU hardware-accelerated rendering if visible
     if (isVisibleRef.current) {

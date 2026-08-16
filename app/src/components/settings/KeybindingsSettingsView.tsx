@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, useContext } from "react";
 import { SettingsContext, SectionTitle } from "./SettingsShared";
 import { Pencil, RotateCw, Search, X } from "lucide-react";
-import { DEFAULT_KEYBINDINGS, KeybindingDef } from "../../stores/useSettingsStore";
+import { DEFAULT_KEYBINDINGS, getEffectiveKeybinding, type KeybindingDef } from "../../lib/keybindings";
 import { Button } from "../ui/Button";
 import { Modal } from "../ui/Modal";
 
@@ -75,7 +75,7 @@ export default function KeybindingsSettingsView() {
     const q = debouncedSearch.toLowerCase();
     if (!q) return DEFAULT_KEYBINDINGS;
     return DEFAULT_KEYBINDINGS.filter((kb) => {
-      const keys = keybindingOverrides[kb.id] || kb.keys;
+      const keys = getEffectiveKeybinding(kb.id, keybindingOverrides);
       return (
         kb.command.toLowerCase().includes(q) ||
         keys.toLowerCase().includes(q) ||
@@ -85,7 +85,7 @@ export default function KeybindingsSettingsView() {
   }, [debouncedSearch, keybindingOverrides]);
 
   const getKeys = useCallback(
-    (kb: KeybindingDef) => keybindingOverrides[kb.id] || kb.keys,
+    (kb: KeybindingDef) => getEffectiveKeybinding(kb.id, keybindingOverrides),
     [keybindingOverrides],
   );
 

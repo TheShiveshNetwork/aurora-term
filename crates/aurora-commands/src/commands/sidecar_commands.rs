@@ -47,6 +47,9 @@ pub struct AgentApproveRequest {
     pub resume_data: Option<serde_json::Value>,
     #[serde(rename = "sessionId")]
     pub session_id: Option<String>,
+    #[serde(rename = "toolName", alias = "tool_name")]
+    pub tool_name: Option<String>,
+    pub args: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -73,21 +76,6 @@ pub struct AgentChatRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AgentChatResponse {
     pub status: String,
-    pub message: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct AiEditCodeRequest {
-    pub prompt: String,
-    pub code_before: String,
-    pub code_after: String,
-    pub selection: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct AiEditCodeResponse {
-    pub status: String,
-    pub code: Option<String>,
     pub message: Option<String>,
 }
 
@@ -235,6 +223,37 @@ pub async fn agent_plan_step(
     Ok(response_data)
 }
 
+/// Asks the aurora-agent sidecar to abort the in-flight generation (LLM step or
+/// tool resume) for a thread. Used by the frontend "stop AI run" action so a
+/// running tool call and the agent's generation halt immediately. This only
+/// signals the sidecar — it never touches any terminal session.
+#[command]
+pub async fn agent_stop_run(
+    state: State<'_, AppState>,
+    thread_id: String,
+) -> Result<(), AppError> {
+    let port = {
+        let sidecar = state.sidecar.lock().await;
+        sidecar
+            .port()
+            .ok_or_else(|| AppError::Sidecar("aurora-agent is not running".to_string()))?
+    };
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|e| AppError::Sidecar(format!("Failed to create HTTP client: {}", e)))?;
+    let url = format!("http://127.0.0.1:{}/api/run/stop", port);
+
+    let _ = client
+        .post(&url)
+        .json(&serde_json::json!({ "thread_id": thread_id }))
+        .send()
+        .await;
+
+    Ok(())
+}
+
 #[command]
 pub async fn agent_approve_tool(
     state: State<'_, AppState>,
@@ -244,6 +263,8 @@ pub async fn agent_approve_tool(
     tool_call_id: Option<String>,
     resume_data: Option<serde_json::Value>,
     session_id: Option<String>,
+    tool_name: Option<String>,
+    args: Option<serde_json::Value>,
 ) -> Result<AgentStepResponse, AppError> {
     let port = {
         let sidecar = state.sidecar.lock().await;
@@ -263,6 +284,8 @@ pub async fn agent_approve_tool(
         tool_call_id,
         resume_data,
         session_id,
+        tool_name,
+        args,
     };
 
     let response = client.post(&url)
@@ -593,49 +616,6 @@ pub async fn agent_file_context(
     }
 
     let response_data = response.json::<AgentFileContextResponse>()
-        .await
-        .map_err(|e| AppError::Sidecar(format!("Failed to parse aurora-agent response: {}", e)))?;
-
-    Ok(response_data)
-}
-
-#[command]
-pub async fn ai_edit_code(
-    state: State<'_, AppState>,
-    prompt: String,
-    code_before: String,
-    code_after: String,
-    selection: String,
-) -> Result<AiEditCodeResponse, AppError> {
-    let port = {
-        let sidecar = state.sidecar.lock().await;
-        sidecar.port().ok_or_else(|| AppError::Sidecar("aurora-agent is not running".to_string()))?
-    };
-
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(130))
-        .build()
-        .map_err(|e| AppError::Sidecar(format!("Failed to create HTTP client: {}", e)))?;
-    let url = format!("http://127.0.0.1:{}/api/edit-code", port);
-
-    let request_payload = AiEditCodeRequest {
-        prompt,
-        code_before,
-        code_after,
-        selection,
-    };
-
-    let response = client.post(&url)
-        .json(&request_payload)
-        .send()
-        .await
-        .map_err(|e| AppError::Sidecar(format!("Failed to contact aurora-agent: {}", e)))?;
-
-    if !response.status().is_success() {
-        return Err(AppError::Sidecar(format!("aurora-agent API returned error status: {}", response.status())));
-    }
-
-    let response_data = response.json::<AiEditCodeResponse>()
         .await
         .map_err(|e| AppError::Sidecar(format!("Failed to parse aurora-agent response: {}", e)))?;
 

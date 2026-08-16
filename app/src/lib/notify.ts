@@ -1,38 +1,28 @@
-import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification"
-import { useNotificationStore } from "../stores/useToastStore"
+import { useNotificationStore } from "../stores/useToastStore";
+import { notifyNative } from "./osNotify";
 
-let permissionGranted: boolean | null = null
+type NotificationType = "error" | "info" | "success";
 
-async function ensurePermission(): Promise<boolean> {
-  if (permissionGranted !== null) return permissionGranted
-  try {
-    let granted = await isPermissionGranted()
-    if (!granted) {
-      const result = await requestPermission()
-      granted = result === "granted"
-    }
-    permissionGranted = granted
-    return granted
-  } catch {
-    return false
-  }
+export { notifyNative };
+
+/**
+ * Central entry point for surfacing errors/notifications in the app.
+ * Always shows an in-app toast; the store also raises a Tauri OS notification
+ * for every entry so the user gets the OS-level alert alongside the toast.
+ */
+export function notify(
+  message: unknown,
+  type: NotificationType = "error",
+  duration?: number
+): string {
+  return useNotificationStore
+    .getState()
+    .addNotification(message, type, duration);
 }
 
-export async function showError(message: unknown, duration?: number) {
-  useNotificationStore.getState().addNotification(message, "error", duration)
-  try {
-    if (document.hidden && (await ensurePermission())) {
-      sendNotification({ title: "Aurora", body: useNotificationStore.getState().notifications.slice(-1)[0]?.message ?? "Error" })
-    }
-  } catch (e) {
-    console.error("Failed to send OS notification:", e)
-  }
-}
-
-export async function showInfo(message: unknown, duration?: number) {
-  useNotificationStore.getState().addNotification(message, "info", duration)
-}
-
-export async function showSuccess(message: unknown, duration?: number) {
-  useNotificationStore.getState().addNotification(message, "success", duration)
-}
+export const notifyError = (m: unknown, duration?: number) =>
+  notify(m, "error", duration);
+export const notifyInfo = (m: unknown, duration?: number) =>
+  notify(m, "info", duration);
+export const notifySuccess = (m: unknown, duration?: number) =>
+  notify(m, "success", duration);

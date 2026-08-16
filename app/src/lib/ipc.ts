@@ -58,8 +58,7 @@ export interface EditorConfig {
   show_minimap: boolean;
   git_gui_mode: string;
   word_wrap: boolean;
-  ai_code_completion: boolean;
-  ai_suggestions: boolean;
+  ai_live_suggestions: boolean;
   indent_markers: boolean;
 }
 
@@ -126,14 +125,6 @@ export const ai = {
 
   fetchModels: (provider: ProviderName) =>
     invoke<ModelInfo[]>("ai_fetch_models", { provider }),
-
-  editCode: (prompt: string, codeBefore: string, codeAfter: string, selection: string) =>
-    invoke<{ status: string; code?: string; message?: string }>("ai_edit_code", {
-      prompt,
-      codeBefore,
-      codeAfter,
-      selection,
-    }),
 
   inlineComplete: (contextBefore: string, language: string) =>
     invoke<{ status: string; completion?: string }>("ai_inline_complete", {
@@ -430,7 +421,9 @@ export const system = {
     runId: string,
     toolCallId: string | undefined,
     resumeData?: any,
-    sessionId?: string
+    sessionId?: string,
+    toolName?: string,
+    args?: any
   ) =>
     invoke<AgentStepResult>("agent_approve_tool", {
       agentType,
@@ -439,6 +432,8 @@ export const system = {
       toolCallId,
       resumeData,
       sessionId,
+      toolName,
+      args,
     }),
   agentDeclineTool: (
     agentType: string | undefined,
@@ -457,7 +452,9 @@ export const system = {
   agentGetLogs: () =>
     invoke<{ status: string; logs: Array<{ timestamp: number; type: string; content: string }> }>("agent_get_logs"),
   agentGetThinking: (thread: string) =>
-    invoke<{ status: string; thinking: string }>("agent_get_thinking", { thread }),
+    invoke<{ status: string; thinking: string; planning: string; conclusion: string }>("agent_get_thinking", { thread }),
+  agentStopRun: (threadId: string) =>
+    invoke<void>("agent_stop_run", { threadId }),
   agentChat: (
     message: string,
     sessionId?: string,
@@ -550,6 +547,8 @@ export const system = {
     invoke<GitBranchInfo[]>("git_branch_list", { cwd }),
   gitBranchListAll: (cwd: string) =>
     invoke<GitBranchInfo[]>("git_branch_list_all", { cwd }),
+  gitFetchPrune: (cwd: string) =>
+    invoke<void>("git_fetch_prune", { cwd }),
   gitDiffUnstaged: (cwd: string, path?: string) =>
     invoke<string>("git_diff_unstaged", { cwd, path }),
   gitDiffStaged: (cwd: string, path?: string) =>

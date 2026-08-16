@@ -3,7 +3,8 @@ import { useSessionStore } from "../stores/useSessionStore";
 import { useAppShellStore } from "../stores/useAppShellStore";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { openSettingsWindow } from "../lib/settings";
-import { useSettingsStore, DEFAULT_KEYBINDINGS } from "../stores/useSettingsStore";
+import { useSettingsStore } from "../stores/useSettingsStore";
+import { DEFAULT_KEYBINDINGS, getEffectiveKeybinding } from "../lib/keybindings";
 import { usePTY } from "./usePTY";
 import { getDefaultShellLaunch } from "../lib/shell";
 import { system } from "../lib/ipc";
@@ -64,7 +65,7 @@ export function useKeybindings() {
 
       // Find matched keybinding
       const matched = DEFAULT_KEYBINDINGS.find((kb) => {
-        const bindingKeys = keybindingOverrides[kb.id] || kb.keys;
+        const bindingKeys = getEffectiveKeybinding(kb.id, keybindingOverrides);
         const normalizedBinding = normalizeKeyCombination(bindingKeys);
         if (normalizedBinding !== pressed) return false;
 
@@ -243,12 +244,6 @@ export function useKeybindings() {
 
         case "voice-input":
           window.dispatchEvent(new CustomEvent("voice-input-toggle"));
-          break;
-
-        case "ai-suggestions":
-          if (activeTabId) {
-            window.dispatchEvent(new CustomEvent("file-ai-improvement", { detail: { tabId: activeTabId } }));
-          }
           break;
       }
     };
