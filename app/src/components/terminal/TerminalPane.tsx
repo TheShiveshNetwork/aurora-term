@@ -12,7 +12,7 @@ import { buildXtermTheme } from "../../lib/xtermTheme";
 import { getRowHeight } from "../../lib/terminal/blockAnchors";
 
 import { stripAnsi, cleanPtyData } from "../../lib/terminal/cleanup";
-import { mapKeyToPtyData, isGlobalAppShortcut } from "../../lib/terminal/keymap";
+import { mapKeyToPtyData, isGlobalAppShortcut, KbMode } from "../../lib/terminal/keymap";
 import { pty, system } from "../../lib/ipc";
 import { SquareTerminal } from "lucide-react";
 import { getDefaultShellLaunch } from "../../lib/shell";
@@ -70,6 +70,9 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const webglAddonRef = useRef<WebglAddon | null>(null);
+  // Keyboard enhancement protocol negotiated by the TUI (set from a DEC private
+  // mode it emits at startup). Drives how modified Enter is encoded.
+  const kbModeRef = useRef<KbMode>("legacy");
 
   const isVisibleRef = useRef(isVisible);
   useEffect(() => {
@@ -305,6 +308,38 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
         console.warn(`[TerminalPane ${sessionId}] WebGL addon failed to load, falling back to standard canvas renderer:`, err);
       }
     }
+
+    // Observe the keyboard enhancement protocol the TUI negotiates so modified
+    // keys (Ctrl/Shift/Alt/Meta+Enter) are encoded in the format the app
+    // expects. We only READ these DEC private modes and return false so xterm
+    // still processes them itself (alt-screen switch, cursor visibility, etc.).
+    //   DEC 1036  -> modifyOtherKeys  -> CSI-u   (fixterms / libtermkey)
+    //   DEC 9001  -> kitty keyboard protocol    -> CSI <... u
+    const kbModeHandlerH = term.parser.registerCsiHandler(
+      { prefix: "?", final: "h" },
+      (params: (number | number[])[]) => {
+        for (let i = 0; i < params.length; i++) {
+          const p = params[i];
+          if (typeof p === "number") {
+            if (p === 1036) kbModeRef.current = "csi-u";
+            else if (p === 9001) kbModeRef.current = "kitty";
+          }
+        }
+        return false;
+      },
+    );
+    const kbModeHandlerL = term.parser.registerCsiHandler(
+      { prefix: "?", final: "l" },
+      (params: (number | number[])[]) => {
+        for (let i = 0; i < params.length; i++) {
+          const p = params[i];
+          if (typeof p === "number" && (p === 1036 || p === 9001)) {
+            kbModeRef.current = "legacy";
+          }
+        }
+        return false;
+      },
+    );
 
     // Connect xterm onData to PTY write for interactive sub-processes
     const dataDisposable = term.onData((data) => {
@@ -591,6 +626,8 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
       window.removeEventListener("terminal-copy", handleTerminalCopy);
       dataDisposable.dispose();
       bufferDisposable.dispose();
+      kbModeHandlerH.dispose();
+      kbModeHandlerL.dispose();
       cancelAnimationFrame(frameId);
       if (resizeTimeoutRef.current) {
         clearTimeout(resizeTimeoutRef.current);
@@ -663,18 +700,29 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
     }
   }, [isCommandRunning, isAlternateActive]);
 
-  // ── When a command is running, route keystrokes to the PTY directly so
-  //    interactive prompts work even if focus is not on the xterm textarea
-  //    (e.g. focus is on the disabled input bar area or the app chrome).
+  // ── When a command is running OR a TUI owns the alternate screen, route
+  //    keystrokes to the PTY so interactive programs (and full-screen TUIs like
+  //    opencode/neovim) receive them even if focus drifted to the app chrome.
   useEffect(() => {
-    if (!isCommandRunning || !isVisible) return;
+    if ((!isCommandRunning && !isAlternateActive) || !isVisible) return;
 
-    const handleGlobalKeyDown = (e: globalThis.KeyboardEvent) => {
-      const activeEl = document.activeElement;
-      if (!activeEl) return;
-      if (activeEl.classList.contains("xterm-helper-textarea")) return;
-      if (activeEl.closest(".cm-editor")) return;
-      const el = activeEl as HTMLElement;
+      const handleGlobalKeyDown = (e: globalThis.KeyboardEvent) => {
+        const activeEl = document.activeElement;
+        if (!activeEl) return;
+        const isXterm = activeEl.classList.contains("xterm-helper-textarea");
+        const isEnterModified =
+          e.key === "Enter" && (e.ctrlKey || e.shiftKey || e.altKey || e.metaKey);
+        // Normally let xterm.js own keyboard input entirely so it produces the
+        // correct, capability-negotiated sequences (IME, arrows, Ctrl+letters,
+        // etc.). xterm.js 5.x has no modifyOtherKeys/CSI-u support, so it
+        // collapses Ctrl/Shift/Alt/Meta+Enter into a bare \r. Intercept only
+        // modified Enter and emit it in the protocol the TUI negotiated (CSI-u
+        // or kitty); leave every other key to xterm's native handling. This is
+        // generic (driven by the TUI's own negotiation) and not tied to any
+        // specific app.
+        if (isXterm && !isEnterModified) return;
+        if (activeEl.closest(".cm-editor")) return;
+        const el = activeEl as HTMLElement;
       if (el.isContentEditable) return;
       const tag = el.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || tag === "BUTTON" || tag === "A") return;
@@ -699,7 +747,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
         return;
       }
 
-      const data = mapKeyToPtyData(e);
+      const data = mapKeyToPtyData(e, kbModeRef.current);
       if (data) {
         e.preventDefault();
         e.stopPropagation();
@@ -710,7 +758,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
 
     window.addEventListener("keydown", handleGlobalKeyDown, true);
     return () => window.removeEventListener("keydown", handleGlobalKeyDown, true);
-  }, [isCommandRunning, isVisible, sessionId]);
+  }, [isCommandRunning, isAlternateActive, isVisible, sessionId]);
 
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();

@@ -9,16 +9,49 @@ export interface KeyLike {
   metaKey: boolean;
 }
 
-// Enter sent to the PTY, matching xterm's own default (evaluateKeyboardEvent):
-// plain \r regardless of Shift/Ctrl/Meta; only Alt+Enter is ESC-prefixed.
-// Modified Enter is deliberately NOT disambiguated via CSI-u — alternate-screen
-// apps like opencode expect a single newline for Shift+Enter/Ctrl+Enter.
-export function enterToPtyData(e: KeyLike): string {
-  return e.altKey ? "\x1b\r" : "\r";
+// Keyboard enhancement protocol the TUI negotiated. "legacy" means none was
+// requested, so a distinguishable modified key cannot be emitted (matches
+// xterm.js, which collapses modified Enter to \r).
+export type KbMode = "legacy" | "csi-u" | "kitty";
+
+// CSI-u (fixterms / libtermkey / modifyOtherKeys DEC 1036). Modifier param is
+// 1 + sum of Shift(1) + Alt(2) + Ctrl(4) + Meta(8).
+function csiU(base: number, e: KeyLike): string {
+  let modifiers = 0;
+  if (e.shiftKey) modifiers += 1;
+  if (e.altKey) modifiers += 2;
+  if (e.ctrlKey) modifiers += 4;
+  if (e.metaKey) modifiers += 8;
+  return `\x1b[${base};${modifiers + 1}u`;
 }
 
-export function mapKeyToPtyData(e: KeyLike): string | null {
-  if (e.key === "Enter") return enterToPtyData(e);
+// Kitty keyboard protocol (DEC 9001). Same modifier bits but WITHOUT the +1 and
+// prefixed with `<`.
+function kitty(base: number, e: KeyLike): string {
+  let modifiers = 0;
+  if (e.shiftKey) modifiers += 1;
+  if (e.altKey) modifiers += 2;
+  if (e.ctrlKey) modifiers += 4;
+  if (e.metaKey) modifiers += 8;
+  return `\x1b[<${base};${modifiers}u`;
+}
+
+// Encode Enter for the PTY. Unmodified Enter is always a bare \r. Modified Enter
+// is encoded in whatever keyboard protocol the TUI negotiated so the app (vim,
+// opencode/crossterm, neovim, etc.) receives a distinguishable key — a bare \r
+// would make Ctrl/Shift/Alt/Meta+Enter behave identically and appear "not
+// working". In legacy mode (no negotiation) we cannot distinguish and fall
+// back to \r, matching xterm.js behavior.
+export function modifiedEnterToPtyData(e: KeyLike, mode: KbMode): string {
+  if (e.key !== "Enter") return "\r";
+  if (!e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) return "\r";
+  if (mode === "kitty") return kitty(13, e);
+  if (mode === "csi-u") return csiU(13, e);
+  return "\r";
+}
+
+export function mapKeyToPtyData(e: KeyLike, kbMode: KbMode = "legacy"): string | null {
+  if (e.key === "Enter") return modifiedEnterToPtyData(e, kbMode);
   if (e.key === "Backspace") return "\x7f";
   if (e.key === "Tab") return "\t";
   if (e.key === "Escape") return "\x1b";
