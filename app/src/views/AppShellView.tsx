@@ -161,24 +161,26 @@ export function AppShellView() {
   const isAiRunning = agentStatus === "planning" || agentStatus === "executing" || agentStatus === "paused";
   const isRunning = isCommandRunning || isAiRunning;
 
-  const handleStop = useCallback(() => {
-    if (isCommandRunning) {
-      handleStopCurrentCommand();
-    }
-    if (isAiRunning && activeTabId) {
-      const store = useAgentStore.getState();
-      store.setPendingToolCall(activeTabId, null);
-      store.setCurrentCommandIndex(activeTabId, -1);
-      store.failTask(activeTabId, "Cancelled by user");
-      const snap = store.sessions[activeTabId];
-      store.addChatMessage(activeTabId, {
-        role: "assistant",
-        content: "Task cancelled by user.",
-        chainNodes: snap?.chainNodes ?? [],
-        agentType: snap?.agentType,
-      });
-    }
-  }, [isCommandRunning, isAiRunning, activeTabId, handleStopCurrentCommand]);
+  // Red stop — stops the terminal command only.
+  const handleStopCommand = useCallback(() => {
+    handleStopCurrentCommand();
+  }, [handleStopCurrentCommand]);
+
+  // Blue stop — stops the AI response/task only.
+  const handleStopAi = useCallback(() => {
+    if (!activeTabId) return;
+    const store = useAgentStore.getState();
+    store.setPendingToolCall(activeTabId, null);
+    store.setCurrentCommandIndex(activeTabId, -1);
+    store.failTask(activeTabId, "Cancelled by user");
+    const snap = store.sessions[activeTabId];
+    store.addChatMessage(activeTabId, {
+      role: "assistant",
+      content: "Task cancelled by user.",
+      chainNodes: snap?.chainNodes ?? [],
+      agentType: snap?.agentType,
+    });
+  }, [activeTabId]);
 
   // Command history for the input bar: this session's executed blocks (chronological)
   // merged with the shell's history. Dedupe keeping the most recent occurrence and
@@ -813,31 +815,37 @@ export function AppShellView() {
                   sessionId={targetSessionId}
                   cwd={inputCwdLabel}
                   isLoading={isCwdLoading}
-                  isRunning={isRunning}
+                  isCommandRunning={isCommandRunning}
+                  isAiRunning={isAiRunning}
                   value={activeCommandInput}
                   history={commandHistory}
                   hideCwdBreadcrumb={false}
                   onChange={setCommandInput}
                   onSubmit={(e, files, forceAi) => handleInterceptedSubmit(e, handleExecuteCommand, false, files, !!forceAi)}
-                  onStop={handleStop}
+                  onStopCommand={handleStopCommand}
+                  onStopAi={handleStopAi}
                   onOpenAiBar={() => setShowAiBar(true)}
                   inputMode={inputMode}
                 />
               )}
 
-              {/* File view: prompt variant — AI-only, no classifier */}
+              {/* File view: prompt variant — AI-only, no classifier. No terminal
+                  commands show here (they run in the background), so only the
+                  blue AI-stop is ever visible. */}
               {fileChatInputOpen && activeTab?.type === "file" && (
                 <CommandInputBar
                   variant="prompt"
                   sessionId={null}
                   cwd={inputCwdLabel}
                   isLoading={false}
-                  isRunning={isRunning}
+                  isCommandRunning={false}
+                  isAiRunning={isAiRunning}
                   value={activeCommandInput}
                   history={[]}
                   onChange={setCommandInput}
                   onSubmit={(e, files) => handleInterceptedSubmit(e, handleFileCommandSubmit, true, files)}
-                  onStop={handleStop}
+                  onStopCommand={handleStopCommand}
+                  onStopAi={handleStopAi}
                   onOpenAiBar={() => setShowAiBar(true)}
                 />
               )}

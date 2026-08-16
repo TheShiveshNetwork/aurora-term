@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { formatTauriError } from "../lib/utils";
+import { notifyError } from "../lib/notify";
 
 
 export interface ChatMessage {
@@ -40,6 +41,7 @@ export interface ChainNode {
   command?: string;
   subagent?: string;
   durationMs?: number;
+  content?: string;
 }
 
 export interface SessionAgentState {
@@ -54,6 +56,8 @@ export interface SessionAgentState {
   agentLogs: AgentLog[];
   chainNodes: ChainNode[];
   thinking: string;
+  planningThinking: string;
+  conclusionThinking: string;
   lastMessage: string | null;
   activeSubagent: string | null;
   chatHistory: ChatMessage[];
@@ -95,6 +99,7 @@ export interface SessionAgentState {
   model?: string;
   isAgentViewSession?: boolean;
   title?: string;
+  startedAt?: number;
 }
 
 export const CONST_DEFAULT_SESSION_STATE: SessionAgentState = {
@@ -104,11 +109,13 @@ export const CONST_DEFAULT_SESSION_STATE: SessionAgentState = {
   queue: [],
   currentCommandIndex: -1,
   stepCount: 0,
-  maxSteps: 10,
+  maxSteps: 15,
   logs: [],
   agentLogs: [],
   chainNodes: [],
   thinking: "",
+  planningThinking: "",
+  conclusionThinking: "",
   lastMessage: null,
   activeSubagent: null,
   chatHistory: [],
@@ -120,6 +127,7 @@ export const CONST_DEFAULT_SESSION_STATE: SessionAgentState = {
   artifactsCreated: [],
   browserSessions: [],
   pendingToolCall: null,
+  startedAt: undefined,
 };
 
 export const defaultSessionState = (): SessionAgentState => ({
@@ -153,6 +161,8 @@ interface AgentStore {
   addAgentLog: (sessionId: string, type: AgentLog["type"], content: string, subagent?: string) => void;
   setAgentLogs: (sessionId: string, logs: AgentLog[]) => void;
   setThinking: (sessionId: string, thinking: string) => void;
+  setPlanningThinking: (sessionId: string, thinking: string) => void;
+  streamConclusion: (sessionId: string, text: string) => void;
 
   addChainNode: (sessionId: string, node: Omit<ChainNode, "id">) => string;
   updateChainNode: (sessionId: string, id: string, updates: Partial<ChainNode>) => void;
@@ -178,26 +188,84 @@ interface AgentStore {
 }
 
 // ── sanitizeMessage ───────────────────────────────────────────────────────
-// When working memory is active the LLM occasionally wraps its completion
-// text in a JSON object (e.g. {"status":"completed","message":"..."}).
-// This strips the outer envelope so only the human-readable text is stored.
-function sanitizeMessage(raw: unknown): string {
+// The agent is expected to emit a validated envelope:
+//   {"status":"...","planning":"...","conclusion":"...","message":"..."}
+// This guarantees only the human-readable `message` (rich Markdown) is stored/
+// rendered, even when the model emits a malformed, truncated, fenced, or
+// double-wrapped envelope. The raw envelope must NEVER reach the Markdown view.
+export function sanitizeMessage(raw: unknown): string {
   const str = typeof raw === "string" ? raw : String(raw);
-  // Fast-path: not JSON-ish
   const trimmed = str.trim();
   if (!trimmed.startsWith("{")) return str;
+
+  // 1) Strict JSON parse — a well-formed envelope renders ONLY its `message`.
   try {
     const parsed = JSON.parse(trimmed);
-    if (parsed && typeof parsed === "object") {
-      // Prefer the `message` field; fall back to whole object stringified
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
       if (typeof parsed.message === "string" && parsed.message.trim()) {
-        return sanitizeMessage(parsed.message); // recurse — handle double-wrapping
+        return sanitizeMessage(parsed.message); // recurse — handles double-wrapping
+      }
+      if (typeof parsed.content === "string" && parsed.content.trim()) {
+        return sanitizeMessage(parsed.content);
+      }
+      // It is a structured envelope but carries no renderable text — e.g. an
+      // intermediate `executing`/tool step leaked into the response, or the
+      // final answer is malformed. Never paint raw JSON: surface a clear error.
+      if (typeof parsed.status === "string") {
+        return "⚠️ The agent returned an incomplete or malformed response (missing message content).";
       }
     }
   } catch {
-    // Not valid JSON — return as-is
+    // not valid JSON — fall through to lenient extraction
   }
-  return str;
+
+  // 2) Lenient: pull the `message` (or `content`) field out of malformed JSON
+  const msg = extractJsonField(trimmed, "message") ?? extractJsonField(trimmed, "content");
+  if (msg && msg.trim()) return msg;
+
+  // 3) It looked like JSON but is not a parseable, message-bearing envelope.
+  //    Never render the raw JSON to the user — show a safe, readable error.
+  return "⚠️ The agent returned a malformed response that could not be parsed.";
+}
+
+/**
+ * Extract a string field value from JSON even when the JSON is malformed or
+ * truncated (e.g. an envelope cut off mid-stream). Walks the source from the
+ * field name, skips to the opening quote, then captures the value handling
+ * escapes and unescaped inner quotes, stopping at the quote that terminates
+ * the field (the one followed by `,` or `}`).
+ */
+function extractJsonField(src: string, field: string): string | null {
+  const idx = src.indexOf(`"${field}"`);
+  if (idx === -1) return null;
+  const colon = src.indexOf(":", idx);
+  if (colon === -1) return null;
+  let q = colon + 1;
+  while (q < src.length && (src[q] === " " || src[q] === "\t" || src[q] === "\n" || src[q] === "\r")) q++;
+  if (src[q] !== '"') return null;
+  q++; // past the opening quote
+  let out = "";
+  let i = q;
+  while (i < src.length) {
+    const c = src[i];
+    if (c === "\\") {
+      out += c + (src[i + 1] ?? "");
+      i += 2;
+      continue;
+    }
+    if (c === '"') {
+      // closing quote — accept it only if it terminates the field
+      let j = i + 1;
+      while (j < src.length && (src[j] === " " || src[j] === "\t" || src[j] === "\n" || src[j] === "\r")) j++;
+      if (src[j] === "," || src[j] === "}" || j >= src.length) break;
+      out += c; // unescaped inner quote — keep it
+      i++;
+      continue;
+    }
+    out += c;
+    i++;
+  }
+  return out;
 }
 
 function genId() {
@@ -269,14 +337,18 @@ export const useAgentStore = create<AgentStore>((set) => ({
       currentCommandIndex: -1,
       stepCount: 0,
       logs: [],
+      planningThinking: "",
+      conclusionThinking: "",
+      startedAt: Date.now(),
       agentLogs: [{ timestamp: Date.now(), type: "plan", content: `Starting task: ${goal}` }],
       chainNodes: [
         {
           id: genId(),
           type: "planning",
           label: "Planning",
-          subLabel: goal.length > 40 ? goal.slice(0, 40) + "…" : goal,
+          subLabel: "",
           status: "active",
+          content: "",
         },
       ],
       lastMessage: null,
@@ -293,22 +365,40 @@ export const useAgentStore = create<AgentStore>((set) => ({
       // Guard: if the LLM leaked a raw JSON object as the message string,
       // extract just the human-readable `message` field from it.
       const cleanMsg = sanitizeMessage(message);
+      const conclusionText = prev.conclusionThinking || cleanMsg;
+      const baseNodes = prev.chainNodes.map((n) =>
+        n.status === "active" ? { ...n, status: "done" as const } : n
+      );
+      // Reuse the live "Conclusion" node created by streamConclusion during the
+      // final step, or append one when the completion arrives without streaming.
+      const existing = baseNodes.find((n) => n.type === "complete");
+      const chainNodes = existing
+        ? baseNodes.map((n) =>
+            n.id === existing.id
+              ? {
+                  ...n,
+                  status: "done" as const,
+                  content: conclusionText,
+                  subLabel: cleanMsg.length > 50 ? cleanMsg.slice(0, 50) + "\u2026" : cleanMsg,
+                }
+              : n
+          )
+        : [
+            ...baseNodes,
+            {
+              id: genId(),
+              type: "complete" as const,
+              label: "Conclusion",
+              subLabel: cleanMsg.length > 50 ? cleanMsg.slice(0, 50) + "\u2026" : cleanMsg,
+              content: conclusionText,
+              status: "done" as const,
+            },
+          ];
       return {
         status: "completed",
         lastMessage: cleanMsg,
         activeSubagent: null,
-        chainNodes: [
-          ...prev.chainNodes.map((n) =>
-            n.status === "active" ? { ...n, status: "done" as const } : n
-          ),
-          {
-            id: genId(),
-            type: "complete" as const,
-            label: "Completed",
-            subLabel: cleanMsg.length > 50 ? cleanMsg.slice(0, 50) + "\u2026" : cleanMsg,
-            status: "done" as const,
-          },
-        ],
+        chainNodes,
         agentLogs: [
           ...prev.agentLogs,
           { timestamp: Date.now(), type: "complete" as const, content: cleanMsg },
@@ -320,6 +410,7 @@ export const useAgentStore = create<AgentStore>((set) => ({
     updateSession(set, sessionId, (prev) => {
       const raw = formatTauriError(error);
       const msg = sanitizeMessage(raw);
+      notifyError(msg);
       return {
         status: "error",
         lastMessage: msg,
@@ -389,6 +480,34 @@ export const useAgentStore = create<AgentStore>((set) => ({
   setThinking: (sessionId, thinking) =>
     updateSession(set, sessionId, { thinking }),
 
+  setPlanningThinking: (sessionId, thinking) =>
+    updateSession(set, sessionId, { planningThinking: thinking }),
+
+  streamConclusion: (sessionId, text) =>
+    updateSession(set, sessionId, (prev) => {
+      // Atomically stream the conclusion text into a single live "Conclusion"
+      // chain node. The find-and-add happens inside one update so concurrent
+      // polls can never create duplicate conclusion nodes.
+      const existing = prev.chainNodes.find((n) => n.type === "complete");
+      const chainNodes = existing
+        ? prev.chainNodes.map((n) =>
+            n.id === existing.id
+              ? { ...n, content: text, status: n.status === "done" ? ("done" as const) : ("active" as const) }
+              : n
+          )
+        : [
+            ...prev.chainNodes,
+            {
+              id: genId(),
+              type: "complete" as const,
+              label: "Conclusion",
+              status: "active" as const,
+              content: text,
+            },
+          ];
+      return { conclusionThinking: text, chainNodes };
+    }),
+
   addChainNode: (sessionId, node) => {
     const id = genId();
     updateSession(set, sessionId, (prev) => ({
@@ -416,14 +535,9 @@ export const useAgentStore = create<AgentStore>((set) => ({
     updateSession(set, sessionId, { activeSubagent: subagent }),
 
   incrementStep: (sessionId) =>
-    updateSession(set, sessionId, (prev) => {
-      const nodes = prev.stepCount === 0
-        ? prev.chainNodes.map((n) =>
-            n.type === "planning" && n.status === "active" ? { ...n, status: "done" as const } : n
-          )
-        : prev.chainNodes;
-      return { stepCount: prev.stepCount + 1, chainNodes: nodes };
-    }),
+    updateSession(set, sessionId, (prev) => ({
+      stepCount: prev.stepCount + 1,
+    })),
 
   setAgentType: (sessionId, type) =>
     updateSession(set, sessionId, { agentType: type }),

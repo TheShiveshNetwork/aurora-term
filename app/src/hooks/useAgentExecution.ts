@@ -2,7 +2,7 @@ import { useCallback, useRef, useEffect } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { formatTauriError } from "../lib/utils";
 
-import { useAgentStore, AgentCommand, defaultSessionState, CONST_DEFAULT_SESSION_STATE } from "../stores/useAgentStore";
+import { useAgentStore, AgentCommand, defaultSessionState, CONST_DEFAULT_SESSION_STATE, sanitizeMessage } from "../stores/useAgentStore";
 import { useAppShellStore } from "../stores/useAppShellStore";
 import { useBlockStore } from "../stores/useBlockStore";
 import { useSettingsStore } from "../stores/useSettingsStore";
@@ -11,12 +11,31 @@ import { pty, system, config } from "../lib/ipc";
 import { Block } from "@aurora/types";
 
 // ── Constants ──────────────────────────────────────────────────────────────
-const AGENT_VIEW_SESSION_ID = "agent-view";
 const HEAD_TAIL_CHARS = 200;
 
 function truncateOutput(output: string): string {
   if (output.length <= HEAD_TAIL_CHARS * 2 + 100) return output;
   return `[Output truncated: ${output.length} characters total]\n\nFirst ${HEAD_TAIL_CHARS} characters:\n${output.slice(0, HEAD_TAIL_CHARS)}\n\nLast ${HEAD_TAIL_CHARS} characters:\n${output.slice(-HEAD_TAIL_CHARS)}`;
+}
+
+// Guarantees the chain-of-thought Planning/Conclusion nodes reflect the agent's
+// reasoning even if the live poll missed the tail of a very fast stream.
+async function syncFinalThinking(sessionId: string) {
+  try {
+    const res = await system.agentGetThinking(sessionId);
+    if (!res || res.status !== "ok") return;
+    const store = useAgentStore.getState();
+    if (res.planning) {
+      store.setPlanningThinking(sessionId, res.planning);
+      const pNode = store.sessions[sessionId]?.chainNodes.find((n) => n.type === "planning");
+      if (pNode && pNode.content !== res.planning) {
+        store.updateChainNode(sessionId, pNode.id, { content: res.planning });
+      }
+    }
+    if (res.conclusion) store.streamConclusion(sessionId, res.conclusion);
+  } catch {
+    /* non-fatal */
+  }
 }
 
 // ── Active file context builder ───────────────────────────────────────────
@@ -55,6 +74,25 @@ async function buildFileContext(sessionId: string | null): Promise<string | null
     console.warn("Failed to build file context:", err);
   }
   return null;
+}
+
+// ── Duplicate tool-call guard (ADR §19.4) ──────────────────────────────────
+// If the model proposes the exact same tool call 3× in a row, auto-decline it so
+// a stuck agent can't loop forever (e.g. re-reading the same file). The resume
+// flow now returns real tool output, so this is only a secondary safety net.
+const recentToolCalls = new Map<string, string[]>();
+function toolCallKey(name?: string, args?: any): string {
+  return `${name}::${JSON.stringify(args ?? {})}`;
+}
+function isRepeatedToolCall(sessionId: string, key: string): boolean {
+  const arr = recentToolCalls.get(sessionId) ?? [];
+  const repeat = arr.length >= 2 && arr[arr.length - 1] === key && arr[arr.length - 2] === key;
+  arr.push(key);
+  recentToolCalls.set(sessionId, arr.slice(-6));
+  return repeat;
+}
+function resetToolCallGuard(sessionId: string) {
+  recentToolCalls.delete(sessionId);
 }
 
 // ── Sensitive command detection ───────────────────────────────────────────
@@ -164,6 +202,25 @@ export function useAgentExecution(sessionId: string | null) {
 
     // 1. Gated Tool Approval Suspension
     if (step.status === "requires_approval") {
+      // Secondary safety net: auto-decline the 3rd identical tool call in a row
+      // so a stuck model can't loop forever (e.g. re-reading the same file).
+      const dupKey = toolCallKey(step.tool_name, step.args);
+      if (isRepeatedToolCall(targetSessionId, dupKey)) {
+        console.warn(`Skipped — already executed: ${step.tool_name}`, step);
+        state.addAgentLog(targetSessionId, "tool", `Skipped — already executed: ${step.tool_name}`);
+        state.resumeTask(targetSessionId);
+        const stepResult = await system.agentDeclineTool(
+          useAgentStore.getState().sessions[targetSessionId]?.agentType || "terminal",
+          useAgentStore.getState().sessions[targetSessionId]?.agentMode || "build",
+          step.run_id,
+          step.tool_call_id,
+          targetSessionId
+        );
+        state.setPendingToolCall(targetSessionId, null);
+        await handleStepResult(targetSessionId, taskId, stepResult);
+        return;
+      }
+
       if (step.tool_name === "exec_command" || step.tool_name === "shell_terminal" || step.tool_name === "shell_developer") {
         const cmd = step.args.command;
         // If this command was the last one executed successfully, auto-approve
@@ -324,7 +381,9 @@ export function useAgentExecution(sessionId: string | null) {
           step.run_id,
           step.tool_call_id,
           { approved: true },
-          targetSessionId
+          targetSessionId,
+          step.tool_name,
+          step.args
         );
         state.setPendingToolCall(targetSessionId, null);
         await handleStepResult(targetSessionId, taskId, stepResult);
@@ -336,12 +395,19 @@ export function useAgentExecution(sessionId: string | null) {
     // 2. Completed
     if (step.status === "completed") {
       const msg = step.message || "Task completed successfully";
+      // Pull the final streamed thinking so the chain-of-thought nodes always
+      // show the agent's planning + conclusion reasoning, not the user's prompt.
+      await syncFinalThinking(targetSessionId);
       state.completeTask(targetSessionId, msg);
       const totalMs = useAgentStore.getState().sessions[targetSessionId]?.queue
         .reduce((acc, cmd) => acc + (cmd.durationMs || 0), 0) || 0;
       const snap = useAgentStore.getState().sessions[targetSessionId] || defaultSessionState();
+      // For chat / no-command turns the queue is empty, so fall back to the
+      // wall-clock run time so "Worked for" reflects the real elapsed duration.
+      const runMs = snap.startedAt ? Date.now() - snap.startedAt : 0;
+      const durationMs = totalMs > 0 ? totalMs : runMs;
       state.addChatMessage(targetSessionId, {
-        role: "assistant", content: msg, durationMs: totalMs,
+        role: "assistant", content: sanitizeMessage(msg), durationMs,
         chainNodes: snap.chainNodes, agentLogs: snap.agentLogs, subagent: snap.activeSubagent,
         agentType: snap.agentType,
       });
@@ -351,10 +417,12 @@ export function useAgentExecution(sessionId: string | null) {
     // 3. Error
     if (step.status === "error") {
       const errMsg = step.message || "An error occurred during agent planning";
+      await syncFinalThinking(targetSessionId);
       state.failTask(targetSessionId, errMsg);
       const snap = useAgentStore.getState().sessions[targetSessionId] || defaultSessionState();
+      const runMs = snap.startedAt ? Date.now() - snap.startedAt : 0;
       state.addChatMessage(targetSessionId, {
-        role: "assistant", content: errMsg, isError: true,
+        role: "assistant", content: errMsg, isError: true, durationMs: runMs,
         chainNodes: snap.chainNodes, agentLogs: snap.agentLogs, subagent: snap.activeSubagent,
         agentType: snap.agentType,
       });
@@ -450,6 +518,7 @@ export function useAgentExecution(sessionId: string | null) {
     try {
       let goal: string | null = lastOutput === undefined ? originalGoal : null;
       if (goal) {
+        resetToolCallGuard(targetSessionId);
         const fileCtx = await buildFileContext(targetSessionId);
         if (fileCtx) goal = `${goal}\n\n[FILE CONTEXT]\n${fileCtx}`;
       }
@@ -495,15 +564,23 @@ export function useAgentExecution(sessionId: string | null) {
     const targetSessionId = sessionRef.current;
     if (!targetSessionId) return;
 
-    // AgentView uses a dedicated session ID — redirect PTY operations to the
-    // real terminal session so output appears in the user's terminal.
-    const isAgentView = targetSessionId === AGENT_VIEW_SESSION_ID;
-    const ptySessionId = isAgentView
-      ? useAppShellStore.getState().lastActiveTerminalId || targetSessionId
-      : targetSessionId;
+    // Resolve a real PTY session for command execution. AgentView sessions and
+    // non-terminal tabs (file/diff/merge) have no PTY of their own — their
+    // commands run in the BACKGROUND on the last-active (or first) terminal tab
+    // so output never interrupts the current view.
+    const activeTab = useSessionStore.getState().tabs.find((t) => t.id === targetSessionId);
+    const hasOwnPty = activeTab?.type === "terminal";
+    let ptySessionId = targetSessionId;
 
-    if (isAgentView && ptySessionId === targetSessionId) {
-      console.warn("AgentView: no terminal session available for PTY command");
+    if (!hasOwnPty) {
+      ptySessionId =
+        useAppShellStore.getState().lastActiveTerminalId ||
+        useSessionStore.getState().tabs.find((t) => t.type === "terminal")?.id ||
+        targetSessionId;
+    }
+
+    if (ptySessionId === targetSessionId && !hasOwnPty) {
+      console.warn("No terminal session available for PTY command");
       useAgentStore.getState().addLog(targetSessionId, "Cannot run shell command: no terminal session open.");
       return { exitCode: -1, output: "No terminal session available. Open a terminal tab first." };
     }
@@ -846,11 +923,47 @@ export function useAgentExecution(sessionId: string | null) {
       }).catch(() => {});
     }, 1500);
 
-    // Poll live "thinking" stream while the agent is working.
+    // Poll live "thinking" stream while the agent is working. The planning
+    // text is streamed into the active "Planning" chain node so it appears as
+    // the planning step of the chain of thought. Once the final step starts
+    // emitting its completion JSON, the conclusion text streams into a live
+    // "Conclusion" chain node.
     const pollThinking = () => {
       system.agentGetThinking(sessionId).then((res) => {
-        if (res && res.status === "ok" && typeof res.thinking === "string") {
-          useAgentStore.getState().setThinking(sessionId, res.thinking);
+        if (!res || res.status !== "ok") return;
+        const store = useAgentStore.getState();
+        if (typeof res.thinking === "string") {
+          store.setThinking(sessionId, res.thinking);
+        }
+        if (typeof res.planning === "string" && res.planning) {
+          store.setPlanningThinking(sessionId, res.planning);
+          const nodes = store.sessions[sessionId]?.chainNodes || [];
+          const planningNode = nodes.find(
+            (n) => n.type === "planning" && (n.status === "active" || n.status === "pending")
+          );
+          if (planningNode && planningNode.content !== res.planning) {
+            store.updateChainNode(sessionId, planningNode.id, { content: res.planning });
+          }
+        }
+        if (typeof res.conclusion === "string" && res.conclusion) {
+          // Only one chain-of-thought node may load at a time. While Planning is
+          // still active, keep the spinner on Planning and do NOT surface the
+          // Conclusion node yet — it is created on the next poll, once Planning
+          // has closed. This prevents Planning and Conclusion spinning together.
+          const nodes = store.sessions[sessionId]?.chainNodes || [];
+          const planningNode = nodes.find(
+            (n) => n.type === "planning" && n.status === "active"
+          );
+          if (planningNode) {
+            const planningShown =
+              (store.sessions[sessionId]?.planningThinking || planningNode.content || "").trim().length > 0;
+            if (planningShown) {
+              store.updateChainNode(sessionId, planningNode.id, { status: "done" });
+            }
+            // Defer the Conclusion node until Planning is closed.
+            return;
+          }
+          store.streamConclusion(sessionId, res.conclusion);
         }
       }).catch(() => {});
     };

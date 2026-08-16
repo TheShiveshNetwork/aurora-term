@@ -47,6 +47,9 @@ pub struct AgentApproveRequest {
     pub resume_data: Option<serde_json::Value>,
     #[serde(rename = "sessionId")]
     pub session_id: Option<String>,
+    #[serde(rename = "toolName", alias = "tool_name")]
+    pub tool_name: Option<String>,
+    pub args: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -229,6 +232,8 @@ pub async fn agent_approve_tool(
     tool_call_id: Option<String>,
     resume_data: Option<serde_json::Value>,
     session_id: Option<String>,
+    tool_name: Option<String>,
+    args: Option<serde_json::Value>,
 ) -> Result<AgentStepResponse, AppError> {
     let port = {
         let sidecar = state.sidecar.lock().await;
@@ -248,6 +253,8 @@ pub async fn agent_approve_tool(
         tool_call_id,
         resume_data,
         session_id,
+        tool_name,
+        args,
     };
 
     let response = client.post(&url)

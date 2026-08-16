@@ -1,38 +1,76 @@
-import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification"
-import { useNotificationStore } from "../stores/useToastStore"
+import {
+  isPermissionGranted,
+  requestPermission,
+  notify,
+} from "@tauri-apps/plugin-notification";
+import { useNotificationStore, toStr } from "../stores/useToastStore";
 
-let permissionGranted: boolean | null = null
+type NotificationType = "error" | "info" | "success";
+
+const isTauri = () =>
+  typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+let permissionResolved: boolean | null = null;
 
 async function ensurePermission(): Promise<boolean> {
-  if (permissionGranted !== null) return permissionGranted
+  if (!isTauri()) return false;
   try {
-    let granted = await isPermissionGranted()
-    if (!granted) {
-      const result = await requestPermission()
-      granted = result === "granted"
+    let granted = await isPermissionGranted();
+    if (granted === null) {
+      const res = await requestPermission();
+      granted =
+        typeof res === "string"
+          ? res === "granted"
+          : Boolean((res as { granted?: boolean })?.granted);
     }
-    permissionGranted = granted
-    return granted
+    permissionResolved = Boolean(granted);
+    return permissionResolved;
   } catch {
-    return false
+    return false;
   }
 }
 
-export async function showError(message: unknown, duration?: number) {
-  useNotificationStore.getState().addNotification(message, "error", duration)
+/**
+ * Fire an OS-level (Tauri) notification. We skip it while the app window is
+ * focused so it doesn't double up with the in-app toast, and we never throw —
+ * the in-app toast is the source of truth.
+ */
+export async function notifyNative(opts: {
+  title: string;
+  body: string;
+}): Promise<void> {
+  if (!isTauri()) return;
+  if (typeof document !== "undefined" && document.hasFocus()) return;
   try {
-    if (document.hidden && (await ensurePermission())) {
-      sendNotification({ title: "Aurora", body: useNotificationStore.getState().notifications.slice(-1)[0]?.message ?? "Error" })
-    }
-  } catch (e) {
-    console.error("Failed to send OS notification:", e)
+    const granted = permissionResolved ?? (await ensurePermission());
+    if (!granted) return;
+    await notify({ title: opts.title, body: opts.body });
+  } catch {
+    /* native notification is best-effort only */
   }
 }
 
-export async function showInfo(message: unknown, duration?: number) {
-  useNotificationStore.getState().addNotification(message, "info", duration)
+/**
+ * Central entry point for surfacing errors/notifications in the app.
+ * Always shows an in-app toast; errors additionally raise an OS notification.
+ */
+export function notify(
+  message: unknown,
+  type: NotificationType = "error",
+  duration?: number
+): string {
+  const id = useNotificationStore
+    .getState()
+    .addNotification(message, type, duration);
+  if (type === "error") {
+    void notifyNative({ title: "Aurora", body: toStr(message) });
+  }
+  return id;
 }
 
-export async function showSuccess(message: unknown, duration?: number) {
-  useNotificationStore.getState().addNotification(message, "success", duration)
-}
+export const notifyError = (m: unknown, duration?: number) =>
+  notify(m, "error", duration);
+export const notifyInfo = (m: unknown, duration?: number) =>
+  notify(m, "info", duration);
+export const notifySuccess = (m: unknown, duration?: number) =>
+  notify(m, "success", duration);

@@ -674,6 +674,13 @@ body {
   padding: 0.15em 0.35em;
 }
 
+/* Strip Tailwind Typography's default backtick pseudo-elements so inline code
+   renders as a styled single-line code span without literal ` characters. */
+.prose :where(code):not(:where([class~="not-prose"], [class~="not-prose"] *))::before,
+.prose :where(code):not(:where([class~="not-prose"], [class~="not-prose"] *))::after {
+  content: none;
+}
+
 .prose :where(.contains-task-list):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
   list-style: none;
   padding-left: 0;

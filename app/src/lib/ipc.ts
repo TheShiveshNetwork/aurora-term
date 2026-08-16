@@ -421,7 +421,9 @@ export const system = {
     runId: string,
     toolCallId: string | undefined,
     resumeData?: any,
-    sessionId?: string
+    sessionId?: string,
+    toolName?: string,
+    args?: any
   ) =>
     invoke<AgentStepResult>("agent_approve_tool", {
       agentType,
@@ -430,6 +432,8 @@ export const system = {
       toolCallId,
       resumeData,
       sessionId,
+      toolName,
+      args,
     }),
   agentDeclineTool: (
     agentType: string | undefined,
@@ -448,7 +452,7 @@ export const system = {
   agentGetLogs: () =>
     invoke<{ status: string; logs: Array<{ timestamp: number; type: string; content: string }> }>("agent_get_logs"),
   agentGetThinking: (thread: string) =>
-    invoke<{ status: string; thinking: string }>("agent_get_thinking", { thread }),
+    invoke<{ status: string; thinking: string; planning: string; conclusion: string }>("agent_get_thinking", { thread }),
   agentChat: (
     message: string,
     sessionId?: string,

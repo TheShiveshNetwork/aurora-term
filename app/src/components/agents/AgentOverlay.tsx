@@ -50,7 +50,6 @@ function TurnMessageWrapper({
   turn,
   isLastTurn,
   isThinking,
-  thinking,
   chainNodes,
   durationSecs,
   stepCount,
@@ -60,7 +59,6 @@ function TurnMessageWrapper({
   turn: { user: ChatMessage | null; assistant: ChatMessage | null };
   isLastTurn: boolean;
   isThinking: boolean;
-  thinking?: string;
   chainNodes: any[];
   durationSecs: number;
   stepCount: number;
@@ -78,7 +76,6 @@ function TurnMessageWrapper({
       isThinking={isThinking}
       isLastTurn={isLastTurn}
       chainNodes={chainNodes}
-      thinking={isLastTurn ? thinking : undefined}
       durationSecs={durationSecs}
       stepCount={stepCount}
       maxSteps={maxSteps}
@@ -122,7 +119,6 @@ export function AgentOverlay({ sessionId, onClose }: AgentOverlayProps) {
     stepCount,
     maxSteps,
     chainNodes,
-    thinking,
     activeSubagent,
     approveAndRunPending,
     declinePending,
@@ -133,28 +129,30 @@ export function AgentOverlay({ sessionId, onClose }: AgentOverlayProps) {
     chatHistory,
   } = useAgentExecution(sessionId);
 
-  // Stats / duration timer
+  // Stats / duration timer — derived from the store's `startedAt` so it survives
+  // the overlay remounting when the window loses focus (otherwise it resets to 0).
   const [durationSecs, setDurationSecs] = useState<number>(0);
   const timerRef = useRef<any>(null);
+  const startedAt = useAgentStore((s) => s.sessions[sessionId || ""]?.startedAt);
 
   useEffect(() => {
+    const base = startedAt ?? Date.now();
     if (status === "planning" || status === "executing") {
-      const startTime = Date.now();
-      setDurationSecs(0);
+      setDurationSecs(Math.round((Date.now() - base) / 1000));
       if (timerRef.current) clearInterval(timerRef.current);
       timerRef.current = setInterval(() => {
-        setDurationSecs(Math.round((Date.now() - startTime) / 1000));
+        setDurationSecs(Math.round((Date.now() - (startedAt ?? Date.now())) / 1000));
       }, 1000);
     } else if (status === "completed" || status === "error") {
       if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
       const totalMs = queue.reduce((acc, cmd) => acc + (cmd.durationMs || 0), 0);
-      if (totalMs > 0) setDurationSecs(Math.round(totalMs / 1000));
+      setDurationSecs(totalMs > 0 ? Math.round(totalMs / 1000) : Math.round((Date.now() - base) / 1000));
     } else if (status === "idle") {
       if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
       setDurationSecs(0);
     }
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [status, queue]);
+  }, [status, queue, startedAt]);
 
   // Scroll logic
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -273,7 +271,6 @@ export function AgentOverlay({ sessionId, onClose }: AgentOverlayProps) {
               turn={turn}
               isLastTurn={isLastTurn}
               isThinking={isLastTurn && isThinking}
-              thinking={thinking}
               chainNodes={turn.assistant?.chainNodes || (isLastTurn ? chainNodes : [])}
               durationSecs={durationSecs}
               stepCount={stepCount}

@@ -3,11 +3,71 @@ import { mastra, memoryLogs } from './mastra';
 import { auraMemory, getModelProvider } from './agents/aura';
 import { listSkills, listMcps, parseFileContext, formatFileContexts, formatSelectionContext, FileContext } from './slash';
 import { reviewSettings } from './tools';
+import {
+  readFileTool,
+  grepSearchTool,
+  listDirTool,
+  searchFilesTool,
+  globTool,
+  webFetchTool,
+} from './tools';
 import { rootLogger } from './logger';
-import { resetThinking, getThinking, onChunkCapture } from './thinking';
+import {
+  resetThinking,
+  beginStep,
+  getPhase,
+  commitStep,
+  discardStep,
+  getThinking,
+  getPlanning,
+  getConclusion,
+  appendThinking,
+} from './thinking';
 
 const server = fastify({ logger: false });
 const log = rootLogger.child({ service: 'server' });
+
+// ── Live streaming helper ──────────────────────────────────────────────────
+// Runs an agent generation (stream or plain result) and appends every text
+// delta into the per-thread thinking buffer so the UI can render the Planning /
+// Conclusion chain-of-thought nodes live, chunk by chunk, as the model emits
+// them. Falls back to a no-stream await if the run isn't a stream.
+async function runStreaming(threadId: string, start: () => Promise<any>): Promise<any> {
+  const gen = await start();
+  const stream = gen && gen.textStream;
+  if (stream && typeof stream[Symbol.asyncIterator] === "function") {
+    try {
+      for await (const chunk of stream) {
+        if (typeof chunk === "string") appendThinking(threadId, chunk);
+      }
+    } catch (streamErr) {
+      log.warn("thinking stream drain failed", { error: (streamErr as any)?.message });
+    }
+  }
+  // `agent.stream` / `resumeStream` return a MastraModelOutput whose analysis
+  // fields (text, toolCalls, finishReason, ...) are Promise getters. Resolve
+  // the ones the agent loop consumes into a plain object shaped like the
+  // generate() result so downstream code can read `response.text` as a string.
+  const [textR, toolCallsR, finishR, toolResultsR, suspendR, usageR] = await Promise.allSettled([
+    gen.text,
+    gen.toolCalls,
+    gen.finishReason,
+    gen.toolResults,
+    gen.suspendPayload,
+    gen.usage,
+  ]);
+  return {
+    text: textR.status === "fulfilled" ? (textR.value as string) : "",
+    toolCalls: toolCallsR.status === "fulfilled" ? (toolCallsR.value as any[]) : [],
+    finishReason: finishR.status === "fulfilled" ? (finishR.value as string | undefined) : undefined,
+    toolResults: toolResultsR.status === "fulfilled" ? (toolResultsR.value as any[]) : [],
+    suspendPayload: suspendR.status === "fulfilled" ? (suspendR.value as any) : undefined,
+    usage: usageR.status === "fulfilled" ? (usageR.value as any) : undefined,
+    runId: gen.runId,
+    error: gen.error,
+    tripwire: gen.tripwire,
+  };
+}
 
 // ── Constants ─────────────────────────────────────────────────────────────
 const RESOURCE_ID = 'aurora-user';
@@ -223,7 +283,12 @@ server.get('/api/thinking', async (request, _reply) => {
   if (!thread || typeof thread !== 'string') {
     return { status: 'error', message: 'thread query param is required' };
   }
-  return { status: 'ok', thinking: getThinking(thread) };
+  return {
+    status: 'ok',
+    thinking: getThinking(thread),
+    planning: getPlanning(thread),
+    conclusion: getConclusion(thread),
+  };
 });
 
 // ── /api/step — single planning step in the agentic feedback loop ─────────
@@ -278,6 +343,10 @@ server.post('/api/step', async (request, _reply) => {
   const agent = selectAgent(agent_type, mode);
 
   const threadId = session_id || task_id;
+  // Clear the previous run's thinking buffer immediately for a fresh goal so a
+  // concurrent /api/thinking poll can't repaint the prior turn's planning while
+  // the new run is queued behind the per-thread lock.
+  if (goal) resetThinking(threadId);
   const cleanOutput = (last_output ?? '(no output)');
   const prompt = goal
     ? `Goal: ${goal}`
@@ -295,9 +364,12 @@ server.post('/api/step', async (request, _reply) => {
     // Serialize per-thread so an out-of-band /api/btw question never runs
     // concurrently with the task's own generation loop on the same thread.
     const stepResult = await withThreadLock(threadId, async () => {
-      // A fresh goal starts a new task — clear the previous thinking stream.
+      // A fresh goal's thinking buffer is cleared at handler entry (above) so a
+      // concurrent poll can't repaint the previous turn. Begin the planning step.
       if (goal) {
-        resetThinking(threadId);
+        beginStep(threadId, 'planning');
+      } else {
+        beginStep(threadId, 'execution');
       }
 
       const generateOptions: any = {
@@ -308,7 +380,6 @@ server.post('/api/step', async (request, _reply) => {
         requireToolApproval: true,
         maxSteps: 25,
         abortSignal: AbortSignal.timeout(120_000),
-        onChunk: onChunkCapture(threadId),
       };
 
       if (model) {
@@ -321,7 +392,9 @@ server.post('/api/step', async (request, _reply) => {
         await compactThreadIfNeeded(threadId, agent, stepLog);
       }
 
-      const response = await agent.generate(prompt, generateOptions);
+      // Stream the run so the thinking buffer fills chunk-by-chunk: the Planning
+      // and Conclusion chain-of-thought nodes render live as the model generates.
+      const response = await runStreaming(threadId, () => agent.stream(prompt, generateOptions));
 
       const elapsed = Date.now() - startTime;
       stepLog.info('LLM response received', {
@@ -337,7 +410,11 @@ server.post('/api/step', async (request, _reply) => {
 
       // Handle generation errors (tool call failures, LLM errors, etc.)
       if (response.finishReason === 'error' || response.error) {
-        const errMsg = response.error?.message || response.text || 'Generation failed';
+        discardStep(threadId);
+        // Never surface the raw streamed text (which can be a partial `executing`
+        // envelope) as the error message — derive a readable message instead.
+        const parsed = parseAuraResponse(response.text);
+        const errMsg = response.error?.message || parsed.message || 'Generation failed';
         stepLog.error('LLM generation error', {
           finishReason: response.finishReason,
           error: response.error?.message,
@@ -351,6 +428,7 @@ server.post('/api/step', async (request, _reply) => {
 
       // Handle tripwire (content filter triggers)
       if (response.tripwire) {
+        discardStep(threadId);
         stepLog.warn('Content tripwire triggered', {
           reason: response.tripwire.reason,
           retry: response.tripwire.retry,
@@ -366,6 +444,12 @@ server.post('/api/step', async (request, _reply) => {
 
       // Handle suspended tool calls
       if (response.finishReason === 'suspended') {
+        // A suspended planning step still produced planning text worth keeping.
+        if (getPhase(threadId) === 'planning') {
+          commitStep(threadId);
+        } else {
+          discardStep(threadId);
+        }
         const toolName = response.suspendPayload?.toolName;
         const toolArgs = response.suspendPayload?.args;
         stepLog.info('Tool call suspended — awaiting user approval', {
@@ -404,6 +488,17 @@ server.post('/api/step', async (request, _reply) => {
 
       const result = parseAuraResponse(response.text);
       stepLog.info('Step result parsed', { status: result.status, messageLength: result.message?.length, messagePreview: result.message?.slice(0, 200) });
+
+      // Commit the streamed text into the planning bucket (goal step) or, when
+      // the agent concludes, into the conclusion bucket. commitStep is
+      // phase-aware: a completing planning step commits BOTH the planning
+      // narrative and its `conclusion` field; a completing execution step
+      // commits only the conclusion.
+      if (result.status === 'completed' || goal) {
+        commitStep(threadId);
+      } else {
+        discardStep(threadId);
+      }
       return result;
     });
     return stepResult;
@@ -423,10 +518,42 @@ server.post('/api/step', async (request, _reply) => {
 
 // ── Tool approval endpoints ──────────────────────────────────────────────
 
+// Read-only tools that execute entirely inside the sidecar. When the agent
+// suspends on one of these and the frontend auto-approves, the frontend can
+// only send `{ approved: true }` as resumeData — it cannot run the tool itself.
+// If we resumed with that, the model would receive an empty result and re-issue
+// the same tool call forever (e.g. re-reading the same file 10×). So we execute
+// the tool here and feed its real output back as the resume payload.
+const SIDECAR_READONLY_TOOLS: Record<string, any> = {
+  read_file: readFileTool,
+  grep_search: grepSearchTool,
+  list_directory: listDirTool,
+  search_files: searchFilesTool,
+  glob: globTool,
+  web_fetch: webFetchTool,
+};
+
+async function executeSidecarTool(toolName?: string, toolArgs?: any): Promise<any | undefined> {
+  const tool = toolName ? SIDECAR_READONLY_TOOLS[toolName] : undefined;
+  if (!tool?.execute || !toolArgs) return undefined;
+  try {
+    return await tool.execute(toolArgs);
+  } catch (err: any) {
+    rootLogger.error('Sidecar tool execution on resume failed', { toolName, error: err?.message });
+    return { success: false, error: `Tool failed: ${err?.message || 'unknown'}` };
+  }
+}
+
 server.post('/api/tool/approve', async (request, _reply) => {
   const body = request.body as any;
   const { agent_type, mode, runId, toolCallId, session_id } = body;
-  const resumeData = body.resumeData ?? body.resume_data;
+  const toolName = body.toolName ?? body.tool_name;
+  const toolArgs = body.toolArgs ?? body.args;
+  const providedResumeData = body.resumeData ?? body.resume_data;
+  const isSidecarTool = !!(toolName && SIDECAR_READONLY_TOOLS[toolName]);
+  const resumeData = isSidecarTool
+    ? (await executeSidecarTool(toolName, toolArgs) ?? { success: false, error: 'tool produced no output' })
+    : { approved: true, ...(providedResumeData ?? {}) };
 
   const toolLog = log.child({
     endpoint: 'tool/approve',
@@ -445,16 +572,18 @@ server.post('/api/tool/approve', async (request, _reply) => {
   try {
     // Serialize with other work on the same thread (e.g. /api/btw).
     const threadKey = session_id || runId || 'agent-view';
+    beginStep(threadKey, 'execution');
     const response = await withThreadLock(threadKey, async () =>
-      agent.resumeGenerate(
-        { approved: true, ...resumeData },
-        {
-          runId,
-          toolCallId,
-          maxSteps: 25,
-          abortSignal: AbortSignal.timeout(120_000),
-          onChunk: onChunkCapture(threadKey),
-        }
+      runStreaming(threadKey, () =>
+        agent.resumeStream(
+          resumeData,
+          {
+            runId,
+            toolCallId,
+            maxSteps: 25,
+            abortSignal: AbortSignal.timeout(120_000),
+          }
+        )
       )
     );
 
@@ -469,6 +598,7 @@ server.post('/api/tool/approve', async (request, _reply) => {
     logFullResponse(toolLog, response);
 
     if (response.finishReason === 'error' || response.error) {
+      discardStep(threadKey);
       const errMsg = response.error?.message || response.text || 'Generation failed';
       toolLog.error('Tool approval generation error', {
         error: response.error?.message,
@@ -481,6 +611,7 @@ server.post('/api/tool/approve', async (request, _reply) => {
     }
 
     if (response.tripwire) {
+      discardStep(threadKey);
       toolLog.warn('Content tripwire triggered on approval', { reason: response.tripwire.reason });
       return {
         status: 'error',
@@ -489,6 +620,7 @@ server.post('/api/tool/approve', async (request, _reply) => {
     }
 
     if (response.finishReason === 'suspended') {
+      discardStep(threadKey);
       const toolName = response.suspendPayload?.toolName;
       toolLog.info('Tool call re-suspended after approval', { toolName, toolArgs: response.suspendPayload?.args });
       return {
@@ -501,9 +633,13 @@ server.post('/api/tool/approve', async (request, _reply) => {
     }
 
     toolLog.info('Tool approval completed');
+    commitStep(threadKey);
+    const parsed = parseAuraResponse(response.text);
     return {
       status: 'completed',
-      message: response.text,
+      message: parsed.message || response.text,
+      conclusion: parsed.conclusion,
+      planning: parsed.planning,
     };
   } catch (error: any) {
     toolLog.error('Tool approval threw exception', { error: error.message, stack: error.stack });
@@ -534,16 +670,18 @@ server.post('/api/tool/decline', async (request, _reply) => {
   try {
     // Serialize with other work on the same thread (e.g. /api/btw).
     const threadKey = session_id || runId || 'agent-view';
+    beginStep(threadKey, 'execution');
     const response = await withThreadLock(threadKey, async () =>
-      agent.resumeGenerate(
-        { approved: false },
-        {
-          runId,
-          toolCallId,
-          maxSteps: 25,
-          abortSignal: AbortSignal.timeout(120_000),
-          onChunk: onChunkCapture(threadKey),
-        }
+      runStreaming(threadKey, () =>
+        agent.resumeStream(
+          { approved: false },
+          {
+            runId,
+            toolCallId,
+            maxSteps: 25,
+            abortSignal: AbortSignal.timeout(120_000),
+          }
+        )
       )
     );
 
@@ -557,12 +695,14 @@ server.post('/api/tool/decline', async (request, _reply) => {
     logFullResponse(toolLog, response);
 
     if (response.finishReason === 'error' || response.error) {
+      discardStep(threadKey);
       const errMsg = response.error?.message || response.text || 'Generation failed';
       toolLog.error('Tool decline generation error', { error: response.error?.message });
       return { status: 'error', message: `Agent error: ${errMsg}.` };
     }
 
     if (response.finishReason === 'suspended') {
+      discardStep(threadKey);
       const toolName = response.suspendPayload?.toolName;
       toolLog.info('Tool call re-suspended after decline', { toolName, toolArgs: response.suspendPayload?.args });
       return {
@@ -575,9 +715,13 @@ server.post('/api/tool/decline', async (request, _reply) => {
     }
 
     toolLog.info('Tool decline completed');
+    commitStep(threadKey);
+    const parsed = parseAuraResponse(response.text);
     return {
       status: 'completed',
-      message: response.text,
+      message: parsed.message || response.text,
+      conclusion: parsed.conclusion,
+      planning: parsed.planning,
     };
   } catch (error: any) {
     toolLog.error('Tool decline threw exception', { error: error.message, stack: error.stack });
@@ -653,13 +797,12 @@ server.post('/api/chat', async (request, _reply) => {
       await compactThreadIfNeeded(threadId, agent, chatLog);
     }
 
-    const response = await agent.generate(
+    const response = await runStreaming(threadId, () => agent.stream(
       `Chat message (respond conversationally, NOT as a command): ${message}`,
       {
         memory: { thread: threadId, resource: RESOURCE_ID },
-        onChunk: onChunkCapture(threadId),
       }
-    );
+    ));
     const elapsed = Date.now() - startTime;
 
     chatLog.info('Chat response', {
@@ -676,7 +819,12 @@ server.post('/api/chat', async (request, _reply) => {
       return { status: 'error', message: `Chat error: ${errMsg}` };
     }
 
-    return { status: 'completed', message: response.text };
+    const parsed = parseAuraResponse(response.text);
+    const chatMessage =
+      parsed.message && parsed.message.trim()
+        ? parsed.message
+        : (parsed.planning && parsed.planning.trim()) || parsed.conclusion || "";
+    return { status: parsed.status || "completed", message: chatMessage };
   } catch (error: any) {
     chatLog.error('Chat threw exception', { error: error.message, stack: error.stack });
     return { status: 'error', message: error.message || 'Chat error' };
@@ -725,7 +873,12 @@ server.post('/api/btw', async (request, _reply) => {
       return { status: 'error', message: `btw error: ${errMsg}` };
     }
 
-    return { status: 'completed', message: response.text || '' };
+    const parsed = parseAuraResponse(response.text);
+    const btwMessage =
+      parsed.message && parsed.message.trim()
+        ? parsed.message
+        : (parsed.planning && parsed.planning.trim()) || parsed.conclusion || "";
+    return { status: parsed.status || "completed", message: btwMessage };
   } catch (error: any) {
     btwLog.error('btw threw exception', { error: error.message, stack: error.stack });
     return { status: 'error', message: error.message || 'btw error' };
@@ -866,15 +1019,30 @@ server.get('/api/memory/working', async (request, _reply) => {
 });
 
 // ── Response parser ───────────────────────────────────────────────────────
+// Pull a single string field out of streamed (possibly malformed) JSON using a
+// regex tolerant of unescaped newlines and pretty-printing inside string values.
+function extractStringField(src: string, field: string): string | undefined {
+  const re = new RegExp('"' + field + '"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"', 'g');
+  let m: RegExpExecArray | null;
+  let last: string | undefined;
+  while ((m = re.exec(src))) {
+    const v = m[1].trim();
+    if (v) last = v;
+  }
+  return last;
+}
+
 function parseAuraResponse(text: string) {
   let src = text.trim();
-  if (src.startsWith('```')) {
-    const lines = src.split('\n');
-    const start = lines.findIndex((l) => l.startsWith('```')) + 1;
-    const end = lines.lastIndexOf('```');
-    if (end > start) src = lines.slice(start, end).join('\n');
-  }
 
+  // Strip a ```json (or plain ```) fenced block if present, even when it is
+  // preceded by a reasoning preamble — the model sometimes fences the response.
+  const fenced = src.match(/```[a-zA-Z]*\n([\s\S]*?)\n```/);
+  if (fenced) src = fenced[1].trim();
+
+  // 1) Strict: brace-match + JSON.parse each candidate object (string-aware so
+  //    braces inside string values are ignored). Picks the LAST object carrying
+  //    a `status` field.
   const candidates: any[] = [];
   let i = 0;
   while (i < src.length) {
@@ -882,20 +1050,26 @@ function parseAuraResponse(text: string) {
     if (start === -1) break;
     let depth = 0;
     let j = start;
+    let inStr = false;
+    let esc = false;
     while (j < src.length) {
-      if (src[j] === '{') depth++;
-      else if (src[j] === '}') {
-        depth--;
-        if (depth === 0) break;
+      const c = src[j];
+      if (esc) esc = false;
+      else if (c === '\\') esc = true;
+      else if (c === '"') inStr = !inStr;
+      else if (!inStr) {
+        if (c === '{') depth++;
+        else if (c === '}') {
+          depth--;
+          if (depth === 0) break;
+        }
       }
       j++;
     }
     const slice = src.substring(start, j + 1);
     try {
       const parsed = JSON.parse(slice);
-      if (parsed && typeof parsed.status === 'string') {
-        candidates.push(parsed);
-      }
+      if (parsed && typeof parsed.status === 'string') candidates.push(parsed);
     } catch { /* skip malformed */ }
     i = j + 1;
   }
@@ -909,6 +1083,26 @@ function parseAuraResponse(text: string) {
       result.message = JSON.stringify(result.message);
     }
     return result;
+  }
+
+  // 2) Lenient fallback: regex field extraction. This is what saves us when the
+  //    model emits pretty-printed JSON with unescaped newlines inside the
+  //    `message` string (which makes JSON.parse throw). The raw JSON never leaks
+  //    into the UI because we only hand back the individual field values.
+  const status = extractStringField(src, 'status');
+  const message = extractStringField(src, 'message');
+  const planning = extractStringField(src, 'planning');
+  const conclusion = extractStringField(src, 'conclusion');
+  const command = extractStringField(src, 'command');
+  const explanation = extractStringField(src, 'explanation');
+  if (status || message || command) {
+    const clean: any = { status: status || 'completed' };
+    if (message) clean.message = message;
+    if (planning) clean.planning = planning;
+    if (conclusion) clean.conclusion = conclusion;
+    if (command) clean.command = command;
+    if (explanation) clean.explanation = explanation;
+    return clean;
   }
 
   return {

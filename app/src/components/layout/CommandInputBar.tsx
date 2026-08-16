@@ -19,13 +19,15 @@ interface CommandInputBarProps {
   sessionId: string | null;
   cwd: string;
   isLoading: boolean;
-  isRunning: boolean;
+  isCommandRunning: boolean;
+  isAiRunning: boolean;
   value: string;
   history: string[];
   hideCwdBreadcrumb?: boolean;
   onChange: (value: string | ((previous: string) => string)) => void;
   onSubmit: (event: SubmitEvent<HTMLFormElement>, attachedFiles: AttachedFile[], forceAi?: boolean) => void;
-  onStop?: () => void;
+  onStopCommand?: () => void;
+  onStopAi?: () => void;
   onOpenAiBar?: () => void;
   variant?: Variant;
   inputMode?: InputMode;
@@ -35,13 +37,15 @@ export function CommandInputBar({
   sessionId,
   cwd,
   isLoading,
-  isRunning,
+  isCommandRunning,
+  isAiRunning,
   value,
   history,
   hideCwdBreadcrumb = false,
   onChange,
   onSubmit,
-  onStop,
+  onStopCommand,
+  onStopAi,
   onOpenAiBar,
   variant = "command",
   inputMode = "unknown",
@@ -74,9 +78,11 @@ export function CommandInputBar({
 
   const handleFormSubmit = (e: SubmitEvent<HTMLFormElement>, forceAi = false) => {
     e.preventDefault();
-    // While a command/AI run is in progress the send button becomes a stop
+    // While the AI is producing a response the send button becomes a stop
     // button — pressing Enter must behave the same way and not submit either.
-    if (isRunning) return;
+    // (A plain terminal command running does NOT block submission: it routes
+    // to AI instead, never to the shell.)
+    if (isAiRunning) return;
     onSubmit(e, attachedFiles, forceAi);
     setAttachedFiles([]);
   };
@@ -176,20 +182,32 @@ export function CommandInputBar({
                 <Mic size={14} />
                 : <X size={14} />}
             </IconButton>
+            {/* Red stop — only while a command is executing on the terminal.
+                Stops the command itself, independent of any AI run. */}
+            {isCommandRunning && !isPrompt && (
+              <button
+                type="button"
+                onClick={() => onStopCommand?.()}
+                title="Stop Command"
+                className="flex items-center justify-center w-8 h-8 bg-red-500/70 border-none rounded-sm cursor-pointer shrink-0 transition-all duration-150 hover:bg-red-500/90"
+              >
+                <Square size={14} className="text-white" />
+              </button>
+            )}
             <button
               onClick={(e) => {
-                if (isRunning) {
+                if (isAiRunning) {
                   e.preventDefault();
-                  onStop?.();
+                  onStopAi?.();
                   return;
                 }
                 handleFormSubmit(e as any, !isPrompt);
               }}
-              disabled={!isRunning && !value.trim() && attachedFiles.length === 0}
+              disabled={!isAiRunning && !value.trim() && attachedFiles.length === 0}
               className="flex items-center justify-center w-8 h-8 bg-[#4553d4] border-none rounded-sm cursor-pointer shrink-0 transition-all duration-150 hover:bg-[#5f6df0] disabled:opacity-50 disabled:cursor-not-allowed"
-              title={isRunning ? "Stop Command" : isPrompt ? "Send Prompt" : "Send to AI"}
+              title={isAiRunning ? "Stop AI Response" : isPrompt ? "Send Prompt" : "Send to AI"}
             >
-              {isRunning
+              {isAiRunning
                 ? <Square size={14} className="text-white" />
                 : <ArrowUp size={14} className="text-white" />}
             </button>

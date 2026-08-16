@@ -1,6 +1,8 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { Toaster } from "./components/ui/Toaster";
+import { ErrorBoundary } from "./components/ui/ErrorBoundary";
 import "./styles/globals.css";
 import "@xterm/xterm/css/xterm.css";
 
@@ -18,7 +20,10 @@ import { useBlockStore } from "./stores/useBlockStore";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <App />
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
+    <Toaster />
   </React.StrictMode>,
 );
 

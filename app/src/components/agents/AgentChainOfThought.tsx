@@ -4,7 +4,7 @@ import {
   Users,
   CircleCheck,
   CircleAlert,
-  Loader2,
+  LoaderCircle,
 } from "lucide-react";
 import type { ChainNode } from "../../stores/useAgentStore";
 import {
@@ -48,7 +48,7 @@ export function AgentChainOfThought({
             <ChainOfThoughtTrigger
               leftIcon={
                 isActive ? (
-                  <Loader2 className="size-4 animate-spin" />
+                  <LoaderCircle className="size-4 animate-spin" />
                 ) : (
                   <Icon className="size-4" />
                 )
@@ -61,16 +61,23 @@ export function AgentChainOfThought({
                 </span>
               )}
             </ChainOfThoughtTrigger>
-            {(node.subLabel || (node.command && node.command !== node.label)) && (
+            {node.content || node.subLabel || (node.command && node.command !== node.label) ? (
               <ChainOfThoughtContent>
                 <ChainOfThoughtItem>
-                  {node.subLabel}
+                  {node.content && (
+                    <div className="whitespace-pre-wrap break-words text-on-surface-variant/70 leading-relaxed select-text max-h-64 overflow-y-auto pr-1">
+                      {node.content}
+                    </div>
+                  )}
+                  {node.subLabel && (node.type !== "complete" || !node.content) && (
+                    <div className="mt-1 text-on-surface-variant/50">{node.subLabel}</div>
+                  )}
                   {node.command && node.command !== node.label && (
                     <ChainOfThoughtCommand>{node.command}</ChainOfThoughtCommand>
                   )}
                 </ChainOfThoughtItem>
               </ChainOfThoughtContent>
-            )}
+            ) : null}
           </ChainOfThoughtStep>
         );
       })}
