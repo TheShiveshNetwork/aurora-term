@@ -354,7 +354,7 @@ export function StatusBar({ noFolder }: { noFolder?: boolean }) {
               <>
                 <Wifi size={11} style={{ color: "rgba(61,220,132,0.7)" }} />
                 <span className="text-[10px]" style={{ color: "rgba(232,234,240,0.7)" }}>
-                  Connected — {activeProvider}
+                  Connected to {activeProvider}
                 </span>
               </>
             ) : (

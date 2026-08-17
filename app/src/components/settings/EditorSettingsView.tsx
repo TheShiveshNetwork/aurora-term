@@ -1,6 +1,13 @@
 import React, { useContext } from "react";
 import { SettingsContext, SectionTitle, FieldRow } from "./SettingsShared";
 import { ToggleSwitch } from "../ui/ToggleSwitch";
+import {
+  NumberField,
+  NumberFieldDecrement,
+  NumberFieldGroup,
+  NumberFieldIncrement,
+  NumberFieldInput,
+} from "@/components/reui/number-field";
 
 export default function EditorSettingsView() {
   const context = useContext(SettingsContext);
@@ -11,10 +18,35 @@ export default function EditorSettingsView() {
   const fontSize = draft.config.terminal.font_size;
   const cursorStyle = draft.config.terminal.cursor_style;
   const cursorBlink = draft.config.terminal.cursor_blink;
+  const editorFontSize = draft.config.editor.font_size;
 
   return (
     <div className="space-y-5">
       <SectionTitle>Editor</SectionTitle>
+
+      <div id="setting-editor-font-size">
+        <FieldRow label="Editor Font Size" description="Font size for the file editor (CodeMirror).">
+          <NumberField
+            value={editorFontSize}
+            min={8}
+            max={48}
+            step={1}
+            size="sm"
+            onValueChange={(v) => {
+              if (typeof v === "number" && Number.isFinite(v)) {
+                const clamped = Math.max(8, Math.min(48, Math.round(v)));
+                updateDraft((d) => { d.config.editor.font_size = clamped; });
+              }
+            }}
+          >
+            <NumberFieldGroup className="w-28">
+              <NumberFieldDecrement />
+              <NumberFieldInput />
+              <NumberFieldIncrement />
+            </NumberFieldGroup>
+          </NumberField>
+        </FieldRow>
+      </div>
 
       {/* <div id="setting-font-family">
         <FieldRow label="Font Family">
@@ -84,6 +116,12 @@ export default function EditorSettingsView() {
       <div id="setting-indent-markers">
         <FieldRow label="Indent Markers">
           <ToggleSwitch checked={draft.config.editor.indent_markers} onChange={(v) => updateDraft((d) => { d.config.editor.indent_markers = v; })} />
+        </FieldRow>
+      </div>
+
+      <div id="setting-lsp-enabled">
+        <FieldRow label="Language Server (LSP)" description="Download and run language servers on demand for diagnostics, completions, and hover">
+          <ToggleSwitch checked={draft.config.editor.lsp_enabled} onChange={(v) => updateDraft((d) => { d.config.editor.lsp_enabled = v; })} />
         </FieldRow>
       </div>
     </div>

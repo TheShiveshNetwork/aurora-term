@@ -19,6 +19,7 @@ export interface DefaultSettings {
   mode: EditorMode;
   fontFamily: string;
   fontSize: number;
+  editorFontSize: number;
   cursorStyle: "block" | "underline" | "bar";
   cursorBlink: boolean;
   compactUi: boolean;
@@ -33,6 +34,7 @@ export interface DefaultSettings {
   wordWrap: boolean;
   aiLiveSuggestions: boolean;
   indentMarkers: boolean;
+  lspEnabled: boolean;
   cloudAutoSync: boolean;
   cloudApiBaseUrl: string;
   updatesEnabled: boolean;
@@ -44,6 +46,7 @@ export const DEFAULT_SETTINGS: DefaultSettings = {
   mode: "INSERT",
   fontFamily: "JetBrains Mono",
   fontSize: 14,
+  editorFontSize: 14,
   cursorStyle: "block",
   cursorBlink: true,
   compactUi: false,
@@ -58,6 +61,7 @@ export const DEFAULT_SETTINGS: DefaultSettings = {
   wordWrap: true,
   aiLiveSuggestions: true,
   indentMarkers: true,
+  lspEnabled: true,
   cloudAutoSync: false,
   cloudApiBaseUrl: "",
   updatesEnabled: true,

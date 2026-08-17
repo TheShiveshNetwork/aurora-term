@@ -3,7 +3,7 @@ import { IconButton } from "../ui/IconButton";
 import { Button } from "../ui/Button";
 import { v4 as uuidv4 } from "uuid";
 import {
-  GitBranch, ArrowUp, ArrowDown, RefreshCw, Plus, X, ChevronDown,
+  GitBranch, Search, ArrowUp, ArrowDown, RefreshCw, Plus, X, ChevronDown,
   CheckSquare, Square, Circle, Download, Upload, Trash2, Eye,
   AlertCircle, MoreVertical, GitMerge, GitFork,
   Pencil, ExternalLink, Undo2, FileDiff, FileSymlink, Loader,
@@ -55,6 +55,17 @@ function isConflicted(x: string, y: string): boolean {
   return ["DD", "AU", "UD", "UA", "DU", "AA", "UU"].includes(`${x}${y}`);
 }
 
+// Debounce a fast-changing value (used for the per-section file search inputs so
+// typing doesn't re-filter the list on every keystroke).
+function useDebouncedValue<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return debounced;
+}
+
 interface GitViewProps {
   cwd: string;
   tabId: string;
@@ -79,6 +90,14 @@ export function GitView({ cwd, tabId }: GitViewProps) {
   const [commitMessage, setCommitMessage] = useState("");
   const [checkedBranches, setCheckedBranches] = useState<string[]>([]);
   const hasSavedState = useRef(false);
+
+  // Per-section file search (debounced filtering of the Staged / Changes lists).
+  const [stagedSearch, setStagedSearch] = useState("");
+  const [changesSearch, setChangesSearch] = useState("");
+  const [stagedSearchOpen, setStagedSearchOpen] = useState(false);
+  const [changesSearchOpen, setChangesSearchOpen] = useState(false);
+  const stagedQuery = useDebouncedValue(stagedSearch, 200);
+  const changesQuery = useDebouncedValue(changesSearch, 200);
 
   // Load checked branches from persisted state on mount.
   // If no saved state exists for this cwd, default to all selected.
@@ -193,6 +212,18 @@ export function GitView({ cwd, tabId }: GitViewProps) {
     status.filter(e => e.x === "?"),
     [status]
   );
+  const allChangeFiles = useMemo(
+    () => [...unstagedFiles, ...untrackedFiles],
+    [unstagedFiles, untrackedFiles]
+  );
+  const stagedVisible = useMemo(() => {
+    const q = stagedQuery.trim().toLowerCase();
+    return q ? stagedFiles.filter(e => e.path.toLowerCase().includes(q)) : stagedFiles;
+  }, [stagedFiles, stagedQuery]);
+  const changesVisible = useMemo(() => {
+    const q = changesQuery.trim().toLowerCase();
+    return q ? allChangeFiles.filter(e => e.path.toLowerCase().includes(q)) : allChangeFiles;
+  }, [allChangeFiles, changesQuery]);
   const currentBranch = useMemo(() =>
     branches.find(b => b.current)?.name || "main",
     [branches]
@@ -821,10 +852,20 @@ export function GitView({ cwd, tabId }: GitViewProps) {
           <div className="shrink-0 flex flex-col overflow-hidden" style={{ height: sectionHeights.staged }}>
             <SectionHeader label="Staged" count={stagedFiles.length} loading={statusLoading}>
               {stagedFiles.length > 0 && <>
+                <IconButton icon={<Search />} tooltip="Search staged files" onClick={() => setStagedSearchOpen(o => !o)} size="sm" className="w-5 h-5 [&_svg]:w-3 [&_svg]:h-3" />
                 <IconButton icon={<FileDiff />} tooltip="Open Staged Changes" onClick={() => handleOpenDiff(system.gitDiffStaged, "Staged changes")} size="sm" className="w-5 h-5 [&_svg]:w-3 [&_svg]:h-3" />
                 <IconButton icon={<X />} tooltip="Unstage All" onClick={() => handleUnstage(stagedFiles.map(e => e.path))} size="sm" className="w-5 h-5 [&_svg]:w-3 [&_svg]:h-3" />
               </>}
             </SectionHeader>
+            {stagedSearchOpen && (
+              <div className="px-3 py-1.5 border-b border-outline-variant/60">
+                <SectionSearchBar
+                  value={stagedSearch}
+                  onChange={setStagedSearch}
+                  onClose={() => { setStagedSearch(""); setStagedSearchOpen(false); }}
+                />
+              </div>
+            )}
             <div className="flex-1 min-h-0 overflow-y-auto">
               {statusLoading ? (
                 <div className="flex items-center justify-center h-full">
@@ -832,8 +873,10 @@ export function GitView({ cwd, tabId }: GitViewProps) {
                 </div>
               ) : stagedFiles.length === 0 ? (
                 <div className="px-3 py-2 text-[11px]" style={{ color: "rgba(232,234,240,0.25)" }}>No staged changes</div>
+              ) : stagedVisible.length === 0 ? (
+                <div className="px-3 py-2 text-[11px]" style={{ color: "rgba(232,234,240,0.25)" }}>No matches</div>
               ) : (
-                stagedFiles.map(e => (
+                stagedVisible.map(e => (
                   <StagedFileRow key={`staged-${e.path}`} entry={e}
                     onUnstage={() => handleUnstage([e.path])}
                     onOpenFile={() => handleOpenFile(e.path)}
@@ -851,6 +894,7 @@ export function GitView({ cwd, tabId }: GitViewProps) {
           <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
             <SectionHeader label="Changes" count={unstagedFiles.length + untrackedFiles.length} loading={statusLoading}>
               {(unstagedFiles.length + untrackedFiles.length) > 0 && <>
+                <IconButton icon={<Search />} tooltip="Search changes" onClick={() => setChangesSearchOpen(o => !o)} size="sm" className="w-5 h-5 [&_svg]:w-3 [&_svg]:h-3" />
                 <IconButton icon={<FileDiff />} tooltip="Open Changes" onClick={() => { setShowChangesView(true); setSelectedFile(null); setSelectedDiff(null); }} size="sm" className="w-5 h-5 [&_svg]:w-3 [&_svg]:h-3" />
                 <IconButton icon={<Undo2 />} tooltip="Discard All Changes" onClick={() => {
                   const tracked = unstagedFiles.map(e => e.path);
@@ -864,15 +908,26 @@ export function GitView({ cwd, tabId }: GitViewProps) {
                 }} size="sm" className="w-5 h-5 [&_svg]:w-3 [&_svg]:h-3" />
               </>}
             </SectionHeader>
+            {changesSearchOpen && (
+              <div className="px-3 py-1.5 border-b border-outline-variant/60">
+                <SectionSearchBar
+                  value={changesSearch}
+                  onChange={setChangesSearch}
+                  onClose={() => { setChangesSearch(""); setChangesSearchOpen(false); }}
+                />
+              </div>
+            )}
             <div className="flex-1 min-h-0 overflow-y-auto">
               {statusLoading ? (
                 <div className="flex items-center justify-center h-full">
                   <LoadingSpinner size={14} inline />
                 </div>
-              ) : unstagedFiles.length === 0 && untrackedFiles.length === 0 ? (
+              ) : (unstagedFiles.length === 0 && untrackedFiles.length === 0) ? (
                 <div className="px-3 py-2 text-[11px]" style={{ color: "rgba(232,234,240,0.25)" }}>No changes</div>
+              ) : changesVisible.length === 0 ? (
+                <div className="px-3 py-2 text-[11px]" style={{ color: "rgba(232,234,240,0.25)" }}>No matches</div>
               ) : (
-                [...unstagedFiles, ...untrackedFiles].map(e => (
+                changesVisible.map(e => (
                   <ChangesFileRow key={`change-${e.path}`} entry={e}
                     onStage={() => handleStage([e.path])}
                     onRestore={e.y !== " " && e.y !== "?" ? () => handleRestore([e.path]) : undefined}
@@ -1166,6 +1221,31 @@ function SectionHeader({ label, count, loading, action, children }: {
         />
       ) : action)}
       {children}
+    </div>
+  );
+}
+
+// Inline, theme-matched search input shown when a section's search icon is
+// toggled. Filters the file list (debounced upstream) by file path.
+function SectionSearchBar({ value, onChange, onClose }: {
+  value: string;
+  onChange: (v: string) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-1.5 w-full min-w-0 rounded-md h-5">
+      <Search size={12} className="shrink-0 text-on-surface-variant" />
+      <input
+        autoFocus
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}
+        placeholder="Filter files…"
+        className="flex-1 min-w-0 bg-transparent outline-none text-sm text-on-surface placeholder:text-on-surface-variant/50 cursor-text select-text"
+      />
+      {value && (
+        <IconButton icon={<X size={12} />} tooltip="Clear" onClick={() => onChange("")} size="sm" className="w-4 h-4 [&_svg]:w-[12px] [&_svg]:h-[12px]" variant="ghost" />
+      )}
     </div>
   );
 }

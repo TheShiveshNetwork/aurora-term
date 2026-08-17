@@ -370,6 +370,7 @@ dependencies = [
  "aurora-config",
  "aurora-core",
  "aurora-db",
+ "aurora-lsp",
  "aurora-pty",
  "objc2-app-kit",
  "serde_json",
@@ -412,6 +413,8 @@ dependencies = [
  "aurora-config",
  "aurora-core",
  "aurora-db",
+ "aurora-lsp",
+ "aurora-lsp-fetch",
  "aurora-pty",
  "aurora-sidecar",
  "aurora-update",
@@ -462,6 +465,32 @@ dependencies = [
  "nucleo",
  "rusqlite",
  "serde",
+]
+
+[[package]]
+name = "aurora-lsp"
+version = "0.1.0"
+dependencies = [
+ "aurora-core",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "aurora-lsp-fetch"
+version = "0.1.0"
+dependencies = [
+ "aurora-core",
+ "flate2",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tar",
+ "tokio",
+ "tracing",
+ "which",
 ]
 
 [[package]]
@@ -5047,6 +5076,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "tar"
+version = "0.4.46"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f6221d9a6003c78398e3b239969f352578258df48c8eb051caadae0015bc840"
+dependencies = [
+ "filetime",
+ "libc",
+ "xattr",
+]
+
+[[package]]
 name = "target-lexicon"
 version = "0.12.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7163,6 +7203,16 @@ dependencies = [
  "libc",
  "once_cell",
  "pkg-config",
+]
+
+[[package]]
+name = "xattr"
+version = "1.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32e45ad4206f6d2479085147f02bc2ef834ac85886624a23575ae137c8aa8156"
+dependencies = [
+ "libc",
+ "rustix 1.1.4",
 ]
 
 [[package]]

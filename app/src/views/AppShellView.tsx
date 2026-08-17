@@ -17,6 +17,7 @@ import { useBlockStore } from "../stores/useBlockStore";
 import { useSessionStore } from "../stores/useSessionStore";
 import { useSettingsStore } from "../stores/useSettingsStore";
 import { useAgentStore, CONST_DEFAULT_SESSION_STATE } from "../stores/useAgentStore";
+import { useNotificationStore } from "../stores/useToastStore";
 import { TabBar } from "../components/ui/TabBar";
 import { SidePanel } from "../components/ui/SidePanel";
 import { StatusBar } from "../components/ui/StatusBar";
@@ -102,6 +103,19 @@ export function AppShellView() {
       }
     }
   }, [createAgentSession]);
+
+  // Surface settings save/apply failures forwarded from the settings window.
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    listen("aurora:settings-error", (event) => {
+      useNotificationStore.getState().addNotification(event.payload, "error");
+    }).then((u) => {
+      unlisten = u;
+    });
+    return () => {
+      unlisten?.();
+    };
+  }, []);
 
   useEffect(() => {
     const handleOpen = (e: Event) => {

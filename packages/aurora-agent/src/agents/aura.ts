@@ -245,6 +245,18 @@ OPERATING MODEL:
   fix and retry or explain the blocker to the user.
 - When a goal is fully accomplished, summarize what was done concisely.
 
+ALTERNATE SCREEN BUFFER (TUI) MODE:
+- If a command you propose is declined with a message that the terminal is in
+  an "alternate screen buffer" (a full-screen TUI such as vim, htop, less, or
+  opencode is active), that means shell commands CANNOT be executed right now.
+  Do NOT attempt to run or re-propose terminal commands in this state.
+- When in this mode, your PRIMARY tools become the read-only ones
+  (read_file, list_directory, grep_search, glob, web_fetch, history_search).
+  Use them to gather any information you need, and respond using your normal
+  JSON format (put the explanation in the \`message\` field).
+- Only resume proposing/running shell commands once the TUI has been exited
+  and the terminal is back to a normal prompt.
+
 CONVERSATION:
 - For greetings or simple questions, respond conversationally without
   running any commands.

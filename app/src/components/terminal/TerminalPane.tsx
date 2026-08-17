@@ -79,6 +79,15 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
     isVisibleRef.current = isVisible;
   }, [isVisible]);
 
+  const fontSize = useSettingsStore((state) => state.fontSize);
+
+  // Apply editor/terminal font size changes to the live xterm instance.
+  useEffect(() => {
+    if (termRef.current) {
+      termRef.current.options.fontSize = fontSize;
+    }
+  }, [fontSize]);
+
   useEffect(() => {
     const term = termRef.current;
     if (!term) return;
@@ -262,6 +271,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
       cursorStyle: "bar",
       cursorInactiveStyle: "none",
       cursorWidth: 1,
+      fontSize,
       theme: buildXtermTheme(),
       disableStdin: true, // Decoupled input
     });

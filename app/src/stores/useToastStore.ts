@@ -17,13 +17,14 @@ export interface NotificationItem {
   id: string;
   title: string;
   message: string;
-  type: "error" | "info" | "success";
+  type: "error" | "info" | "success" | "loading";
   duration?: number;
 }
 
 interface NotificationStore {
   notifications: NotificationItem[];
   addNotification: (message: unknown, type?: NotificationItem["type"], duration?: number) => string;
+  addLoadingNotification: (opts: { title: string; message: string }) => string;
   removeNotification: (id: string) => void;
 }
 
@@ -113,6 +114,13 @@ export const useNotificationStore = create<NotificationStore>((set) => ({
   },
   removeNotification: (id) => {
     set((s) => ({ notifications: s.notifications.filter((n) => n.id !== id) }));
+  },
+  addLoadingNotification: ({ title, message }) => {
+    const id = uuidv4();
+    set((s) => ({
+      notifications: [...s.notifications, { id, title, message, type: "loading" }],
+    }));
+    return id;
   },
 }));
 

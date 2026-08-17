@@ -34,7 +34,7 @@ export const SETTINGS_MANIFEST: SettingsManifestEntry[] = [
   { id: "restore-tabs", label: "Keep Opened Tabs On Startup", description: "Keep and restore opened tabs when launching the app", elementId: "setting-restore-tabs", section: "general", subPage: "workspace" },
   // ── Editor ──
   { id: "fontFamily", label: "Font Family", description: "Terminal font family", elementId: "setting-font-family", section: "general", subPage: "editor" },
-  { id: "fontSize", label: "Font Size", description: "Terminal font size", elementId: "setting-font-size", section: "general", subPage: "editor" },
+  { id: "fontSize", label: "Editor Font Size", description: "Font size for the editor and terminal", elementId: "setting-editor-font-size", section: "general", subPage: "editor" },
   { id: "cursorStyle", label: "Cursor Style", description: "Terminal cursor appearance", elementId: "setting-cursor-style", section: "general", subPage: "editor" },
   { id: "cursorBlink", label: "Cursor Blink", description: "Toggle cursor blinking in terminal", elementId: "setting-cursor-blink", section: "general", subPage: "editor" },
   { id: "wordWrap", label: "Word Wrap", description: "Toggle editor word wrapping", elementId: "setting-word-wrap", section: "general", subPage: "editor" },

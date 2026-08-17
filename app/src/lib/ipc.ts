@@ -60,6 +60,8 @@ export interface EditorConfig {
   word_wrap: boolean;
   ai_live_suggestions: boolean;
   indent_markers: boolean;
+  lsp_enabled: boolean;
+  font_size: number;
 }
 
 export interface CloudConfig {
@@ -440,7 +442,8 @@ export const system = {
     mode: string | undefined,
     runId: string,
     toolCallId: string | undefined,
-    sessionId?: string
+    sessionId?: string,
+    feedback?: string
   ) =>
     invoke<AgentStepResult>("agent_decline_tool", {
       agentType,
@@ -448,6 +451,7 @@ export const system = {
       runId,
       toolCallId,
       sessionId,
+      feedback,
     }),
   agentGetLogs: () =>
     invoke<{ status: string; logs: Array<{ timestamp: number; type: string; content: string }> }>("agent_get_logs"),

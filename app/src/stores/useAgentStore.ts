@@ -27,7 +27,7 @@ export interface AgentCommand {
 
 export interface AgentLog {
   timestamp: number;
-  type: "plan" | "execute" | "subagent" | "complete" | "error" | "info";
+  type: "plan" | "execute" | "subagent" | "tool" | "complete" | "error" | "info";
   content: string;
   subagent?: string;
 }

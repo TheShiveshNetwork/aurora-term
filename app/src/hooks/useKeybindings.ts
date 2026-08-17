@@ -84,8 +84,8 @@ export function useKeybindings() {
         return;
       }
 
-      // Prevent default browser shortcuts for registered app commands (unless it's copy/paste/select/find/comment passthrough)
-      const PASSTHROUGH_SHORTCUTS = ["copy", "cut", "paste-clipboard", "select-all", "find", "toggle-comment"];
+      // Prevent default browser shortcuts for registered app commands (unless it's a native passthrough)
+      const PASSTHROUGH_SHORTCUTS = ["paste-clipboard", "select-all", "toggle-comment"];
       if (!PASSTHROUGH_SHORTCUTS.includes(matched.id)) {
         e.preventDefault();
         e.stopPropagation();
@@ -197,6 +197,66 @@ export function useKeybindings() {
         case "format-doc":
           if (activeTabId) {
             window.dispatchEvent(new CustomEvent("file-format-document", { detail: { tabId: activeTabId } }));
+          }
+          break;
+
+        case "find":
+          if (activeTabId) {
+            window.dispatchEvent(new CustomEvent("file-find", { detail: { tabId: activeTabId } }));
+          }
+          break;
+
+        case "find-next":
+          if (activeTabId) {
+            window.dispatchEvent(new CustomEvent("file-find-next", { detail: { tabId: activeTabId } }));
+          }
+          break;
+
+        case "find-prev":
+          if (activeTabId) {
+            window.dispatchEvent(new CustomEvent("file-find-prev", { detail: { tabId: activeTabId } }));
+          }
+          break;
+
+        case "copy":
+          if (activeTabId) {
+            window.dispatchEvent(new CustomEvent("file-copy-line", { detail: { tabId: activeTabId } }));
+          }
+          break;
+
+        case "cut":
+          if (activeTabId) {
+            window.dispatchEvent(new CustomEvent("file-cut-line", { detail: { tabId: activeTabId } }));
+          }
+          break;
+
+        case "zoom-in":
+          if (activeTabId) {
+            window.dispatchEvent(new CustomEvent("file-zoom-in", { detail: { tabId: activeTabId } }));
+          }
+          break;
+
+        case "zoom-out":
+          if (activeTabId) {
+            window.dispatchEvent(new CustomEvent("file-zoom-out", { detail: { tabId: activeTabId } }));
+          }
+          break;
+
+        case "select-matches":
+          if (activeTabId) {
+            window.dispatchEvent(new CustomEvent("file-select-matches", { detail: { tabId: activeTabId } }));
+          }
+          break;
+
+        case "code-action":
+          if (activeTabId) {
+            window.dispatchEvent(new CustomEvent("file-code-action", { detail: { tabId: activeTabId } }));
+          }
+          break;
+
+        case "organize-imports":
+          if (activeTabId) {
+            window.dispatchEvent(new CustomEvent("file-organize-imports", { detail: { tabId: activeTabId } }));
           }
           break;
 

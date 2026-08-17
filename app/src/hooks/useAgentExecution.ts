@@ -205,6 +205,31 @@ export function useAgentExecution(sessionId: string | null) {
       return;
     }
 
+    // When the agent's terminal is occupied by a TUI (alternate screen buffer
+    // active), shell commands cannot be executed there. Decline the command and
+    // resume the agent with a clear reason so it falls back to tool calls /
+    // natural-language responses instead of injecting keystrokes into the TUI.
+    const declineCommandForAltScreen = async (sid: string, tid: string, stp: any) => {
+      useAgentStore.getState().addLog(sid, "Command skipped: terminal is in alternate screen buffer (TUI active).");
+      useAgentStore.getState().addAgentLog(
+        sid,
+        "execute",
+        "Command skipped — terminal is in an alternate screen buffer (a TUI is active); commands cannot be executed there."
+      );
+      const feedback =
+        "The terminal is currently in an alternate screen buffer (a full-screen TUI such as vim, htop, less, or opencode is active), so shell commands cannot be executed there. Do NOT attempt to run terminal commands. Respond in natural language, or use your available tool calls (read_file, list_directory, grep_search, glob, web_fetch, history_search) to gather information.";
+      const stepResult = await system.agentDeclineTool(
+        useAgentStore.getState().sessions[sid]?.agentType || "terminal",
+        useAgentStore.getState().sessions[sid]?.agentMode || "build",
+        stp.run_id,
+        stp.tool_call_id,
+        sid,
+        feedback
+      );
+      useAgentStore.getState().setPendingToolCall(sid, null);
+      await handleStepResult(sid, tid, stepResult);
+    };
+
     // 1. Gated Tool Approval Suspension
     if (step.status === "requires_approval") {
       // Secondary safety net: auto-decline the 3rd identical tool call in a row
@@ -227,6 +252,12 @@ export function useAgentExecution(sessionId: string | null) {
       }
 
       if (step.tool_name === "exec_command" || step.tool_name === "shell_terminal" || step.tool_name === "shell_developer") {
+        // Terminal occupied by a TUI — never inject commands into it. Decline and
+        // let the agent fall back to tool calls / natural-language responses.
+        if (useSessionStore.getState().alternateBufferActive[targetSessionId]) {
+          await declineCommandForAltScreen(targetSessionId, taskId, step);
+          return;
+        }
         const cmd = step.args.command;
         // If this command was the last one executed successfully, auto-approve
         // with cached output instead of showing the approval UI again.
@@ -436,6 +467,13 @@ export function useAgentExecution(sessionId: string | null) {
 
     // 4. Executing (legacy or direct command path)
     if (step.status === "executing" && step.command) {
+      // Terminal occupied by a TUI — skip command execution (would corrupt it).
+      if (useSessionStore.getState().alternateBufferActive[targetSessionId]) {
+        state.addLog(targetSessionId, "Command skipped: terminal is in alternate screen buffer (TUI active).");
+        useAgentStore.getState().addAgentLog(targetSessionId, "execute", "Command skipped — terminal is in an alternate screen buffer (TUI active).");
+        if (executeNextStepRef.current) await executeNextStepRef.current(taskId);
+        return;
+      }
       const cmd = step.command;
       const explanation = step.explanation || "Executing planned command";
       const subagent = (step.subagent as AgentCommand["subagent"]) || "none";
@@ -526,6 +564,13 @@ export function useAgentExecution(sessionId: string | null) {
         resetToolCallGuard(targetSessionId);
         const fileCtx = await buildFileContext(targetSessionId);
         if (fileCtx) goal = `${goal}\n\n[FILE CONTEXT]\n${fileCtx}`;
+        // If the agent's own terminal is occupied by a TUI (alternate screen
+        // buffer active), tell the agent up front so it explains the situation
+        // to the user instead of silently completing or attempting a command
+        // that can't run.
+        if (useSessionStore.getState().alternateBufferActive[targetSessionId]) {
+          goal = `${goal}\n\n[TERMINAL STATE] The terminal is currently in an ALTERNATE SCREEN BUFFER (a full-screen TUI such as vim, htop, less, or opencode is active). Shell commands CANNOT be executed there right now. Do NOT attempt to run terminal commands. Respond using your normal JSON format and put the explanation in the \`message\` field: state that commands cannot be run while the terminal is occupied by a TUI, and offer to use your read-only tool calls (read_file, list_directory, grep_search, glob, web_fetch, history_search) or answer in chat. Do not wrap the message in extra prose outside the JSON object.`;
+        }
       }
 
       const step = await system.agentPlanStep(
@@ -746,6 +791,23 @@ export function useAgentExecution(sessionId: string | null) {
       try {
         let stepResult: any;
         if (name === "exec_command" || name === "shell_terminal" || name === "shell_developer") {
+          // Terminal occupied by a TUI — never inject commands into it, even if the
+          // user approved. Decline so the agent falls back to tools / NL instead.
+          if (useSessionStore.getState().alternateBufferActive[targetSessionId]) {
+            const feedback =
+              "The terminal is currently in an alternate screen buffer (a full-screen TUI such as vim, htop, less, or opencode is active), so shell commands cannot be executed there. Do NOT attempt to run terminal commands. Respond in natural language, or use your available tool calls (read_file, list_directory, grep_search, glob, web_fetch, history_search) to gather information.";
+            const stepResult = await system.agentDeclineTool(
+              freshSession.agentType,
+              freshSession.agentMode,
+              runId,
+              toolCallId,
+              targetSessionId,
+              feedback
+            );
+            state.setPendingToolCall(targetSessionId, null);
+            await handleStepResult(targetSessionId, freshSession.taskId!, stepResult);
+            return;
+          }
           // Find the queued command matching
           const currentIndex = freshSession.queue.findIndex((cmd) => cmd.status === "requires_action");
           if (currentIndex === -1) return;
