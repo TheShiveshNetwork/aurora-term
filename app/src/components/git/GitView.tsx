@@ -521,6 +521,19 @@ export function GitView({ cwd, tabId }: GitViewProps) {
     } catch (e) { addNotification(e); }
   }, [cwd, rebaseValue, refreshStatus, refreshBranches, clearDiffCache]);
 
+  const handleRebaseBranch = useCallback(async (branch: string) => {
+    if (!branch || branch === currentBranch) return;
+    try {
+      // Rebase the selected branch onto the current branch, then return to the
+      // originally checked-out branch so the user's context is unchanged.
+      await system.gitExec(cwd, ["rebase", currentBranch, branch]);
+      await system.gitExec(cwd, ["checkout", currentBranch]);
+      clearDiffCache();
+      useGitStore.getState().invalidateAll(cwd);
+      await Promise.all([refreshStatus(), refreshBranches()]);
+    } catch (e) { addNotification(e); }
+  }, [cwd, currentBranch, refreshStatus, refreshBranches, clearDiffCache]);
+
   const openCreate = useCallback(() => {
     setCreateFrom(currentBranch);
     setCreateName("");
@@ -1320,7 +1333,7 @@ function StagedFileRow({ entry, onUnstage, onOpenFile, onSelect, onContextMenu }
         {icon}
       </span>
       {conflicted && (
-        <GitMerge size={12} className="shrink-0" style={{ color: "#EF5350" }} title="Merge conflict" />
+        <span className="shrink-0" title="Merge conflict"><GitMerge size={12} style={{ color: "#EF5350" }} /></span>
       )}
       <span className="truncate flex-1 pr-12">{fileName}</span>
       {dirName && <span className="text-[10px] truncate max-w-[80px]" style={{ color: "rgba(232,234,240,0.25)" }}>{dirName}</span>}
@@ -1364,7 +1377,7 @@ function ChangesFileRow({ entry, onStage, onRestore, onDelete, onOpenFile, onSel
         {icon}
       </span>
       {conflicted && (
-        <GitMerge size={12} className="shrink-0" style={{ color: "#EF5350" }} title="Merge conflict" />
+        <span className="shrink-0" title="Merge conflict"><GitMerge size={12} style={{ color: "#EF5350" }} /></span>
       )}
       <span className="truncate flex-1 pr-12">{fileName}</span>
       {dirName && <span className="text-[10px] truncate max-w-[80px]" style={{ color: "rgba(232,234,240,0.25)" }}>{dirName}</span>}

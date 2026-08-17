@@ -249,7 +249,7 @@ export function AppShellView() {
     const slash = await resolveSlashCommand(input, {
       cwd: cwdAbsolute,
       sessionId: activeTabId,
-      isTaskRunning: agentStatus === "planning" || agentStatus === "executing" || agentStatus === "paused",
+      isTaskRunning: agentStatus === "executing",
     });
     if (slash.handled) {
       if (slash.assistantMessage) {
