@@ -68,7 +68,7 @@ function repackage(assetPath, work) {
   return { path: out, ext: "tar.gz" };
 }
 
-async function latestReleaseAsset(repo, pattern, version, plat) {
+async function latestReleaseAsset(repo, pattern, version, plat, work) {
   // Use the upstream's actual latest release tag, not a hardcoded guess.
   const rel = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, {
     headers: { Authorization: `Bearer ${process.env.GITHUB_TOKEN}`, Accept: "application/vnd.github+json" },
@@ -78,8 +78,13 @@ async function latestReleaseAsset(repo, pattern, version, plat) {
   const tag = String(json.tag_name || "").replace(/^v/, "");
   const want = substitute(pattern, plat, tag);
   const assets = json.assets || [];
-  const name = assets.find((a) => a.name === want || a.name.toLowerCase() === want.toLowerCase())?.name
-    || assets.find((a) => a.name.toLowerCase().includes(substitute(pattern.split(/[{}]/)[0], plat, tag).toLowerCase().replace(".zip", "").replace(".tar.gz", "")))?.name;
+  // Normalize by stripping archive extensions so patterns that omit them
+  // (e.g. rust `rust-analyzer-{target}`) still match `…-aarch64-apple-darwin.gz`
+  // precisely, instead of grabbing a wrong-platform asset via substring match.
+  const norm = (s) => s.toLowerCase().replace(/\.(tar\.gz|tgz|tar|zip|gz)$/, "");
+  const wantNorm = norm(want);
+  const name = assets.find((a) => norm(a.name) === wantNorm)?.name
+    || assets.find((a) => a.name.toLowerCase().includes(wantNorm))?.name;
   if (!name) throw new Error(`no asset '${want}' in ${repo}@${tag}; have: ${assets.map((a) => a.name).join(", ")}`);
   const a = assets.find((x) => x.name === name);
   const dl = join(work, name);
@@ -107,7 +112,7 @@ async function buildNpm(spec, plat, work) {
 }
 
 async function buildGithub(spec, plat, work) {
-  const { dl, version } = await latestReleaseAsset(spec.repo, spec.asset, spec.version, plat);
+  const { dl, version } = await latestReleaseAsset(spec.repo, spec.asset, spec.version, plat, work);
   const { path, ext } = repackage(dl, work);
   return { bundle: path, ext, entry_relative: spec.entry_relative, kind: "native", version };
 }
@@ -140,7 +145,7 @@ async function buildOne(spec, plat) {
   cpSync(result.bundle, dst);
   rmSync(work, { recursive: true, force: true });
   console.log(`built ${assetName} (${result.kind}) sha256=${sha}`);
-  return { assetName, sha, kind: result.kind, entry_relative: result.entry_relative };
+  return { assetName, sha, kind: result.kind, entry_relative: result.entry_relative, version };
 }
 
 // Publish every bundle (plus manifest.json) to a single rolling release. We
@@ -194,16 +199,24 @@ async function main() {
   const manifest = {};
   const toUpload = [];
   for (const spec of REGISTRY) {
+    if (HOST_TOOLCHAIN.includes(spec.id)) continue; // resolved from PATH at runtime
     const platforms = {};
     let langVersion, langKind, langEntry;
     for (const plat of PLATFORMS) {
-      const r = await buildOne(spec, plat);
-      langVersion = spec.version;
-      langKind = r.kind;
-      langEntry = r.entry_relative;
-      const url = `${RAW_BASE}/${r.assetName}`;
-      platforms[plat.key] = { url, sha256: r.sha };
-      toUpload.push(join(DIST, spec.id, plat.key, r.assetName));
+      try {
+        const r = await buildOne(spec, plat);
+        langVersion = r.version;
+        langKind = r.kind;
+        langEntry = r.entry_relative;
+        platforms[plat.key] = { url: `${RAW_BASE}/${r.assetName}`, sha256: r.sha };
+        toUpload.push(join(DIST, spec.id, plat.key, r.assetName));
+      } catch (e) {
+        console.error(`SKIP ${spec.id} (${plat.key}): ${e.message}`);
+      }
+    }
+    if (Object.keys(platforms).length === 0) {
+      console.error(`SKIP language ${spec.id}: no platforms built`);
+      continue;
     }
     manifest[spec.id] = {
       version: langVersion,
