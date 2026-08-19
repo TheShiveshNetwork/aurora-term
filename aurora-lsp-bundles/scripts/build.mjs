@@ -82,8 +82,9 @@ async function latestReleaseAsset(repo, pattern, version, plat) {
     || assets.find((a) => a.name.toLowerCase().includes(substitute(pattern.split(/[{}]/)[0], plat, tag).toLowerCase().replace(".zip", "").replace(".tar.gz", "")))?.name;
   if (!name) throw new Error(`no asset '${want}' in ${repo}@${tag}; have: ${assets.map((a) => a.name).join(", ")}`);
   const a = assets.find((x) => x.name === name);
-  const dl = join(tmp(), name);
+  const dl = join(work, name);
   const r2 = await fetch(a.browser_download_url, { headers: { Authorization: `Bearer ${process.env.GITHUB_TOKEN}` } });
+  if (!r2.ok) throw new Error(`download ${a.browser_download_url} failed: ${r2.status}`);
   writeFileSync(dl, Buffer.from(await r2.arrayBuffer()));
   return { dl, version: tag };
 }
