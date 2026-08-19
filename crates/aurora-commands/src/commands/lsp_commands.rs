@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use tauri::{command, State, Emitter, Manager};
 use crate::state::AppState;
 use aurora_lsp::{LspIncoming, narrow_root};
-use aurora_lsp_fetch::{ensure_installed, spec_for};
+use aurora_lsp_fetch::{ensure_installed, weight_for};
 
 /// Ensure the server for `language_id` is fetched (if needed), then started,
 /// scoped to `(language_id, project_root)`. Safe to call repeatedly — already
@@ -19,16 +19,12 @@ pub async fn lsp_ensure_and_start(
     root: String,
     file_path: String,
 ) -> Result<String, String> {
-    let spec = spec_for(&language_id).ok_or_else(|| {
-        format!("no built-in language server registered for '{}'", language_id)
-    })?;
-
-    let resolved = ensure_installed(spec, &state.lsp_cache_dir)
+    let resolved = ensure_installed(&language_id, &state.lsp_cache_dir)
         .await
         .map_err(|e| e.to_string())?;
 
-    let mut args: Vec<String> = resolved.base_args;
-    args.extend(spec.args.iter().map(|s| s.to_string()));
+    let args = resolved.args;
+    let weight = weight_for(&language_id);
 
     let root_path = PathBuf::from(&root);
     let file_path_buf = PathBuf::from(&file_path);
@@ -43,8 +39,8 @@ pub async fn lsp_ensure_and_start(
             exec: resolved.program,
             args,
             root: narrowed,
-            weight: spec.weight(),
-            runtime: spec.runtime(),
+            weight,
+            runtime: resolved.runtime,
         })
         .await
         .map_err(|e| e.to_string())?;

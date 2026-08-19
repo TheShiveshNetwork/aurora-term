@@ -1,57 +1,90 @@
-//! `aurora-lsp-fetch` — first-party language server acquisition only.
+//! `aurora-lsp-fetch` — prebuilt, manifest-driven bundle acquisition.
 //!
-//! This crate resolves an [`InstallMethod`] for a language, downloads (if
-//! needed), verifies, unpacks, and caches the server binary. It never spawns a
-//! long-lived server process — it hands `aurora-lsp` a resolved executable
-//! path. Keeping acquisition separate from lifecycle means the marketplace
-//! work later only touches this crate.
+//! Every language server (regardless of upstream ecosystem) is pre-built once in
+//! CI into a separate `aurora-lsp-bundles` repo, hosted as versioned tarballs,
+//! and described by a single `manifest.json`. At runtime this crate follows ONE
+//! uniform path for all languages:
+//!
+//! ```text
+//! fetch manifest (ETag-revalidated, locally cached)
+//!   -> compare cached version
+//!   -> download tarball
+//!   -> verify sha256
+//!   -> extract
+//!   -> finalize (quarantine / exec-bit fixes)
+//! ```
+//!
+//! No npm / GitHub-release / Go-proxy / RubyGems live resolution happens on the
+//! user's machine anymore — that branching lives only in the bundles repo's CI.
+//! The Windows npm-shim spawn bug and the `{target}` asset-pattern guessing are
+//! both gone. `aurora-lsp` (lifecycle) is untouched: it just receives a resolved
+//! `program` + `args` + `runtime` and runs it.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use aurora_core::AppError;
+use aurora_core::{AppError, ServerRuntime, ServerWeight};
+use sha2::Digest;
 
-/// How a server binary is obtained.
-#[derive(Debug, Clone)]
-pub enum InstallMethod {
-    /// Download a release asset from GitHub.
-    GithubRelease {
-        repo: &'static str,
-        asset_pattern: &'static str,
-    },
-    /// Install an npm package and run its bin through the Node runtime.
-    Npm { package: &'static str, bin: &'static str },
-    /// `go install <module>` (requires the Go toolchain on PATH).
-    GoInstall { module: &'static str },
-    /// `gem install <package>` (requires Ruby on PATH).
-    Gem { package: &'static str },
-    /// Binary already on PATH (JVM/.NET/toolchain-bundled servers).
-    RequireOnPath { binary_name: &'static str },
+// ─── Manifest types ──────────────────────────────────────────────────────────
+
+/// One platform-specific asset for a bundle.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct PlatformAsset {
+    pub url: String,
+    pub sha256: String,
 }
 
-/// Rough memory weight class of a server. Drives idle-eviction timing and the
-/// concurrent-heavy-server cap in `aurora-lsp`.
-pub use aurora_core::{ServerWeight, ServerRuntime};
+/// One language's bundle description, as published in `manifest.json`.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct BundleEntry {
+    /// Semver-ish version string; CI bumps this per language via bot PRs.
+    pub version: String,
+    /// `"node"` → invoke via the bundled Node runtime; `"native"` → spawn the
+    /// binary directly. This is the one field that replaces the old
+    /// `InstallMethod` branching — CI already resolved everything else.
+    #[serde(default = "default_entry_kind")]
+    pub entry_kind: String,
+    /// Path of the executable relative to the extracted bundle dir.
+    pub entry_relative: String,
+    /// Extra args passed before the server's own protocol args (e.g. `--stdio`).
+    #[serde(default)]
+    pub args: Vec<String>,
+    /// Per-platform asset map. Keys: `win-x64`, `win-arm64`, `darwin-x64`,
+    /// `darwin-arm64`, `linux-x64`, `linux-arm64`.
+    pub platforms: HashMap<String, PlatformAsset>,
+}
 
-impl LspServerSpec {
-    /// Classify this server as Light or Heavy. Heavy = servers known to use
-    /// large amounts of memory on real codebases.
-    pub fn weight(&self) -> ServerWeight {
-        const HEAVY: &[&str] = &[
-            "rust", "go", "c", "cpp", "java", "csharp", "haskell", "scala", "clojure",
-            "kotlin", "lua", "swift", "elixir", "r",
-        ];
-        if HEAVY.contains(&self.language_id) {
-            ServerWeight::Heavy
-        } else {
-            ServerWeight::Light
+fn default_entry_kind() -> String {
+    "native".to_string()
+}
+
+/// The full manifest: `language_id` → [`BundleEntry`].
+pub type Manifest = HashMap<String, BundleEntry>;
+
+// ─── Resolved server ─────────────────────────────────────────────────────────
+
+/// How the resolved entry should be launched.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServerKind {
+    Node,
+    Native,
+}
+
+impl ServerKind {
+    fn from_str(s: &str) -> ServerKind {
+        match s {
+            "node" => ServerKind::Node,
+            _ => ServerKind::Native,
         }
     }
 
-    /// Classify the runtime a server executes on, for memory limiting.
-    pub fn runtime(&self) -> ServerRuntime {
-        match self.install {
-            InstallMethod::Npm { .. } => ServerRuntime::Node,
-            _ => match self.language_id {
+    /// Map to the lifecycle crate's runtime classification for memory caps.
+    fn runtime(self, language_id: &str) -> ServerRuntime {
+        match self {
+            ServerKind::Node => ServerRuntime::Node,
+            ServerKind::Native => match language_id {
+                // Binary is bundled but still needs a JVM/.NET on PATH to run.
                 "java" | "kotlin" | "scala" | "clojure" => ServerRuntime::Jvm,
                 _ => ServerRuntime::Native,
             },
@@ -59,656 +92,456 @@ impl LspServerSpec {
     }
 }
 
-/// A description of one built-in language server.
+/// A fully resolved server the lifecycle crate can spawn directly.
 #[derive(Debug, Clone)]
-pub struct LspServerSpec {
-    pub language_id: &'static str,
-    pub display_name: &'static str,
-    pub install: InstallMethod,
-    /// Path of the executable relative to the install/cache directory.
-    pub exec_relative: &'static str,
-    pub args: &'static [&'static str],
+pub struct ResolvedServer {
+    /// The program to execute. For `entry_kind: "node"` this is the bundled
+    /// Node interpreter; for `"native"` it is the extracted binary itself.
+    pub program: PathBuf,
+    /// Full argument list (Node script / entry included where relevant).
+    pub args: Vec<String>,
+    /// Runtime class, so `aurora-lsp` applies the right memory cap.
+    pub runtime: ServerRuntime,
 }
 
-/// The built-in registry of ~32 languages. Adding a language is one line here.
-pub const REGISTRY: &[LspServerSpec] = &[
-    // ---- Tier 1 ----
-    LspServerSpec { language_id: "typescript", display_name: "typescript-language-server",
-        install: InstallMethod::Npm { package: "typescript-language-server", bin: "typescript-language-server" },
-        exec_relative: "typescript-language-server", args: &["--stdio"] },
-    LspServerSpec { language_id: "javascript", display_name: "typescript-language-server",
-        install: InstallMethod::Npm { package: "typescript-language-server", bin: "typescript-language-server" },
-        exec_relative: "typescript-language-server", args: &["--stdio"] },
-    LspServerSpec { language_id: "python", display_name: "pyright",
-        install: InstallMethod::Npm { package: "pyright", bin: "pyright-langserver" },
-        exec_relative: "pyright-langserver", args: &["--stdio"] },
-    LspServerSpec { language_id: "rust", display_name: "rust-analyzer",
-        install: InstallMethod::GithubRelease { repo: "rust-lang/rust-analyzer", asset_pattern: "rust-analyzer-{target}" },
-        exec_relative: "rust-analyzer", args: &[] },
-    LspServerSpec { language_id: "go", display_name: "gopls",
-        install: InstallMethod::GoInstall { module: "golang.org/x/tools/gopls@latest" },
-        exec_relative: "gopls", args: &[] },
-    LspServerSpec { language_id: "c", display_name: "clangd",
-        install: InstallMethod::GithubRelease { repo: "clangd/clangd", asset_pattern: "clangd-{target}.zip" },
-        exec_relative: "clangd", args: &[] },
-    LspServerSpec { language_id: "cpp", display_name: "clangd",
-        install: InstallMethod::GithubRelease { repo: "clangd/clangd", asset_pattern: "clangd-{target}.zip" },
-        exec_relative: "clangd", args: &[] },
-    LspServerSpec { language_id: "java", display_name: "jdtls",
-        install: InstallMethod::GithubRelease { repo: "eclipse-jdtls/eclipse.jdt.ls", asset_pattern: "jdt-language-server-{version}.tar.gz" },
-        exec_relative: "bin/jdtls", args: &[] },
-    LspServerSpec { language_id: "csharp", display_name: "OmniSharp",
-        install: InstallMethod::GithubRelease { repo: "OmniSharp/omnisharp-roslyn", asset_pattern: "omnisharp-{target}.zip" },
-        exec_relative: "OmniSharp", args: &["-lsp"] },
-    LspServerSpec { language_id: "html", display_name: "vscode-html-language-server",
-        install: InstallMethod::Npm { package: "vscode-langservers-extracted", bin: "vscode-html-language-server" },
-        exec_relative: "vscode-html-language-server", args: &["--stdio"] },
-    LspServerSpec { language_id: "css", display_name: "vscode-css-language-server",
-        install: InstallMethod::Npm { package: "vscode-langservers-extracted", bin: "vscode-css-language-server" },
-        exec_relative: "vscode-css-language-server", args: &["--stdio"] },
-    LspServerSpec { language_id: "json", display_name: "vscode-json-language-server",
-        install: InstallMethod::Npm { package: "vscode-langservers-extracted", bin: "vscode-json-language-server" },
-        exec_relative: "vscode-json-language-server", args: &["--stdio"] },
-    LspServerSpec { language_id: "yaml", display_name: "yaml-language-server",
-        install: InstallMethod::Npm { package: "yaml-language-server", bin: "yaml-language-server" },
-        exec_relative: "yaml-language-server", args: &["--stdio"] },
-    LspServerSpec { language_id: "bash", display_name: "bash-language-server",
-        install: InstallMethod::Npm { package: "bash-language-server", bin: "bash-language-server" },
-        exec_relative: "bash-language-server", args: &["start"] },
+// ─── Host-toolchain languages (never bundled) ────────────────────────────────
+//
+// These require a toolchain the user already has on PATH (Swift toolchain,
+// Coursier/metals, R). CI has nothing to build for them, so they stay
+// `RequireOnPath` and are resolved directly from PATH at runtime.
 
-    // ---- Tier 2 ----
-    LspServerSpec { language_id: "markdown", display_name: "marksman",
-        install: InstallMethod::GithubRelease { repo: "artempyanykh/marksman", asset_pattern: "marksman-{os};marksman.exe" },
-        exec_relative: "marksman", args: &["server"] },
-    LspServerSpec { language_id: "dockerfile", display_name: "docker-langserver",
-        install: InstallMethod::Npm { package: "dockerfile-language-server-nodejs", bin: "docker-langserver" },
-        exec_relative: "docker-langserver", args: &["--stdio"] },
-    LspServerSpec { language_id: "lua", display_name: "lua-language-server",
-        install: InstallMethod::GithubRelease { repo: "LuaLS/lua-language-server", asset_pattern: "lua-language-server-{version}-{target}.tar.gz" },
-        exec_relative: "bin/lua-language-server", args: &[] },
-    LspServerSpec { language_id: "php", display_name: "intelephense",
-        install: InstallMethod::Npm { package: "intelephense", bin: "intelephense" },
-        exec_relative: "intelephense", args: &["--stdio"] },
-    LspServerSpec { language_id: "ruby", display_name: "ruby-lsp",
-        install: InstallMethod::Gem { package: "ruby-lsp" },
-        exec_relative: "ruby-lsp", args: &[] },
-    LspServerSpec { language_id: "swift", display_name: "sourcekit-lsp",
-        install: InstallMethod::RequireOnPath { binary_name: "sourcekit-lsp" },
-        exec_relative: "sourcekit-lsp", args: &[] },
-    LspServerSpec { language_id: "kotlin", display_name: "kotlin-language-server",
-        install: InstallMethod::GithubRelease { repo: "fwcd/kotlin-language-server", asset_pattern: "server.zip" },
-        exec_relative: "bin/kotlin-language-server", args: &[] },
-    LspServerSpec { language_id: "toml", display_name: "taplo",
-        install: InstallMethod::GithubRelease { repo: "tamasfe/taplo", asset_pattern: "taplo-{target}.gz" },
-        exec_relative: "taplo", args: &["lsp", "stdio"] },
-    LspServerSpec { language_id: "vue", display_name: "vue-language-server",
-        install: InstallMethod::Npm { package: "@vue/language-server", bin: "vue-language-server" },
-        exec_relative: "vue-language-server", args: &["--stdio"] },
-    LspServerSpec { language_id: "svelte", display_name: "svelte-language-server",
-        install: InstallMethod::Npm { package: "svelte-language-server", bin: "svelteserver" },
-        exec_relative: "svelteserver", args: &["--stdio"] },
-
-    // ---- Tier 3 ----
-    LspServerSpec { language_id: "zig", display_name: "zls",
-        install: InstallMethod::GithubRelease { repo: "zigtools/zls", asset_pattern: "zls-{target}.tar.gz" },
-        exec_relative: "zls", args: &[] },
-    LspServerSpec { language_id: "terraform", display_name: "terraform-ls",
-        install: InstallMethod::GithubRelease { repo: "hashicorp/terraform-ls", asset_pattern: "terraform-ls_{version}_{target}.zip" },
-        exec_relative: "terraform-ls", args: &["serve"] },
-    LspServerSpec { language_id: "graphql", display_name: "graphql-lsp",
-        install: InstallMethod::Npm { package: "graphql-language-service-cli", bin: "graphql-lsp" },
-        exec_relative: "graphql-lsp", args: &["server", "--method", "stream"] },
-    LspServerSpec { language_id: "sql", display_name: "sqls",
-        install: InstallMethod::GoInstall { module: "github.com/sqls-server/sqls@latest" },
-        exec_relative: "sqls", args: &[] },
-    LspServerSpec { language_id: "elixir", display_name: "elixir-ls",
-        install: InstallMethod::GithubRelease { repo: "elixir-lsp/elixir-ls", asset_pattern: "elixir-ls.zip" },
-        exec_relative: "language_server.sh", args: &[] },
-    LspServerSpec { language_id: "haskell", display_name: "haskell-language-server",
-        install: InstallMethod::GithubRelease { repo: "haskell/haskell-language-server", asset_pattern: "haskell-language-server-{target}.tar.gz" },
-        exec_relative: "haskell-language-server-wrapper", args: &["--lsp"] },
-    LspServerSpec { language_id: "scala", display_name: "metals",
-        install: InstallMethod::RequireOnPath { binary_name: "metals" },
-        exec_relative: "metals", args: &[] },
-    LspServerSpec { language_id: "clojure", display_name: "clojure-lsp",
-        install: InstallMethod::GithubRelease { repo: "clojure-lsp/clojure-lsp", asset_pattern: "clojure-lsp-native-{target}.zip" },
-        exec_relative: "clojure-lsp", args: &[] },
-    LspServerSpec { language_id: "nix", display_name: "nil",
-        install: InstallMethod::GithubRelease { repo: "oxalica/nil", asset_pattern: "nil-{target}" },
-        exec_relative: "nil", args: &[] },
-    LspServerSpec { language_id: "r", display_name: "r-languageserver",
-        install: InstallMethod::RequireOnPath { binary_name: "R" },
-        exec_relative: "R", args: &["--slave", "-e", "languageserver::run()"] },
+const HOST_TOOLCHAIN: &[(&str, &str)] = &[
+    ("swift", "sourcekit-lsp"),
+    ("scala", "metals"),
+    ("r", "R"),
+    // ruby-lsp is a Ruby script that requires a `ruby` interpreter on PATH; it
+    // cannot be expressed as a `node`/`native` bundle, so it stays RequireOnPath.
+    ("ruby", "ruby-lsp"),
 ];
 
-/// Look up a registry spec by `language_id`.
-pub fn spec_for(language_id: &str) -> Option<&'static LspServerSpec> {
-    REGISTRY.iter().find(|s| s.language_id == language_id)
-}
-
-/// A resolved executable the LSP manager can spawn.
-#[derive(Debug, Clone)]
-pub struct ResolvedExec {
-    /// The program to execute.
-    pub program: PathBuf,
-    /// Arguments to prepend before the server's own `args`.
-    pub base_args: Vec<String>,
-}
-
-/// Ensure the server for `spec` is installed in `cache_dir`, returning the
-/// path to the executable. Network/toolchain access only happens on a cache miss.
-pub async fn ensure_installed(spec: &LspServerSpec, cache_dir: &Path) -> Result<ResolvedExec, AppError> {
-    // Cheap first probe: if the server is already on PATH (from `cargo install`,
-    // `npm i -g`, Homebrew, pip, mason.nvim, a VS Code global CLI, etc.) we skip
-    // any download entirely. This is strictly better than only probing for
-    // `RequireOnPath` entries — it reuses whatever the user's system already has,
-    // from any source. Consistent with how VS Code/Zed/Neovim converge.
-    if let Ok(path) = which::which(spec.exec_relative) {
-        tracing::info!(
-            "LSP '{}' found on PATH at {}, skipping acquisition",
-            spec.exec_relative,
-            path.display()
-        );
-        return Ok(ResolvedExec { program: path, base_args: vec![] });
-    }
-
-    let install_dir = cache_dir.join("servers").join(spec.language_id);
-    std::fs::create_dir_all(&install_dir)
-        .map_err(|e| AppError::Lsp(format!("failed to create cache dir: {}", e)))?;
-
-    match &spec.install {
-        InstallMethod::RequireOnPath { binary_name } => {
-            let path = which::which(binary_name)
-                .map_err(|_| AppError::Lsp(format!("{} not found on PATH", binary_name)))?;
-            Ok(ResolvedExec { program: path, base_args: vec![] })
-        }
-        InstallMethod::Npm { package, bin } => install_npm(package, bin, &install_dir).await,
-        InstallMethod::GoInstall { module } => install_go(spec, module, &install_dir).await,
-        InstallMethod::Gem { package } => install_gem(spec, package, &install_dir).await,
-        InstallMethod::GithubRelease { repo, asset_pattern } => {
-            install_github(spec, repo, asset_pattern, &install_dir).await
-        }
+/// Rough memory weight class for idle-eviction + heavy concurrency cap. Kept as
+/// a tiny static list so the runtime needs no spec table per language.
+pub fn weight_for(language_id: &str) -> ServerWeight {
+    const HEAVY: &[&str] = &[
+        "rust", "go", "c", "cpp", "java", "csharp", "haskell", "scala", "clojure", "kotlin",
+        "lua", "swift", "elixir", "r",
+    ];
+    if HEAVY.contains(&language_id) {
+        ServerWeight::Heavy
+    } else {
+        ServerWeight::Light
     }
 }
 
-/// Resolve the current target triple to a short platform token used in asset
-/// names. This is intentionally permissive — multiple candidate tokens are
-/// tried downstream.
-fn target_triple() -> &'static str {
-    #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
-    return "x86_64-pc-windows-msvc";
-    #[cfg(all(target_os = "windows", target_arch = "aarch64"))]
-    return "aarch64-pc-windows-msvc";
+// ─── Platform + manifest source ───────────────────────────────────────────────
+
+/// The platform token used to index `BundleEntry::platforms`.
+pub fn current_platform() -> &'static str {
+    #[cfg(all(windows, target_arch = "x86_64"))]
+    return "win-x64";
+    #[cfg(all(windows, target_arch = "aarch64"))]
+    return "win-arm64";
     #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
-    return "x86_64-apple-darwin";
+    return "darwin-x64";
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    return "aarch64-apple-darwin";
+    return "darwin-arm64";
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-    return "x86_64-unknown-linux-gnu";
+    return "linux-x64";
     #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-    return "aarch64-unknown-linux-gnu";
+    return "linux-arm64";
     #[allow(unreachable_code)]
     {
         "unknown"
     }
 }
 
-/// The short OS keywords that appear in release asset names for the current
-/// platform. Used for OS-aware matching when exact substitution misses.
-fn os_keywords() -> Vec<&'static str> {
-    let triple = target_triple();
-    if triple.contains("windows") {
-        vec!["windows", "win32"]
-    } else if triple.contains("apple") {
-        vec!["mac", "macos", "darwin"]
-    } else if triple.contains("linux") {
-        vec!["linux"]
-    } else {
-        vec![]
-    }
+/// Manifest URL. Overridable via `AURORA_LSP_BUNDLES_MANIFEST` (useful for local
+/// dev / self-hosting). Defaults to `aurora-lsp-bundles/manifest.json` in this
+/// app repo (built by the root `.github/workflows/lsp-bundles-build.yml`).
+fn manifest_url() -> String {
+    std::env::var("AURORA_LSP_BUNDLES_MANIFEST").unwrap_or_else(|_| {
+        "https://raw.githubusercontent.com/TheShiveshNetwork/aurora-term/main/aurora-lsp-bundles/manifest.json"
+            .to_string()
+    })
 }
 
-/// The short OS token used to substitute `{os}` in asset/exec patterns.
-fn os_token() -> &'static str {
-    let triple = target_triple();
-    if triple.contains("windows") {
-        "windows"
-    } else if triple.contains("apple") {
-        "mac"
-    } else {
-        "linux"
-    }
+fn reqwest_client() -> Result<reqwest::Client, AppError> {
+    reqwest::Client::builder()
+        .user_agent("aurora-term")
+        .build()
+        .map_err(|e| AppError::Lsp(e.to_string()))
 }
 
-/// Substitute the `{os}`/`{target}`/`{arch}`/`{musl}`/`{version}` placeholders
-/// used in asset and exec patterns for the current platform.
-fn substitute_platform(pattern: &str) -> String {
-    let triple = target_triple();
-    let os = os_token();
-    let arch = if triple.starts_with("x86_64") {
-        "x86_64"
-    } else if triple.starts_with("aarch64") {
-        "aarch64"
-    } else if triple.starts_with("arm") {
-        "arm"
-    } else {
-        ""
-    };
-    let musl = if triple.contains("musl") { "musl" } else { "" };
-    pattern
-        .replace("{target}", triple)
-        .replace("{os}", os)
-        .replace("{arch}", arch)
-        .replace("{musl}", musl)
-        // Version is left open — drop the literal "{version}" segment.
-        .replace("{version}", "")
-}
+// ─── Manifest fetch (ETag-revalidated, locally cached) ───────────────────────
 
-/// Build the set of exact candidate asset names. A pattern may list several
-/// alternatives separated by `;`, each with platform placeholders substituted.
-fn candidate_asset_names(pattern: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    for sub in pattern.split(';') {
-        let sub = sub.trim();
-        if sub.is_empty() {
-            continue;
-        }
-        out.push(substitute_platform(sub));
-    }
-    out
-}
+/// Fetch the manifest, reusing the locally cached copy when the remote has not
+/// changed (HTTP 304 via `If-None-Match`). The cache is `cache_dir/manifest.json`
+/// plus `cache_dir/manifest.etag`.
+pub async fn get_manifest(cache_dir: &Path) -> Result<Manifest, AppError> {
+    std::fs::create_dir_all(cache_dir)
+        .map_err(|e| AppError::Lsp(format!("failed to create cache dir: {}", e)))?;
+    let manifest_path = cache_dir.join("manifest.json");
+    let etag_path = cache_dir.join("manifest.etag");
 
-/// Pick the best matching asset name from the release's asset list. `bin_stem`
-/// is the server binary name (sans path/extension) used for prefix matching.
-/// Strip a known archive suffix so an asset name can be compared against a bare
-/// candidate (e.g. `rust-analyzer-x86_64-pc-windows-msvc.zip` ->
-/// `rust-analyzer-x86_64-pc-windows-msvc`).
-fn asset_stem(name: &str) -> String {
-    let lower = name.to_ascii_lowercase();
-    for ext in ["tar.gz", "tgz", "tar", "gz", "zip"] {
-        if let Some(stripped) = lower.strip_suffix(ext) {
-            return stripped.to_string();
-        }
-    }
-    lower
-}
-
-/// Pick the best matching asset name from the release's asset list. `bin_stem`
-/// is the server binary name (sans path/extension) used only as a last resort.
-fn match_asset(assets: &[String], pattern: &str, bin_stem: &str) -> Option<String> {
-    let candidates = candidate_asset_names(pattern);
-    let norm_candidates: Vec<String> = candidates.iter().map(|c| asset_stem(c)).collect();
-
-    // 1. Exact (extension-normalized) match against a substituted candidate.
-    for asset in assets {
-        let na = asset_stem(asset);
-        if norm_candidates.iter().any(|c| c == &na) {
-            return Some(asset.clone());
-        }
-    }
-    // 2. The asset's stem starts with a full substituted candidate. Because the
-    //    candidate already embeds the target triple, this keeps arch-specific
-    //    assets from cross-matching (e.g. x86_64 vs aarch64).
-    for asset in assets {
-        let na = asset_stem(asset);
-        if norm_candidates.iter().any(|c| na.starts_with(c)) {
-            return Some(asset.clone());
-        }
-    }
-    // 3. OS-aware prefix match: the asset references our OS and starts with the
-    //    binary stem.
-    let os_kw = os_keywords();
-    let lower_stem = bin_stem.to_lowercase();
-    let mut stem_fallback: Option<String> = None;
-    for asset in assets {
-        let lower = asset.to_lowercase();
-        let os_ok = os_kw.iter().any(|k| lower.contains(k));
-        if os_ok && lower.starts_with(&lower_stem) {
-            return Some(asset.clone());
-        }
-        if stem_fallback.is_none() && lower.starts_with(&lower_stem) {
-            stem_fallback = Some(asset.clone());
-        }
-    }
-    // 4. Last resort: any asset that begins with the binary stem.
-    stem_fallback
-}
-
-// ─── Npm ───────────────────────────────────────────────────────────────────
-
-async fn install_npm(
-    package: &str,
-    bin: &str,
-    install_dir: &Path,
-) -> Result<ResolvedExec, AppError> {
-    let bin_dir = install_dir.join("node_modules").join(".bin");
-
-    if which::which("npm").is_err() {
-        return Err(AppError::Lsp(
-            "npm not found on PATH (Node.js is required for npm-based language servers)"
-                .to_string(),
-        ));
-    }
-
-    // On Windows the .bin shim is a `.cmd`; on Unix it is an executable script.
-    #[cfg(windows)]
-    let shim = bin_dir.join(format!("{}.cmd", bin));
-    #[cfg(not(windows))]
-    let shim = bin_dir.join(bin);
-
-    if !shim.exists() {
-        tracing::info!("LSP npm install: {} -> {}", package, install_dir.display());
-        if let Err(e) = run_npm_install(package, install_dir).await {
-            return Err(AppError::Lsp(format!("npm install of {} failed: {}", package, e)));
+    let client = reqwest_client()?;
+    let mut req = client.get(manifest_url());
+    if let Ok(etag) = std::fs::read_to_string(&etag_path) {
+        let etag = etag.trim();
+        if !etag.is_empty() {
+            req = req.header(reqwest::header::IF_NONE_MATCH, etag);
         }
     }
 
-    if !shim.exists() {
+    let resp = req
+        .send()
+        .await
+        .map_err(|e| AppError::Lsp(format!("manifest request failed: {}", e)))?;
+
+    if resp.status() == reqwest::StatusCode::NOT_MODIFIED {
+        let txt = std::fs::read_to_string(&manifest_path)
+            .map_err(|e| AppError::Lsp(format!("cached manifest read failed: {}", e)))?;
+        return serde_json::from_str(&txt)
+            .map_err(|e| AppError::Lsp(format!("cached manifest parse failed: {}", e)));
+    }
+
+    if !resp.status().is_success() {
         return Err(AppError::Lsp(format!(
-            "npm bin {} not found after install (expected at {})",
-            bin,
-            shim.display()
+            "manifest returned {} from {}",
+            resp.status(),
+            manifest_url()
         )));
     }
 
-    #[cfg(windows)]
-    {
-        // Run the .cmd shim via cmd.exe.
-        Ok(ResolvedExec {
-            program: std::path::Path::new("cmd").to_path_buf(),
-            base_args: vec!["/c".to_string(), shim.to_string_lossy().to_string()],
-        })
+    let etag = resp
+        .headers()
+        .get(reqwest::header::ETAG)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+    let txt = resp
+        .text()
+        .await
+        .map_err(|e| AppError::Lsp(format!("manifest read failed: {}", e)))?;
+    if let Some(etag) = etag {
+        let _ = std::fs::write(&etag_path, etag);
     }
-    #[cfg(not(windows))]
-    {
-        let node = which::which("node").map_err(|_| {
-            AppError::Lsp(
-                "Node.js runtime not found on PATH (required for npm-based language servers)"
-                    .to_string(),
-            )
+    let _ = std::fs::write(&manifest_path, &txt);
+    serde_json::from_str(&txt).map_err(|e| AppError::Lsp(format!("manifest parse failed: {}", e)))
+}
+
+// ─── Uniform acquisition path ────────────────────────────────────────────────
+
+/// Ensure the server for `language_id` is available on disk, returning a fully
+/// resolved command. One code path for every language.
+pub async fn ensure_installed(
+    language_id: &str,
+    cache_dir: &Path,
+) -> Result<ResolvedServer, AppError> {
+    // 1. Host-toolchain languages: resolve directly from PATH.
+    if let Some((_, bin)) = HOST_TOOLCHAIN.iter().find(|(l, _)| *l == language_id) {
+        let path = which::which(bin)
+            .map_err(|_| AppError::Lsp(format!("{} not found on PATH (required for {})", bin, language_id)))?;
+        return Ok(ResolvedServer {
+            program: path,
+            args: vec![],
+            runtime: ServerRuntime::Native,
+        });
+    }
+
+    // 2. Bundle-driven languages: manifest → version check → download/verify/extract.
+    let manifest = get_manifest(cache_dir).await?;
+    let entry = manifest.get(language_id).ok_or_else(|| {
+        AppError::Lsp(format!("no prebuilt bundle registered for '{}'", language_id))
+    })?;
+    let platform = current_platform();
+    let asset = entry.platforms.get(platform).ok_or_else(|| {
+        AppError::Lsp(format!("'{}' bundle not available for platform '{}'", language_id, platform))
+    })?;
+
+    let target_dir = cache_dir.join(language_id);
+    let version_file = target_dir.join(".version");
+    let cached_ok = version_file.exists()
+        && std::fs::read_to_string(&version_file)
+            .map(|s| s.trim() == entry.version)
+            .unwrap_or(false);
+
+    if cached_ok {
+        return resolve_from_cache(&target_dir, entry, language_id, cache_dir).await;
+    }
+
+    download_verify_extract(&asset.url, &asset.sha256, &target_dir, language_id).await?;
+    std::fs::write(&version_file, &entry.version)
+        .map_err(|e| AppError::Lsp(format!("failed to write version file: {}", e)))?;
+
+    resolve_from_cache(&target_dir, entry, language_id, cache_dir).await
+}
+
+/// Build the [`ResolvedServer`] from an already-extracted bundle directory.
+async fn resolve_from_cache(
+    target_dir: &Path,
+    entry: &BundleEntry,
+    language_id: &str,
+    cache_dir: &Path,
+) -> Result<ResolvedServer, AppError> {
+    let kind = ServerKind::from_str(&entry.entry_kind);
+    let mut entry_path = target_dir.join(&entry.entry_relative);
+    // Some upstream bundles ship the binary without the `.exe` suffix on Windows.
+    #[cfg(windows)]
+    if !entry_path.exists() {
+        let alt = entry_path.with_extension("exe");
+        if alt.exists() {
+            entry_path = alt;
+        }
+    }
+    if !entry_path.exists() {
+        return Err(AppError::Lsp(format!(
+            "bundle entry '{}' missing after extraction (looked in {})",
+            entry.entry_relative,
+            target_dir.display()
+        )));
+    }
+    finalize_downloaded_binary(&entry_path)?;
+
+    match kind {
+        ServerKind::Node => {
+            let node_dir = ensure_node_runtime(cache_dir).await?;
+            let node_exe = node_exe_path(&node_dir);
+            let mut args = vec![entry_path.to_string_lossy().to_string()];
+            args.extend(entry.args.iter().cloned());
+            Ok(ResolvedServer {
+                program: node_exe,
+                args,
+                runtime: ServerRuntime::Node,
+            })
+        }
+        ServerKind::Native => Ok(ResolvedServer {
+            program: entry_path,
+            args: entry.args.clone(),
+            runtime: kind.runtime(language_id),
+        }),
+    }
+}
+
+// ─── Download + verify + extract ─────────────────────────────────────────────
+
+/// Download `url` to `dest`, verify its sha256 against `expected`, then extract
+/// into `target_dir` (cleared first so a stale prior version can't linger).
+async fn download_verify_extract(
+    url: &str,
+    expected_sha256: &str,
+    target_dir: &Path,
+    language_id: &str,
+) -> Result<(), AppError> {
+    let tmp = target_dir
+        .parent()
+        .unwrap_or(target_dir)
+        .join(format!(".lsp-dl-{}.tmp", language_id));
+    download_file(url, &tmp).await?;
+
+    verify_sha256(&tmp, expected_sha256)
+        .await
+        .inspect_err(|_| {
+            let _ = std::fs::remove_file(&tmp);
         })?;
-        Ok(ResolvedExec {
-            program: node,
-            base_args: vec![shim.to_string_lossy().to_string()],
-        })
-    }
-}
 
-// Run `npm install` for a package into `install_dir`. On Windows `npm` is a
-// `.cmd` shim that `CreateProcess` cannot launch directly, so we go through
-// `cmd /c npm`.
-#[cfg(windows)]
-async fn run_npm_install(package: &str, install_dir: &Path) -> Result<(), AppError> {
-    let output = tokio::process::Command::new("cmd")
-        .args([
-            "/c",
-            "npm",
-            "install",
-            "--no-save",
-            "--prefix",
-            &install_dir.to_string_lossy(),
-            package,
-        ])
-        .output()
-        .await
-        .map_err(|e| AppError::Lsp(format!("npm install failed to launch: {}", e)))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(AppError::Lsp(if stderr.is_empty() {
-            format!("npm install of {} failed (exit {})", package, output.status)
-        } else {
-            format!("npm install of {} failed: {}", package, stderr)
-        }));
-    }
+    clear_dir(target_dir)?;
+    extract_into(&tmp, target_dir).await?;
+    let _ = std::fs::remove_file(&tmp);
     Ok(())
 }
 
-#[cfg(not(windows))]
-async fn run_npm_install(package: &str, install_dir: &Path) -> Result<(), AppError> {
-    let output = tokio::process::Command::new("npm")
-        .args(["install", "--no-save", "--prefix", &install_dir.to_string_lossy(), package])
-        .output()
-        .await
-        .map_err(|e| AppError::Lsp(format!("npm install failed to launch: {}", e)))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(AppError::Lsp(if stderr.is_empty() {
-            format!("npm install of {} failed (exit {})", package, output.status)
-        } else {
-            format!("npm install of {} failed: {}", package, stderr)
-        }));
-    }
-    Ok(())
-}
-
-// ─── Go ────────────────────────────────────────────────────────────────────
-
-async fn install_go(
-    spec: &LspServerSpec,
-    module: &str,
-    _install_dir: &Path,
-) -> Result<ResolvedExec, AppError> {
-    let go = which::which("go")
-        .map_err(|_| AppError::Lsp("Go toolchain not found on PATH (required for go-based language servers)".to_string()))?;
-    let bin = spec.exec_relative;
-    if which::which(bin).is_err() {
-        tracing::info!("LSP go install: {}", module);
-        let status = tokio::process::Command::new(go)
-            .args(["install", module])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .await
-            .map_err(|e| AppError::Lsp(format!("go install failed: {}", e)))?;
-        if !status.success() {
-            return Err(AppError::Lsp(format!("go install of {} failed", module)));
-        }
-    }
-    let path = which::which(bin)
-        .map_err(|_| AppError::Lsp(format!("{} not found on PATH after go install", bin)))?;
-    Ok(ResolvedExec { program: path, base_args: vec![] })
-}
-
-// ─── Gem ───────────────────────────────────────────────────────────────────
-
-async fn install_gem(
-    spec: &LspServerSpec,
-    package: &str,
-    _install_dir: &Path,
-) -> Result<ResolvedExec, AppError> {
-    let gem = which::which("gem")
-        .map_err(|_| AppError::Lsp("RubyGems not found on PATH (required for gem-based language servers)".to_string()))?;
-    let bin = spec.exec_relative;
-    if which::which(bin).is_err() {
-        tracing::info!("LSP gem install: {}", package);
-        let status = tokio::process::Command::new(gem)
-            .args(["install", package])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .await
-            .map_err(|e| AppError::Lsp(format!("gem install failed: {}", e)))?;
-        if !status.success() {
-            return Err(AppError::Lsp(format!("gem install of {} failed", package)));
-        }
-    }
-    let path = which::which(bin)
-        .map_err(|_| AppError::Lsp(format!("{} not found on PATH after gem install", bin)))?;
-    Ok(ResolvedExec { program: path, base_args: vec![] })
-}
-
-// ─── GitHub release ──────────────────────────────────────────────────────────
-
-/// Substitute platform placeholders inside an `exec_relative` path.
-fn substitute_exec(exec_relative: &str) -> String {
-    substitute_platform(exec_relative)
-}
-
-/// Whether an asset name refers to a supported archive format. Assets that are
-/// already raw executables (e.g. `marksman.exe`, `marksman-linux`) are not
-/// archives and should be used directly.
-fn is_archive_name(name: &str) -> bool {
-    let n = name.to_ascii_lowercase();
-    n.ends_with(".zip")
-        || n.ends_with(".tar.gz")
-        || n.ends_with(".tgz")
-        || n.ends_with(".tar")
-        || n.ends_with(".gz")
-}
-
-/// Resolve the on-disk executable path inside `extract_dir`, applying a Windows
-/// `.exe` fallback when the bare name does not exist.
-fn resolve_exec(extract_dir: &Path, exec: &str) -> PathBuf {
-    let p = extract_dir.join(exec);
-    #[cfg(windows)]
-    {
-        if !p.exists() {
-            let alt = p.with_extension("exe");
-            if alt.exists() {
-                return alt;
-            }
-        }
-    }
-    p
-}
-
-async fn install_github(
-    spec: &LspServerSpec,
-    repo: &str,
-    asset_pattern: &str,
-    install_dir: &Path,
-) -> Result<ResolvedExec, AppError> {
-    let asset_name = resolve_asset_name(spec, repo, asset_pattern).await?;
-
-    let downloaded = install_dir.join(&asset_name);
-    if !downloaded.exists() {
-        let url = format!("https://github.com/{}/releases/latest/download/{}", repo, asset_name);
-        tracing::info!("LSP download: {}", url);
-        download_file(&url, &downloaded).await?;
-    }
-
-    // Extract into a clean subdir keyed by asset name (sans extension).
-    let stem = asset_name.rsplit_once('.').map(|(s, _)| s).unwrap_or(&asset_name);
-    let extract_dir = install_dir.join(stem);
-    let exec = substitute_exec(spec.exec_relative);
-    let exec_path = resolve_exec(&extract_dir, &exec);
-    if !exec_path.exists() {
-        std::fs::create_dir_all(&extract_dir)
-            .map_err(|e| AppError::Lsp(format!("extract dir create failed: {}", e)))?;
-        if is_archive_name(&asset_name) {
-            extract_archive(&downloaded, &extract_dir, &exec).await?;
-        } else {
-            // The downloaded asset is already the executable. Place it at the
-            // resolved exec path (applying the Windows `.exe` fallback).
-            let target = resolve_exec(&extract_dir, &exec);
-            std::fs::copy(&downloaded, &target)
-                .map_err(|e| AppError::Lsp(format!("failed to place executable: {}", e)))?;
-        }
-    }
-
-    let program = resolve_exec(&extract_dir, &exec);
-    if !program.exists() {
+/// Compute the sha256 of `path` and compare against the expected hex string.
+async fn verify_sha256(path: &Path, expected: &str) -> Result<(), AppError> {
+    let bytes = std::fs::read(path)
+        .map_err(|e| AppError::Lsp(format!("failed to read downloaded bundle: {}", e)))?;
+    let digest = sha2::Sha256::digest(&bytes);
+    let actual = hex::encode(digest);
+    if !actual.eq_ignore_ascii_case(expected) {
         return Err(AppError::Lsp(format!(
-            "server executable {} not found after extraction (looked in {})",
-            exec,
-            extract_dir.display()
+            "bundle sha256 mismatch: expected {} got {}",
+            expected, actual
         )));
+    }
+    Ok(())
+}
+
+/// Remove all entries inside `dir` (but keep `dir` itself).
+fn clear_dir(dir: &Path) -> Result<(), AppError> {
+    std::fs::create_dir_all(dir)
+        .map_err(|e| AppError::Lsp(format!("failed to create bundle dir: {}", e)))?;
+    let entries = std::fs::read_dir(dir)
+        .map_err(|e| AppError::Lsp(format!("failed to read bundle dir: {}", e)))?;
+    for entry in entries {
+        let entry = entry.map_err(|e| AppError::Lsp(e.to_string()))?;
+        let p = entry.path();
+        if p.is_dir() {
+            let _ = std::fs::remove_dir_all(&p);
+        } else {
+            let _ = std::fs::remove_file(&p);
+        }
+    }
+    Ok(())
+}
+
+// ─── Cross-platform post-download fixes ──────────────────────────────────────
+
+/// Downloaded binaries are still downloaded binaries — OS trust mechanisms don't
+/// care that the source is now our own repo. Strip the quarantine / zone marker
+/// and ensure the exec bit is set. Called for every extracted entry.
+pub fn finalize_downloaded_binary(exec_path: &Path) -> Result<(), AppError> {
+    if !exec_path.exists() {
+        return Ok(());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        // Strip the Mark-of-the-Web alternate data stream.
+        let ads = format!("{}:Zone.Identifier", exec_path.display());
+        let _ = std::fs::remove_file(&ads);
+    }
+
+    #[cfg(target_os = "macos")]
+    unsafe {
+        use std::ffi::CString;
+        let p = CString::new(exec_path.as_os_str().as_encoded_bytes()).unwrap();
+        let a = CString::new("com.apple.quarantine").unwrap();
+        libc::removexattr(p.as_ptr(), a.as_ptr(), 0);
     }
 
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(&program)
+        let mut perms = std::fs::metadata(exec_path)
             .map_err(|e| AppError::Lsp(e.to_string()))?
             .permissions();
-        perms.set_mode(0o755);
-        let _ = std::fs::set_permissions(&program, perms);
+        perms.set_mode(perms.mode() | 0o111);
+        std::fs::set_permissions(exec_path, perms)
+            .map_err(|e| AppError::Lsp(e.to_string()))?;
     }
 
-    Ok(ResolvedExec { program, base_args: vec![] })
+    Ok(())
 }
 
-/// Query the GitHub API for the latest release and pick the asset whose name
-/// matches `asset_pattern`.
-async fn resolve_asset_name(
-    spec: &LspServerSpec,
-    repo: &str,
-    asset_pattern: &str,
-) -> Result<String, AppError> {
-    let api = format!("https://api.github.com/repos/{}/releases/latest", repo);
-    let client = reqwest::Client::builder()
-        .user_agent("aurora-term")
-        .build()
-        .map_err(|e| AppError::Lsp(e.to_string()))?;
-    let resp = client
-        .get(&api)
-        .header("Accept", "application/vnd.github+json")
-        .send()
-        .await
-        .map_err(|e| AppError::Lsp(format!("github api request failed: {}", e)))?;
-    if !resp.status().is_success() {
-        return Err(AppError::Lsp(format!(
-            "github api returned {} for {}",
-            resp.status(),
-            repo
-        )));
+// ─── Portable Node runtime (lazy, fetched once, cached) ──────────────────────
+
+/// Pinned Node version used to run `entry_kind: "node"` bundles. Bumped via the
+/// bundles repo's own release process; never bundled in the app installer.
+const NODE_VERSION: &str = "v22.11.0";
+
+/// Ensure a portable Node runtime exists in `cache_dir/runtime/node`, returning
+/// its directory. Reuses a Node found on PATH if present; otherwise downloads a
+/// portable build once.
+pub async fn ensure_node_runtime(cache_dir: &Path) -> Result<PathBuf, AppError> {
+    if let Ok(path) = which::which("node") {
+        if let Some(dir) = path.parent() {
+            return Ok(dir.to_path_buf());
+        }
     }
-    let json: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| AppError::Lsp(format!("github api parse failed: {}", e)))?;
-    let assets = json
-        .get("assets")
-        .and_then(|a| a.as_array())
-        .ok_or_else(|| AppError::Lsp("github api: no assets array".to_string()))?;
 
-    let names: Vec<String> = assets
-        .iter()
-        .filter_map(|a| a.get("name").and_then(|n| n.as_str()).map(String::from))
-        .collect();
+    let runtime_dir = cache_dir.join("runtime");
+    std::fs::create_dir_all(&runtime_dir)
+        .map_err(|e| AppError::Lsp(format!("failed to create runtime dir: {}", e)))?;
+    let node_dir = runtime_dir.join("node");
+    let exe = node_exe_path(&node_dir);
+    if exe.exists() {
+        return Ok(node_dir);
+    }
 
-    let bin_stem = spec
-        .exec_relative
-        .rsplit('/')
-        .next()
-        .unwrap_or(spec.exec_relative)
-        .split('.')
-        .next()
-        .unwrap_or(spec.exec_relative)
-        // Strip any platform placeholders left in the path so the stem matches
-        // the real on-disk binary name (e.g. `rust-analyzer-{os}` -> `rust-analyzer`).
-        .replace("{os}", "")
-        .replace("{target}", "")
-        .replace("{arch}", "")
-        .replace("{version}", "")
-        .replace("{musl}", "")
-        .trim_end_matches('-')
-        .to_string();
+    let (url, _archive_ext) = node_asset_for_platform();
+    tracing::info!("LSP: fetching portable Node {} for node-based bundles", NODE_VERSION);
+    let tmp = runtime_dir.join(".node-dl.tmp");
+    download_file(&url, &tmp).await?;
+    extract_into(&tmp, &node_dir).await?;
+    let _ = std::fs::remove_file(&tmp);
 
-    if let Some(matched) = match_asset(&names, asset_pattern, &bin_stem) {
-        Ok(matched)
-    } else {
-        Err(AppError::Lsp(format!(
-            "no asset matched pattern '{}' for {}; available: {}",
-            asset_pattern,
-            repo,
-            names.join(", ")
-        )))
+    // The archive nests a top-level `node-<ver>-<plat>` dir; relocate the binary
+    // to the stable `node_dir/node[.exe]` path.
+    relocate_node_binary(&node_dir)?;
+    if !exe.exists() {
+        return Err(AppError::Lsp(
+            "portable Node binary missing after extraction".to_string(),
+        ));
+    }
+    finalize_downloaded_binary(&exe)?;
+    Ok(node_dir)
+}
+
+/// Stable path of the portable Node binary inside `node_dir`.
+fn node_exe_path(node_dir: &Path) -> PathBuf {
+    #[cfg(windows)]
+    {
+        node_dir.join("node.exe")
+    }
+    #[cfg(not(windows))]
+    {
+        node_dir.join("bin").join("node")
     }
 }
+
+/// Map the app platform to a Node.js dist asset name + archive extension.
+fn node_asset_for_platform() -> (String, &'static str) {
+    let plat = current_platform();
+    let (node_plat, ext) = match plat {
+        "win-x64" => ("win-x64", "zip"),
+        "win-arm64" => ("win-arm64", "zip"),
+        "darwin-x64" => ("darwin-x64", "tar.gz"),
+        "darwin-arm64" => ("darwin-arm64", "tar.gz"),
+        "linux-x64" => ("linux-x64", "tar.gz"),
+        "linux-arm64" => ("linux-arm64", "tar.gz"),
+        _ => ("linux-x64", "tar.gz"),
+    };
+    let url = format!(
+        "https://nodejs.org/dist/{}/node-{}-{}.{}",
+        NODE_VERSION, NODE_VERSION, node_plat, ext
+    );
+    (url, ext)
+}
+
+/// Find the Node binary inside the extracted archive and copy it to the stable
+/// `node_dir/node[.exe]` location.
+fn relocate_node_binary(node_dir: &Path) -> Result<(), AppError> {
+    let wanted = if cfg!(windows) { "node.exe" } else { "node" };
+    let found = find_file(node_dir, wanted)
+        .ok_or_else(|| AppError::Lsp("portable Node binary not found in archive".to_string()))?;
+    let dest = node_exe_path(node_dir);
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| AppError::Lsp(e.to_string()))?;
+    }
+    std::fs::copy(&found, &dest)
+        .map_err(|e| AppError::Lsp(format!("failed to relocate Node binary: {}", e)))?;
+    Ok(())
+}
+
+/// Recursively find a file by name under `dir`.
+fn find_file(dir: &Path, name: &str) -> Option<PathBuf> {
+    let entries = std::fs::read_dir(dir).ok()?;
+    for entry in entries.flatten() {
+        let p = entry.path();
+        if p.is_dir() {
+            if let Some(found) = find_file(&p, name) {
+                return Some(found);
+            }
+        } else if p.file_name().map(|n| n == name).unwrap_or(false) {
+            return Some(p);
+        }
+    }
+    None
+}
+
+// ─── Shared download / extraction helpers ────────────────────────────────────
 
 async fn download_file(url: &str, dest: &Path) -> Result<(), AppError> {
-    let client = reqwest::Client::builder()
-        .user_agent("aurora-term")
-        .build()
-        .map_err(|e| AppError::Lsp(e.to_string()))?;
+    let client = reqwest_client()?;
     let resp = client
         .get(url)
         .send()
         .await
         .map_err(|e| AppError::Lsp(format!("download failed: {}", e)))?;
     if !resp.status().is_success() {
-        return Err(AppError::Lsp(format!("download returned {} for {}", resp.status(), url)));
+        return Err(AppError::Lsp(format!(
+            "download returned {} for {}",
+            resp.status(),
+            url
+        )));
     }
     let bytes = resp
         .bytes()
@@ -719,21 +552,20 @@ async fn download_file(url: &str, dest: &Path) -> Result<(), AppError> {
     Ok(())
 }
 
-/// Extract an archive, supporting `.tar.gz`/`.tgz`/`.tar`, single `.gz`, and
-/// `.zip` (via the system `unzip`/`Expand-Archive`).
-async fn extract_archive(archive: &Path, dest: &Path, exec_relative: &str) -> Result<(), AppError> {
+/// Extract `archive` into `dest`, dispatching on extension.
+async fn extract_into(archive: &Path, dest: &Path) -> Result<(), AppError> {
+    std::fs::create_dir_all(dest)
+        .map_err(|e| AppError::Lsp(format!("extract dir create failed: {}", e)))?;
     let name = archive.to_string_lossy().to_lowercase();
     if name.ends_with(".tar.gz") || name.ends_with(".tgz") {
         extract_tar_gz(archive, dest)
     } else if name.ends_with(".tar") {
         extract_tar(archive, dest)
-    } else if name.ends_with(".gz") {
-        extract_gz(archive, dest, exec_relative)
     } else if name.ends_with(".zip") {
         extract_zip_system(archive, dest)
     } else {
         Err(AppError::Lsp(format!(
-            "unsupported archive type: {}",
+            "unsupported bundle archive type: {}",
             archive.display()
         )))
     }
@@ -743,24 +575,16 @@ fn extract_tar_gz(archive: &Path, dest: &Path) -> Result<(), AppError> {
     let file = std::fs::File::open(archive).map_err(|e| AppError::Lsp(e.to_string()))?;
     let dec = flate2::read::GzDecoder::new(file);
     let mut ar = tar::Archive::new(dec);
-    ar.unpack(dest).map_err(|e| AppError::Lsp(format!("tar.gz extract failed: {}", e)))?;
+    ar.unpack(dest)
+        .map_err(|e| AppError::Lsp(format!("tar.gz extract failed: {}", e)))?;
     Ok(())
 }
 
 fn extract_tar(archive: &Path, dest: &Path) -> Result<(), AppError> {
     let file = std::fs::File::open(archive).map_err(|e| AppError::Lsp(e.to_string()))?;
     let mut ar = tar::Archive::new(file);
-    ar.unpack(dest).map_err(|e| AppError::Lsp(format!("tar extract failed: {}", e)))?;
-    Ok(())
-}
-
-fn extract_gz(archive: &Path, dest: &Path, exec_relative: &str) -> Result<(), AppError> {
-    let file = std::fs::File::open(archive).map_err(|e| AppError::Lsp(e.to_string()))?;
-    let mut dec = flate2::read::GzDecoder::new(file);
-    let out_name = exec_relative.rsplit('/').next().unwrap_or(exec_relative);
-    let out_path = dest.join(out_name);
-    let mut out = std::fs::File::create(&out_path).map_err(|e| AppError::Lsp(e.to_string()))?;
-    std::io::copy(&mut dec, &mut out).map_err(|e| AppError::Lsp(format!("gz extract failed: {}", e)))?;
+    ar.unpack(dest)
+        .map_err(|e| AppError::Lsp(format!("tar extract failed: {}", e)))?;
     Ok(())
 }
 

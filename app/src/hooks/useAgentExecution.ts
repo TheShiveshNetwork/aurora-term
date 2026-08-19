@@ -217,7 +217,7 @@ export function useAgentExecution(sessionId: string | null) {
         "Command skipped — terminal is in an alternate screen buffer (a TUI is active); commands cannot be executed there."
       );
       const feedback =
-        "The terminal is currently in an alternate screen buffer (a full-screen TUI such as vim, htop, less, or opencode is active), so shell commands cannot be executed there. Do NOT attempt to run terminal commands. Respond in natural language, or use your available tool calls (read_file, list_directory, grep_search, glob, web_fetch, history_search) to gather information.";
+        "The terminal is currently in an alternate screen buffer, so shell commands cannot be executed there. Do NOT attempt to run terminal commands. Respond in natural language, or use your available tool calls (read_file, list_directory, grep_search, glob, web_fetch, history_search) to gather information.";
       const stepResult = await system.agentDeclineTool(
         useAgentStore.getState().sessions[sid]?.agentType || "terminal",
         useAgentStore.getState().sessions[sid]?.agentMode || "build",
@@ -569,7 +569,7 @@ export function useAgentExecution(sessionId: string | null) {
         // to the user instead of silently completing or attempting a command
         // that can't run.
         if (useSessionStore.getState().alternateBufferActive[targetSessionId]) {
-          goal = `${goal}\n\n[TERMINAL STATE] The terminal is currently in an ALTERNATE SCREEN BUFFER (a full-screen TUI such as vim, htop, less, or opencode is active). Shell commands CANNOT be executed there right now. Do NOT attempt to run terminal commands. Respond using your normal JSON format and put the explanation in the \`message\` field: state that commands cannot be run while the terminal is occupied by a TUI, and offer to use your read-only tool calls (read_file, list_directory, grep_search, glob, web_fetch, history_search) or answer in chat. Do not wrap the message in extra prose outside the JSON object.`;
+          goal = `${goal}\n\n[TERMINAL STATE] The terminal is currently in an ALTERNATE SCREEN BUFFER. Shell commands CANNOT be executed there right now. Do NOT attempt to run terminal commands. Respond using your normal JSON format and put the explanation in the \`message\` field: state that commands cannot be run while the terminal is occupied by a TUI, and offer to use your read-only tool calls (read_file, list_directory, grep_search, glob, web_fetch, history_search) or answer in chat. Do not wrap the message in extra prose outside the JSON object.`;
         }
       }
 
@@ -795,7 +795,7 @@ export function useAgentExecution(sessionId: string | null) {
           // user approved. Decline so the agent falls back to tools / NL instead.
           if (useSessionStore.getState().alternateBufferActive[targetSessionId]) {
             const feedback =
-              "The terminal is currently in an alternate screen buffer (a full-screen TUI such as vim, htop, less, or opencode is active), so shell commands cannot be executed there. Do NOT attempt to run terminal commands. Respond in natural language, or use your available tool calls (read_file, list_directory, grep_search, glob, web_fetch, history_search) to gather information.";
+              "The terminal is currently in an alternate screen buffer, so shell commands cannot be executed there. Do NOT attempt to run terminal commands. Respond in natural language, or use your available tool calls (read_file, list_directory, grep_search, glob, web_fetch, history_search) to gather information.";
             const stepResult = await system.agentDeclineTool(
               freshSession.agentType,
               freshSession.agentMode,

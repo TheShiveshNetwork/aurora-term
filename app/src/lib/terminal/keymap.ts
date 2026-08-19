@@ -37,8 +37,7 @@ function kitty(base: number, e: KeyLike): string {
 }
 
 // Encode Enter for the PTY. Unmodified Enter is always a bare \r. Modified Enter
-// is encoded in whatever keyboard protocol the TUI negotiated so the app (vim,
-// opencode/crossterm, neovim, etc.) receives a distinguishable key — a bare \r
+// is encoded in whatever keyboard protocol the TUI negotiated so the app  receives a distinguishable key — a bare \r
 // would make Ctrl/Shift/Alt/Meta+Enter behave identically and appear "not
 // working". In legacy mode (no negotiation) we cannot distinguish and fall
 // back to \r, matching xterm.js behavior.
