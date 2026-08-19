@@ -1,4 +1,4 @@
-name: LSP Bundles: Weekly Version Check
+name: "LSP Bundles: Weekly Version Check"
 
 on:
   schedule:

@@ -28,9 +28,9 @@ export const REGISTRY = [
   // resolved from that value at build time (so it tracks upstream renames). The
   // tarball contains the whole `node_modules/` tree, so `entry_relative` is the
   // path inside it: `node_modules/<package>/<binValue>`.
-  { id: "typescript", version: "8.0.3", eco: "npm", package: "typescript-language-server", bin: "typescript-language-server", extra: ["typescript"], entry_relative: "node_modules/typescript-language-server/lib/cli.mjs", args: ["--stdio"] },
-  { id: "javascript", version: "8.0.3", eco: "npm", package: "typescript-language-server", bin: "typescript-language-server", extra: ["typescript"], entry_relative: "node_modules/typescript-language-server/lib/cli.mjs", args: ["--stdio"] },
-  { id: "python", version: "1.1.401", eco: "npm", package: "pyright", bin: "pyright-langserver", entry_relative: "node_modules/pyright/langserver.index.js", args: ["--stdio"] },
+  { id: "typescript", version: "5.3.0", eco: "npm", package: "typescript-language-server", bin: "typescript-language-server", extra: ["typescript"], entry_relative: "node_modules/typescript-language-server/lib/cli.mjs", args: ["--stdio"] },
+  { id: "javascript", version: "5.3.0", eco: "npm", package: "typescript-language-server", bin: "typescript-language-server", extra: ["typescript"], entry_relative: "node_modules/typescript-language-server/lib/cli.mjs", args: ["--stdio"] },
+  { id: "python", version: "1.1.413", eco: "npm", package: "pyright", bin: "pyright-langserver", entry_relative: "node_modules/pyright/langserver.index.js", args: ["--stdio"] },
   { id: "html", version: "5.4.0", eco: "npm", package: "vscode-langservers-extracted", bin: "vscode-html-language-server", entry_relative: "node_modules/vscode-langservers-extracted/bin/vscode-html-language-server", args: ["--stdio"] },
   { id: "css", version: "5.4.0", eco: "npm", package: "vscode-langservers-extracted", bin: "vscode-css-language-server", entry_relative: "node_modules/vscode-langservers-extracted/bin/vscode-css-language-server", args: ["--stdio"] },
   { id: "json", version: "5.4.0", eco: "npm", package: "vscode-langservers-extracted", bin: "vscode-json-language-server", entry_relative: "node_modules/vscode-langservers-extracted/bin/vscode-json-language-server", args: ["--stdio"] },

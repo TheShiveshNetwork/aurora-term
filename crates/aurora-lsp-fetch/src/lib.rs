@@ -160,7 +160,7 @@ pub fn current_platform() -> &'static str {
 /// app repo (built by the root `.github/workflows/lsp-bundles-build.yml`).
 fn manifest_url() -> String {
     std::env::var("AURORA_LSP_BUNDLES_MANIFEST").unwrap_or_else(|_| {
-        "https://raw.githubusercontent.com/TheShiveshNetwork/aurora-term/main/aurora-lsp-bundles/manifest.json"
+        "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/manifest.json"
             .to_string()
     })
 }

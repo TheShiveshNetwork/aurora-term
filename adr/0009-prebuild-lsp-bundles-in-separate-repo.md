@@ -20,11 +20,13 @@ silently failed in release.
 
 ## Decision
 
-Move all bundle building out of the app and into a **separate** `aurora-lsp-bundles`
-repo whose CI builds each of the ~32 languages once per platform, hosts the
-resulting tarballs as versioned GitHub Releases, and publishes a single
-`manifest.json` (`language_id` → version → per-platform `url` + `sha256`,
-`entry_kind` of `node` | `native`, `entry_relative`, `args`).
+Move all bundle building out of the app and into an in-repo `aurora-lsp-bundles/`
+directory whose CI builds each of the ~32 languages once per platform, hosts the
+resulting tarballs (plus `manifest.json`) in a **single rolling GitHub release**
+(tag `lsp-bundles`, recreated each publish so URLs stay stable and no releases
+accumulate), and serves a `manifest.json` (`language_id` → version →
+per-platform `url` + `sha256`, `entry_kind` of `node` | `native`,
+`entry_relative`, `args`).
 
 `aurora-lsp-fetch` now has ONE uniform acquisition path: fetch the manifest
 (ETag-revalidated, cached locally) → compare cached version → download the

@@ -1,4 +1,4 @@
-name: LSP Bundles: Build & Publish
+name: "LSP Bundles: Build & Publish"
 
 on:
   push:

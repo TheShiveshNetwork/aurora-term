@@ -4,30 +4,32 @@ Prebuilt, versioned language-server bundles for [Aurora](https://github.com/auro
 
 This directory lives **inside** the Aurora app repo (at `aurora-lsp-bundles/`),
 built by the app's root `.github/workflows/lsp-bundles-build.yml`. It builds each
-language server once, in CI, hosts the resulting tarballs as GitHub Releases of
-the app repo, and publishes a single `manifest.json` describing them. The Aurora
-app's `aurora-lsp-fetch` crate downloads from this manifest at runtime — it never
-runs `npm install`, `go install`, `gem install`, or guesses GitHub asset names on
-the user's machine.
+language server once, in CI, and hosts the resulting tarballs **plus `manifest.json`**
+in a **single rolling GitHub release** (tag `lsp-bundles`) of the app repo. The
+release is recreated on every publish so the same stable URLs are reused and no
+releases accumulate. The Aurora app's `aurora-lsp-fetch` crate downloads from this
+manifest at runtime — it never runs `npm install`, `go install`, `gem install`,
+or guesses GitHub asset names on the user's machine.
 
 ## How it fits together
 
 ```
 aurora-lsp-bundles (this repo)
   ├── scripts/registry.mjs   single source of truth: 32 languages → version + ecosystem
-  ├── scripts/build.mjs      builds every (language × platform) tarball, writes manifest.json, uploads release
+  ├── scripts/build.mjs      builds every (language × platform) tarball, writes manifest.json, publishes rolling release
   ├── scripts/check-updates.mjs  weekly bot that opens one version-bump PR per language
-  └── manifest.json          published artifact consumed by the app
+  └── manifest.json          regenerated artifact (also published as a release asset)
 
 aurora (app)
   └── crates/aurora-lsp-fetch   fetch manifest → version check → download → sha256 verify → extract → spawn
 ```
 
-The app points at this directory's raw `manifest.json`
-(`aurora-lsp-bundles/manifest.json` in the app repo; override with the
+The app fetches `manifest.json` from the rolling release
+(`.../releases/download/lsp-bundles/manifest.json`; override with the
 `AURORA_LSP_BUNDLES_MANIFEST` env var for self-hosting). Bundle updates ship
-with the app repo: when a new version lands here, already-cached users keep
-working and simply pick up the new bundle on next validation.
+independently of app releases: when a new version lands in the rolling release,
+already-cached users keep working and simply pick up the new bundle on next
+manifest validation.
 
 ## Ecosystems (build-time branching only)
 
@@ -41,7 +43,7 @@ working and simply pick up the new bundle on next validation.
 ## Local build
 
 ```bash
-GITHUB_TOKEN=ghp_xxx node scripts/build.mjs        # writes manifest.json + uploads release
+GITHUB_TOKEN=ghp_xxx node scripts/build.mjs        # writes manifest.json + publishes rolling release
 SKIP_UPLOAD=1 node scripts/build.mjs              # build + write manifest only, no upload
 node scripts/check-updates.mjs                    # open version-bump PRs
 ```
@@ -53,5 +55,5 @@ node scripts/check-updates.mjs                    # open version-bump PRs
 - `java`/`kotlin`/`scala`/`clojure`/`elixir` bundles are `entry_kind: "native"` but
   still need a JVM/BEAM on PATH at runtime; the app applies `JAVA_TOOL_OPTIONS`
   caps for those.
-- The committed `manifest.json` is a structural template with placeholder
-  `sha256` values (`00…0`); `build.mjs` regenerates it with real hashes.
+- The committed `manifest.json` carries real `sha256` values for the languages
+  built in CI; `build.mjs` regenerates it (and the rolling release) on every run.

@@ -22,6 +22,15 @@ const ROOT = process.cwd();
 const DIST = join(ROOT, "dist");
 const SKIP_UPLOAD = process.env.SKIP_UPLOAD === "1";
 
+// All bundles + manifest.json live in ONE rolling GitHub release so we never
+// accumulate releases. Asset names are deterministic (<lang>-<ver>-<plat>),
+// so clients cache by version and only re-download when the manifest changes.
+const REPO = "TheShiveshNetwork/aurora-term";
+const RELEASE_TAG = "lsp-bundles";
+const RAW_BASE = `https://github.com/${REPO}/releases/download/${RELEASE_TAG}`;
+// `gh` reads GH_TOKEN; mirror GITHUB_TOKEN so CI secrets work transparently.
+if (process.env.GITHUB_TOKEN && !process.env.GH_TOKEN) process.env.GH_TOKEN = process.env.GITHUB_TOKEN;
+
 function sh(cmd, args, cwd, opts = {}) {
   console.log("+", cmd, args.join(" "));
   execFileSync(cmd, args, { cwd, stdio: "inherit", env: process.env, ...opts });
@@ -133,9 +142,17 @@ async function buildOne(spec, plat) {
   return { assetName, sha, kind: result.kind, entry_relative: result.entry_relative };
 }
 
-async function upload(repo, tag, files) {
-  if (SKIP_UPLOAD) { console.log("SKIP_UPLOAD set; not uploading"); return; }
-  sh("gh", ["release", "create", tag, "--repo", repo, "--title", tag, "--notes", "automated bundle publish", ...files], ROOT);
+// Publish every bundle (plus manifest.json) to a single rolling release. We
+// delete the previous release + tag first so the same stable tag/URL is reused
+// every run — no release accumulation, CDN-backed downloads, nothing in git.
+async function publishRollingRelease(files) {
+  if (SKIP_UPLOAD) { console.log("SKIP_UPLOAD set; not publishing"); return; }
+  if (!process.env.GITHUB_TOKEN && !process.env.GH_TOKEN) throw new Error("GITHUB_TOKEN required to publish bundles");
+  // Best-effort teardown of any prior rolling release + its tag.
+  sh("gh", ["release", "delete", RELEASE_TAG, "--repo", REPO, "--yes"], ROOT, { stdio: "ignore" }).catch(() => {});
+  sh("gh", ["api", "-X", "DELETE", `/repos/${REPO}/git/refs/tags/${RELEASE_TAG}`], ROOT, { stdio: "ignore" }).catch(() => {});
+  sh("gh", ["release", "create", RELEASE_TAG, "--repo", REPO, "--title", "LSP Bundles", "--notes", `Automated prebuilt LSP bundles @ ${new Date().toISOString()}`, ...files], ROOT);
+  console.log(`published ${files.length} assets to rolling release ${RELEASE_TAG}`);
 }
 
 // Regenerate manifest.json from already-built `dist/` artifacts without any
@@ -154,10 +171,13 @@ async function manifestFromDist() {
       if (files.length === 0) continue;
       const assetName = files[0];
       const sha = sha256File(join(dir, assetName));
-      langVersion = spec.version;
+      const ext = assetName.endsWith(".zip") ? "zip" : "tar.gz";
+      const base = assetName.slice(0, assetName.length - (ext.length + 1));
+      // assetName = "<id>-<version>-<plat>.<ext>" -> recover the real version.
+      langVersion = base.slice(spec.id.length + 1, base.length - (plat.key.length + 1));
       langKind = spec.eco === "npm" ? "node" : "native";
       langEntry = spec.entry_relative;
-      const url = `https://github.com/TheShiveshNetwork/aurora-term/releases/download/${spec.id}-${spec.version}/${assetName}`;
+      const url = `${RAW_BASE}/${assetName}`;
       platforms[plat.key] = { url, sha256: sha };
     }
     if (Object.keys(platforms).length === 0) continue;
@@ -180,7 +200,7 @@ async function main() {
       langVersion = spec.version;
       langKind = r.kind;
       langEntry = r.entry_relative;
-      const url = `https://github.com/TheShiveshNetwork/aurora-term/releases/download/${spec.id}-${spec.version}/${r.assetName}`;
+      const url = `${RAW_BASE}/${r.assetName}`;
       platforms[plat.key] = { url, sha256: r.sha };
       toUpload.push(join(DIST, spec.id, plat.key, r.assetName));
     }
@@ -197,7 +217,10 @@ async function main() {
     if (manifest[id]) delete manifest[id];
   }
   writeFileSync(join(ROOT, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
-  await upload("TheShiveshNetwork/aurora-term", `bundles-${Date.now()}`, toUpload);
+  // The manifest is a release asset too, so the app fetches it from the same
+  // stable URL as the bundles (no need to commit it back into the repo).
+  toUpload.push(join(ROOT, "manifest.json"));
+  await publishRollingRelease(toUpload);
   console.log("manifest.json written; uploaded", toUpload.length, "assets");
 }
 
