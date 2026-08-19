@@ -199,10 +199,13 @@ pub fn search_files(root: String, query: String) -> Result<Vec<FileNode>, AppErr
 
 #[command]
 pub fn read_file_content(path: String) -> Result<String, AppError> {
-    let file_path = PathBuf::from(path);
+    let raw = PathBuf::from(&path);
+    // Canonicalize to resolve `..` / relative segments and case differences so
+    // that valid paths always pass the `is_file` check.
+    let file_path = std::fs::canonicalize(&raw).unwrap_or(raw);
 
     if !file_path.is_file() {
-        return Err(AppError::Io("File not found".to_string()));
+        return Err(AppError::Io(format!("File not found: {}", path)));
     }
 
     // Limit file size to 10MB to prevent loading huge files into editor
@@ -217,10 +220,11 @@ pub fn read_file_content(path: String) -> Result<String, AppError> {
 
 #[command]
 pub fn read_file_base64(path: String) -> Result<String, AppError> {
-    let file_path = PathBuf::from(path);
+    let raw = PathBuf::from(&path);
+    let file_path = std::fs::canonicalize(&raw).unwrap_or(raw);
 
     if !file_path.is_file() {
-        return Err(AppError::Io("File not found".to_string()));
+        return Err(AppError::Io(format!("File not found: {}", path)));
     }
 
     // Limit file size to 50MB for images

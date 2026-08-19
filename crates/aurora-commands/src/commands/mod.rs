@@ -7,6 +7,7 @@ pub mod process_commands;
 pub mod fs_commands;
 pub mod system_commands;
 pub mod sidecar_commands;
+pub mod lsp_commands;
 pub mod cloud_commands;
 pub mod update_commands;
 
@@ -19,5 +20,6 @@ pub use process_commands::*;
 pub use fs_commands::*;
 pub use system_commands::*;
 pub use sidecar_commands::*;
+pub use lsp_commands::*;
 pub use cloud_commands::*;
 pub use update_commands::*;

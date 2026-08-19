@@ -11,6 +11,8 @@ aurora-db      = { workspace = true }
 aurora-config  = { workspace = true }
 aurora-sidecar = { workspace = true }
 aurora-ai      = { workspace = true }
+aurora-lsp     = { workspace = true }
+aurora-lsp-fetch = { workspace = true }
 aurora-cloud   = { workspace = true }
 aurora-update  = { workspace = true }
 

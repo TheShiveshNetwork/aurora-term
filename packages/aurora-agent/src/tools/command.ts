@@ -51,7 +51,10 @@ export const execCommandTool = createTool({
       toolLog.warn('Command rejected by user', {
         command: input.command.slice(0, 200),
       });
-      return { success: false, error: 'User rejected or cancelled command execution.' };
+      return {
+        success: false,
+        error: resumeData.stderr?.trim() || 'User rejected or cancelled command execution.',
+      };
     }
 
     toolLog.info('Command result received', {

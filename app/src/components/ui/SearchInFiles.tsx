@@ -47,6 +47,9 @@ export function SearchInFiles({ onOpenFileAtPath, cwd }: SearchInFilesProps) {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
+  // Tracks which file paths we've already seen, so live refreshes only
+  // auto-expand newly-matched files and never re-collapse manual toggles.
+  const knownPathsRef = useRef<Set<string>>(new Set());
 
   const relativePath = useCallback((fullPath: string) => {
     if (!cwd) return fullPath;
@@ -122,14 +125,28 @@ export function SearchInFiles({ onOpenFileAtPath, cwd }: SearchInFilesProps) {
     [results],
   );
 
-  // Auto-expand files with <= 5 matches; collapse those with more
+  // Auto-expand files with <= 5 matches on first appearance. On live refreshes
+  // we MERGE into the existing set (pruning deleted files) instead of replacing
+  // it, so manually opened/closed files keep their state across re-searches.
   useEffect(() => {
     if (!hasSearched || results.length === 0) return;
-    const autoExpand = new Set<string>();
-    for (const r of results) {
-      if (r.matches.length <= 5) autoExpand.add(r.path);
-    }
-    setExpandedFiles(autoExpand);
+    const currentPaths = new Set(results.map((r) => r.path));
+    const previouslyKnown = knownPathsRef.current;
+    setExpandedFiles((prev) => {
+      const next = new Set(prev);
+      // Drop paths that no longer exist (file deleted/renamed).
+      for (const p of next) {
+        if (!currentPaths.has(p)) next.delete(p);
+      }
+      // Auto-expand only genuinely new files; never collapse a manual toggle.
+      for (const r of results) {
+        if (!previouslyKnown.has(r.path) && r.matches.length <= 5) {
+          next.add(r.path);
+        }
+      }
+      return next;
+    });
+    knownPathsRef.current = currentPaths;
   }, [results, hasSearched]);
 
   const toggleFile = useCallback((path: string) => {

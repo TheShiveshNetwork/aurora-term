@@ -50,6 +50,7 @@ pub struct AppConfig {
     pub ai: AiConfig,
     pub keybindings: KeybindingsConfig,
     pub appearance: AppearanceConfig,
+    #[serde(default)]
     pub editor: EditorConfig,
     #[serde(default)]
     pub cloud: CloudConfig,
@@ -160,6 +161,25 @@ pub struct EditorConfig {
     pub ai_live_suggestions: bool,
     #[serde(default = "default_enabled")]
     pub indent_markers: bool,
+    #[serde(default = "default_enabled")]
+    pub lsp_enabled: bool,
+    #[serde(default)]
+    pub font_size: u32,
+}
+
+impl Default for EditorConfig {
+    fn default() -> Self {
+        Self {
+            theme: "dracula".to_string(),
+            show_minimap: true,
+            git_gui_mode: "tab".to_string(),
+            word_wrap: true,
+            ai_live_suggestions: true,
+            indent_markers: true,
+            lsp_enabled: true,
+            font_size: 14,
+        }
+    }
 }
 
 impl Default for AppConfig {
@@ -256,6 +276,8 @@ impl Default for AppConfig {
                 word_wrap: true,
                 ai_live_suggestions: true,
                 indent_markers: true,
+                lsp_enabled: true,
+                font_size: 14,
             },
             cloud: CloudConfig {
                 auto_sync: false,

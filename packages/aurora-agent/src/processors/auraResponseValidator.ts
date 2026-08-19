@@ -4,14 +4,14 @@ import type { OutputProcessor } from "@mastra/core/processors";
  * Validates that the agent's final output is the expected JSON envelope:
  *   {"status":"completed|executing|error","planning":"...","conclusion":"...","message":"..."}
  *
- * When the model emits free-form text (or a malformed/truncated envelope), the
- * processor aborts with `retry: true` once so the model re-emits in the correct
- * shape. This guarantees the frontend always receives a validated format and
- * never has to render a raw JSON envelope as Markdown. If the model still fails
- * after one retry (retryCount >= 1) we let it through — the frontend's
- * sanitizeMessage() defends the UI as a final safety net.
+ * The actual retry-on-failure loop lives upstream in `server.ts`
+ * (`runAgentStreamValidated`), which re-prompts the model (up to a max number
+ * of attempts) whenever the emitted text is not a valid envelope. This keeps
+ * the user-facing response reliably structured instead of surfacing a raw
+ * "FORMAT ERROR" string. The frontend's `sanitizeMessage()` remains the final
+ * safety net if every attempt still fails.
  */
-function isValidAuraEnvelope(text: string): boolean {
+export function isValidAuraEnvelope(text: string): boolean {
   let src = text.trim();
   const fenced = src.match(/```[a-zA-Z]*\n([\s\S]*?)\n```/);
   if (fenced) src = fenced[1].trim();
@@ -62,19 +62,9 @@ export const auraResponseValidator: OutputProcessor = {
   name: "Aura Response Validator",
   description:
     "Ensures the agent final output is a JSON envelope with status/planning/conclusion/message.",
-  processOutputResult({ result, messageList, abort, retryCount }) {
-    const text = (result?.text ?? "").trim();
-    if (!text || isValidAuraEnvelope(text)) {
-      return messageList;
-    }
-    if ((retryCount ?? 0) < 1) {
-      abort(
-        "FORMAT ERROR: your response was not valid JSON. You MUST reply with exactly one JSON " +
-          'object and nothing else: {"status":"completed","planning":"<your reasoning>","conclusion":"<short summary>","message":"<user-facing answer in Markdown>"}. ' +
-          "Keep the answer in the `message` field only.",
-        { retry: true }
-      );
-    }
+  // Pass-through: envelope validation + retry is handled in server.ts so the
+  // model can be re-prompted rather than aborting with a raw format error.
+  processOutputResult({ messageList }) {
     return messageList;
   },
 };

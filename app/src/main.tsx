@@ -1,7 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
-import { Toaster } from "./components/ui/Toaster";
+import { NotificationView } from "./lib/notify";
 import { ErrorBoundary } from "./components/ui/ErrorBoundary";
 import "./styles/globals.css";
 import "@xterm/xterm/css/xterm.css";
@@ -23,7 +23,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <ErrorBoundary>
       <App />
     </ErrorBoundary>
-    <Toaster />
+    <NotificationView />
   </React.StrictMode>,
 );
 

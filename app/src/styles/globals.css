@@ -46,6 +46,14 @@
   --color-error: #FF6B6B;
   --color-error-container: rgba(255, 107, 107, 0.12);
 
+  /* ── shadcn / ReUI compatibility tokens (map to aurora values) ─────── */
+  --color-input: rgba(232, 234, 240, 0.14);
+  --color-ring: #4F8CFF;
+  --color-accent: rgba(255, 255, 255, 0.08);
+  --color-accent-foreground: #E8EAF0;
+  --color-destructive: #FF6B6B;
+  --color-destructive-foreground: #FFFFFF;
+
   /* ── Typography ──────────────────────────────────────────────────── */
   --font-headline-lg: "Inter", sans-serif;
   --font-headline-md: "Inter", sans-serif;
@@ -88,6 +96,17 @@
 
   100% {
     background-position: -100% center;
+  }
+}
+
+/* Indeterminate loading bar for async (loading) notifications */
+@keyframes loading-bar {
+  0% {
+    transform: translateX(-120%);
+  }
+
+  100% {
+    transform: translateX(420%);
   }
 }
 
@@ -689,4 +708,42 @@ body {
 .prose :where(input[type="checkbox"]):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
   margin-right: 0.4em;
   accent-color: #4F8CFF;
+}.cm-code-action-menu {
+  background: var(--color-surface-container-high);
+  border: 1px solid var(--color-outline-variant);
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.55);
+  display: flex;
+  flex-direction: column;
+  min-width: 240px;
+  max-height: 320px;
+  overflow-y: auto;
+  z-index: 1000;
+}
+
+.cm-code-action-item {
+  background: transparent;
+  border: none;
+  color: var(--color-on-surface);
+  text-align: left;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.3;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.cm-code-action-item:hover {
+  background: var(--color-surface-container-highest);
+}
+
+/* Ctrl/Cmd-hover "clickable symbol" affordance for LSP goto-definition. */
+.cm-lsp-clickable {
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+  text-decoration-color: var(--color-primary, #7c93ff);
+  cursor: pointer;
 }

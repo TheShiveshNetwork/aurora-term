@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { EditorView } from "@codemirror/view";
 import { EditorSelection, type Compartment } from "@codemirror/state";
-import { setSearchQuery, SearchQuery, findNext, findPrevious, replaceAll, selectSelectionMatches, openSearchPanel, closeSearchPanel } from "@codemirror/search";
+import { setSearchQuery, SearchQuery, replaceAll, selectSelectionMatches, openSearchPanel, closeSearchPanel } from "@codemirror/search";
+import { centerFindNext, centerFindPrevious } from "../../lib/editorScroll";
 import { X, ChevronDown, ArrowUp, ArrowDown, Combine } from "lucide-react";
 
 interface SearchPanelProps {
@@ -107,7 +108,7 @@ export function SearchPanel({ view, onClose, initialFindText = "", searchPanelCo
 
   const goNext = useCallback(() => {
     if (findText) {
-      findNext(view);
+      centerFindNext(view);
       const query = new SearchQuery({ search: findText, caseSensitive });
       setMatchIdx(currentMatchIndex(view, query));
     }
@@ -115,7 +116,7 @@ export function SearchPanel({ view, onClose, initialFindText = "", searchPanelCo
 
   const goPrev = useCallback(() => {
     if (findText) {
-      findPrevious(view);
+      centerFindPrevious(view);
       const query = new SearchQuery({ search: findText, caseSensitive });
       setMatchIdx(currentMatchIndex(view, query));
     }

@@ -17,6 +17,11 @@ import { WindowControls } from "../ui/WindowControls";
 import { emit, listen } from "@tauri-apps/api/event";
 import { Button } from "../ui/Button";
 import { useAppBootstrap } from "../../hooks/useAppBootstrap";
+import { useNotificationStore } from "../../stores/useToastStore";
+
+// Event used to forward settings errors (save/apply failures) from the settings
+// window to the main terminal window so the user sees them where they're working.
+const SETTINGS_ERROR_EVENT = "aurora:settings-error";
 
 interface SettingsTarget {
   section: string;
@@ -126,22 +131,12 @@ export default function SettingsPage() {
 
   useEffect(() => {
     let unlistenConfig: (() => void) | null = null;
+    // Only keep the live working copy (`draft`) in sync with external config
+    // changes. The saved baseline (`initial`) and the applied marker (`applied`)
+    // are owned by Save/Apply respectively — otherwise emitting `config_changed`
+    // from Apply would mark the draft as already-saved and hide both buttons.
     listen<AppConfig>("config_changed", (event) => {
       setDraft((prev) => {
-        if (!prev) return null;
-        return {
-          ...prev,
-          config: event.payload,
-        };
-      });
-      setInitial((prev) => {
-        if (!prev) return null;
-        return {
-          ...prev,
-          config: event.payload,
-        };
-      });
-      setApplied((prev) => {
         if (!prev) return null;
         return {
           ...prev,
@@ -162,28 +157,6 @@ export default function SettingsPage() {
     }>("ui_state_changed", (event) => {
       const { sidebarCollapsed, showAiBar, chatInputOpen, fileChatInputOpen, tabBarVisible } = event.payload;
       setDraft((prev) => {
-        if (!prev) return null;
-        return {
-          ...prev,
-          sidebarCollapsed,
-          showAiBar,
-          chatInputOpen,
-          fileChatInputOpen,
-          tabBarVisible,
-        };
-      });
-      setInitial((prev) => {
-        if (!prev) return null;
-        return {
-          ...prev,
-          sidebarCollapsed,
-          showAiBar,
-          chatInputOpen,
-          fileChatInputOpen,
-          tabBarVisible,
-        };
-      });
-      setApplied((prev) => {
         if (!prev) return null;
         return {
           ...prev,
@@ -272,9 +245,17 @@ export default function SettingsPage() {
         fileChatInputOpen: draft.fileChatInputOpen,
         tabBarVisible: draft.tabBarVisible,
       });
-      setApplied(JSON.parse(JSON.stringify(draft)));
+      // Re-read the canonical config so the applied snapshot matches what the live
+      // app actually received (it may include project-level overrides from the
+      // merge). This keeps `draft === applied` so the Apply button stays disabled.
+      const appliedConfig = await config.get();
+      const synced = JSON.parse(JSON.stringify({ ...draft, config: appliedConfig }));
+      setDraft(synced);
+      setApplied(synced);
     } catch (e) {
       console.error("Apply failed", e);
+      useNotificationStore.getState().addNotification(e, "error");
+      void emit(SETTINGS_ERROR_EVENT, e);
     }
     setApplying(false);
   };
@@ -298,10 +279,19 @@ export default function SettingsPage() {
         fileChatInputOpen: draft.fileChatInputOpen,
         tabBarVisible: draft.tabBarVisible,
       });
-      setApplied(JSON.parse(JSON.stringify(draft)));
-      setInitial(JSON.parse(JSON.stringify(draft)));
+      // Re-read the canonical persisted config and sync every baseline to it. This
+      // prevents the later `config_changed` round-trip (which re-merges with
+      // project overrides) from re-diverging draft/initial and leaving the buttons
+      // visible. After a successful save the footer disappears.
+      const savedConfig = await config.get();
+      const synced = JSON.parse(JSON.stringify({ ...draft, config: savedConfig }));
+      setDraft(synced);
+      setApplied(synced);
+      setInitial(synced);
     } catch (e) {
       console.error("Save failed", e);
+      useNotificationStore.getState().addNotification(e, "error");
+      void emit(SETTINGS_ERROR_EVENT, e);
     }
     setSaving(false);
   };

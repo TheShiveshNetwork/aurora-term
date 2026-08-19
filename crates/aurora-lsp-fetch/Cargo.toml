@@ -1,0 +1,21 @@
+[package]
+name = "aurora-lsp-fetch"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+aurora-core = { workspace = true }
+tokio       = { workspace = true }
+reqwest     = { workspace = true }
+serde       = { workspace = true }
+serde_json  = { workspace = true }
+tracing     = { workspace = true }
+which       = { workspace = true }
+tar         = "0.4"
+flate2      = { version = "1", default-features = false, features = ["rust_backend"] }
+sha2        = "0.10"
+hex         = "0.4"
+libc        = "0.2"
+
+[dev-dependencies]
+tokio = { workspace = true }

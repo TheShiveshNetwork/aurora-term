@@ -30,6 +30,7 @@ interface SettingsStore {
   mode: EditorMode;
   fontFamily: string;
   fontSize: number;
+  editorFontSize: number;
   cursorStyle: "block" | "underline" | "bar";
   cursorBlink: boolean;
   compactUi: boolean;
@@ -44,6 +45,7 @@ interface SettingsStore {
   wordWrap: boolean;
   aiLiveSuggestions: boolean;
   indentMarkers: boolean;
+  lspEnabled: boolean;
   cloudAutoSync: boolean;
   cloudApiBaseUrl: string;
   updatesEnabled: boolean;
@@ -53,6 +55,7 @@ interface SettingsStore {
   setMode: (mode: EditorMode) => void;
   setFontFamily: (font: string) => void;
   setFontSize: (size: number) => void;
+  setEditorFontSize: (size: number) => void;
   setCursorStyle: (style: "block" | "underline" | "bar") => void;
   setCursorBlink: (blink: boolean) => void;
   setCompactUi: (compact: boolean) => void;
@@ -67,6 +70,7 @@ interface SettingsStore {
   setWordWrap: (wrap: boolean) => void;
   setAiLiveSuggestions: (enabled: boolean) => void;
   setIndentMarkers: (enabled: boolean) => void;
+  setLspEnabled: (enabled: boolean) => void;
   setCloudAutoSync: (enabled: boolean) => void;
   setCloudApiBaseUrl: (url: string) => void;
   setUpdatesEnabled: (enabled: boolean) => void;
@@ -83,6 +87,7 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
   setMode: (mode) => set({ mode }),
   setFontFamily: (fontFamily) => set({ fontFamily }),
   setFontSize: (fontSize) => set({ fontSize }),
+  setEditorFontSize: (editorFontSize) => set({ editorFontSize }),
   setCursorStyle: (cursorStyle) => set({ cursorStyle }),
   setCursorBlink: (cursorBlink) => set({ cursorBlink }),
   setCompactUi: (compactUi) => set({ compactUi }),
@@ -95,6 +100,7 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
   setWordWrap: (wordWrap) => set({ wordWrap }),
   setAiLiveSuggestions: (aiLiveSuggestions) => set({ aiLiveSuggestions }),
   setIndentMarkers: (indentMarkers) => set({ indentMarkers }),
+  setLspEnabled: (lspEnabled) => set({ lspEnabled }),
   setCloudAutoSync: (cloudAutoSync) => set({ cloudAutoSync }),
   setCloudApiBaseUrl: (cloudApiBaseUrl) => set({ cloudApiBaseUrl }),
   setUpdatesEnabled: (updatesEnabled) => set({ updatesEnabled }),

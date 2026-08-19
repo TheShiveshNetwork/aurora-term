@@ -79,6 +79,15 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
     isVisibleRef.current = isVisible;
   }, [isVisible]);
 
+  const fontSize = useSettingsStore((state) => state.fontSize);
+
+  // Apply editor/terminal font size changes to the live xterm instance.
+  useEffect(() => {
+    if (termRef.current) {
+      termRef.current.options.fontSize = fontSize;
+    }
+  }, [fontSize]);
+
   useEffect(() => {
     const term = termRef.current;
     if (!term) return;
@@ -226,11 +235,10 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
       // alternate buffer transitions happen for TUI subprocesses (less, vim, spinners) that
       // may be nested inside a still-running parent command.
       if (!active) {
-        // Some TUIs (opencode, vim, less) enable mouse tracking modes
-        // (DECSET 1000/1002/1003/1004/1006) on entering the alternate buffer but
-        // never send the DECRST resets on exit. If they remain enabled, xterm
-        // keeps intercepting wheel/click/drag — scrollback won't scroll, text
-        // selection stays disabled, and right-click is forwarded to the PTY.
+        // Some TUIs enable mouse tracking modes (DECSET 1000/1002/1003/1004/1006) 
+        // on entering the alternate buffer but never send the DECRST resets on exit. 
+        // If they remain enabled, xterm keeps intercepting wheel/click/drag
+        // scrollback won't scroll, text selection stays disabled, and right-click is forwarded to the PTY.
         // Force-reset the modes so the primary buffer behaves normally again.
         try {
           termRef.current?.write("\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1004l\x1b[?1006l");
@@ -262,6 +270,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
       cursorStyle: "bar",
       cursorInactiveStyle: "none",
       cursorWidth: 1,
+      fontSize,
       theme: buildXtermTheme(),
       disableStdin: true, // Decoupled input
     });
@@ -701,8 +710,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
   }, [isCommandRunning, isAlternateActive]);
 
   // ── When a command is running OR a TUI owns the alternate screen, route
-  //    keystrokes to the PTY so interactive programs (and full-screen TUIs like
-  //    opencode/neovim) receive them even if focus drifted to the app chrome.
+  //    keystrokes to the PTY so interactive programs receive them even if focus drifted to the app chrome.
   useEffect(() => {
     if ((!isCommandRunning && !isAlternateActive) || !isVisible) return;
 

@@ -7,6 +7,8 @@ import { useBlockStore } from "../stores/useBlockStore";
 import { Tab } from "@aurora/types";
 import { cleanPtyData, stripAnsi } from "../lib/terminal/cleanup";
 import { getDefaultShellLaunch } from "../lib/shell";
+import { registerOpenFile } from "../lib/openFileRef";
+import { normalizePath } from "../lib/fileUtils";
 
 let listenersRegistered = false;
 let unregisterData: (() => void) | null = null;
@@ -141,7 +143,8 @@ export function usePTY() {
   };
 
   const openFile = (filePath: string, cwd?: string, options?: { lineNumber?: number; matchStart?: number; matchEnd?: number }) => {
-    const existing = tabs.find(t => t.type === "file" && t.filePath === filePath);
+    const normPath = normalizePath(filePath);
+    const existing = tabs.find(t => t.type === "file" && t.filePath != null && normalizePath(t.filePath) === normPath);
     if (existing) {
       updateTab(existing.id, {
         scrollToLine: options?.lineNumber,
@@ -196,6 +199,10 @@ export function usePTY() {
 
     return fileId;
   };
+
+  useEffect(() => {
+    registerOpenFile(openFile);
+  }, [openFile]);
 
   return {
     tabs,

@@ -470,7 +470,7 @@ pub struct GitStatusEntry {
 pub async fn git_status(cwd: String) -> Result<Vec<GitStatusEntry>, AppError> {
     tokio::task::spawn_blocking(move || {
         let output = run_git_strict(&[
-            "status", "--porcelain",
+            "status", "--porcelain", "--untracked-files=all",
         ], Some(&cwd))?;
         let mut entries = Vec::new();
         for line in output.lines() {

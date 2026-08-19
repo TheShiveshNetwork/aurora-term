@@ -18,9 +18,11 @@ export function applyAppConfig(cfg: AppConfig) {
   // ── Hydrate settings stores from config ──
   const settings = useSettingsStore.getState();
 
-  // Terminal settings
+  // Terminal settings use the terminal's own font size; the editor font size is
+  // a separate setting applied only to CodeMirror (see FileViewer).
   settings.setFontFamily(cfg.terminal.font_family);
   settings.setFontSize(cfg.terminal.font_size);
+  settings.setEditorFontSize(cfg.editor.font_size);
   settings.setCursorStyle(cfg.terminal.cursor_style as "block" | "underline" | "bar");
   settings.setCursorBlink(cfg.terminal.cursor_blink);
   settings.setRestoreTabs(cfg.terminal.restore_tabs !== false);
@@ -42,6 +44,7 @@ export function applyAppConfig(cfg: AppConfig) {
   settings.setWordWrap(cfg.editor.word_wrap !== false);
   settings.setAiLiveSuggestions(cfg.editor.ai_live_suggestions !== false);
   settings.setIndentMarkers(cfg.editor.indent_markers !== false);
+  settings.setLspEnabled(cfg.editor.lsp_enabled !== false);
 
   // Cloud sync + update notifications
   settings.setCloudAutoSync(cfg.cloud?.auto_sync ?? false);

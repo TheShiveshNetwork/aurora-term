@@ -3,6 +3,7 @@ use aurora_commands::state::AppState;
 use aurora_config::{ConfigManager, UiStateManager};
 use aurora_pty::{PtyManager, PtyEvent};
 use aurora_db::HistoryDb;
+use aurora_lsp::{LspIncoming, LspManager};
 use tauri::{Manager, Emitter};
 use tauri_plugin_prevent_default::Flags;
 
@@ -110,12 +111,19 @@ pub fn run() {
             let api_base_url = config_manager.merged_config.cloud.api_base_url.clone();
 
             // Initialize History Database on startup
-            let history_db = HistoryDb::new(Some(config_dir))?;
+            let history_db = HistoryDb::new(Some(config_dir.clone()))?;
 
             let pty_manager = PtyManager::new();
             let (pty_sender, pty_receiver) = tokio::sync::mpsc::unbounded_channel::<PtyEvent>();
 
             start_pty_event_bridge(app.handle().clone(), pty_receiver);
+
+            // ── LSP manager + cache dir + event bridge + idle sweep ──
+            let lsp_cache_dir = config_dir.join("lsp");
+            std::fs::create_dir_all(&lsp_cache_dir).ok();
+            let (lsp_sender, lsp_receiver) = tokio::sync::mpsc::unbounded_channel::<LspIncoming>();
+            let lsp_manager = LspManager::new(lsp_sender);
+            aurora_commands::start_lsp_event_bridge(app.handle().clone(), lsp_receiver);
 
             let app_state = AppState::new(
                 pty_manager,
@@ -124,8 +132,13 @@ pub fn run() {
                 history_db,
                 pty_sender,
                 api_base_url,
+                lsp_manager,
+                lsp_cache_dir,
             );
             app.manage(app_state);
+
+            // Idle sweep needs a reference to the managed state.
+            aurora_commands::start_lsp_idle_sweep(app.handle());
 
             // ── Platform-specific window customization ──
             let window = app.get_webview_window("main")
@@ -264,6 +277,10 @@ pub fn run() {
             aurora_commands::ai_inline_complete,
             aurora_commands::agent_get_logs,
             aurora_commands::agent_get_thinking,
+            // LSP commands
+            aurora_commands::lsp_ensure_and_start,
+            aurora_commands::lsp_send,
+            aurora_commands::lsp_stop,
             aurora_commands::get_available_commands,
             // Cloud commands
             aurora_commands::cloud_auth_status,
@@ -282,9 +299,16 @@ pub fn run() {
             if let tauri::RunEvent::Exit = event {
                 if let Some(state) = app_handle.try_state::<AppState>() {
                     let sidecar = state.sidecar.clone();
+                    let lsp_manager = state.lsp_manager.clone();
                     tauri::async_runtime::block_on(async move {
-                        let mut lock = sidecar.lock().await;
-                        let _ = lock.kill().await;
+                        {
+                            let mut lock = sidecar.lock().await;
+                            let _ = lock.kill().await;
+                        }
+                        {
+                            let mut lock = lsp_manager.lock().await;
+                            lock.stop_all().await;
+                        }
                     });
                 }
             }

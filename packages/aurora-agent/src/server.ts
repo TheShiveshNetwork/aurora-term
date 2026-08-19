@@ -23,6 +23,7 @@ import {
   getConclusion,
   appendThinking,
 } from './thinking';
+import { isValidAuraEnvelope } from './processors/auraResponseValidator';
 
 const server = fastify({ logger: false });
 const log = rootLogger.child({ service: 'server' });
@@ -67,6 +68,40 @@ async function runStreaming(threadId: string, start: () => Promise<any>): Promis
     error: gen.error,
     tripwire: gen.tripwire,
   };
+}
+
+// ── Envelope-validated agent streaming with bounded retry ──────────────────
+// If the model emits malformed/truncated JSON (so the output is not a valid
+// Aura envelope), re-run the generation with a corrective format reminder —
+// up to MAX_FORMAT_RETRIES attempts. This guarantees the user reliably
+// receives a structured response instead of a raw "FORMAT ERROR" string.
+const MAX_FORMAT_RETRIES = 3;
+
+const FORMAT_REMINDER =
+  '\n\n[Reminder] Your previous reply was not valid JSON. Reply with exactly one JSON object: ' +
+  '{"status":"completed","planning":"<your reasoning>","conclusion":"<short summary>","message":"<user-facing answer in Markdown>"}. ' +
+  "Keep the answer in the message field only.";
+
+async function runAgentStreamValidated(
+  threadId: string,
+  makeStream: (attempt: number) => Promise<any>,
+  log: any,
+): Promise<any> {
+  let response = await runStreaming(threadId, () => makeStream(0));
+  for (let attempt = 1; attempt < MAX_FORMAT_RETRIES; attempt++) {
+    const text = (response.text ?? "").trim();
+    const terminal =
+      response.finishReason === "error" || response.error || response.tripwire;
+    if (terminal || isValidAuraEnvelope(text)) {
+      break;
+    }
+    log.warn(
+      `Agent response was not a valid envelope (attempt ${attempt}/${MAX_FORMAT_RETRIES}); re-requesting with format reminder.`,
+      { preview: text.slice(0, 200) },
+    );
+    response = await runStreaming(threadId, () => makeStream(attempt));
+  }
+  return response;
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────
@@ -413,7 +448,12 @@ server.post('/api/step', async (request, _reply) => {
 
       // Stream the run so the thinking buffer fills chunk-by-chunk: the Planning
       // and Conclusion chain-of-thought nodes render live as the model generates.
-      const response = await runStreaming(threadId, () => agent.stream(prompt, generateOptions));
+      // `runAgentStreamValidated` re-prompts the model if it emits malformed JSON.
+      const response = await runAgentStreamValidated(
+        threadId,
+        (attempt) => agent.stream(attempt === 0 ? prompt : prompt + FORMAT_REMINDER, generateOptions),
+        stepLog,
+      );
 
       const elapsed = Date.now() - startTime;
       stepLog.info('LLM response received', {
@@ -678,7 +718,7 @@ server.post('/api/tool/approve', async (request, _reply) => {
 });
 
 server.post('/api/tool/decline', async (request, _reply) => {
-  const { agent_type, mode, runId, toolCallId, session_id } = request.body as any;
+  const { agent_type, mode, runId, toolCallId, session_id, feedback } = request.body as any;
 
   const toolLog = log.child({
     endpoint: 'tool/decline',
@@ -697,22 +737,25 @@ server.post('/api/tool/decline', async (request, _reply) => {
   const runAbort = registerRunAbort(threadKey);
   const runTimeout = setTimeout(() => runAbort.abort(), 120_000);
 
-  try {
-    // Serialize with other work on the same thread (e.g. /api/btw).
-    beginStep(threadKey, 'execution');
-    const response = await withThreadLock(threadKey, async () =>
-      runStreaming(threadKey, () =>
-        agent.resumeStream(
-          { approved: false },
-          {
-            runId,
-            toolCallId,
-            maxSteps: 25,
-            abortSignal: runAbort.signal,
-          }
+    try {
+      // Serialize with other work on the same thread (e.g. /api/btw).
+      beginStep(threadKey, 'execution');
+      const response = await withThreadLock(threadKey, async () =>
+        runAgentStreamValidated(
+          threadKey,
+          () =>
+            agent.resumeStream(
+              { approved: false, stdout: '', stderr: feedback ?? '', exitCode: -1 },
+              {
+                runId,
+                toolCallId,
+                maxSteps: 25,
+                abortSignal: runAbort.signal,
+              }
+            ),
+          toolLog,
         )
-      )
-    );
+      );
 
     const elapsed = Date.now() - startTime;
     toolLog.info('Tool decline LLM response', {

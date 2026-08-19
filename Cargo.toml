@@ -10,6 +10,8 @@ members = [
     "crates/aurora-commands",
     "crates/aurora-cloud",
     "crates/aurora-update",
+    "crates/aurora-lsp",
+    "crates/aurora-lsp-fetch",
     "tauri",
 ]
 
@@ -22,6 +24,8 @@ aurora-config   = { path = "crates/aurora-config" }
 aurora-sidecar  = { path = "crates/aurora-sidecar" }
 aurora-ai       = { path = "crates/aurora-ai" }
 aurora-commands = { path = "crates/aurora-commands" }
+aurora-lsp      = { path = "crates/aurora-lsp" }
+aurora-lsp-fetch = { path = "crates/aurora-lsp-fetch" }
 aurora-cloud    = { path = "crates/aurora-cloud" }
 aurora-update   = { path = "crates/aurora-update" }
 

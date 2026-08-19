@@ -90,7 +90,7 @@ export function AgentPromptInput({
           currentProviderConfig.fastModel,
           currentProviderConfig.balancedModel,
           currentProviderConfig.powerfulModel,
-        ].filter(Boolean)
+        ].filter((m): m is string => Boolean(m))
       )
     )
     : [];
