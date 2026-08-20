@@ -59,7 +59,6 @@ function repackage(assetPath, work) {
   if (lower.endsWith(".tar.gz") || lower.endsWith(".tgz") || lower.endsWith(".tar")) {
     return { path: assetPath, ext: "tar.gz" };
   }
-  // xz/bz2 tarballs: extract then re-gzip into a uniform `.tar.gz` bundle.
   if (lower.endsWith(".tar.xz") || lower.endsWith(".txz") || lower.endsWith(".tar.bz2")) {
     const ex = mkdtempSync(join(work, "extract-"));
     sh("tar", ["-xf", assetPath, "-C", ex]);
@@ -77,10 +76,6 @@ function repackage(assetPath, work) {
 }
 
 async function fetchLatestRelease(repo) {
-  // Prefer the `latest` release. Some repos (e.g. eclipse-jdtls) mark every
-  // release as a prerelease, so `/releases/latest` 404s; fall back to listing
-  // releases and pick the newest one that actually carries downloadable assets.
-  // GitHub requires a User-Agent header even for unauthenticated requests.
   const headers = { Accept: "application/vnd.github+json", "User-Agent": "aurora-lsp-bundles" };
   if (process.env.GITHUB_TOKEN) headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
   const rel = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, { headers });
@@ -98,8 +93,6 @@ async function latestReleaseAsset(spec, plat, work) {
   // Use the upstream's actual latest release tag, not a hardcoded guess.
   const json = await fetchLatestRelease(spec.repo);
   const tag = String(json.tag_name || "").replace(/^v/, "");
-  // Per-platform explicit asset name wins; otherwise fall back to the legacy
-  // `asset` pattern (with `{target}`/`{os}`/`{arch}` substitution).
   const pattern = spec.assets?.[plat.key] || spec.asset;
   const want = substitute(pattern, plat, tag);
   const assets = json.assets || [];
@@ -144,16 +137,24 @@ async function buildGithub(spec, plat, work) {
   return { bundle: path, ext, entry_relative: spec.entry_relative, kind: "native", version };
 }
 
+async function latestGoVersion(module) {
+  const r = await fetch(`https://proxy.golang.org/${module}/@latest`);
+  if (!r.ok) throw new Error(`go latest for ${module}: ${r.status}`);
+  const v = (await r.json()).Version || "";
+  return v.replace(/^v/, "");
+}
+
 async function buildGo(spec, plat, work) {
+  const version = spec.version || (await latestGoVersion(spec.module));
   const gobin = join(work, "gobin");
   mkdirSync(gobin, { recursive: true });
-  sh(process.platform === "win32" ? "go.exe" : "go", ["install", `${spec.module}@${spec.version}`], undefined, { env: { ...process.env, GOOS: plat.goos, GOARCH: plat.goarch, GOBIN: gobin } });
+  sh(process.platform === "win32" ? "go.exe" : "go", ["install", `${spec.module}@${version}`], undefined, { env: { ...process.env, GOOS: plat.goos, GOARCH: plat.goarch, GOBIN: gobin } });
   const binName = basename(spec.entry_relative);
   const built = join(gobin, binName);
   if (!existsSync(built)) throw new Error(`go install produced no ${binName}`);
   const out = join(work, "bundle.tar.gz");
   sh("tar", ["-czf", out, "-C", gobin, binName]);
-  return { bundle: out, ext: "tar.gz", entry_relative: spec.entry_relative, kind: "native" };
+  return { bundle: out, ext: "tar.gz", entry_relative: spec.entry_relative, kind: "native", version };
 }
 
 async function buildOne(spec, plat) {
@@ -181,9 +182,6 @@ async function buildOne(spec, plat) {
 async function publishRollingRelease(files) {
   if (SKIP_UPLOAD) { console.log("SKIP_UPLOAD set; not publishing"); return; }
   if (!process.env.GITHUB_TOKEN && !process.env.GH_TOKEN) throw new Error("GITHUB_TOKEN required to publish bundles");
-  // Best-effort teardown of any prior rolling release + its tag. `sh` runs
-  // synchronously (execFileSync), so a missing release/tag must be swallowed
-  // via try/catch, not `.catch()` (which would never attach to the return value).
   try { sh("gh", ["release", "delete", RELEASE_TAG, "--repo", REPO, "--yes"], ROOT, { stdio: "ignore" }); } catch {}
   try { sh("gh", ["api", "-X", "DELETE", `/repos/${REPO}/git/refs/tags/${RELEASE_TAG}`], ROOT, { stdio: "ignore" }); } catch {}
   sh("gh", ["release", "create", RELEASE_TAG, "--repo", REPO, "--title", "LSP Bundles", "--notes", `Automated prebuilt LSP bundles @ ${new Date().toISOString()}`, ...files], ROOT);
@@ -227,10 +225,7 @@ async function main() {
   mkdirSync(DIST, { recursive: true });
   const manifest = {};
   const toUpload = [];
-  // Optional subset filter (comma-separated ids) for debugging / partial CI runs.
-  const only = process.env.LSP_ONLY ? new Set(process.env.LSP_ONLY.split(",").filter(Boolean)) : null;
-  const registry = only ? REGISTRY.filter((s) => only.has(s.id)) : REGISTRY;
-  for (const spec of registry) {
+  for (const spec of REGISTRY) {
     if (HOST_TOOLCHAIN.includes(spec.id)) continue; // resolved from PATH at runtime
     const platforms = {};
     let langVersion, langKind, langEntry;

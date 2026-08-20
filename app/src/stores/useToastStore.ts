@@ -105,7 +105,10 @@ export const useNotificationStore = create<NotificationStore>((set) => ({
     // user always gets the alert, even when the app window is not focused.
     void notifyNative({ title, body: text });
 
-    if (duration > 0) {
+    // Errors must be acknowledged manually (closed via the X button) — they must
+    // never disappear on their own, since they signal something the user needs
+    // to act on or at least notice. Other types auto-dismiss after `duration`.
+    if (type !== "error" && duration > 0) {
       setTimeout(() => {
         set((s) => ({ notifications: s.notifications.filter((n) => n.id !== id) }));
       }, duration);

@@ -10,7 +10,7 @@
 /**
  * @typedef {Object} LangSpec
  * @property {string} id
- * @property {string} version            Pinned upstream version.
+ * @property {string} [version]         Optional pin. When omitted the build resolves the latest upstream version.
  * @property {Ecosystem} eco
  * @property {string} entry_relative     Path of the executable inside the bundle (upstream layout).
  * @property {string[]} args             Args passed before the server's own protocol args.
@@ -28,70 +28,62 @@ export const REGISTRY = [
   // resolved from that value at build time (so it tracks upstream renames). The
   // tarball contains the whole `node_modules/` tree, so `entry_relative` is the
   // path inside it: `node_modules/<package>/<binValue>`.
-  { id: "typescript", version: "5.3.0", eco: "npm", package: "typescript-language-server", bin: "typescript-language-server", extra: ["typescript"], entry_relative: "node_modules/typescript-language-server/lib/cli.mjs", args: ["--stdio"] },
-  { id: "javascript", version: "5.3.0", eco: "npm", package: "typescript-language-server", bin: "typescript-language-server", extra: ["typescript"], entry_relative: "node_modules/typescript-language-server/lib/cli.mjs", args: ["--stdio"] },
-  { id: "python", version: "1.1.413", eco: "npm", package: "pyright", bin: "pyright-langserver", entry_relative: "node_modules/pyright/langserver.index.js", args: ["--stdio"] },
-  { id: "html", version: "5.4.0", eco: "npm", package: "vscode-langservers-extracted", bin: "vscode-html-language-server", entry_relative: "node_modules/vscode-langservers-extracted/bin/vscode-html-language-server", args: ["--stdio"] },
-  { id: "css", version: "5.4.0", eco: "npm", package: "vscode-langservers-extracted", bin: "vscode-css-language-server", entry_relative: "node_modules/vscode-langservers-extracted/bin/vscode-css-language-server", args: ["--stdio"] },
-  { id: "json", version: "5.4.0", eco: "npm", package: "vscode-langservers-extracted", bin: "vscode-json-language-server", entry_relative: "node_modules/vscode-langservers-extracted/bin/vscode-json-language-server", args: ["--stdio"] },
-  { id: "yaml", version: "1.15.0", eco: "npm", package: "yaml-language-server", bin: "yaml-language-server", entry_relative: "node_modules/yaml-language-server/bin/yaml-language-server", args: ["--stdio"] },
-  { id: "bash", version: "5.3.0", eco: "npm", package: "bash-language-server", bin: "bash-language-server", entry_relative: "node_modules/bash-language-server/out/cli.js", args: ["start"] },
-  { id: "dockerfile", version: "0.13.0", eco: "npm", package: "dockerfile-language-server-nodejs", bin: "docker-langserver", entry_relative: "node_modules/dockerfile-language-server-nodejs/bin/docker-langserver", args: ["--stdio"] },
-  { id: "php", version: "1.13.0", eco: "npm", package: "intelephense", bin: "intelephense", entry_relative: "node_modules/intelephense/lib/intelephense.js", args: ["--stdio"] },
-  { id: "vue", version: "2.1.0", eco: "npm", package: "@vue/language-server", bin: "vue-language-server", entry_relative: "node_modules/@vue/language-server/bin/vue-language-server.js", args: ["--stdio"] },
-  { id: "svelte", version: "0.16.0", eco: "npm", package: "svelte-language-server", bin: "svelteserver", entry_relative: "node_modules/svelte-language-server/bin/server.js", args: ["--stdio"] },
-  { id: "graphql", version: "6.2.0", eco: "npm", package: "graphql-language-service-cli", bin: "graphql-lsp", entry_relative: "node_modules/graphql-language-service-cli/bin/graphql.js", args: ["server", "--method", "stream"] },
+  { id: "typescript", eco: "npm", package: "typescript-language-server", bin: "typescript-language-server", extra: ["typescript@5"], entry_relative: "node_modules/typescript-language-server/lib/cli.mjs", args: ["--stdio"] },
+  { id: "javascript", eco: "npm", package: "typescript-language-server", bin: "typescript-language-server", extra: ["typescript@5"], entry_relative: "node_modules/typescript-language-server/lib/cli.mjs", args: ["--stdio"] },
+  { id: "python", eco: "npm", package: "pyright", bin: "pyright-langserver", entry_relative: "node_modules/pyright/langserver.index.js", args: ["--stdio"] },
+  { id: "html", eco: "npm", package: "vscode-langservers-extracted", bin: "vscode-html-language-server", entry_relative: "node_modules/vscode-langservers-extracted/bin/vscode-html-language-server", args: ["--stdio"] },
+  { id: "css", eco: "npm", package: "vscode-langservers-extracted", bin: "vscode-css-language-server", entry_relative: "node_modules/vscode-langservers-extracted/bin/vscode-css-language-server", args: ["--stdio"] },
+  { id: "json", eco: "npm", package: "vscode-langservers-extracted", bin: "vscode-json-language-server", entry_relative: "node_modules/vscode-langservers-extracted/bin/vscode-json-language-server", args: ["--stdio"] },
+  { id: "yaml", eco: "npm", package: "yaml-language-server", bin: "yaml-language-server", entry_relative: "node_modules/yaml-language-server/bin/yaml-language-server", args: ["--stdio"] },
+  { id: "bash", eco: "npm", package: "bash-language-server", bin: "bash-language-server", entry_relative: "node_modules/bash-language-server/out/cli.js", args: ["start"] },
+  { id: "dockerfile", eco: "npm", package: "dockerfile-language-server-nodejs", bin: "docker-langserver", entry_relative: "node_modules/dockerfile-language-server-nodejs/bin/docker-langserver", args: ["--stdio"] },
+  { id: "php", eco: "npm", package: "intelephense", bin: "intelephense", entry_relative: "node_modules/intelephense/lib/intelephense.js", args: ["--stdio"] },
+  { id: "vue", eco: "npm", package: "@vue/language-server", bin: "vue-language-server", entry_relative: "node_modules/@vue/language-server/bin/vue-language-server.js", args: ["--stdio"] },
+  { id: "svelte", eco: "npm", package: "svelte-language-server", bin: "svelteserver", entry_relative: "node_modules/svelte-language-server/bin/server.js", args: ["--stdio"] },
+  { id: "graphql", eco: "npm", package: "graphql-language-service-cli", bin: "graphql-lsp", entry_relative: "node_modules/graphql-language-service-cli/bin/graphql.js", args: ["server", "--method", "stream"] },
 
   // ---- github (native) ----
-  //
-  // Upstream releases use wildly inconsistent asset naming (e.g. `win32-x64`
-  // vs `x86_64-pc-windows-msvc`, `mac` vs `darwin`, `windows-x86_64` vs
-  // `x86_64-pc-windows-msvc`), so each language declares an explicit per-platform
-  // `assets` map keyed by platform key. The map value is an asset-name template
-  // that may contain `{version}` (substituted from the resolved release tag).
-  // When `assets` is absent the legacy `asset` pattern (with `{target}` etc.) is
-  // used, preserving the old behaviour for repos like rust-analyzer.
-  { id: "rust", version: "2026.08.11", eco: "github", repo: "rust-lang/rust-analyzer", asset: "rust-analyzer-{target}", entry_relative: "rust-analyzer", args: [] },
-  { id: "c", version: "19.0.0", eco: "github", repo: "clangd/clangd", asset: "clangd-{target}.zip",
+  { id: "rust", eco: "github", repo: "rust-lang/rust-analyzer", asset: "rust-analyzer-{target}", entry_relative: "rust-analyzer", args: [] },
+  { id: "c", eco: "github", repo: "clangd/clangd", asset: "clangd-{target}.zip",
     assets: { "win-x64": "clangd-windows-{version}.zip", "linux-x64": "clangd-linux-{version}.zip", "darwin-x64": "clangd-mac-{version}.zip", "darwin-arm64": "clangd-mac-{version}.zip" },
     entry_relative: "clangd", args: [] },
-  { id: "cpp", version: "19.0.0", eco: "github", repo: "clangd/clangd", asset: "clangd-{target}.zip",
+  { id: "cpp", eco: "github", repo: "clangd/clangd", asset: "clangd-{target}.zip",
     assets: { "win-x64": "clangd-windows-{version}.zip", "linux-x64": "clangd-linux-{version}.zip", "darwin-x64": "clangd-mac-{version}.zip", "darwin-arm64": "clangd-mac-{version}.zip" },
     entry_relative: "clangd", args: [] },
-  { id: "java", version: "1.41.0", eco: "github", repo: "eclipse-jdtls/eclipse.jdt.ls", asset: "jdt-language-server-{version}.tar.gz", entry_relative: "bin/jdtls", args: [] },
-  { id: "csharp", version: "1.40.0", eco: "github", repo: "OmniSharp/omnisharp-roslyn", asset: "omnisharp-{target}.zip",
+  { id: "java", eco: "github", repo: "eclipse-jdtls/eclipse.jdt.ls", asset: "jdt-language-server-{version}.tar.gz", entry_relative: "bin/jdtls", args: [] },
+  { id: "csharp", eco: "github", repo: "OmniSharp/omnisharp-roslyn", asset: "omnisharp-{target}.zip",
     assets: { "win-x64": "omnisharp-win-x64-net6.0.zip", "linux-x64": "omnisharp-linux-x64-net6.0.zip", "darwin-x64": "omnisharp-osx-x64-net6.0.zip", "darwin-arm64": "omnisharp-osx-arm64-net6.0.zip" },
     entry_relative: "OmniSharp", args: ["-lsp"] },
-  { id: "markdown", version: "0.10.0", eco: "github", repo: "artempyanykh/marksman", asset: "marksman-{os}",
+  { id: "markdown", eco: "github", repo: "artempyanykh/marksman", asset: "marksman-{os}",
     assets: { "win-x64": "marksman.exe", "linux-x64": "marksman-linux-x64", "darwin-x64": "marksman-macos", "darwin-arm64": "marksman-macos" },
     entry_relative: "marksman", args: ["server"] },
-  { id: "lua", version: "3.13.0", eco: "github", repo: "LuaLS/lua-language-server", asset: "lua-language-server-{version}-{target}.tar.gz",
+  { id: "lua", eco: "github", repo: "LuaLS/lua-language-server", asset: "lua-language-server-{version}-{target}.tar.gz",
     assets: { "win-x64": "lua-language-server-{version}-win32-x64.zip", "linux-x64": "lua-language-server-{version}-linux-x64.tar.gz", "darwin-x64": "lua-language-server-{version}-darwin-x64.tar.gz", "darwin-arm64": "lua-language-server-{version}-darwin-arm64.tar.gz" },
     entry_relative: "bin/lua-language-server", args: [] },
-  { id: "kotlin", version: "1.3.13", eco: "github", repo: "fwcd/kotlin-language-server", asset: "server.zip",
+  { id: "kotlin", eco: "github", repo: "fwcd/kotlin-language-server", asset: "server.zip",
     assets: { "win-x64": "server.zip", "linux-x64": "server.zip", "darwin-x64": "server.zip", "darwin-arm64": "server.zip" },
     entry_relative: "bin/kotlin-language-server", args: [] },
-  { id: "toml", version: "0.9.3", eco: "github", repo: "tamasfe/taplo", asset: "taplo-{target}.gz",
+  { id: "toml", eco: "github", repo: "tamasfe/taplo", asset: "taplo-{target}.gz",
     assets: { "win-x64": "taplo-windows-x86_64.gz", "linux-x64": "taplo-linux-x86_64.gz", "darwin-x64": "taplo-darwin-x86_64.gz", "darwin-arm64": "taplo-darwin-aarch64.gz" },
     entry_relative: "taplo", args: ["lsp", "stdio"] },
-  { id: "zig", version: "0.14.0", eco: "github", repo: "zigtools/zls", asset: "zls-{target}",
+  { id: "zig", eco: "github", repo: "zigtools/zls", asset: "zls-{target}",
     assets: { "win-x64": "zls-x86_64-windows.zip", "linux-x64": "zls-x86_64-linux.tar.xz", "darwin-x64": "zls-x86_64-macos.tar.xz", "darwin-arm64": "zls-aarch64-macos.tar.xz" },
     entry_relative: "zls", args: [] },
-  { id: "terraform", version: "0.36.0", eco: "github", repo: "hashicorp/terraform-ls", asset: "terraform-ls_{version}_{target}.zip", entry_relative: "terraform-ls", args: ["serve"] },
-  { id: "elixir", version: "0.24.0", eco: "github", repo: "elixir-lsp/elixir-ls", asset: "elixir-ls.zip",
+  { id: "terraform", eco: "github", repo: "hashicorp/terraform-ls", asset: "terraform-ls_{version}_{target}.zip", entry_relative: "terraform-ls", args: ["serve"] },
+  { id: "elixir", eco: "github", repo: "elixir-lsp/elixir-ls", asset: "elixir-ls.zip",
     assets: { "win-x64": "elixir-ls-v{version}.zip", "linux-x64": "elixir-ls-v{version}.zip", "darwin-x64": "elixir-ls-v{version}.zip", "darwin-arm64": "elixir-ls-v{version}.zip" },
     entry_relative: "language_server.sh", args: [] },
-  { id: "haskell", version: "2.10.0", eco: "github", repo: "haskell/haskell-language-server", asset: "haskell-language-server-{target}.tar.gz",
+  { id: "haskell", eco: "github", repo: "haskell/haskell-language-server", asset: "haskell-language-server-{target}.tar.gz",
     assets: { "win-x64": "haskell-language-server-{version}-x86_64-mingw64.zip", "linux-x64": "haskell-language-server-{version}-x86_64-linux-unknown.tar.xz", "darwin-x64": "haskell-language-server-{version}-x86_64-apple-darwin.tar.xz", "darwin-arm64": "haskell-language-server-{version}-aarch64-apple-darwin.tar.xz" },
     entry_relative: "haskell-language-server-wrapper", args: ["--lsp"] },
-  { id: "clojure", version: "2025.07.0", eco: "github", repo: "clojure-lsp/clojure-lsp", asset: "clojure-lsp-native-{target}.zip",
+  { id: "clojure", eco: "github", repo: "clojure-lsp/clojure-lsp", asset: "clojure-lsp-native-{target}.zip",
     assets: { "win-x64": "clojure-lsp-native-windows-amd64.zip", "linux-x64": "clojure-lsp-native-linux-amd64.zip", "darwin-x64": "clojure-lsp-native-macos-amd64.zip", "darwin-arm64": "clojure-lsp-native-macos-aarch64.zip" },
     entry_relative: "clojure-lsp", args: [] },
-  { id: "nix", version: "2024.12.0", eco: "github", repo: "oxalica/nil", asset: "nil-{target}", entry_relative: "nil", args: [] },
+  { id: "nix", eco: "github", repo: "oxalica/nil", asset: "nil-{target}", entry_relative: "nil", args: [] },
 
   // ---- go (native) ----
-  { id: "go", version: "0.18.1", eco: "go", module: "golang.org/x/tools/gopls", entry_relative: "gopls", args: [] },
-  { id: "sql", version: "1.5.0", eco: "go", module: "github.com/sqls-server/sqls", entry_relative: "sqls", args: [] },
+  { id: "go", eco: "go", module: "golang.org/x/tools/gopls", entry_relative: "gopls", args: [] },
+  { id: "sql", eco: "go", module: "github.com/sqls-server/sqls", entry_relative: "sqls", args: [] },
 ];
 
 // Languages resolved from the host PATH at runtime (no bundle is built).

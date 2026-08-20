@@ -208,7 +208,14 @@ function BaseNotification({ n, showProgress }: { n: NotificationItem; showProgre
  */
 function Toaster() {
   const notifications = useNotificationStore((s) => s.notifications);
-  const visible = visibleSlice(notifications.filter((n) => n.type !== "loading"));
+  const all = notifications.filter((n) => n.type !== "loading");
+  // Errors must stay visible until the user closes them manually, so they are
+  // never capped or pushed out of the stack. Only the auto-dismissing
+  // info/success toasts are limited to the visible window.
+  const errors = all.filter((n) => n.type === "error");
+  const others = all.filter((n) => n.type !== "error");
+  const shownOthers = others.slice(-Math.max(0, MAX_VISIBLE - errors.length));
+  const visible = [...errors, ...shownOthers];
   if (visible.length === 0) return null;
 
   return (

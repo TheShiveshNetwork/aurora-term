@@ -334,7 +334,7 @@ async fn download_verify_extract(
     let tmp = target_dir
         .parent()
         .unwrap_or(target_dir)
-        .join(format!(".lsp-dl-{}.tmp", language_id));
+        .join(format!(".lsp-dl-{}{}", language_id, archive_ext_from_url(url)));
     download_file(url, &tmp).await?;
 
     verify_sha256(&tmp, expected_sha256)
@@ -448,7 +448,12 @@ pub async fn ensure_node_runtime(cache_dir: &Path) -> Result<PathBuf, AppError> 
 
     let (url, _archive_ext) = node_asset_for_platform();
     tracing::info!("LSP: fetching portable Node {} for node-based bundles", NODE_VERSION);
-    let tmp = runtime_dir.join(".node-dl.tmp");
+    let node_ext = if url.to_ascii_lowercase().ends_with(".zip") {
+        ".zip"
+    } else {
+        ".tar.gz"
+    };
+    let tmp = runtime_dir.join(format!(".node-dl{}", node_ext));
     download_file(&url, &tmp).await?;
     extract_into(&tmp, &node_dir).await?;
     let _ = std::fs::remove_file(&tmp);
@@ -552,6 +557,23 @@ async fn download_file(url: &str, dest: &Path) -> Result<(), AppError> {
     Ok(())
 }
 
+/// Derive the on-disk archive extension from a download URL's filename so the
+/// temp download keeps a real extension and `extract_into` can dispatch on it.
+/// The downloaded file is a `.tmp` by default, which would otherwise match no
+/// known archive type.
+fn archive_ext_from_url(url: &str) -> &'static str {
+    let name = url.rsplit('/').next().unwrap_or(url).to_ascii_lowercase();
+    if name.ends_with(".tar.gz") || name.ends_with(".tgz") {
+        ".tar.gz"
+    } else if name.ends_with(".tar") {
+        ".tar"
+    } else if name.ends_with(".zip") {
+        ".zip"
+    } else {
+        ".bin"
+    }
+}
+
 /// Extract `archive` into `dest`, dispatching on extension.
 async fn extract_into(archive: &Path, dest: &Path) -> Result<(), AppError> {
     std::fs::create_dir_all(dest)
@@ -571,21 +593,87 @@ async fn extract_into(archive: &Path, dest: &Path) -> Result<(), AppError> {
     }
 }
 
+/// Extract a `.tar.gz` archive by streaming each entry manually. We avoid the
+/// `tar` crate's `Archive::unpack` because on Windows it aborts the whole
+/// extraction on certain real-world npm-tarball entries (deep paths where the
+/// `\\?\` long-path prefix interacts badly with directory creation, or symlink
+/// permission errors), leaving bundles half-written so the language server can't
+/// start. Manual extraction creates parent dirs consistently, prefixes long
+/// paths with `\\?\` so Windows accepts them, and skips symlinks (which Windows
+/// can't create without elevated rights and which LSP servers don't need). This
+/// path is shared by every tar-based language bundle, so a fix here covers all
+/// of them.
 fn extract_tar_gz(archive: &Path, dest: &Path) -> Result<(), AppError> {
     let file = std::fs::File::open(archive).map_err(|e| AppError::Lsp(e.to_string()))?;
     let dec = flate2::read::GzDecoder::new(file);
-    let mut ar = tar::Archive::new(dec);
-    ar.unpack(dest)
-        .map_err(|e| AppError::Lsp(format!("tar.gz extract failed: {}", e)))?;
-    Ok(())
+    extract_tar_inner(dec, dest)
 }
 
 fn extract_tar(archive: &Path, dest: &Path) -> Result<(), AppError> {
     let file = std::fs::File::open(archive).map_err(|e| AppError::Lsp(e.to_string()))?;
-    let mut ar = tar::Archive::new(file);
-    ar.unpack(dest)
-        .map_err(|e| AppError::Lsp(format!("tar extract failed: {}", e)))?;
+    extract_tar_inner(file, dest)
+}
+
+fn extract_tar_inner<R: std::io::Read>(reader: R, dest: &Path) -> Result<(), AppError> {
+    std::fs::create_dir_all(dest)
+        .map_err(|e| AppError::Lsp(format!("extract dir create failed: {}", e)))?;
+    let mut ar = tar::Archive::new(reader);
+    let entries = ar
+        .entries()
+        .map_err(|e| AppError::Lsp(format!("tar read failed: {}", e)))?;
+    for entry in entries {
+        let mut entry = entry.map_err(|e| AppError::Lsp(format!("tar entry failed: {}", e)))?;
+        let rel = entry
+            .path()
+            .map_err(|e| AppError::Lsp(format!("tar path failed: {}", e)))?
+            .into_owned();
+        // Drop a leading "./" so the join stays inside `dest`.
+        let rel = rel.strip_prefix("./").unwrap_or(&rel);
+        let header = entry.header();
+        let kind = header.entry_type();
+        let out = long_path(&dest.join(rel));
+
+        if kind.is_dir() {
+            std::fs::create_dir_all(&out).map_err(|e| {
+                AppError::Lsp(format!("mkdir failed ({}): {}", out.display(), e))
+            })?;
+        } else if kind.is_symlink() {
+            // Symlinks can't be created without elevated rights on Windows and
+            // aren't needed by LSP servers, so skip them to keep extraction from
+            // aborting.
+            continue;
+        } else {
+            if let Some(parent) = out.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| {
+                    AppError::Lsp(format!("mkdir failed ({}): {}", parent.display(), e))
+                })?;
+            }
+            let mut f = std::fs::File::create(&out).map_err(|e| {
+                AppError::Lsp(format!("create failed ({}): {}", out.display(), e))
+            })?;
+            std::io::copy(&mut entry, &mut f).map_err(|e| {
+                AppError::Lsp(format!("write failed ({}): {}", out.display(), e))
+            })?;
+        }
+    }
     Ok(())
+}
+
+/// On Windows, prefix an absolute path with `\\?\` when it exceeds `MAX_PATH`
+/// (260) so the OS accepts deep paths inside npm bundles. No-op elsewhere.
+#[cfg(windows)]
+fn long_path(p: &Path) -> PathBuf {
+    let s = p.as_os_str().to_string_lossy();
+    if s.len() > 260 && !s.starts_with("\\\\?\\") {
+        PathBuf::from(format!("\\\\?\\{}", s))
+    } else {
+        p.to_path_buf()
+    }
+}
+
+#[cfg(not(windows))]
+fn long_path(p: &Path) -> PathBuf {
+    p.to_path_buf()
 }
 
 fn extract_zip_system(archive: &Path, dest: &Path) -> Result<(), AppError> {
