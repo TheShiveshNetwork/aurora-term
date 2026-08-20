@@ -42,10 +42,6 @@ import { PeekPanel } from "./PeekPanel";
 import { toStr } from "../../stores/useToastStore";
 import { notify } from "../../lib/notify";
 
-// Languages whose "ready" success toast has already been shown this session,
-// so we don't re-toast on every subsequent file open.
-const lspReadyNotified = new Set<string>();
-
 const STYLE_ID = "aurora-file-viewer-style";
 if (typeof document !== "undefined") {
   let s = document.getElementById(STYLE_ID) as HTMLStyleElement;
@@ -586,17 +582,17 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
             {
               loadingTitle: `Setting up ${label} language server`,
               loadingMessage: `Setting up the ${label} language server…`,
-              onSuccess: () => {
-                if (cancelled) return;
-                if (!lspReadyNotified.has(languageId)) {
-                  lspReadyNotified.add(languageId);
-                  notify(`${label} language server ready`, "success", 3000);
+              successMessage: `${label} language server ready`,
+              successDuration: 3000,
+              errorDuration: 8000,
+              errorMessage: (err) => {
+                const msg = toStr(err);
+                if (msg.includes("Network Error:")) {
+                  return `Network Error: lsp for ${label} not installed, please connect to the internet to proceed.`;
                 }
+                return `LSP unavailable for ${label}: ${msg}`;
               },
-              onError: (err) => {
-                if (cancelled) return;
-                notify(`LSP unavailable for ${label}: ${toStr(err)}`, "error", 8000);
-              },
+              isCancelled: () => cancelled,
             },
             () =>
               connectLanguage(languageId, filePath, root).then((ext) => {

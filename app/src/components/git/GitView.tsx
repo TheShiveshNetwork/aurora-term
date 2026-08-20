@@ -101,17 +101,24 @@ export function GitView({ cwd, tabId }: GitViewProps) {
 
   // Load checked branches from persisted state on mount.
   // If no saved state exists for this cwd, default to all selected.
+  // IMPORTANT: an empty saved array (`[]`) is NOT treated as "has saved state".
+  // The persist effect writes `[]` on first mount before branches load, and in the
+  // production build `stateIpc.get()` can resolve and observe that `[]` — treating
+  // it as authoritative would permanently lock out the default selection and leave
+  // the git graph blank ("Select branches to view commit history").
   useEffect(() => {
     stateIpc.get().then(s => {
       const saved = s.checked_branches[cwd];
-      if (saved !== undefined) {
+      if (saved !== undefined && saved.length > 0) {
         hasSavedState.current = true;
-        if (saved.length) setCheckedBranches(saved);
+        setCheckedBranches(saved);
       }
     }).catch(() => {});
   }, [cwd]);
 
-  // When branches load and no saved state exists, default to current + main/origin/main
+  // When branches load and nothing is selected, default to current + main/origin/main.
+  // `hasSavedState` is only ever set for a *non-empty* saved selection (see load
+  // effect), so an empty `[]` can't suppress the default and leave the graph blank.
   useEffect(() => {
     if (!hasSavedState.current && branches.length > 0 && checkedBranches.length === 0) {
       const current = branches.find(b => b.current)?.name;

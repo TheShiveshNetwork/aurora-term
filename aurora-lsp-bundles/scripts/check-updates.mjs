@@ -62,6 +62,7 @@ async function openPr(id, version) {
 async function main() {
   for (const spec of REGISTRY) {
     try {
+      if (!spec.version) continue; // unpinned specs track latest at build time
       const latest = await latestFor(spec);
       if (!latest) continue;
       if (latest !== spec.version) {
