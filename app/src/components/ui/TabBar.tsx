@@ -540,10 +540,9 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
         {/* Close Left / Right */}
         <MenuViewItem variant="rightclick" icon={<ArrowLeft size={13} />} onClick={() => {
           if (!contextTab) return;
-          const targetType = contextTab.tab.type;
           const rightIdx = rawTabs.findIndex((t) => t.id === contextTab.tab.id);
           rawTabs.forEach((t, i) => {
-            if (t.type === targetType && i < rightIdx && !t.pinned) {
+            if (i < rightIdx && !t.pinned) {
               onKillTab(t.id);
             }
           });
@@ -554,10 +553,9 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
 
         <MenuViewItem variant="rightclick" icon={<ArrowRight size={13} />} onClick={() => {
           if (!contextTab) return;
-          const targetType = contextTab.tab.type;
           const rightIdx = rawTabs.findIndex((t) => t.id === contextTab.tab.id);
           rawTabs.forEach((t, i) => {
-            if (t.type === targetType && i > rightIdx && !t.pinned) {
+            if (i > rightIdx && !t.pinned) {
               onKillTab(t.id);
             }
           });

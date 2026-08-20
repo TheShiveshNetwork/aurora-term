@@ -1,6 +1,6 @@
 {
   "typescript": {
-    "version": "5.3.0",
+    "version": "6.0.0",
     "entry_kind": "node",
     "entry_relative": "node_modules/typescript-language-server/lib/cli.mjs",
     "args": [
@@ -8,25 +8,25 @@
     ],
     "platforms": {
       "win-x64": {
-        "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/typescript-5.3.0-win-x64.tar.gz",
-        "sha256": "d72f855f5436e2cdf7ab56ab6985932b3479cb4eb7bc28747ccc5854bf19d2be"
+        "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/typescript-6.0.0-win-x64.tar.gz",
+        "sha256": "8b551c75775c5d8b9cf879074bd852bd64e7263797f753e7a2dbeb5e408cab7e"
       },
       "darwin-x64": {
-        "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/typescript-5.3.0-darwin-x64.tar.gz",
-        "sha256": "38804b873e799f4361c36d93575bd40c6e71a6588e61513a9cd93787d5ce0df7"
+        "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/typescript-6.0.0-darwin-x64.tar.gz",
+        "sha256": "48b37f4a5475b34089c8323319e73b590d0697ef9a90cda1b06032127bcff1d9"
       },
       "darwin-arm64": {
-        "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/typescript-5.3.0-darwin-arm64.tar.gz",
-        "sha256": "d7a22c5fb99480735e54e14958274ade8eb7c8f495811052a67b4a8d5431cdb7"
+        "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/typescript-6.0.0-darwin-arm64.tar.gz",
+        "sha256": "195f983ee5c770d831281b6baa772a01a97e2070d95fada00fcbb10ca5634a33"
       },
       "linux-x64": {
-        "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/typescript-5.3.0-linux-x64.tar.gz",
-        "sha256": "097e1c34c1704efd73ad0ba1a1696e9bb68ef0eefe50f4f5f1ca3ce1a903c9df"
+        "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/typescript-6.0.0-linux-x64.tar.gz",
+        "sha256": "1734d56fb27804b3409c89641a398077c39d362b5f30e747431994d729856fc7"
       }
     }
   },
   "javascript": {
-    "version": "5.3.0",
+    "version": "6.0.0",
     "entry_kind": "node",
     "entry_relative": "node_modules/typescript-language-server/lib/cli.mjs",
     "args": [
@@ -34,20 +34,20 @@
     ],
     "platforms": {
       "win-x64": {
-        "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/javascript-5.3.0-win-x64.tar.gz",
-        "sha256": "080f907afbb8ad3b362baf093cc969f7f7f6a50dba973ae6781b002de753ce12"
+        "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/javascript-6.0.0-win-x64.tar.gz",
+        "sha256": "943870b0e485df1ac723397a0ae4d3393c72c0f7f0ccae5c207bcc10b5e1a7bc"
       },
       "darwin-x64": {
-        "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/javascript-5.3.0-darwin-x64.tar.gz",
-        "sha256": "0f59a3b7bed23f766d492b068b18ea8139cbd14f887f513076a7af7e80b763c6"
+        "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/javascript-6.0.0-darwin-x64.tar.gz",
+        "sha256": "d1a5e9b41ab2ab2029ca5189343c244f33e40e27687e69d7eb1d3884b5d500d8"
       },
       "darwin-arm64": {
-        "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/javascript-5.3.0-darwin-arm64.tar.gz",
-        "sha256": "c3464f0a45a0bf2dae4d96bc93fd12810de32d70c95259559df9d711be133f1b"
+        "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/javascript-6.0.0-darwin-arm64.tar.gz",
+        "sha256": "c9fd5ae577ab599be5de0a2b0000d7000dcd497f3a9fb0cccda79be6e65a3efe"
       },
       "linux-x64": {
-        "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/javascript-5.3.0-linux-x64.tar.gz",
-        "sha256": "ff745df227fe86139370b3c8722d1fa4ea31708858b9d9be56e1e449e248d58d"
+        "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/javascript-6.0.0-linux-x64.tar.gz",
+        "sha256": "e5e3b9e67196dcf4b420c03bad1516b466e4830ee1b47780e01e7ba196a21fdb"
       }
     }
   },
@@ -61,19 +61,19 @@
     "platforms": {
       "win-x64": {
         "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/python-1.1.413-win-x64.tar.gz",
-        "sha256": "aa95cac5a9afecaed04ab824943e9f3822931c2c83886245d91391554043207d"
+        "sha256": "c94f0fb1405cf0c9e8797e4cd6d4f326d08c55401f031fe132a1c2a4895cc0f7"
       },
       "darwin-x64": {
         "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/python-1.1.413-darwin-x64.tar.gz",
-        "sha256": "abd59f54fd3aa1a919203442496104982314d4a6b22ad0bb187a3d6036da9594"
+        "sha256": "1c32507e056d8eb4c4b17fb8d72d9d0253b9548f32ba974e6a89c2d6cfd84304"
       },
       "darwin-arm64": {
         "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/python-1.1.413-darwin-arm64.tar.gz",
-        "sha256": "3d950b651148c0e549752b371119a978f30ae4932ed7b805976fdc72437d2be8"
+        "sha256": "cb6d38e8c494a472168a1ed08cf62a236489803dc472469f9071cba2d1a2ef93"
       },
       "linux-x64": {
         "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/python-1.1.413-linux-x64.tar.gz",
-        "sha256": "9dd17ac264da638cc570d1a948b35d401e9ee91f6d036271452e8ff305ad0b5f"
+        "sha256": "c2ec06e55ed4192fc044325a678c9736a906ed98ae6e6038368c08269102ee99"
       }
     }
   },
@@ -87,19 +87,19 @@
     "platforms": {
       "win-x64": {
         "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/html-4.10.0-win-x64.tar.gz",
-        "sha256": "8dade628e72e1dc0be207322e5deefbfd21986a2a5332da9f264307ed9625140"
+        "sha256": "ade28ac19af778110c75c14cb49d2c4106da478da50233cbcf8fc8994a8fdb58"
       },
       "darwin-x64": {
         "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/html-4.10.0-darwin-x64.tar.gz",
-        "sha256": "affd4af859231e540aa7d66251b1f6170c554530da8e2ef1be3604ef9e032e74"
+        "sha256": "52cbd095a5c903bf8ec6ffdc8560d6a7cfa9e12eceb4b98f84ff0825725238d7"
       },
       "darwin-arm64": {
         "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/html-4.10.0-darwin-arm64.tar.gz",
-        "sha256": "6752b69021369f2b73d2d4a82280ca8b07b0290b5a3e6bc01471d6d302b057f3"
+        "sha256": "9724a0fc95ef3d995a85291712199e2ce419fd208447aabb5e3b35b301bc3776"
       },
       "linux-x64": {
         "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/html-4.10.0-linux-x64.tar.gz",
-        "sha256": "26307e38bdcd969acdd23a665014e692d34f0cbb86a6a9b8f343c3cd12bf8043"
+        "sha256": "a67f76a6208324f3e1143c5ae5f1f6abf69ae24442ae6369ab3a3a77375e2a7a"
       }
     }
   },
@@ -113,19 +113,19 @@
     "platforms": {
       "win-x64": {
         "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/css-4.10.0-win-x64.tar.gz",
-        "sha256": "b270aefb2b55ab66be3e1aa49093015022cd8f1e70c941b0a02328320cd21812"
+        "sha256": "aff6ff1dbc403e247315f1b3e142ad318f3804cec057da7b38d22e0319d8f3ee"
       },
       "darwin-x64": {
         "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/css-4.10.0-darwin-x64.tar.gz",
-        "sha256": "b50b3bb3705a5534d01d0defcb40781c63601ed5c48e62bda5bd9cb64e236e7e"
+        "sha256": "c5c418ccf0874e2150a6002773379a65116c757c1c8150bd730e7635d1003137"
       },
       "darwin-arm64": {
         "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/css-4.10.0-darwin-arm64.tar.gz",
-        "sha256": "495957470209abd49c3e4b9287b79945c1fd2ea686d3e96c17b3ea64e9919d0e"
+        "sha256": "07e517e0e317fc7acb8abe7129e0ead9c1bed406cb4d854317314c8b9c272f54"
       },
       "linux-x64": {
         "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/css-4.10.0-linux-x64.tar.gz",
-        "sha256": "8a20abd84d6ccf3c2b4b63c7fa74d2efa10ad2ad87393bd94c2c90ca1febb17c"
+        "sha256": "7f9dff758869a3ad6280c312478b7513583da27a0d5593252a4deea739e8c2af"
       }
     }
   },
@@ -139,19 +139,19 @@
     "platforms": {
       "win-x64": {
         "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/json-4.10.0-win-x64.tar.gz",
-        "sha256": "a1e725ff62864b697452df5ed16da8b3a3b2a6305fe18a8a9adc4c2fb6d9222e"
+        "sha256": "fc841cbd8c9dce1c6596293d1b57d2cf9ec168b28674648c8cbe5fe3859f736f"
       },
       "darwin-x64": {
         "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/json-4.10.0-darwin-x64.tar.gz",
-        "sha256": "95e8c1cd783aee65210a9329b56a3b5b778997a3de4998e5915f2dae4ab7e354"
+        "sha256": "ec74e8539575f3b8ca759c2c8e0f84af3e4201feab56524114c5c6894cc33d8f"
       },
       "darwin-arm64": {
         "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/json-4.10.0-darwin-arm64.tar.gz",
-        "sha256": "eb948e433b1c0ebe6b1f64090e7040c8935918b075438dedae4b1b1487954ec1"
+        "sha256": "2e48350756a8890a4952e0376eaff32920ed3d0ba754990200bef9127e1001d8"
       },
       "linux-x64": {
         "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/json-4.10.0-linux-x64.tar.gz",
-        "sha256": "39911f3dffc10108f8249cce29c25d8c00d63975e5f4e1840bab5342505821d3"
+        "sha256": "b262662a464dec7b782321aa61108e2071e3b757d54cf9a7bcfda51b431f2335"
       }
     }
   },
@@ -165,123 +165,123 @@
     "platforms": {
       "win-x64": {
         "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/yaml-1.24.0-win-x64.tar.gz",
-        "sha256": "0b2c02590a074a9feb892515370b10c96cedfa1e1572369a1ec521a0923dcd20"
+        "sha256": "67178f5368f6341a0915b593a19e28997d0e231ab016a3dff6d7f11cc4b4ae82"
       },
       "darwin-x64": {
         "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/yaml-1.24.0-darwin-x64.tar.gz",
-        "sha256": "7bbbe5c5a85dbe8d86ac4c6d3944b55c1cf3ccf86f4137c69b4d9114a955a1c2"
+        "sha256": "8ac9cb0385337f8d606d24f2f0ae3603bb58aeb05621efed57d6bbff9f60fe2e"
       },
       "darwin-arm64": {
         "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/yaml-1.24.0-darwin-arm64.tar.gz",
-        "sha256": "e27f7fccafd4841767f90550297614a235f8c6316ecaf4d0b84efcac407abccc"
+        "sha256": "3cfbeeec17a287e4caa29b02fb46cb337a2eb4327374ab7daa8f454e012b0024"
       },
       "linux-x64": {
         "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/yaml-1.24.0-linux-x64.tar.gz",
-        "sha256": "e830b2df7c43765f704486d822c87473941c11bdbabf2b2e244956ad0a430e42"
+        "sha256": "bcc4caf7ad7ae43d7d88edf7acf969de399c82ca6cd1f92ee24ff70ea275e50a"
       }
     }
   },
   "bash": {
     "version": "5.6.0",
     "entry_kind": "node",
-    "entry_relative": "node_modules/bash-language-server/out/cli.js",
+    "entry_relative": "node_modules/bash-language-server/./out/cli.js",
     "args": [
       "start"
     ],
     "platforms": {
       "win-x64": {
         "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/bash-5.6.0-win-x64.tar.gz",
-        "sha256": "1338851d6114a1fb76b593d031c198460403461e30680c357bf10146648eabed"
+        "sha256": "c395f8aa5fafde5e3c7a3ca2afd74c4b4410653c2aed7dd397336f84dd61eafa"
       },
       "darwin-x64": {
         "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/bash-5.6.0-darwin-x64.tar.gz",
-        "sha256": "7ce4ee4ddea416f7329b28e50b6674ac03650470c1cab48e487b518b768ec4a3"
+        "sha256": "4da13baa11042fff7f74abf668e714b0e65b7d4f17f4750cd0f94727c6b30887"
       },
       "darwin-arm64": {
         "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/bash-5.6.0-darwin-arm64.tar.gz",
-        "sha256": "57ce080e318288be6d7962f7a7c7454ca14382c12fa69ad9b5d41d33e120c6c5"
+        "sha256": "b303d5fe4730fa47fb0fb3a31d2158a8b1aa8eeaca56e2c4e4fe399c7af70a3a"
       },
       "linux-x64": {
         "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/bash-5.6.0-linux-x64.tar.gz",
-        "sha256": "66b092108e23291e2b27bf002501891fe3c7a50446e452560965d7b4ba03cfae"
+        "sha256": "f669b00702d500893023034f121f4e7f36fad33cc72f560960f1cb5c5c35a469"
       }
     }
   },
   "dockerfile": {
     "version": "0.15.0",
     "entry_kind": "node",
-    "entry_relative": "node_modules/dockerfile-language-server-nodejs/bin/docker-langserver",
+    "entry_relative": "node_modules/dockerfile-language-server-nodejs/./bin/docker-langserver",
     "args": [
       "--stdio"
     ],
     "platforms": {
       "win-x64": {
         "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/dockerfile-0.15.0-win-x64.tar.gz",
-        "sha256": "7977ba9370cfe1575d9a7aec36d6e767ac04b39600b000070f815b99dd3e0ea3"
+        "sha256": "a2569225f13e060276d22a1f371231f64087221a9912e26c2256d154218a3908"
       },
       "darwin-x64": {
         "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/dockerfile-0.15.0-darwin-x64.tar.gz",
-        "sha256": "05d1a07725adfe3ea52e317c99ed4817d7847ba8a5b34d3252f7abd26390417d"
+        "sha256": "826f7ae8bb1d6aefdd4f4d89bd40e97e37703007c6fa85503ea0737079018d0f"
       },
       "darwin-arm64": {
         "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/dockerfile-0.15.0-darwin-arm64.tar.gz",
-        "sha256": "f9e053ea2128fbf108786fd46138a6e07b5497fad3a0bbcde0f3415bdd9df45f"
+        "sha256": "bd2f5b250a7cae387b005bff7dbed0e00f328825783f7bf4c3d780053d7cde47"
       },
       "linux-x64": {
         "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/dockerfile-0.15.0-linux-x64.tar.gz",
-        "sha256": "cffa41f70c5b5d544dd391dd5b7ea7d6949132bc1a2d32ce984856aa985d79e8"
+        "sha256": "9c480f5a2ff5d1c5383fe2c8bdfc4f89f3bf07b03a7d60d8c3b46b4d6491410d"
       }
     }
   },
   "php": {
     "version": "1.18.5",
     "entry_kind": "node",
-    "entry_relative": "node_modules/intelephense/lib/intelephense.js",
+    "entry_relative": "node_modules/intelephense/./lib/intelephense.js",
     "args": [
       "--stdio"
     ],
     "platforms": {
       "win-x64": {
         "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/php-1.18.5-win-x64.tar.gz",
-        "sha256": "57a2543360e9b61ba6a4e4fcf17f8ac51937403075b1ba9953cc0a8610ec110c"
+        "sha256": "187cb8fa2d9c2631f9dff71e876c77e20381ea7ef09954afea6432fee0c24a8c"
       },
       "darwin-x64": {
         "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/php-1.18.5-darwin-x64.tar.gz",
-        "sha256": "a1031b547dbaa41f6c2a0c972e505489f7cc2b3792c54a319a6a3538bf9541d6"
+        "sha256": "e344c4bc2578aa6b98a8ca41c1c9711269d008f33cb975fb3765dd90a3297177"
       },
       "darwin-arm64": {
         "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/php-1.18.5-darwin-arm64.tar.gz",
-        "sha256": "bbb1b65fc03f7321c7804550894435b87909d06f3216161511ce2f3a4af73c0f"
+        "sha256": "acd43ff617b6e71135b6fb7e2d34e7bf0bfe3d9473b90080b3ced1dde89f92f7"
       },
       "linux-x64": {
         "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/php-1.18.5-linux-x64.tar.gz",
-        "sha256": "df32ae7645f0a60dcb11bfe13ecd1b8dc45393d13824cc97e3093089ee2f911b"
+        "sha256": "337301ae4454a5ec56243f9a8cc77238774c2b8ab0cd6918c4e9174e5193666d"
       }
     }
   },
   "vue": {
     "version": "3.3.10",
     "entry_kind": "node",
-    "entry_relative": "node_modules/@vue/language-server/bin/vue-language-server.js",
+    "entry_relative": "node_modules/@vue/language-server/./bin/vue-language-server.js",
     "args": [
       "--stdio"
     ],
     "platforms": {
       "win-x64": {
         "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/vue-3.3.10-win-x64.tar.gz",
-        "sha256": "4cfb05d622464efa028e6c3a1d6759a3de6aba6d8936dff655ae9ca44f5704bb"
+        "sha256": "70a6a7b8673b1177b06b73ed7b193e8d67718cac5a9496f827e5e79f5c24a682"
       },
       "darwin-x64": {
         "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/vue-3.3.10-darwin-x64.tar.gz",
-        "sha256": "cd79f877f8c7bd1239d43baddeb9dbbbce5a111f708588be97ccbd9ca4841865"
+        "sha256": "36d10e204eb3561b88dfc1489ffc08525037b2b28f8d8847e1ffad42272fb9fb"
       },
       "darwin-arm64": {
         "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/vue-3.3.10-darwin-arm64.tar.gz",
-        "sha256": "ec1fc78de793b78c456848085730975654c2a40943162175972e23596c8a7a9c"
+        "sha256": "90be5a6f11ec56fefd34017828cfefc9dc831380905be52b81e598d319dc3ca4"
       },
       "linux-x64": {
         "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/vue-3.3.10-linux-x64.tar.gz",
-        "sha256": "172fb865ffe4a2ff8cecef6e035171775584bce475204383dc8b471e5a0959b6"
+        "sha256": "3252c82219c94fe17e3f71c37d36978e3ae840f0b4ba18acc5b8dc6463dc4f67"
       }
     }
   },
@@ -295,26 +295,26 @@
     "platforms": {
       "win-x64": {
         "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/svelte-0.18.4-win-x64.tar.gz",
-        "sha256": "a22bbb78cbdfd08e88002ba1630bef2a14070ea8ccaf3344fc6cf635de9bf93c"
+        "sha256": "7dd7f98b23e08688c4c7b8dd8c91248ca6b9ce1f4e18481ae33e88fbef8b64c3"
       },
       "darwin-x64": {
         "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/svelte-0.18.4-darwin-x64.tar.gz",
-        "sha256": "dd5b0094a3e01bd1fdae05ff366d108a4aebf85d4b722b82e46a7250b367b958"
+        "sha256": "84bd72bab10bdde34d04187421afc5e4d0f45ed6443ea2ac672ad6b6d1e92230"
       },
       "darwin-arm64": {
         "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/svelte-0.18.4-darwin-arm64.tar.gz",
-        "sha256": "cc79eb24858da852a5180b33505da7f8ac5b862a345e13e922db031fea1a3026"
+        "sha256": "1605b83a118aa67529407437bb142dd08c394d698b3c2040ae4c8b98f74696bf"
       },
       "linux-x64": {
         "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/svelte-0.18.4-linux-x64.tar.gz",
-        "sha256": "b82491f1ad1ce5506ad68ec027025fb9c735817fac404c2abe2de133415dfcb5"
+        "sha256": "e62fad06a5dc55187d38bb9a47b28d125c86f95e3d3d8a6768681cf669b07c66"
       }
     }
   },
   "graphql": {
     "version": "3.5.0",
     "entry_kind": "node",
-    "entry_relative": "node_modules/graphql-language-service-cli/bin/graphql.js",
+    "entry_relative": "node_modules/graphql-language-service-cli/./bin/graphql.js",
     "args": [
       "server",
       "--method",
@@ -323,19 +323,19 @@
     "platforms": {
       "win-x64": {
         "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/graphql-3.5.0-win-x64.tar.gz",
-        "sha256": "c138de8df81d2146ad168069225af6457feacd4ad6abc3cab744a81639960fd2"
+        "sha256": "1994bd6a849dc236904444d086ba6263e5c90025cd6ea90dc58e7619af1e8d92"
       },
       "darwin-x64": {
         "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/graphql-3.5.0-darwin-x64.tar.gz",
-        "sha256": "17120d3e4cdb4f72edfb95e9b9e3405b797dd89b9f1989296ddcc20623a44314"
+        "sha256": "e6f4b0ce0d34664defc3a5ecaeea2ed28402758cb74f2c0b9dbf2d10a1724d9b"
       },
       "darwin-arm64": {
         "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/graphql-3.5.0-darwin-arm64.tar.gz",
-        "sha256": "69cca48b817ba0fcfa2d6cff2be94b55ece7f45f980f508944cb03bdea1b3329"
+        "sha256": "6493795a826649768334eaec537336089d7f88eada628aa995f27262b295888f"
       },
       "linux-x64": {
         "url": "https://github.com/TheShiveshNetwork/aurora-term/releases/download/lsp-bundles/graphql-3.5.0-linux-x64.tar.gz",
-        "sha256": "fb3bf6ec8a86c20c4c1094489a939cab090b3229aa1119146cf8ddf2fa70c75f"
+        "sha256": "39ccc4e9e87dd28f3457ff297d6ecda516c93ae93c58bb9003dd6c253a09b11f"
       }
     }
   }

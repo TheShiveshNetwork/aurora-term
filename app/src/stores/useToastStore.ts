@@ -25,6 +25,7 @@ interface NotificationStore {
   notifications: NotificationItem[];
   addNotification: (message: unknown, type?: NotificationItem["type"], duration?: number) => string;
   addLoadingNotification: (opts: { title: string; message: string }) => string;
+  updateNotification: (id: string, patch: Partial<NotificationItem>) => void;
   removeNotification: (id: string) => void;
 }
 
@@ -105,7 +106,10 @@ export const useNotificationStore = create<NotificationStore>((set) => ({
     // user always gets the alert, even when the app window is not focused.
     void notifyNative({ title, body: text });
 
-    if (duration > 0) {
+    // Errors must be acknowledged manually (closed via the X button) — they must
+    // never disappear on their own, since they signal something the user needs
+    // to act on or at least notice. Other types auto-dismiss after `duration`.
+    if (type !== "error" && duration > 0) {
       setTimeout(() => {
         set((s) => ({ notifications: s.notifications.filter((n) => n.id !== id) }));
       }, duration);
@@ -114,6 +118,22 @@ export const useNotificationStore = create<NotificationStore>((set) => ({
   },
   removeNotification: (id) => {
     set((s) => ({ notifications: s.notifications.filter((n) => n.id !== id) }));
+  },
+  updateNotification: (id, patch) => {
+    set((s) => ({
+      notifications: s.notifications.map((n) => (n.id === id ? { ...n, ...patch } : n)),
+    }));
+    // A morphed-in-place success toast still needs to auto-dismiss after its
+    // duration (the auto-dismiss timer only runs for freshly `addNotification`
+    // toasts). Errors stay until the user dismisses them.
+    if (patch.type === "success") {
+      const duration = patch.duration;
+      if (duration != null && duration > 0) {
+        setTimeout(() => {
+          useNotificationStore.getState().removeNotification(id);
+        }, duration);
+      }
+    }
   },
   addLoadingNotification: ({ title, message }) => {
     const id = uuidv4();

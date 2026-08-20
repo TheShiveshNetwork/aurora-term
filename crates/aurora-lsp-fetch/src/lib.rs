@@ -172,6 +172,63 @@ fn reqwest_client() -> Result<reqwest::Client, AppError> {
         .map_err(|e| AppError::Lsp(e.to_string()))
 }
 
+/// Classify a `reqwest` failure. Connection / timeout failures are real network
+/// outages (no internet, DNS down, refused) and are tagged with the
+/// `Network Error:` prefix so the frontend can surface the offline-install
+/// message instead of a cryptic stack.
+fn reqwest_network_err(context: &str, e: &reqwest::Error) -> AppError {
+    if e.is_connect() || e.is_timeout() {
+        AppError::Lsp(format!("Network Error: {context}: {e}"))
+    } else {
+        AppError::Lsp(format!("{context}: {e}"))
+    }
+}
+
+// ─── Installed-bundle metadata (offline reuse) ───────────────────────────────
+//
+// Once a bundle has been downloaded + extracted, we persist its resolved entry
+// metadata next to the extracted binary. On every later `ensure_installed` call
+// we reuse the on-disk server directly — no manifest fetch, no re-download — so
+// language servers are installed exactly once and only re-acquired when the app
+// is updated (a future hook that will bump/remove this metadata file).
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct InstalledMeta {
+    version: String,
+    entry_kind: String,
+    entry_relative: String,
+    args: Vec<String>,
+}
+
+fn installed_meta_path(target_dir: &Path) -> PathBuf {
+    target_dir.join(".installed.json")
+}
+
+/// Read the cached install metadata, but only if the resolved entry binary is
+/// still present on disk (a half-finished extraction is not "installed").
+fn read_installed_meta(target_dir: &Path) -> Option<InstalledMeta> {
+    let txt = std::fs::read_to_string(installed_meta_path(target_dir)).ok()?;
+    let meta: InstalledMeta = serde_json::from_str(&txt).ok()?;
+    let mut entry_path = target_dir.join(&meta.entry_relative);
+    #[cfg(windows)]
+    if !entry_path.exists() {
+        let alt = entry_path.with_extension("exe");
+        if alt.exists() {
+            entry_path = alt;
+        }
+    }
+    entry_path.exists().then_some(meta)
+}
+
+fn write_installed_meta(target_dir: &Path, meta: &InstalledMeta) -> Result<(), AppError> {
+    std::fs::create_dir_all(target_dir)
+        .map_err(|e| AppError::Lsp(format!("failed to create bundle dir: {}", e)))?;
+    let txt = serde_json::to_string(meta)
+        .map_err(|e| AppError::Lsp(format!("failed to serialize installed meta: {}", e)))?;
+    std::fs::write(installed_meta_path(target_dir), txt)
+        .map_err(|e| AppError::Lsp(format!("failed to write installed meta: {}", e)))
+}
+
 // ─── Manifest fetch (ETag-revalidated, locally cached) ───────────────────────
 
 /// Fetch the manifest, reusing the locally cached copy when the remote has not
@@ -195,7 +252,7 @@ pub async fn get_manifest(cache_dir: &Path) -> Result<Manifest, AppError> {
     let resp = req
         .send()
         .await
-        .map_err(|e| AppError::Lsp(format!("manifest request failed: {}", e)))?;
+        .map_err(|e| reqwest_network_err("manifest request failed", &e))?;
 
     if resp.status() == reqwest::StatusCode::NOT_MODIFIED {
         let txt = std::fs::read_to_string(&manifest_path)
@@ -232,11 +289,18 @@ pub async fn get_manifest(cache_dir: &Path) -> Result<Manifest, AppError> {
 
 /// Ensure the server for `language_id` is available on disk, returning a fully
 /// resolved command. One code path for every language.
+///
+/// A bundle is installed exactly once: the first time it is needed we fetch the
+/// manifest and download the tarball, then persist its entry metadata. Every
+/// subsequent call reuses the on-disk server and never touches the network, so
+/// language servers are not re-downloaded on each editor open. Re-acquisition is
+/// reserved for app updates (a future hook that will invalidate the cached
+/// metadata).
 pub async fn ensure_installed(
     language_id: &str,
     cache_dir: &Path,
 ) -> Result<ResolvedServer, AppError> {
-    // 1. Host-toolchain languages: resolve directly from PATH.
+    // 1. Host-toolchain languages: resolve directly from PATH (no download).
     if let Some((_, bin)) = HOST_TOOLCHAIN.iter().find(|(l, _)| *l == language_id) {
         let path = which::which(bin)
             .map_err(|_| AppError::Lsp(format!("{} not found on PATH (required for {})", bin, language_id)))?;
@@ -247,7 +311,14 @@ pub async fn ensure_installed(
         });
     }
 
-    // 2. Bundle-driven languages: manifest → version check → download/verify/extract.
+    let target_dir = cache_dir.join(language_id);
+
+    // 2. Already installed locally: reuse the on-disk server, skip all network.
+    if let Some(meta) = read_installed_meta(&target_dir) {
+        return resolve_from_cache(&target_dir, &meta, language_id, cache_dir).await;
+    }
+
+    // 3. Not installed yet: fetch manifest (network) and download/verify/extract.
     let manifest = get_manifest(cache_dir).await?;
     let entry = manifest.get(language_id).ok_or_else(|| {
         AppError::Lsp(format!("no prebuilt bundle registered for '{}'", language_id))
@@ -257,33 +328,28 @@ pub async fn ensure_installed(
         AppError::Lsp(format!("'{}' bundle not available for platform '{}'", language_id, platform))
     })?;
 
-    let target_dir = cache_dir.join(language_id);
-    let version_file = target_dir.join(".version");
-    let cached_ok = version_file.exists()
-        && std::fs::read_to_string(&version_file)
-            .map(|s| s.trim() == entry.version)
-            .unwrap_or(false);
-
-    if cached_ok {
-        return resolve_from_cache(&target_dir, entry, language_id, cache_dir).await;
-    }
-
     download_verify_extract(&asset.url, &asset.sha256, &target_dir, language_id).await?;
-    std::fs::write(&version_file, &entry.version)
-        .map_err(|e| AppError::Lsp(format!("failed to write version file: {}", e)))?;
 
-    resolve_from_cache(&target_dir, entry, language_id, cache_dir).await
+    let meta = InstalledMeta {
+        version: entry.version.clone(),
+        entry_kind: entry.entry_kind.clone(),
+        entry_relative: entry.entry_relative.clone(),
+        args: entry.args.clone(),
+    };
+    write_installed_meta(&target_dir, &meta)?;
+
+    resolve_from_cache(&target_dir, &meta, language_id, cache_dir).await
 }
 
 /// Build the [`ResolvedServer`] from an already-extracted bundle directory.
 async fn resolve_from_cache(
     target_dir: &Path,
-    entry: &BundleEntry,
+    meta: &InstalledMeta,
     language_id: &str,
     cache_dir: &Path,
 ) -> Result<ResolvedServer, AppError> {
-    let kind = ServerKind::from_str(&entry.entry_kind);
-    let mut entry_path = target_dir.join(&entry.entry_relative);
+    let kind = ServerKind::from_str(&meta.entry_kind);
+    let mut entry_path = target_dir.join(&meta.entry_relative);
     // Some upstream bundles ship the binary without the `.exe` suffix on Windows.
     #[cfg(windows)]
     if !entry_path.exists() {
@@ -295,7 +361,7 @@ async fn resolve_from_cache(
     if !entry_path.exists() {
         return Err(AppError::Lsp(format!(
             "bundle entry '{}' missing after extraction (looked in {})",
-            entry.entry_relative,
+            meta.entry_relative,
             target_dir.display()
         )));
     }
@@ -306,7 +372,7 @@ async fn resolve_from_cache(
             let node_dir = ensure_node_runtime(cache_dir).await?;
             let node_exe = node_exe_path(&node_dir);
             let mut args = vec![entry_path.to_string_lossy().to_string()];
-            args.extend(entry.args.iter().cloned());
+            args.extend(meta.args.iter().cloned());
             Ok(ResolvedServer {
                 program: node_exe,
                 args,
@@ -315,7 +381,7 @@ async fn resolve_from_cache(
         }
         ServerKind::Native => Ok(ResolvedServer {
             program: entry_path,
-            args: entry.args.clone(),
+            args: meta.args.clone(),
             runtime: kind.runtime(language_id),
         }),
     }
@@ -334,7 +400,7 @@ async fn download_verify_extract(
     let tmp = target_dir
         .parent()
         .unwrap_or(target_dir)
-        .join(format!(".lsp-dl-{}.tmp", language_id));
+        .join(format!(".lsp-dl-{}{}", language_id, archive_ext_from_url(url)));
     download_file(url, &tmp).await?;
 
     verify_sha256(&tmp, expected_sha256)
@@ -448,7 +514,12 @@ pub async fn ensure_node_runtime(cache_dir: &Path) -> Result<PathBuf, AppError> 
 
     let (url, _archive_ext) = node_asset_for_platform();
     tracing::info!("LSP: fetching portable Node {} for node-based bundles", NODE_VERSION);
-    let tmp = runtime_dir.join(".node-dl.tmp");
+    let node_ext = if url.to_ascii_lowercase().ends_with(".zip") {
+        ".zip"
+    } else {
+        ".tar.gz"
+    };
+    let tmp = runtime_dir.join(format!(".node-dl{}", node_ext));
     download_file(&url, &tmp).await?;
     extract_into(&tmp, &node_dir).await?;
     let _ = std::fs::remove_file(&tmp);
@@ -535,7 +606,7 @@ async fn download_file(url: &str, dest: &Path) -> Result<(), AppError> {
         .get(url)
         .send()
         .await
-        .map_err(|e| AppError::Lsp(format!("download failed: {}", e)))?;
+        .map_err(|e| reqwest_network_err(&format!("download failed for {url}"), &e))?;
     if !resp.status().is_success() {
         return Err(AppError::Lsp(format!(
             "download returned {} for {}",
@@ -550,6 +621,23 @@ async fn download_file(url: &str, dest: &Path) -> Result<(), AppError> {
     std::fs::write(dest, &bytes)
         .map_err(|e| AppError::Lsp(format!("write download failed: {}", e)))?;
     Ok(())
+}
+
+/// Derive the on-disk archive extension from a download URL's filename so the
+/// temp download keeps a real extension and `extract_into` can dispatch on it.
+/// The downloaded file is a `.tmp` by default, which would otherwise match no
+/// known archive type.
+fn archive_ext_from_url(url: &str) -> &'static str {
+    let name = url.rsplit('/').next().unwrap_or(url).to_ascii_lowercase();
+    if name.ends_with(".tar.gz") || name.ends_with(".tgz") {
+        ".tar.gz"
+    } else if name.ends_with(".tar") {
+        ".tar"
+    } else if name.ends_with(".zip") {
+        ".zip"
+    } else {
+        ".bin"
+    }
 }
 
 /// Extract `archive` into `dest`, dispatching on extension.
@@ -571,21 +659,87 @@ async fn extract_into(archive: &Path, dest: &Path) -> Result<(), AppError> {
     }
 }
 
+/// Extract a `.tar.gz` archive by streaming each entry manually. We avoid the
+/// `tar` crate's `Archive::unpack` because on Windows it aborts the whole
+/// extraction on certain real-world npm-tarball entries (deep paths where the
+/// `\\?\` long-path prefix interacts badly with directory creation, or symlink
+/// permission errors), leaving bundles half-written so the language server can't
+/// start. Manual extraction creates parent dirs consistently, prefixes long
+/// paths with `\\?\` so Windows accepts them, and skips symlinks (which Windows
+/// can't create without elevated rights and which LSP servers don't need). This
+/// path is shared by every tar-based language bundle, so a fix here covers all
+/// of them.
 fn extract_tar_gz(archive: &Path, dest: &Path) -> Result<(), AppError> {
     let file = std::fs::File::open(archive).map_err(|e| AppError::Lsp(e.to_string()))?;
     let dec = flate2::read::GzDecoder::new(file);
-    let mut ar = tar::Archive::new(dec);
-    ar.unpack(dest)
-        .map_err(|e| AppError::Lsp(format!("tar.gz extract failed: {}", e)))?;
-    Ok(())
+    extract_tar_inner(dec, dest)
 }
 
 fn extract_tar(archive: &Path, dest: &Path) -> Result<(), AppError> {
     let file = std::fs::File::open(archive).map_err(|e| AppError::Lsp(e.to_string()))?;
-    let mut ar = tar::Archive::new(file);
-    ar.unpack(dest)
-        .map_err(|e| AppError::Lsp(format!("tar extract failed: {}", e)))?;
+    extract_tar_inner(file, dest)
+}
+
+fn extract_tar_inner<R: std::io::Read>(reader: R, dest: &Path) -> Result<(), AppError> {
+    std::fs::create_dir_all(dest)
+        .map_err(|e| AppError::Lsp(format!("extract dir create failed: {}", e)))?;
+    let mut ar = tar::Archive::new(reader);
+    let entries = ar
+        .entries()
+        .map_err(|e| AppError::Lsp(format!("tar read failed: {}", e)))?;
+    for entry in entries {
+        let mut entry = entry.map_err(|e| AppError::Lsp(format!("tar entry failed: {}", e)))?;
+        let rel = entry
+            .path()
+            .map_err(|e| AppError::Lsp(format!("tar path failed: {}", e)))?
+            .into_owned();
+        // Drop a leading "./" so the join stays inside `dest`.
+        let rel = rel.strip_prefix("./").unwrap_or(&rel);
+        let header = entry.header();
+        let kind = header.entry_type();
+        let out = long_path(&dest.join(rel));
+
+        if kind.is_dir() {
+            std::fs::create_dir_all(&out).map_err(|e| {
+                AppError::Lsp(format!("mkdir failed ({}): {}", out.display(), e))
+            })?;
+        } else if kind.is_symlink() {
+            // Symlinks can't be created without elevated rights on Windows and
+            // aren't needed by LSP servers, so skip them to keep extraction from
+            // aborting.
+            continue;
+        } else {
+            if let Some(parent) = out.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| {
+                    AppError::Lsp(format!("mkdir failed ({}): {}", parent.display(), e))
+                })?;
+            }
+            let mut f = std::fs::File::create(&out).map_err(|e| {
+                AppError::Lsp(format!("create failed ({}): {}", out.display(), e))
+            })?;
+            std::io::copy(&mut entry, &mut f).map_err(|e| {
+                AppError::Lsp(format!("write failed ({}): {}", out.display(), e))
+            })?;
+        }
+    }
     Ok(())
+}
+
+/// On Windows, prefix an absolute path with `\\?\` when it exceeds `MAX_PATH`
+/// (260) so the OS accepts deep paths inside npm bundles. No-op elsewhere.
+#[cfg(windows)]
+fn long_path(p: &Path) -> PathBuf {
+    let s = p.as_os_str().to_string_lossy();
+    if s.len() > 260 && !s.starts_with("\\\\?\\") {
+        PathBuf::from(format!("\\\\?\\{}", s))
+    } else {
+        p.to_path_buf()
+    }
+}
+
+#[cfg(not(windows))]
+fn long_path(p: &Path) -> PathBuf {
+    p.to_path_buf()
 }
 
 fn extract_zip_system(archive: &Path, dest: &Path) -> Result<(), AppError> {

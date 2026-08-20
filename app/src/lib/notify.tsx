@@ -14,21 +14,35 @@ export interface NotifyAsyncOptions<T = unknown> {
   /** Description shown while the task is in flight. */
   loadingMessage: string;
   /**
-   * Called once the task resolves (the loading toast is already removed).
-   * Own the success follow-up here if provided.
+   * Side-effect hook called once the task resolves. The result toast is shown
+   * automatically (and morphed in place from the loading toast) — use this only
+   * for non-toast follow-up work.
    */
   onSuccess?: (result: T) => void;
   /**
-   * Called once the task rejects (the loading toast is already removed).
-   * Own the error follow-up here if provided.
+   * Side-effect hook called once the task rejects. The error toast is shown
+   * automatically; use this only for non-toast follow-up work.
    */
   onError?: (err: unknown) => void;
-  /** Default success toast text, used only when `onSuccess` is omitted. */
+  /** Toast text shown on success (when not cancelled). */
   successMessage?: string;
-  /** Default error toast builder, used only when `onError` is omitted. */
+  /** Error toast builder shown on failure (when not cancelled). */
   errorMessage?: (err: unknown) => string;
   successDuration?: number;
   errorDuration?: number;
+  /**
+   * When this returns `true` (e.g. the requesting UI was unmounted), the result
+   * toast is suppressed and the loading toast is simply cleared.
+   */
+  isCancelled?: () => boolean;
+}
+
+/** Result payload used to morph the loading toast in place on completion. */
+interface ResolvedResult {
+  type: "success" | "error";
+  title: string;
+  message: string;
+  duration: number;
 }
 
 /**
@@ -38,7 +52,9 @@ export interface NotifyAsyncOptions<T = unknown> {
  *  - Sync:  `notify(message, type?, duration?)` — shows an in-app toast and
  *    raises a Tauri OS notification. Returns the new notification id.
  *  - Async: `notify(options, task)` — shows a loading toast, runs `task`, then
- *    transitions to a success/error toast. The loading toast is always removed.
+ *    transitions to a success/error toast. If the loading toast is still on
+ *    screen it is morphed in place; if the user dismissed it, the result is
+ *    surfaced as a fresh toast so completion is never silently lost.
  */
 export function notify(message: unknown, type?: NotificationType, duration?: number): string;
 export function notify<T = unknown>(
@@ -55,27 +71,61 @@ export function notify(...args: unknown[]): string | Promise<unknown> {
       title: options.loadingTitle,
       message: options.loadingMessage,
     });
-    return task().then(
-      (result) => {
-        store.removeNotification(loadingId);
-        if (options.onSuccess) {
-          options.onSuccess(result);
-        } else if (options.successMessage) {
-          store.addNotification(options.successMessage, "success", options.successDuration ?? 3000);
-        }
+
+    // Resolve the current store fresh inside the callbacks so we always act on
+    // the latest state (e.g. detect whether the user already dismissed the
+    // loading toast while the task was still running).
+    const present = () =>
+      useNotificationStore.getState().notifications.some((n) => n.id === loadingId);
+
+    // Show the resolved result. If the loading toast is still on screen, morph it
+    // in place so it is never silently dropped; if the user dismissed it, surface
+    // the result as a fresh toast instead.
+    const showResult = (resolved: ResolvedResult) => {
+      const s = useNotificationStore.getState();
+      if (present()) {
+        s.updateNotification(loadingId, {
+          type: resolved.type,
+          title: resolved.title,
+          message: resolved.message,
+          duration: resolved.duration,
+        });
+      } else {
+        s.addNotification(resolved.message, resolved.type, resolved.duration);
+      }
+    };
+
+    const finishSuccess = (result: unknown) => {
+      if (options.isCancelled?.()) {
+        useNotificationStore.getState().removeNotification(loadingId);
         return result;
-      },
-      (err) => {
-        store.removeNotification(loadingId);
-        if (options.onError) {
-          options.onError(err);
-        } else {
-          const msg = options.errorMessage ? options.errorMessage(err) : toStr(err);
-          store.addNotification(msg, "error", options.errorDuration ?? 8000);
-        }
+      }
+      showResult({
+        type: "success",
+        title: "Success",
+        message: options.successMessage ?? "Done",
+        duration: options.successDuration ?? 3000,
+      });
+      options.onSuccess?.(result);
+      return result;
+    };
+
+    const finishError = (err: unknown) => {
+      if (options.isCancelled?.()) {
+        useNotificationStore.getState().removeNotification(loadingId);
         throw err;
-      },
-    );
+      }
+      showResult({
+        type: "error",
+        title: "Error",
+        message: options.errorMessage ? options.errorMessage(err) : toStr(err),
+        duration: options.errorDuration ?? 8000,
+      });
+      options.onError?.(err);
+      throw err;
+    };
+
+    return task().then(finishSuccess, finishError);
   }
 
   // Sync form: notify(message, type?, duration?)
@@ -208,7 +258,14 @@ function BaseNotification({ n, showProgress }: { n: NotificationItem; showProgre
  */
 function Toaster() {
   const notifications = useNotificationStore((s) => s.notifications);
-  const visible = visibleSlice(notifications.filter((n) => n.type !== "loading"));
+  const all = notifications.filter((n) => n.type !== "loading");
+  // Errors must stay visible until the user closes them manually, so they are
+  // never capped or pushed out of the stack. Only the auto-dismissing
+  // info/success toasts are limited to the visible window.
+  const errors = all.filter((n) => n.type === "error");
+  const others = all.filter((n) => n.type !== "error");
+  const shownOthers = others.slice(-Math.max(0, MAX_VISIBLE - errors.length));
+  const visible = [...errors, ...shownOthers];
   if (visible.length === 0) return null;
 
   return (

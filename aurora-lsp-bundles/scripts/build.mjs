@@ -59,6 +59,13 @@ function repackage(assetPath, work) {
   if (lower.endsWith(".tar.gz") || lower.endsWith(".tgz") || lower.endsWith(".tar")) {
     return { path: assetPath, ext: "tar.gz" };
   }
+  if (lower.endsWith(".tar.xz") || lower.endsWith(".txz") || lower.endsWith(".tar.bz2")) {
+    const ex = mkdtempSync(join(work, "extract-"));
+    sh("tar", ["-xf", assetPath, "-C", ex]);
+    const out = join(work, "bundle.tar.gz");
+    sh("tar", ["-czf", out, "-C", ex, "."]);
+    return { path: out, ext: "tar.gz" };
+  }
   if (lower.endsWith(".zip")) {
     return { path: assetPath, ext: "zip" };
   }
@@ -68,14 +75,31 @@ function repackage(assetPath, work) {
   return { path: out, ext: "tar.gz" };
 }
 
-async function latestReleaseAsset(repo, pattern, version, plat, work) {
+async function fetchLatestRelease(repo) {
+  const headers = { Accept: "application/vnd.github+json", "User-Agent": "aurora-lsp-bundles" };
+  if (process.env.GITHUB_TOKEN) headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
+  const rel = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, { headers });
+  if (rel.ok) return await rel.json();
+  const list = await fetch(`https://api.github.com/repos/${repo}/releases?per_page=20`, { headers });
+  if (!list.ok) throw new Error(`github releases for ${repo}: ${list.status}`);
+  const rels = await list.json();
+  const withAssets = (rels || []).filter((r) => (r.assets || []).length > 0);
+  const pick = withAssets[0];
+  if (!pick) throw new Error(`no release with assets in ${repo}`);
+  return pick;
+}
+
+async function latestReleaseAsset(spec, plat, work) {
   // Use the upstream's actual latest release tag, not a hardcoded guess.
-  const rel = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, {
-    headers: { Authorization: `Bearer ${process.env.GITHUB_TOKEN}`, Accept: "application/vnd.github+json" },
-  });
-  if (!rel.ok) throw new Error(`github latest release for ${repo}: ${rel.status}`);
-  const json = await rel.json();
-  const tag = String(json.tag_name || "").replace(/^v/, "");
+  const json = await fetchLatestRelease(spec.repo);
+  // Some upstreams prefix the release tag with the project name
+  // (e.g. `clangd-19.0.0`, `haskell-language-server-2.9.0.0`). Strip that prefix
+  // so `{version}` substitution yields the bare version used in asset filenames.
+  const project = (spec.repo.split("/")[1] || "").toLowerCase();
+  const stripTagPrefix = (t) =>
+    project && t.toLowerCase().startsWith(`${project}-`) ? t.slice(project.length + 1) : t;
+  const tag = stripTagPrefix(String(json.tag_name || "").replace(/^v/, ""));
+  const pattern = spec.assets?.[plat.key] || spec.asset;
   const want = substitute(pattern, plat, tag);
   const assets = json.assets || [];
   // Normalize by stripping archive extensions so patterns that omit them
@@ -83,12 +107,28 @@ async function latestReleaseAsset(repo, pattern, version, plat, work) {
   // precisely, instead of grabbing a wrong-platform asset via substring match.
   const norm = (s) => s.toLowerCase().replace(/\.(tar\.gz|tgz|tar|zip|gz)$/, "");
   const wantNorm = norm(want);
+  // When no exact normalized match exists, fall back to a substring match but
+  // reject assets that clearly belong to a different platform (so a shared
+  // prefix like `terraform-ls_0.39.0` doesn't grab the linux build on windows).
+  const FOREIGN_HINTS = {
+    "win-x64": ["linux", "macos", "mac", "darwin"],
+    "linux-x64": ["windows", "win", "macos", "mac", "darwin"],
+    "darwin-x64": ["windows", "win", "linux"],
+    "darwin-arm64": ["windows", "win", "linux"],
+  };
   const name = assets.find((a) => norm(a.name) === wantNorm)?.name
-    || assets.find((a) => a.name.toLowerCase().includes(wantNorm))?.name;
-  if (!name) throw new Error(`no asset '${want}' in ${repo}@${tag}; have: ${assets.map((a) => a.name).join(", ")}`);
+    || assets.find((a) => {
+         const n = a.name.toLowerCase();
+         if (!n.includes(wantNorm)) return false;
+         const foreign = (FOREIGN_HINTS[plat.key] || []).some((h) => n.includes(h));
+         return !foreign;
+       })?.name;
+  if (!name) throw new Error(`no asset '${want}' in ${spec.repo}@${tag}; have: ${assets.map((a) => a.name).join(", ")}`);
   const a = assets.find((x) => x.name === name);
   const dl = join(work, name);
-  const r2 = await fetch(a.browser_download_url, { headers: { Authorization: `Bearer ${process.env.GITHUB_TOKEN}` } });
+  const dlHeaders = { "User-Agent": "aurora-lsp-bundles" };
+  if (process.env.GITHUB_TOKEN) dlHeaders.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
+  const r2 = await fetch(a.browser_download_url, { headers: dlHeaders });
   if (!r2.ok) throw new Error(`download ${a.browser_download_url} failed: ${r2.status}`);
   writeFileSync(dl, Buffer.from(await r2.arrayBuffer()));
   return { dl, version: tag };
@@ -112,21 +152,29 @@ async function buildNpm(spec, plat, work) {
 }
 
 async function buildGithub(spec, plat, work) {
-  const { dl, version } = await latestReleaseAsset(spec.repo, spec.asset, spec.version, plat, work);
+  const { dl, version } = await latestReleaseAsset(spec, plat, work);
   const { path, ext } = repackage(dl, work);
   return { bundle: path, ext, entry_relative: spec.entry_relative, kind: "native", version };
 }
 
+async function latestGoVersion(module) {
+  const r = await fetch(`https://proxy.golang.org/${module}/@latest`);
+  if (!r.ok) throw new Error(`go latest for ${module}: ${r.status}`);
+  const v = (await r.json()).Version || "";
+  return v.replace(/^v/, "");
+}
+
 async function buildGo(spec, plat, work) {
+  const version = spec.version || (await latestGoVersion(spec.module));
   const gobin = join(work, "gobin");
   mkdirSync(gobin, { recursive: true });
-  sh(process.platform === "win32" ? "go.exe" : "go", ["install", `${spec.module}@${spec.version}`], undefined, { env: { ...process.env, GOOS: plat.goos, GOARCH: plat.goarch, GOBIN: gobin } });
+  sh(process.platform === "win32" ? "go.exe" : "go", ["install", `${spec.module}@${version}`], undefined, { env: { ...process.env, GOOS: plat.goos, GOARCH: plat.goarch, GOBIN: gobin } });
   const binName = basename(spec.entry_relative);
   const built = join(gobin, binName);
   if (!existsSync(built)) throw new Error(`go install produced no ${binName}`);
   const out = join(work, "bundle.tar.gz");
   sh("tar", ["-czf", out, "-C", gobin, binName]);
-  return { bundle: out, ext: "tar.gz", entry_relative: spec.entry_relative, kind: "native" };
+  return { bundle: out, ext: "tar.gz", entry_relative: spec.entry_relative, kind: "native", version };
 }
 
 async function buildOne(spec, plat) {
@@ -154,9 +202,6 @@ async function buildOne(spec, plat) {
 async function publishRollingRelease(files) {
   if (SKIP_UPLOAD) { console.log("SKIP_UPLOAD set; not publishing"); return; }
   if (!process.env.GITHUB_TOKEN && !process.env.GH_TOKEN) throw new Error("GITHUB_TOKEN required to publish bundles");
-  // Best-effort teardown of any prior rolling release + its tag. `sh` runs
-  // synchronously (execFileSync), so a missing release/tag must be swallowed
-  // via try/catch, not `.catch()` (which would never attach to the return value).
   try { sh("gh", ["release", "delete", RELEASE_TAG, "--repo", REPO, "--yes"], ROOT, { stdio: "ignore" }); } catch {}
   try { sh("gh", ["api", "-X", "DELETE", `/repos/${REPO}/git/refs/tags/${RELEASE_TAG}`], ROOT, { stdio: "ignore" }); } catch {}
   sh("gh", ["release", "create", RELEASE_TAG, "--repo", REPO, "--title", "LSP Bundles", "--notes", `Automated prebuilt LSP bundles @ ${new Date().toISOString()}`, ...files], ROOT);
