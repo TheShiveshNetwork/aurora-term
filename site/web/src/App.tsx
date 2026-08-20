@@ -78,6 +78,12 @@ export default function App() {
             <a href="#download" className="transition-colors hover:text-on-background">Download</a>
           </nav>
           <a
+            href="/signin"
+            className="hidden rounded-full bg-primary px-4 py-1.5 text-[13px] font-medium text-on-primary transition-transform hover:-translate-y-0.5 sm:inline"
+          >
+            Sign in to sync
+          </a>
+          <a
             href="https://github.com/anomalyco/aurora"
             target="_blank"
             rel="noreferrer"
