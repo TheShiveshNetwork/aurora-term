@@ -120,7 +120,7 @@ async function buildGithub(spec, plat, work) {
 async function buildGo(spec, plat, work) {
   const gobin = join(work, "gobin");
   mkdirSync(gobin, { recursive: true });
-  sh(process.platform === "win32" ? "go.exe" : "go", ["install", `${spec.module}@${spec.version}`], { ...process.env, GOOS: plat.goos, GOARCH: plat.goarch, GOBIN: gobin });
+  sh(process.platform === "win32" ? "go.exe" : "go", ["install", `${spec.module}@${spec.version}`], undefined, { env: { ...process.env, GOOS: plat.goos, GOARCH: plat.goarch, GOBIN: gobin } });
   const binName = basename(spec.entry_relative);
   const built = join(gobin, binName);
   if (!existsSync(built)) throw new Error(`go install produced no ${binName}`);
@@ -154,9 +154,11 @@ async function buildOne(spec, plat) {
 async function publishRollingRelease(files) {
   if (SKIP_UPLOAD) { console.log("SKIP_UPLOAD set; not publishing"); return; }
   if (!process.env.GITHUB_TOKEN && !process.env.GH_TOKEN) throw new Error("GITHUB_TOKEN required to publish bundles");
-  // Best-effort teardown of any prior rolling release + its tag.
-  sh("gh", ["release", "delete", RELEASE_TAG, "--repo", REPO, "--yes"], ROOT, { stdio: "ignore" }).catch(() => {});
-  sh("gh", ["api", "-X", "DELETE", `/repos/${REPO}/git/refs/tags/${RELEASE_TAG}`], ROOT, { stdio: "ignore" }).catch(() => {});
+  // Best-effort teardown of any prior rolling release + its tag. `sh` runs
+  // synchronously (execFileSync), so a missing release/tag must be swallowed
+  // via try/catch, not `.catch()` (which would never attach to the return value).
+  try { sh("gh", ["release", "delete", RELEASE_TAG, "--repo", REPO, "--yes"], ROOT, { stdio: "ignore" }); } catch {}
+  try { sh("gh", ["api", "-X", "DELETE", `/repos/${REPO}/git/refs/tags/${RELEASE_TAG}`], ROOT, { stdio: "ignore" }); } catch {}
   sh("gh", ["release", "create", RELEASE_TAG, "--repo", REPO, "--title", "LSP Bundles", "--notes", `Automated prebuilt LSP bundles @ ${new Date().toISOString()}`, ...files], ROOT);
   console.log(`published ${files.length} assets to rolling release ${RELEASE_TAG}`);
 }
