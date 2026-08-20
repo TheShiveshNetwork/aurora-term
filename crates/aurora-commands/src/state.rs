@@ -23,6 +23,7 @@ pub struct AppState {
     pub updates: Arc<Mutex<aurora_update::client::UpdateClient>>,
     pub lsp_manager: Arc<Mutex<LspManager>>,
     pub lsp_cache_dir: PathBuf,
+    pub api_base_url: String,
 }
 
 impl AppState {
@@ -53,10 +54,11 @@ impl AppState {
                 api_base_url.clone(),
             ))),
             updates: Arc::new(Mutex::new(aurora_update::client::UpdateClient::new(
-                api_base_url,
+                api_base_url.clone(),
             ))),
             lsp_manager: Arc::new(Mutex::new(lsp_manager)),
             lsp_cache_dir,
+            api_base_url,
         }
     }
 }

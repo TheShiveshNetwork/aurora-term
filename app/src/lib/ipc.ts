@@ -183,6 +183,7 @@ export type SyncAction = "keep_local" | "keep_cloud" | "merge";
 export interface AuthStatus {
   signed_in: boolean;
   email: string | null;
+  username?: string | null;
 }
 
 export type UpdateStatus = "available" | "up_to_date" | "disabled" | "failed";
@@ -200,8 +201,6 @@ export interface UpdateInfo {
 
 export const cloud = {
   authStatus: () => invoke<AuthStatus>("cloud_auth_status"),
-  signInPassword: (email: string, password: string) =>
-    invoke<AuthStatus>("cloud_sign_in_password", { email, password }),
   signInOAuth: (provider: string) =>
     invoke<AuthStatus>("cloud_sign_in_oauth", { provider }),
   signOut: () => invoke<void>("cloud_sign_out"),
@@ -209,6 +208,8 @@ export const cloud = {
   resolveConflict: (action: SyncAction, config: AppConfig, remoteVersion: string) =>
     invoke<SyncResult>("cloud_resolve_conflict", { action, config, remoteVersion }),
 };
+
+
 
 export const update = {
   check: () => invoke<UpdateInfo>("update_check"),

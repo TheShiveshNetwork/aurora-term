@@ -281,7 +281,9 @@ impl Default for AppConfig {
             },
             cloud: CloudConfig {
                 auto_sync: false,
-                api_base_url: String::new(),
+                api_base_url:
+                    "https://yybxsggbvuzjzlwlwbtv.supabase.co/functions/v1/aurora-api"
+                        .to_string(),
             },
             updates: UpdatesConfig {
                 enabled: true,

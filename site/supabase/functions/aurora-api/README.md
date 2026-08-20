@@ -11,10 +11,17 @@ function's public base URL. The Supabase service-role key and anon key live
 | Variable | Required | Purpose |
 |---|---|---|
 | `SUPABASE_URL` | yes | Supabase project URL |
-| `SUPABASE_SERVICE_ROLE_KEY` | yes | Service-role key (server only) |
-| `SUPABASE_ANON_KEY` | yes | Public key used to call Supabase Auth REST |
+| `SUPABASE_SECRET_KEY` | yes | **Secret** key (`sb_secret_…`) — server/admin only, bypasses RLS. Used for all PostgREST writes. |
+| `SUPABASE_PUBLISHABLE_KEY` | yes | **Publishable** key (`sb_publishable_…`) — public, RLS-gated. Used only to call Supabase Auth REST (the OAuth code exchange). |
 | `AURORA_GITHUB_REPO` | no | `owner/repo` used by `/v1/update/latest`. When empty the endpoint returns 404. |
 | `AURORA_GITHUB_TOKEN` | no | Personal access token to lift GitHub API rate limits. |
+
+> **Key model:** these are the new Supabase publishable/secret keys (legacy
+> `anon`/`service_role` are deprecated). The secret key is the `service_role`
+> equivalent and must never be exposed client-side. The publishable key is the
+> `anon` equivalent and is safe in the browser, but here it is only used
+> server-side for the GoTrue token endpoint. The `--no-verify-jwt` flag is
+> required because Edge Functions cannot JWT-verify the new keys.
 
 ## Deploy
 
@@ -23,6 +30,12 @@ supabase login
 supabase link --project-ref <ref>
 supabase db push            # applies site/supabase/migrations
 supabase secrets set AURORA_GITHUB_REPO=owner/repo
+supabase functions deploy aurora-api --no-verify-jwt
+
+# New key model (publishable + secret):
+supabase secrets set SUPABASE_URL=https://yybxsggbvuzjzlwlwbtv.supabase.co ^
+  SUPABASE_SECRET_KEY=<sb_secret_… from dashboard> ^
+  SUPABASE_PUBLISHABLE_KEY=<sb_publishable_… from dashboard>
 supabase functions deploy aurora-api --no-verify-jwt
 ```
 
@@ -40,7 +53,7 @@ loopback server on a random port.
 | Method | Path | Auth | Body / Notes |
 |---|---|---|---|
 | `POST` | `/v1/auth/password` | — | `{ email, password }` → `{ token, email }` |
-| `POST` | `/v1/auth/start-oauth` | — | `{ provider, redirect_uri, code_challenge, code_challenge_method }` → `{ authorizeUrl }` |
+| `POST` | `/v1/auth/start-oauth` | — | `{ provider, redirect_uri, code_challenge, code_challenge_method, state }` → `{ authorizeUrl }` |
 | `POST` | `/v1/auth/oauth-exchange` | — | `{ code, code_verifier, redirect_uri }` → `{ token, email }` |
 | `POST` | `/v1/auth/logout` | Bearer | revokes the session |
 | `GET` | `/v1/auth/me` | Bearer | `{ email }` |
