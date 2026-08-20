@@ -43,20 +43,50 @@ export const REGISTRY = [
   { id: "graphql", version: "6.2.0", eco: "npm", package: "graphql-language-service-cli", bin: "graphql-lsp", entry_relative: "node_modules/graphql-language-service-cli/bin/graphql.js", args: ["server", "--method", "stream"] },
 
   // ---- github (native) ----
+  //
+  // Upstream releases use wildly inconsistent asset naming (e.g. `win32-x64`
+  // vs `x86_64-pc-windows-msvc`, `mac` vs `darwin`, `windows-x86_64` vs
+  // `x86_64-pc-windows-msvc`), so each language declares an explicit per-platform
+  // `assets` map keyed by platform key. The map value is an asset-name template
+  // that may contain `{version}` (substituted from the resolved release tag).
+  // When `assets` is absent the legacy `asset` pattern (with `{target}` etc.) is
+  // used, preserving the old behaviour for repos like rust-analyzer.
   { id: "rust", version: "2026.08.11", eco: "github", repo: "rust-lang/rust-analyzer", asset: "rust-analyzer-{target}", entry_relative: "rust-analyzer", args: [] },
-  { id: "c", version: "19.0.0", eco: "github", repo: "clangd/clangd", asset: "clangd-{target}.zip", entry_relative: "clangd", args: [] },
-  { id: "cpp", version: "19.0.0", eco: "github", repo: "clangd/clangd", asset: "clangd-{target}.zip", entry_relative: "clangd", args: [] },
+  { id: "c", version: "19.0.0", eco: "github", repo: "clangd/clangd", asset: "clangd-{target}.zip",
+    assets: { "win-x64": "clangd-windows-{version}.zip", "linux-x64": "clangd-linux-{version}.zip", "darwin-x64": "clangd-mac-{version}.zip", "darwin-arm64": "clangd-mac-{version}.zip" },
+    entry_relative: "clangd", args: [] },
+  { id: "cpp", version: "19.0.0", eco: "github", repo: "clangd/clangd", asset: "clangd-{target}.zip",
+    assets: { "win-x64": "clangd-windows-{version}.zip", "linux-x64": "clangd-linux-{version}.zip", "darwin-x64": "clangd-mac-{version}.zip", "darwin-arm64": "clangd-mac-{version}.zip" },
+    entry_relative: "clangd", args: [] },
   { id: "java", version: "1.41.0", eco: "github", repo: "eclipse-jdtls/eclipse.jdt.ls", asset: "jdt-language-server-{version}.tar.gz", entry_relative: "bin/jdtls", args: [] },
-  { id: "csharp", version: "1.40.0", eco: "github", repo: "OmniSharp/omnisharp-roslyn", asset: "omnisharp-{target}.zip", entry_relative: "OmniSharp", args: ["-lsp"] },
-  { id: "markdown", version: "0.10.0", eco: "github", repo: "artempyanykh/marksman", asset: "marksman-{os}", entry_relative: "marksman", args: ["server"] },
-  { id: "lua", version: "3.13.0", eco: "github", repo: "LuaLS/lua-language-server", asset: "lua-language-server-{version}-{target}.tar.gz", entry_relative: "bin/lua-language-server", args: [] },
-  { id: "kotlin", version: "1.3.13", eco: "github", repo: "fwcd/kotlin-language-server", asset: "server.zip", entry_relative: "bin/kotlin-language-server", args: [] },
-  { id: "toml", version: "0.9.3", eco: "github", repo: "tamasfe/taplo", asset: "taplo-{target}.gz", entry_relative: "taplo", args: ["lsp", "stdio"] },
-  { id: "zig", version: "0.14.0", eco: "github", repo: "zigtools/zls", asset: "zls-{target}", entry_relative: "zls", args: [] },
+  { id: "csharp", version: "1.40.0", eco: "github", repo: "OmniSharp/omnisharp-roslyn", asset: "omnisharp-{target}.zip",
+    assets: { "win-x64": "omnisharp-win-x64-net6.0.zip", "linux-x64": "omnisharp-linux-x64-net6.0.zip", "darwin-x64": "omnisharp-osx-x64-net6.0.zip", "darwin-arm64": "omnisharp-osx-arm64-net6.0.zip" },
+    entry_relative: "OmniSharp", args: ["-lsp"] },
+  { id: "markdown", version: "0.10.0", eco: "github", repo: "artempyanykh/marksman", asset: "marksman-{os}",
+    assets: { "win-x64": "marksman.exe", "linux-x64": "marksman-linux-x64", "darwin-x64": "marksman-macos", "darwin-arm64": "marksman-macos" },
+    entry_relative: "marksman", args: ["server"] },
+  { id: "lua", version: "3.13.0", eco: "github", repo: "LuaLS/lua-language-server", asset: "lua-language-server-{version}-{target}.tar.gz",
+    assets: { "win-x64": "lua-language-server-{version}-win32-x64.zip", "linux-x64": "lua-language-server-{version}-linux-x64.tar.gz", "darwin-x64": "lua-language-server-{version}-darwin-x64.tar.gz", "darwin-arm64": "lua-language-server-{version}-darwin-arm64.tar.gz" },
+    entry_relative: "bin/lua-language-server", args: [] },
+  { id: "kotlin", version: "1.3.13", eco: "github", repo: "fwcd/kotlin-language-server", asset: "server.zip",
+    assets: { "win-x64": "server.zip", "linux-x64": "server.zip", "darwin-x64": "server.zip", "darwin-arm64": "server.zip" },
+    entry_relative: "bin/kotlin-language-server", args: [] },
+  { id: "toml", version: "0.9.3", eco: "github", repo: "tamasfe/taplo", asset: "taplo-{target}.gz",
+    assets: { "win-x64": "taplo-windows-x86_64.gz", "linux-x64": "taplo-linux-x86_64.gz", "darwin-x64": "taplo-darwin-x86_64.gz", "darwin-arm64": "taplo-darwin-aarch64.gz" },
+    entry_relative: "taplo", args: ["lsp", "stdio"] },
+  { id: "zig", version: "0.14.0", eco: "github", repo: "zigtools/zls", asset: "zls-{target}",
+    assets: { "win-x64": "zls-x86_64-windows.zip", "linux-x64": "zls-x86_64-linux.tar.xz", "darwin-x64": "zls-x86_64-macos.tar.xz", "darwin-arm64": "zls-aarch64-macos.tar.xz" },
+    entry_relative: "zls", args: [] },
   { id: "terraform", version: "0.36.0", eco: "github", repo: "hashicorp/terraform-ls", asset: "terraform-ls_{version}_{target}.zip", entry_relative: "terraform-ls", args: ["serve"] },
-  { id: "elixir", version: "0.24.0", eco: "github", repo: "elixir-lsp/elixir-ls", asset: "elixir-ls.zip", entry_relative: "language_server.sh", args: [] },
-  { id: "haskell", version: "2.10.0", eco: "github", repo: "haskell/haskell-language-server", asset: "haskell-language-server-{target}.tar.gz", entry_relative: "haskell-language-server-wrapper", args: ["--lsp"] },
-  { id: "clojure", version: "2025.07.0", eco: "github", repo: "clojure-lsp/clojure-lsp", asset: "clojure-lsp-native-{target}.zip", entry_relative: "clojure-lsp", args: [] },
+  { id: "elixir", version: "0.24.0", eco: "github", repo: "elixir-lsp/elixir-ls", asset: "elixir-ls.zip",
+    assets: { "win-x64": "elixir-ls-v{version}.zip", "linux-x64": "elixir-ls-v{version}.zip", "darwin-x64": "elixir-ls-v{version}.zip", "darwin-arm64": "elixir-ls-v{version}.zip" },
+    entry_relative: "language_server.sh", args: [] },
+  { id: "haskell", version: "2.10.0", eco: "github", repo: "haskell/haskell-language-server", asset: "haskell-language-server-{target}.tar.gz",
+    assets: { "win-x64": "haskell-language-server-{version}-x86_64-mingw64.zip", "linux-x64": "haskell-language-server-{version}-x86_64-linux-unknown.tar.xz", "darwin-x64": "haskell-language-server-{version}-x86_64-apple-darwin.tar.xz", "darwin-arm64": "haskell-language-server-{version}-aarch64-apple-darwin.tar.xz" },
+    entry_relative: "haskell-language-server-wrapper", args: ["--lsp"] },
+  { id: "clojure", version: "2025.07.0", eco: "github", repo: "clojure-lsp/clojure-lsp", asset: "clojure-lsp-native-{target}.zip",
+    assets: { "win-x64": "clojure-lsp-native-windows-amd64.zip", "linux-x64": "clojure-lsp-native-linux-amd64.zip", "darwin-x64": "clojure-lsp-native-macos-amd64.zip", "darwin-arm64": "clojure-lsp-native-macos-aarch64.zip" },
+    entry_relative: "clojure-lsp", args: [] },
   { id: "nix", version: "2024.12.0", eco: "github", repo: "oxalica/nil", asset: "nil-{target}", entry_relative: "nil", args: [] },
 
   // ---- go (native) ----

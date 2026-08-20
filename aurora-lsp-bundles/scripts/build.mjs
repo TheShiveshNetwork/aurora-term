@@ -59,6 +59,14 @@ function repackage(assetPath, work) {
   if (lower.endsWith(".tar.gz") || lower.endsWith(".tgz") || lower.endsWith(".tar")) {
     return { path: assetPath, ext: "tar.gz" };
   }
+  // xz/bz2 tarballs: extract then re-gzip into a uniform `.tar.gz` bundle.
+  if (lower.endsWith(".tar.xz") || lower.endsWith(".txz") || lower.endsWith(".tar.bz2")) {
+    const ex = mkdtempSync(join(work, "extract-"));
+    sh("tar", ["-xf", assetPath, "-C", ex]);
+    const out = join(work, "bundle.tar.gz");
+    sh("tar", ["-czf", out, "-C", ex, "."]);
+    return { path: out, ext: "tar.gz" };
+  }
   if (lower.endsWith(".zip")) {
     return { path: assetPath, ext: "zip" };
   }
@@ -68,14 +76,31 @@ function repackage(assetPath, work) {
   return { path: out, ext: "tar.gz" };
 }
 
-async function latestReleaseAsset(repo, pattern, version, plat, work) {
+async function fetchLatestRelease(repo) {
+  // Prefer the `latest` release. Some repos (e.g. eclipse-jdtls) mark every
+  // release as a prerelease, so `/releases/latest` 404s; fall back to listing
+  // releases and pick the newest one that actually carries downloadable assets.
+  // GitHub requires a User-Agent header even for unauthenticated requests.
+  const headers = { Accept: "application/vnd.github+json", "User-Agent": "aurora-lsp-bundles" };
+  if (process.env.GITHUB_TOKEN) headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
+  const rel = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, { headers });
+  if (rel.ok) return await rel.json();
+  const list = await fetch(`https://api.github.com/repos/${repo}/releases?per_page=20`, { headers });
+  if (!list.ok) throw new Error(`github releases for ${repo}: ${list.status}`);
+  const rels = await list.json();
+  const withAssets = (rels || []).filter((r) => (r.assets || []).length > 0);
+  const pick = withAssets[0];
+  if (!pick) throw new Error(`no release with assets in ${repo}`);
+  return pick;
+}
+
+async function latestReleaseAsset(spec, plat, work) {
   // Use the upstream's actual latest release tag, not a hardcoded guess.
-  const rel = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, {
-    headers: { Authorization: `Bearer ${process.env.GITHUB_TOKEN}`, Accept: "application/vnd.github+json" },
-  });
-  if (!rel.ok) throw new Error(`github latest release for ${repo}: ${rel.status}`);
-  const json = await rel.json();
+  const json = await fetchLatestRelease(spec.repo);
   const tag = String(json.tag_name || "").replace(/^v/, "");
+  // Per-platform explicit asset name wins; otherwise fall back to the legacy
+  // `asset` pattern (with `{target}`/`{os}`/`{arch}` substitution).
+  const pattern = spec.assets?.[plat.key] || spec.asset;
   const want = substitute(pattern, plat, tag);
   const assets = json.assets || [];
   // Normalize by stripping archive extensions so patterns that omit them
@@ -85,10 +110,12 @@ async function latestReleaseAsset(repo, pattern, version, plat, work) {
   const wantNorm = norm(want);
   const name = assets.find((a) => norm(a.name) === wantNorm)?.name
     || assets.find((a) => a.name.toLowerCase().includes(wantNorm))?.name;
-  if (!name) throw new Error(`no asset '${want}' in ${repo}@${tag}; have: ${assets.map((a) => a.name).join(", ")}`);
+  if (!name) throw new Error(`no asset '${want}' in ${spec.repo}@${tag}; have: ${assets.map((a) => a.name).join(", ")}`);
   const a = assets.find((x) => x.name === name);
   const dl = join(work, name);
-  const r2 = await fetch(a.browser_download_url, { headers: { Authorization: `Bearer ${process.env.GITHUB_TOKEN}` } });
+  const dlHeaders = { "User-Agent": "aurora-lsp-bundles" };
+  if (process.env.GITHUB_TOKEN) dlHeaders.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
+  const r2 = await fetch(a.browser_download_url, { headers: dlHeaders });
   if (!r2.ok) throw new Error(`download ${a.browser_download_url} failed: ${r2.status}`);
   writeFileSync(dl, Buffer.from(await r2.arrayBuffer()));
   return { dl, version: tag };
@@ -112,7 +139,7 @@ async function buildNpm(spec, plat, work) {
 }
 
 async function buildGithub(spec, plat, work) {
-  const { dl, version } = await latestReleaseAsset(spec.repo, spec.asset, spec.version, plat, work);
+  const { dl, version } = await latestReleaseAsset(spec, plat, work);
   const { path, ext } = repackage(dl, work);
   return { bundle: path, ext, entry_relative: spec.entry_relative, kind: "native", version };
 }
@@ -200,7 +227,10 @@ async function main() {
   mkdirSync(DIST, { recursive: true });
   const manifest = {};
   const toUpload = [];
-  for (const spec of REGISTRY) {
+  // Optional subset filter (comma-separated ids) for debugging / partial CI runs.
+  const only = process.env.LSP_ONLY ? new Set(process.env.LSP_ONLY.split(",").filter(Boolean)) : null;
+  const registry = only ? REGISTRY.filter((s) => only.has(s.id)) : REGISTRY;
+  for (const spec of registry) {
     if (HOST_TOOLCHAIN.includes(spec.id)) continue; // resolved from PATH at runtime
     const platforms = {};
     let langVersion, langKind, langEntry;
