@@ -92,7 +92,13 @@ async function fetchLatestRelease(repo) {
 async function latestReleaseAsset(spec, plat, work) {
   // Use the upstream's actual latest release tag, not a hardcoded guess.
   const json = await fetchLatestRelease(spec.repo);
-  const tag = String(json.tag_name || "").replace(/^v/, "");
+  // Some upstreams prefix the release tag with the project name
+  // (e.g. `clangd-19.0.0`, `haskell-language-server-2.9.0.0`). Strip that prefix
+  // so `{version}` substitution yields the bare version used in asset filenames.
+  const project = (spec.repo.split("/")[1] || "").toLowerCase();
+  const stripTagPrefix = (t) =>
+    project && t.toLowerCase().startsWith(`${project}-`) ? t.slice(project.length + 1) : t;
+  const tag = stripTagPrefix(String(json.tag_name || "").replace(/^v/, ""));
   const pattern = spec.assets?.[plat.key] || spec.asset;
   const want = substitute(pattern, plat, tag);
   const assets = json.assets || [];
@@ -101,8 +107,22 @@ async function latestReleaseAsset(spec, plat, work) {
   // precisely, instead of grabbing a wrong-platform asset via substring match.
   const norm = (s) => s.toLowerCase().replace(/\.(tar\.gz|tgz|tar|zip|gz)$/, "");
   const wantNorm = norm(want);
+  // When no exact normalized match exists, fall back to a substring match but
+  // reject assets that clearly belong to a different platform (so a shared
+  // prefix like `terraform-ls_0.39.0` doesn't grab the linux build on windows).
+  const FOREIGN_HINTS = {
+    "win-x64": ["linux", "macos", "mac", "darwin"],
+    "linux-x64": ["windows", "win", "macos", "mac", "darwin"],
+    "darwin-x64": ["windows", "win", "linux"],
+    "darwin-arm64": ["windows", "win", "linux"],
+  };
   const name = assets.find((a) => norm(a.name) === wantNorm)?.name
-    || assets.find((a) => a.name.toLowerCase().includes(wantNorm))?.name;
+    || assets.find((a) => {
+         const n = a.name.toLowerCase();
+         if (!n.includes(wantNorm)) return false;
+         const foreign = (FOREIGN_HINTS[plat.key] || []).some((h) => n.includes(h));
+         return !foreign;
+       })?.name;
   if (!name) throw new Error(`no asset '${want}' in ${spec.repo}@${tag}; have: ${assets.map((a) => a.name).join(", ")}`);
   const a = assets.find((x) => x.name === name);
   const dl = join(work, name);

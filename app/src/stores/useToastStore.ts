@@ -25,6 +25,7 @@ interface NotificationStore {
   notifications: NotificationItem[];
   addNotification: (message: unknown, type?: NotificationItem["type"], duration?: number) => string;
   addLoadingNotification: (opts: { title: string; message: string }) => string;
+  updateNotification: (id: string, patch: Partial<NotificationItem>) => void;
   removeNotification: (id: string) => void;
 }
 
@@ -117,6 +118,22 @@ export const useNotificationStore = create<NotificationStore>((set) => ({
   },
   removeNotification: (id) => {
     set((s) => ({ notifications: s.notifications.filter((n) => n.id !== id) }));
+  },
+  updateNotification: (id, patch) => {
+    set((s) => ({
+      notifications: s.notifications.map((n) => (n.id === id ? { ...n, ...patch } : n)),
+    }));
+    // A morphed-in-place success toast still needs to auto-dismiss after its
+    // duration (the auto-dismiss timer only runs for freshly `addNotification`
+    // toasts). Errors stay until the user dismisses them.
+    if (patch.type === "success") {
+      const duration = patch.duration;
+      if (duration != null && duration > 0) {
+        setTimeout(() => {
+          useNotificationStore.getState().removeNotification(id);
+        }, duration);
+      }
+    }
   },
   addLoadingNotification: ({ title, message }) => {
     const id = uuidv4();
