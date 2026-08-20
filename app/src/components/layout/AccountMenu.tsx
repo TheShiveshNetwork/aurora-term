@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Cloud, CloudDownload, CloudUpload, ExternalLink, Github, LogIn, LogOut,
+  Cloud, CloudDownload, CloudUpload, ExternalLink, Github, LogOut,
   RefreshCw, Shield, ShieldCheck, Sparkles, User, X,
 } from "lucide-react";
 import { MenuView, MenuViewItem, MenuViewSeparator } from "../ui/MenuView";
@@ -8,33 +8,44 @@ import { Button } from "../ui/Button";
 import { useSettingsStore } from "../../stores/useSettingsStore";
 import { useUpdateChecker } from "../../hooks/useUpdateChecker";
 import { applyAppConfig } from "../../hooks/useAppBootstrap";
-import { cloud, config, SyncAction, SyncResult, AuthStatus } from "../../lib/ipc";
+import { config, SyncAction, SyncResult, AuthStatus } from "../../lib/ipc";
+import { cloud } from "../../lib/cloud";
 
 type SyncView = "idle" | "syncing" | "conflict";
+
+// Safe display string: never exceed 24 chars; append "..." when truncated.
+function truncateName(name: string | null | undefined): string {
+  const safe = name ?? "";
+  if (safe.length > 24) return safe.slice(0, 24) + "...";
+  return safe;
+}
 
 export function AccountMenu() {
   const [open, setOpen] = useState(false);
   const [auth, setAuth] = useState<AuthStatus | null>(null);
-  const [showPasswordForm, setShowPasswordForm] = useState(false);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
   const [syncView, setSyncView] = useState<SyncView>("idle");
   const [error, setError] = useState<string | null>(null);
   const hasCheckedAuth = useRef(false);
 
-  const cloudApiBaseUrl = useSettingsStore((s) => s.cloudApiBaseUrl);
   const cloudAutoSync = useSettingsStore((s) => s.cloudAutoSync);
   const updatesEnabled = useSettingsStore((s) => s.updatesEnabled);
   const updatesIntervalHours = useSettingsStore((s) => s.updatesIntervalHours);
   const updateState = useUpdateChecker(updatesEnabled, updatesIntervalHours);
 
+  const refreshAuth = useCallback(() => {
+    cloud.authStatus().then(setAuth).catch(() => {});
+  }, []);
+
   useEffect(() => {
     if (hasCheckedAuth.current) return;
     hasCheckedAuth.current = true;
-    cloud.authStatus().then(setAuth).catch(() => {});
-  }, []);
+    refreshAuth();
+  }, [refreshAuth]);
+
+  // Re-check auth whenever the deep-link handoff (or sign-out) fires.
+  useEffect(() => cloud.onAuthChange(refreshAuth), [refreshAuth]);
 
   // Automatic first sync when enabled and signed in.
   useEffect(() => {
@@ -96,28 +107,11 @@ export function AccountMenu() {
     }
   };
 
-  const signInPassword = async () => {
-    if (!email.trim() || !password) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const status = await cloud.signInPassword(email.trim(), password);
-      setAuth(status);
-      setPassword("");
-      setShowPasswordForm(false);
-      void doSync();
-    } catch (e: any) {
-      setError(String(e?.message ?? e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const signOut = async () => {
     setBusy(true);
     try {
       await cloud.signOut();
-      setAuth({ signed_in: false, email: null });
+      setAuth({ signed_in: false, email: null, username: null });
       setSyncResult(null);
       setSyncView("idle");
     } catch (e: any) {
@@ -127,7 +121,6 @@ export function AccountMenu() {
     }
   };
 
-  const cloudConfigured = !!cloudApiBaseUrl;
   const signedIn = !!auth?.signed_in;
 
   const statusLabel = syncResult
@@ -176,10 +169,10 @@ export function AccountMenu() {
             </div>
             <div className="min-w-0">
               <div className="text-[13px] font-semibold truncate" style={{ color: "#E8EAF0" }}>
-                {signedIn ? auth?.email ?? "Signed in" : "Cloud Sync"}
+                {signedIn ? truncateName(auth?.username ?? auth?.email) : "Cloud Sync"}
               </div>
               <div className="text-[11px]" style={{ color: "rgba(232,234,240,0.35)" }}>
-                {signedIn ? "Syncing aurora.json" : cloudConfigured ? "Sign in to sync settings" : "Set API base URL in Settings"}
+                {signedIn ? "Syncing aurora.json" : "Sign in to sync settings"}
               </div>
             </div>
           </div>
@@ -191,7 +184,7 @@ export function AccountMenu() {
           </div>
         )}
 
-        {!signedIn && cloudConfigured && (
+        {!signedIn && (
           <>
             <MenuViewSeparator />
             <div className="px-2 py-1 space-y-1">
@@ -201,37 +194,6 @@ export function AccountMenu() {
               <Button variant="secondary" size="md" className="w-full" disabled={busy} onClick={() => signInOAuth("google")}>
                 <Sparkles size={13} /> Continue with Google
               </Button>
-              <button
-                className="w-full text-center text-[11px] pt-1 transition-colors cursor-pointer"
-                style={{ color: "rgba(79,140,255,0.8)" }}
-                onClick={() => setShowPasswordForm((v) => !v)}
-              >
-                {showPasswordForm ? "Hide email sign-in" : "Sign in with email"}
-              </button>
-              {showPasswordForm && (
-                <div className="space-y-1.5 pt-1">
-                  <input
-                    type="email"
-                    placeholder="Email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="w-full px-2.5 py-1.5 text-[12px] rounded-md outline-none"
-                    style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#E8EAF0" }}
-                  />
-                  <input
-                    type="password"
-                    placeholder="Password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter") signInPassword(); }}
-                    className="w-full px-2.5 py-1.5 text-[12px] rounded-md outline-none"
-                    style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#E8EAF0" }}
-                  />
-                  <Button variant="primary" size="sm" className="w-full" disabled={busy || !email.trim() || !password} onClick={signInPassword}>
-                    <LogIn size={12} /> Sign in
-                  </Button>
-                </div>
-              )}
             </div>
           </>
         )}
@@ -268,7 +230,7 @@ export function AccountMenu() {
               </div>
             </div>
           ) : (
-            <Button variant="secondary" size="md" className="w-full" disabled={busy || !signedIn || !cloudConfigured || syncView === "syncing"} onClick={doSync}>
+            <Button variant="secondary" size="md" className="w-full" disabled={busy || !signedIn || syncView === "syncing"} onClick={doSync}>
               {syncView === "syncing" ? (
                 <><RefreshCw size={13} className="animate-spin" /> Syncing…</>
               ) : (

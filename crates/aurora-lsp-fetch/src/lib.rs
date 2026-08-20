@@ -165,6 +165,37 @@ fn manifest_url() -> String {
     })
 }
 
+/// Ask the Supabase-cached backend for the latest LSP bundle's manifest URL.
+/// Returns `None` if the backend is unreachable or has no LSP release cached
+/// yet (so the caller falls back to the direct GitHub URL).
+async fn fetch_lsp_manifest_url(api_base_url: &str) -> Result<Option<String>, AppError> {
+    let url = format!(
+        "{}/v1/update/lsp",
+        api_base_url.trim_end_matches('/')
+    );
+    let client = reqwest_client()?;
+    let resp = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| reqwest_network_err("lsp update check failed", &e))?;
+    if !resp.status().is_success() {
+        return Ok(None);
+    }
+    let body = resp
+        .text()
+        .await
+        .map_err(|e| AppError::Lsp(format!("lsp update check read failed: {e}")))?;
+    #[derive(serde::Deserialize)]
+    struct LspUpdate {
+        download_url: Option<String>,
+        url: Option<String>,
+    }
+    let parsed: LspUpdate = serde_json::from_str(&body)
+        .map_err(|e| AppError::Lsp(format!("lsp update check parse failed: {e}")))?;
+    Ok(parsed.download_url.or(parsed.url))
+}
+
 fn reqwest_client() -> Result<reqwest::Client, AppError> {
     reqwest::Client::builder()
         .user_agent("aurora-term")
@@ -234,14 +265,29 @@ fn write_installed_meta(target_dir: &Path, meta: &InstalledMeta) -> Result<(), A
 /// Fetch the manifest, reusing the locally cached copy when the remote has not
 /// changed (HTTP 304 via `If-None-Match`). The cache is `cache_dir/manifest.json`
 /// plus `cache_dir/manifest.etag`.
-pub async fn get_manifest(cache_dir: &Path) -> Result<Manifest, AppError> {
+pub async fn get_manifest(
+    cache_dir: &Path,
+    api_base_url: &str,
+) -> Result<Manifest, AppError> {
     std::fs::create_dir_all(cache_dir)
         .map_err(|e| AppError::Lsp(format!("failed to create cache dir: {}", e)))?;
     let manifest_path = cache_dir.join("manifest.json");
     let etag_path = cache_dir.join("manifest.etag");
 
+    // Prefer the Supabase-cached LSP bundle discovery; fall back to the
+    // hardcoded/env manifest URL if the backend is unreachable or has no
+    // LSP release cached yet.
+    let manifest_src = if !api_base_url.is_empty() {
+        match fetch_lsp_manifest_url(api_base_url).await {
+            Ok(Some(u)) => u,
+            _ => manifest_url(),
+        }
+    } else {
+        manifest_url()
+    };
+
     let client = reqwest_client()?;
-    let mut req = client.get(manifest_url());
+    let mut req = client.get(&manifest_src);
     if let Ok(etag) = std::fs::read_to_string(&etag_path) {
         let etag = etag.trim();
         if !etag.is_empty() {
@@ -265,7 +311,7 @@ pub async fn get_manifest(cache_dir: &Path) -> Result<Manifest, AppError> {
         return Err(AppError::Lsp(format!(
             "manifest returned {} from {}",
             resp.status(),
-            manifest_url()
+            manifest_src
         )));
     }
 
@@ -299,6 +345,7 @@ pub async fn get_manifest(cache_dir: &Path) -> Result<Manifest, AppError> {
 pub async fn ensure_installed(
     language_id: &str,
     cache_dir: &Path,
+    api_base_url: &str,
 ) -> Result<ResolvedServer, AppError> {
     // 1. Host-toolchain languages: resolve directly from PATH (no download).
     if let Some((_, bin)) = HOST_TOOLCHAIN.iter().find(|(l, _)| *l == language_id) {
@@ -319,7 +366,7 @@ pub async fn ensure_installed(
     }
 
     // 3. Not installed yet: fetch manifest (network) and download/verify/extract.
-    let manifest = get_manifest(cache_dir).await?;
+    let manifest = get_manifest(cache_dir, api_base_url).await?;
     let entry = manifest.get(language_id).ok_or_else(|| {
         AppError::Lsp(format!("no prebuilt bundle registered for '{}'", language_id))
     })?;

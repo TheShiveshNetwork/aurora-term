@@ -19,7 +19,7 @@ pub async fn lsp_ensure_and_start(
     root: String,
     file_path: String,
 ) -> Result<String, String> {
-    let resolved = ensure_installed(&language_id, &state.lsp_cache_dir)
+    let resolved = ensure_installed(&language_id, &state.lsp_cache_dir, &state.api_base_url)
         .await
         .map_err(|e| e.to_string())?;
 

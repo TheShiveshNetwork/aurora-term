@@ -5,6 +5,7 @@ use aurora_pty::{PtyManager, PtyEvent};
 use aurora_db::HistoryDb;
 use aurora_lsp::{LspIncoming, LspManager};
 use tauri::{Manager, Emitter};
+use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_prevent_default::Flags;
 
 fn start_pty_event_bridge(
@@ -84,6 +85,7 @@ pub fn run() {
         .plugin(tauri_plugin_window_state::Builder::default()
             .with_denylist(&["settings"])
             .build())
+        .plugin(tauri_plugin_deep_link::init())
         .setup(|app| {
             // Resolve platform-specific config directory (single source of truth for persistence)
             let config_dir = app.path()
@@ -136,6 +138,18 @@ pub fn run() {
                 lsp_cache_dir,
             );
             app.manage(app_state);
+
+            // Register the deep-link scheme the web companion uses to hand off
+            // a Supabase session after GitHub sign-in. Until this runs at least
+            // once (i.e. the desktop app has launched), the OS/browser has no
+            // handler for `aurora://` and web handoffs fail.
+            #[cfg(desktop)]
+            {
+                match app.deep_link().register("aurora") {
+                    Ok(()) => tracing::info!("Registered aurora:// deep-link scheme"),
+                    Err(e) => tracing::error!("Failed to register aurora:// deep link: {}", e),
+                }
+            }
 
             // Idle sweep needs a reference to the managed state.
             aurora_commands::start_lsp_idle_sweep(app.handle());

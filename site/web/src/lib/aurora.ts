@@ -1,61 +1,83 @@
-// Aurora web → desktop auth handoff helpers.
-// The web never holds Supabase keys; it only talks to the aurora-api edge
-// function, which mints the opaque session token the desktop app stores.
+// Web → desktop auth handoff helpers.
+//
+// The web app authenticates the user with Supabase directly, then hands the
+// resulting session tokens to the desktop app via a deep link
+// (`aurora://auth/callback#access_token=...&refresh_token=...`). The desktop
+// imports them with `supabase.auth.setSession` and syncs settings under RLS.
 
-export const AURORA_API_URL =
-  (import.meta.env.VITE_AURORA_API_URL as string | undefined)?.replace(/\/+$/, "") ??
-  "http://127.0.0.1:54321/functions/v1/aurora-api";
+import { supabase } from "./supabaseClient";
+import type { Session } from "@supabase/supabase-js";
 
 const DEEP_LINK = "aurora://auth/callback";
 
-function b64url(bytes: Uint8Array): string {
-  let bin = "";
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+// Supabase may return the auth response either in the query string (PKCE
+// authorization-code flow) or in the URL hash (implicit/token flow), depending
+// on project/provider configuration. Read both.
+function urlParams(): URLSearchParams {
+  const merged = new URLSearchParams(location.search);
+  const hash = new URLSearchParams(location.hash.replace(/^#/, ""));
+  for (const [k, v] of hash.entries()) {
+    if (!merged.has(k)) merged.set(k, v);
+  }
+  return merged;
 }
 
-export function randomVerifier(): string {
-  const bytes = new Uint8Array(32);
-  crypto.getRandomValues(bytes);
-  return b64url(bytes);
-}
-
-export async function codeChallenge(verifier: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
-  return b64url(new Uint8Array(digest));
+// The desktop passes its deep-link scheme through `?scheme=` (or `#scheme=`)
+// so the handoff targets the right app (defaults to the canonical aurora://).
+export function getScheme(): string {
+  const scheme = urlParams().get("scheme");
+  return scheme ?? DEEP_LINK;
 }
 
 export async function startOAuth(provider: "google" | "github"): Promise<string> {
-  const verifier = randomVerifier();
-  const challenge = await codeChallenge(verifier);
-  sessionStorage.setItem("aurora_oauth_verifier", verifier);
-
-  const redirectUri = `${location.origin}/auth/callback`;
-  const res = await fetch(`${AURORA_API_URL}/v1/auth/start-oauth`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ provider, redirect_uri: redirectUri, code_challenge: challenge }),
+  const scheme = getScheme();
+  const redirectTo = `${location.origin}/auth/callback?scheme=${encodeURIComponent(scheme)}`;
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider,
+    options: { redirectTo },
   });
-  if (!res.ok) throw new Error("Failed to start sign-in");
-  const data = await res.json();
-  return data.authorizeUrl as string;
+  if (error) throw new Error(error.message);
+  if (!data.url) throw new Error("No authorize URL returned");
+  return data.url;
 }
 
-export async function exchangeOAuth(code: string): Promise<string> {
-  const verifier = sessionStorage.getItem("aurora_oauth_verifier") ?? "";
-  const redirectUri = `${location.origin}/auth/callback`;
-  const res = await fetch(`${AURORA_API_URL}/v1/auth/oauth-exchange`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ code, code_verifier: verifier, redirect_uri: redirectUri }),
-  });
-  if (!res.ok) throw new Error("Sign-in exchange failed");
-  const data = await res.json();
-  return data.token as string;
+export async function handleCallback(): Promise<Session | null> {
+  const params = urlParams();
+  const error = params.get("error");
+  if (error) throw new Error(params.get("error_description") ?? error);
+
+  // PKCE authorization-code flow: a `code` in the URL, exchanged for a session.
+  const code = params.get("code");
+  if (code) {
+    const { data, error: exchErr } = await supabase.auth.exchangeCodeForSession(code);
+    if (exchErr) throw new Error(exchErr.message);
+    return data.session;
+  }
+
+  // Implicit/token flow: access + refresh tokens directly in the URL.
+  const accessToken = params.get("access_token");
+  const refreshToken = params.get("refresh_token");
+  if (accessToken && refreshToken) {
+    const { data, error: sessErr } = await supabase.auth.setSession({
+      access_token: accessToken,
+      refresh_token: refreshToken,
+    });
+    if (sessErr) throw new Error(sessErr.message);
+    return data.session;
+  }
+
+  throw new Error("Missing authorization code");
 }
 
-export function handoffToApp(token: string): void {
-  const scheme = new URLSearchParams(location.search).get("scheme") ?? DEEP_LINK;
+export function handoffToApp(session: {
+  access_token: string;
+  refresh_token: string;
+}): void {
+  const scheme = getScheme();
   const base = scheme.split("?")[0];
-  location.href = `${base}?token=${encodeURIComponent(token)}`;
+  const hash = new URLSearchParams({
+    access_token: session.access_token,
+    refresh_token: session.refresh_token,
+  }).toString();
+  location.href = `${base}#${hash}`;
 }
