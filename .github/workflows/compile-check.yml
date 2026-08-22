@@ -5,6 +5,18 @@ on:
     branches: [main]
   push:
     branches: [main]
+  paths-ignore:
+      - '**.md'
+      - 'adr/**'
+      - '.*'
+      - '.*/**'
+      - '**/.*'
+      - '**/.*/**'
+      - 'aurora-lsp-bundles'
+      - 'site/'
+      - 'static/'
+      - 'supabase/'
+      - '.gitignore'
   workflow_dispatch:
 
 concurrency:
@@ -79,6 +91,9 @@ jobs:
 
       - name: install frontend dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: TypeScript typecheck
+        run: pnpm typecheck
 
       - name: cargo check
         run: cargo check --workspace --all-targets
