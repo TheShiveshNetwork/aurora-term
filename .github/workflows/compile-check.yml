@@ -3,21 +3,29 @@ name: 'quick compile check'
 on:
   pull_request:
     branches: [main]
-  push:
-    branches: [main]
-  paths-ignore:
-      - '**.md'
-      - 'adr/**'
-      - '.*'
-      - '.*/**'
-      - '**/.*'
-      - '**/.*/**'
-      - 'aurora-lsp-bundles'
-      - 'site/'
-      - 'static/'
-      - 'supabase/'
-      - '.gitignore'
+    paths-ignore:
+        - '**.md'
+        - 'adr/**'
+        - '.*'
+        - '.*/**'
+        - '**/.*'
+        - '**/.*/**'
+        - 'aurora-lsp-bundles'
+        - 'site/'
+        - 'static/'
+        - 'supabase/'
+        - '.gitignore'
+        
   workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
 
 concurrency:
   group: ci-${{ github.ref }}
