@@ -17,7 +17,9 @@ import { Hono } from "npm:hono@4";
  *   GET /v1/update/latest -> { version, url, notes, publishedAt }  (app)
  *   GET /v1/update/lsp    -> { version, url, notes, publishedAt }  (lsp bundles)
  *   GET /v1/update/store  -> { version, packages:[{name,arch,url}], mirroredAt }
- *   POST /v1/update/store -> re-mirror latest release binaries into `aurora` bucket
+ *   GET /v1/update/lsp/store -> { version, packages:[{name,arch,url}], mirroredAt }
+ *   POST /v1/update/store -> re-mirror latest app release binaries into `aurora` bucket
+ *   POST /v1/update/lsp/store -> re-mirror latest LSP build binaries into `aurora` bucket
  *
  * Env: SUPABASE_URL, SUPABASE_SECRET_KEY, AURORA_GITHUB_REPO, AURORA_GITHUB_TOKEN
  */
@@ -129,13 +131,33 @@ function isLspTag(tag: string): boolean {
 
 const STORE_BUCKET = "aurora";
 const STORE_CACHE_KEY = "app_store";
+const LSP_STORE_CACHE_KEY = "lsp_store";
 
 type StorePackage = { name: string; arch: string; url: string };
 type StoreResult = {
   version: string;
   packages: StorePackage[];
   mirroredAt: string;
+  skipped?: string[];
 };
+
+// App (Microsoft Store) mirrors only installers.
+function isAppAsset(name: string): boolean {
+  return name.endsWith(".exe") || name.endsWith(".msi");
+}
+
+// LSP bundles: mirror the binary assets, skip GitHub's auto-generated source
+// archives, the manifest, and checksum/signature files.
+function isLspAsset(name: string): boolean {
+  const n = name.toLowerCase();
+  if (n === "manifest.json") return false;
+  if (n.startsWith("source code")) return false;
+  if (
+    n.endsWith(".sha256") || n.endsWith(".sha512") ||
+    n.endsWith(".sig") || n.endsWith(".asc")
+  ) return false;
+  return true;
+}
 
 function contentTypeFor(name: string): string {
   const n = name.toLowerCase();
@@ -211,38 +233,79 @@ async function uploadBinary(
   return `${SUPABASE_URL}/storage/v1/object/public/${STORE_BUCKET}/${path}`;
 }
 
-async function mirrorStore(version: string, assets: any[]): Promise<StoreResult> {
+// Downloads the matching release assets and re-hosts them in the `aurora`
+// bucket under a versioned, permanent path. `want` selects which assets to
+// mirror (app installers vs. LSP bundles).
+// Supabase Storage rejects objects above a plan-specific size. Read from env
+// (AURORA_MAX_ASSET_BYTES) so it can be raised per project; default 50 MiB.
+const MAX_ASSET_BYTES = (() => {
+  const v = Number(Deno.env.get("AURORA_MAX_ASSET_BYTES") ?? "");
+  return Number.isFinite(v) && v > 0 ? v : 50 * 1024 * 1024;
+})();
+
+async function mirrorPackages(
+  version: string,
+  assets: any[],
+  want: (name: string) => boolean,
+): Promise<StoreResult> {
   await ensureStoreBucket();
   const safeVersion = sanitizeSegment(version);
-  const binaries = (assets ?? []).filter((a) => {
-    const n = String(a.name ?? "").toLowerCase();
-    return n.endsWith(".exe") || n.endsWith(".msi");
-  });
+  const binaries = (assets ?? []).filter((a) => want(String(a.name ?? "").toLowerCase()));
   const packages: StorePackage[] = [];
+  const skipped: string[] = [];
   for (const a of binaries) {
-    const name = sanitizeSegment(String(a.name));
-    const dl = await fetch(String(a.browser_download_url), {
-      headers: GITHUB_TOKEN ? { Authorization: `Bearer ${GITHUB_TOKEN}` } : {},
-    });
-    if (!dl.ok) {
-      throw new Error(`download failed ${a.browser_download_url}: ${dl.status}`);
+    const name = String(a.name ?? "");
+    // Skip anything above the storage limit before wasting a download.
+    const size = Number(a.size ?? 0);
+    if (size > MAX_ASSET_BYTES) {
+      skipped.push(`${name} (${size} bytes)`);
+      console.warn(
+        `aurora-api: skipping ${name}, exceeds ${MAX_ASSET_BYTES}-byte limit`,
+      );
+      continue;
     }
-    const bytes = await dl.arrayBuffer();
-    const url = await uploadBinary(
-      `${safeVersion}/${name}`,
-      bytes,
-      contentTypeFor(name),
-    );
-    packages.push({ name, arch: archFor(name), url });
+    try {
+      const dl = await fetch(String(a.browser_download_url), {
+        headers: GITHUB_TOKEN ? { Authorization: `Bearer ${GITHUB_TOKEN}` } : {},
+      });
+      if (!dl.ok) {
+        throw new Error(`download failed ${a.browser_download_url}: ${dl.status}`);
+      }
+      const bytes = await dl.arrayBuffer();
+      if (bytes.byteLength > MAX_ASSET_BYTES) {
+        skipped.push(`${name} (${bytes.byteLength} bytes)`);
+        console.warn(
+          `aurora-api: skipped ${name}, exceeds ${MAX_ASSET_BYTES}-byte limit`,
+        );
+        continue;
+      }
+      const safeName = sanitizeSegment(name);
+      const url = await uploadBinary(
+        `${safeVersion}/${safeName}`,
+        bytes,
+        contentTypeFor(safeName),
+      );
+      packages.push({ name: safeName, arch: archFor(safeName), url });
+    } catch (e) {
+      // One bad/failed asset must not abort the whole batch — skip and continue.
+      console.error(`aurora-api: asset ${name} skipped:`, (e as Error).message);
+      skipped.push(name);
+    }
   }
-  return { version: safeVersion, packages, mirroredAt: new Date().toISOString() };
+  return { version: safeVersion, packages, mirroredAt: new Date().toISOString(), skipped };
 }
 
-async function maybeMirrorStore(version: string, assets: any[]): Promise<StoreResult> {
-  const cached = await getCached(STORE_CACHE_KEY);
+// Mirrors only when the cached version differs from the requested one.
+async function maybeMirror(
+  cacheKey: string,
+  version: string,
+  assets: any[],
+  want: (name: string) => boolean,
+): Promise<StoreResult> {
+  const cached = await getCached(cacheKey);
   if (cached && cached.version === version) return cached;
-  const result = await mirrorStore(version, assets);
-  await cacheRelease(STORE_CACHE_KEY, result);
+  const result = await mirrorPackages(version, assets, want);
+  await cacheRelease(cacheKey, result);
   return result;
 }
 
@@ -268,6 +331,14 @@ async function fetchReleasesList(): Promise<any[] | null> {
   );
   if (!res.ok) return null;
   return await res.json();
+}
+
+function findLspRelease(releases: any[]): any | null {
+  for (const r of releases) {
+    if (r.draft || r.prerelease) continue;
+    if (isLspTag(String(r.tag_name ?? ""))) return r;
+  }
+  return null;
 }
 
 function classify(releases: any[]): {
@@ -330,13 +401,21 @@ async function resolveLatest(kind: "app" | "lsp"): Promise<ReleaseDoc | null> {
   const { app, lsp } = classify(releases);
   if (app) await cacheRelease("app_latest", app);
   if (lsp) await cacheRelease("lsp_latest", lsp);
+  // Re-host the built binaries to the `aurora` bucket so clients/Store get a
+  // direct, versioned URL. Best-effort and non-blocking for update checks.
   if (app) {
-    // Re-host the built binaries to the `aurora` bucket so the Store gets a
-    // direct, versioned URL. Best-effort and non-blocking for update checks.
     const appRelease = findAppRelease(releases);
-    maybeMirrorStore(app.version, appRelease?.assets ?? []).catch((e) =>
-      console.error("aurora-api: store mirror skipped:", (e as Error).message),
-    );
+    maybeMirror(STORE_CACHE_KEY, app.version, appRelease?.assets ?? [], isAppAsset)
+      .catch((e) =>
+        console.error("aurora-api: store mirror skipped:", (e as Error).message),
+      );
+  }
+  if (lsp) {
+    const lspRelease = findLspRelease(releases);
+    maybeMirror(LSP_STORE_CACHE_KEY, lsp.version, lspRelease?.assets ?? [], isLspAsset)
+      .catch((e) =>
+        console.error("aurora-api: lsp mirror skipped:", (e as Error).message),
+      );
   }
   return kind === "app" ? app : lsp;
 }
@@ -362,6 +441,13 @@ app.get("/v1/update/store", async (c) => {
   return c.json(r);
 });
 
+// Read the currently mirrored LSP bundle URLs (last mirrored version).
+app.get("/v1/update/lsp/store", async (c) => {
+  const r = await getCached(LSP_STORE_CACHE_KEY);
+  if (!r) return c.json({ error: "not mirrored yet" }, 404);
+  return c.json(r);
+});
+
 // Force a re-mirror of the latest app release's binaries into the `aurora`
 // bucket. Safe to call after publishing a GitHub release; skips re-download if
 // the version is unchanged. Recommended trigger from CI or manually.
@@ -379,7 +465,31 @@ app.post("/v1/update/store", async (c) => {
     const appRelease = findAppRelease(releases);
     if (!appRelease) return c.json({ error: "no app release" }, 404);
     const version = String(appRelease.tag_name ?? "").replace(/^v/, "");
-    const result = await maybeMirrorStore(version, appRelease.assets ?? []);
+    const result = await maybeMirror(STORE_CACHE_KEY, version, appRelease.assets ?? [], isAppAsset);
+    return c.json(result);
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+// Force a re-mirror of the latest LSP build's binaries into the `aurora`
+// bucket (same job the GET /v1/update/lsp check does, but on-demand). Skips
+// re-download if the version is unchanged. Guarded by AURORA_DEPLOY_TOKEN.
+app.post("/v1/update/lsp/store", async (c) => {
+  if (DEPLOY_TOKEN) {
+    const auth = c.req.header("authorization") ?? "";
+    if (auth !== `Bearer ${DEPLOY_TOKEN}`) {
+      return c.json({ error: "unauthorized" }, 401);
+    }
+  }
+  try {
+    const releases = await fetchReleasesList();
+    if (!releases) return c.json({ error: "github unreachable" }, 502);
+    const lspRelease = findLspRelease(releases);
+    if (!lspRelease) return c.json({ error: "no lsp release" }, 404);
+    const rawTag = String(lspRelease.tag_name ?? "");
+    const version = rawTag.startsWith("v") ? rawTag.slice(1) : rawTag;
+    const result = await maybeMirror(LSP_STORE_CACHE_KEY, version, lspRelease.assets ?? [], isLspAsset);
     return c.json(result);
   } catch (e) {
     return c.json({ error: (e as Error).message }, 500);
