@@ -134,8 +134,8 @@ const LSP_CACHE_KEY = "lsp_release";
 
 type Package = { name: string; arch: string; url: string };
 // One row in `release_cache` per release family: `app_release` or `lsp_release`.
-// LSP rows keep `version` null (rolling release). `download_url` is the Supabase
-// bucket link when mirrored, otherwise falls back to the GitHub release URL.
+// LSP rows keep `version` null (rolling release). `download_url` is always the
+// Supabase bucket link (app) or the GitHub manifest URL (LSP).
 type ReleaseRow = {
   version: string | null;
   url: string | null;
@@ -462,7 +462,7 @@ async function resolveRelease(kind: "app" | "lsp", force = false): Promise<Relea
   // ---- LSP: GitHub-only, refresh only when upstream is newer ----
   if (kind === "lsp") {
     const stored = await getStoredRow(key);
-    const ghPub = doc.published_at;
+    const ghPub = doc.publishedAt;
     const storedPub = stored?.published_at ?? null;
     if (
       !force && storedPub && ghPub &&
@@ -477,7 +477,7 @@ async function resolveRelease(kind: "app" | "lsp", force = false): Promise<Relea
       url: doc.url,
       download_url: doc.download_url,
       notes: doc.notes,
-      published_at: doc.published_at,
+      published_at: doc.publishedAt,
       packages: githubPackages(release, isLspAsset),
       mirrored_at: null,
     };
@@ -500,9 +500,25 @@ async function resolveRelease(kind: "app" | "lsp", force = false): Promise<Relea
         skipped: [] as string[],
       }));
 
-  let download_url: string | null = doc.download_url;
+  // download_url is ALWAYS the Supabase bucket link — never the GitHub URL.
+  // Use the mirrored installer when available; if mirroring produced no package
+  // (e.g. a transient upload failure), derive the expected bucket path from the
+  // release assets so the cached row still points at the bucket.
+  let download_url: string | null = null;
   if (mirrored.packages.length > 0) {
-    download_url = primaryPackageUrl(mirrored.packages) ?? doc.download_url;
+    download_url = primaryPackageUrl(mirrored.packages);
+  }
+  if (!download_url && release) {
+    const assets = (release.assets ?? []).filter((a: any) =>
+      isAppAsset(String(a.name ?? ""))
+    );
+    const primary = assets.find((a: any) =>
+      String(a.name).toLowerCase().endsWith(".exe")
+    ) ?? assets[0];
+    if (primary) {
+      download_url =
+        `${SUPABASE_URL}/storage/v1/object/public/${STORE_BUCKET}/${folder}/${sanitizeSegment(String(primary.name))}`;
+    }
   }
 
   const row: ReleaseRow = {
@@ -510,7 +526,7 @@ async function resolveRelease(kind: "app" | "lsp", force = false): Promise<Relea
     url: doc.url,
     download_url,
     notes: doc.notes,
-    published_at: doc.published_at,
+    published_at: doc.publishedAt,
     packages: mirrored.packages,
     mirrored_at: mirrored.mirroredAt || null,
   };
