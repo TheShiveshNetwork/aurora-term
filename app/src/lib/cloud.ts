@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { config, system, SyncAction, SyncResult, AuthStatus } from "./ipc";
+import { WEB_AUTH_URL } from "../../configs/appConfig";
 
 // The desktop talks to Supabase directly with the publishable key (public by
 // design). All reads/writes go through Row Level Security, so a user can only
@@ -12,9 +13,6 @@ const SUPABASE_PUBLISHABLE_KEY =
   (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined) ??
   "sb_publishable_RLefJueP40i_3FjO_D_7zw_fBYcAoDb";
 
-const WEB_AUTH_URL =
-  (import.meta.env.VITE_WEB_AUTH_URL as string | undefined) ??
-  "http://localhost:5175/signin";
 const DEEP_LINK_SCHEME = "aurora://auth/callback";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {

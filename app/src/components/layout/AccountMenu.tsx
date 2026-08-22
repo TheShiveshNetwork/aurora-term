@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Cloud, CloudDownload, CloudUpload, ExternalLink, Github, LogOut,
-  RefreshCw, Shield, ShieldCheck, Sparkles, User, X,
+  RefreshCw, Shield, ShieldCheck, User, X,
 } from "lucide-react";
 import { MenuView, MenuViewItem, MenuViewSeparator } from "../ui/MenuView";
 import { Button } from "../ui/Button";
@@ -169,7 +169,7 @@ export function AccountMenu() {
             </div>
             <div className="min-w-0">
               <div className="text-[13px] font-semibold truncate" style={{ color: "#E8EAF0" }}>
-                {signedIn ? truncateName(auth?.username ?? auth?.email) : "Cloud Sync"}
+                {signedIn ? truncateName(auth?.username ?? auth?.email) : "Authenticate"}
               </div>
               <div className="text-[11px]" style={{ color: "rgba(232,234,240,0.35)" }}>
                 {signedIn ? "Syncing aurora.json" : "Sign in to sync settings"}
@@ -191,54 +191,55 @@ export function AccountMenu() {
               <Button variant="secondary" size="md" className="w-full" disabled={busy} onClick={() => signInOAuth("github")}>
                 <Github size={13} /> Continue with GitHub
               </Button>
-              <Button variant="secondary" size="md" className="w-full" disabled={busy} onClick={() => signInOAuth("google")}>
-                <Sparkles size={13} /> Continue with Google
-              </Button>
             </div>
           </>
         )}
 
-        {/* ── Sync ── */}
-        <MenuViewSeparator />
-        <div className="px-2 py-1 space-y-1">
-          <div className="flex items-center justify-between px-1.5 pb-1">
-            <span className="text-[11px] font-semibold uppercase tracking-wider flex items-center gap-1.5" style={{ color: "rgba(232,234,240,0.35)" }}>
-              <Cloud size={11} /> Settings Sync
-            </span>
-            {statusLabel && (
-              <span className="text-[11px] flex items-center gap-1" style={{ color: syncView === "conflict" ? "#FFB86B" : "rgba(90,200,150,0.8)" }}>
-                <ShieldCheck size={11} /> {statusLabel}
-              </span>
-            )}
-          </div>
+        {/* ── Sync (only when signed in) ── */}
+        {signedIn && (
+          <>
+            <MenuViewSeparator />
+            <div className="px-2 py-1 space-y-1">
+              <div className="flex items-center justify-between px-1.5 pb-1">
+                <span className="text-[11px] font-semibold uppercase tracking-wider flex items-center gap-1.5" style={{ color: "rgba(232,234,240,0.35)" }}>
+                  <Cloud size={11} /> Settings Sync
+                </span>
+                {statusLabel && (
+                  <span className="text-[11px] flex items-center gap-1" style={{ color: syncView === "conflict" ? "#FFB86B" : "rgba(90,200,150,0.8)" }}>
+                    <ShieldCheck size={11} /> {statusLabel}
+                  </span>
+                )}
+              </div>
 
-          {syncView === "conflict" && syncResult?.remote_version ? (
-            <div className="space-y-1">
-              <div className="px-1.5 text-[11px]" style={{ color: "rgba(232,234,240,0.45)" }}>
-                Your settings changed on another device. Choose what to keep.
-              </div>
-              <div className="flex gap-1.5">
-                <Button variant="secondary" size="sm" className="flex-1" disabled={busy} onClick={() => resolve("keep_local", syncResult.remote_version!)}>
-                  <CloudUpload size={12} /> Keep local
-                </Button>
-                <Button variant="secondary" size="sm" className="flex-1" disabled={busy} onClick={() => resolve("keep_cloud", syncResult.remote_version!)}>
-                  <CloudDownload size={12} /> Keep cloud
-                </Button>
-                <Button variant="primary" size="sm" className="flex-1" disabled={busy} onClick={() => resolve("merge", syncResult.remote_version!)}>
-                  <RefreshCw size={12} /> Merge
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <Button variant="secondary" size="md" className="w-full" disabled={busy || !signedIn || syncView === "syncing"} onClick={doSync}>
-              {syncView === "syncing" ? (
-                <><RefreshCw size={13} className="animate-spin" /> Syncing…</>
+              {syncView === "conflict" && syncResult?.remote_version ? (
+                <div className="space-y-1">
+                  <div className="px-1.5 text-[11px]" style={{ color: "rgba(232,234,240,0.45)" }}>
+                    Your settings changed on another device. Choose what to keep.
+                  </div>
+                  <div className="flex gap-1.5">
+                    <Button variant="secondary" size="sm" className="flex-1" disabled={busy} onClick={() => resolve("keep_local", syncResult.remote_version!)}>
+                      <CloudUpload size={12} /> Keep local
+                    </Button>
+                    <Button variant="secondary" size="sm" className="flex-1" disabled={busy} onClick={() => resolve("keep_cloud", syncResult.remote_version!)}>
+                      <CloudDownload size={12} /> Keep cloud
+                    </Button>
+                    <Button variant="primary" size="sm" className="flex-1" disabled={busy} onClick={() => resolve("merge", syncResult.remote_version!)}>
+                      <RefreshCw size={12} /> Merge
+                    </Button>
+                  </div>
+                </div>
               ) : (
-                <><RefreshCw size={13} /> Sync now</>
+                <Button variant="secondary" size="md" className="w-full" disabled={busy || syncView === "syncing"} onClick={doSync}>
+                  {syncView === "syncing" ? (
+                    <><RefreshCw size={13} className="animate-spin" /> Syncing…</>
+                  ) : (
+                    <><RefreshCw size={13} /> Sync now</>
+                  )}
+                </Button>
               )}
-            </Button>
-          )}
-        </div>
+            </div>
+          </>
+        )}
 
         {/* ── Updates ── */}
         {updatesEnabled && (
