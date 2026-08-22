@@ -36,9 +36,7 @@ export interface DefaultSettings {
   indentMarkers: boolean;
   lspEnabled: boolean;
   cloudAutoSync: boolean;
-  cloudApiBaseUrl: string;
   updatesEnabled: boolean;
-  updatesIntervalHours: number;
 }
 
 export const DEFAULT_SETTINGS: DefaultSettings = {
@@ -63,7 +61,5 @@ export const DEFAULT_SETTINGS: DefaultSettings = {
   indentMarkers: true,
   lspEnabled: true,
   cloudAutoSync: false,
-  cloudApiBaseUrl: "",
   updatesEnabled: true,
-  updatesIntervalHours: 24,
 };

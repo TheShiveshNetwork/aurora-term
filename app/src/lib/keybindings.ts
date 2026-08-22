@@ -77,8 +77,6 @@ export const DEFAULT_KEYBINDINGS: KeybindingDef[] = [
   { id: KEYBINDING_IDS.toggleTabBar, command: "Toggle Tab Bar", keys: "Ctrl+Shift+P", when: "Global" },
   { id: KEYBINDING_IDS.saveFile, command: "Save File", keys: "Ctrl+S", when: "Global" },
   { id: KEYBINDING_IDS.find, command: "Find", keys: "Ctrl+F", when: "Editor" },
-  { id: KEYBINDING_IDS.selectAll, command: "Select All", keys: "Ctrl+A", when: "Editor" },
-  { id: KEYBINDING_IDS.cut, command: "Cut Line", keys: "Ctrl+X", when: "Editor" },
   { id: KEYBINDING_IDS.toggleComment, command: "Toggle Comment", keys: "Ctrl+/", when: "Editor" },
   { id: KEYBINDING_IDS.formatDoc, command: "Format Document", keys: "Ctrl+Shift+I", when: "Editor" },
   { id: KEYBINDING_IDS.goToDefinition, command: "Go to Definition", keys: "F12", when: "Editor" },

@@ -1,17 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Cloud, CloudDownload, CloudUpload, ExternalLink, Github, LogOut,
-  RefreshCw, Shield, ShieldCheck, User, X,
+  RefreshCcw, Github, LogOut, RefreshCw, User,
 } from "lucide-react";
 import { MenuView, MenuViewItem, MenuViewSeparator } from "../ui/MenuView";
 import { Button } from "../ui/Button";
 import { useSettingsStore } from "../../stores/useSettingsStore";
 import { useUpdateChecker } from "../../hooks/useUpdateChecker";
 import { applyAppConfig } from "../../hooks/useAppBootstrap";
-import { config, SyncAction, SyncResult, AuthStatus } from "../../lib/ipc";
+import { config, AuthStatus } from "../../lib/ipc";
 import { cloud } from "../../lib/cloud";
-
-type SyncView = "idle" | "syncing" | "conflict";
 
 // Safe display string: never exceed 24 chars; append "..." when truncated.
 function truncateName(name: string | null | undefined): string {
@@ -24,19 +21,29 @@ export function AccountMenu() {
   const [open, setOpen] = useState(false);
   const [auth, setAuth] = useState<AuthStatus | null>(null);
   const [busy, setBusy] = useState(false);
-  const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
-  const [syncView, setSyncView] = useState<SyncView>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [sync, setSync] = useState<{ exists: boolean; inSync: boolean } | null>(null);
   const hasCheckedAuth = useRef(false);
 
-  const cloudAutoSync = useSettingsStore((s) => s.cloudAutoSync);
   const updatesEnabled = useSettingsStore((s) => s.updatesEnabled);
-  const updatesIntervalHours = useSettingsStore((s) => s.updatesIntervalHours);
-  const updateState = useUpdateChecker(updatesEnabled, updatesIntervalHours);
+  const updateState = useUpdateChecker(updatesEnabled);
+
+  const refreshSync = useCallback(async () => {
+    try {
+      const cfg = await config.get();
+      setSync(await cloud.settingsSyncState(cfg));
+    } catch {
+      setSync(null);
+    }
+  }, []);
 
   const refreshAuth = useCallback(() => {
-    cloud.authStatus().then(setAuth).catch(() => {});
-  }, []);
+    cloud.authStatus().then((a) => {
+      setAuth(a);
+      if (a.signed_in) void refreshSync();
+      else setSync(null);
+    }).catch(() => {});
+  }, [refreshSync]);
 
   useEffect(() => {
     if (hasCheckedAuth.current) return;
@@ -47,50 +54,37 @@ export function AccountMenu() {
   // Re-check auth whenever the deep-link handoff (or sign-out) fires.
   useEffect(() => cloud.onAuthChange(refreshAuth), [refreshAuth]);
 
-  // Automatic first sync when enabled and signed in.
+  // Recompute sync state each time the menu opens so the buttons reflect the
+  // latest local/remote config (e.g. after local settings changed).
   useEffect(() => {
-    if (!cloudAutoSync || !auth?.signed_in || !open) return;
-    void doSync();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cloudAutoSync, auth?.signed_in, open]);
+    if (open && auth?.signed_in) void refreshSync();
+  }, [open, auth?.signed_in, refreshSync]);
 
+  // Single sync action: reconcile to the cloud's canonical config. If nothing
+  // is saved in the cloud yet, upload the current device's settings as the
+  // seed; otherwise pull (download + apply) the cloud config. No-op when already
+  // in sync.
   const doSync = useCallback(async () => {
-    if (syncView === "syncing") return;
-    setSyncView("syncing");
-    setError(null);
-    try {
-      const cfg = await config.get();
-      const result = await cloud.syncNow(cfg);
-      setSyncResult(result);
-      if (result.status === "pulled") {
-        const merged = await config.get();
-        applyAppConfig(merged);
-      }
-      setSyncView(result.status === "conflict" ? "conflict" : "idle");
-    } catch (e: any) {
-      setError(String(e?.message ?? e));
-      setSyncView("idle");
-    }
-  }, [syncView]);
-
-  const resolve = async (action: SyncAction, remoteVersion: string) => {
     setBusy(true);
     setError(null);
     try {
       const cfg = await config.get();
-      const result = await cloud.resolveConflict(action, cfg, remoteVersion);
-      setSyncResult(result);
-      setSyncView("idle");
-      if (result.status === "pulled" || action === "merge") {
-        const merged = await config.get();
-        applyAppConfig(merged);
+      const remote = await cloud.downloadSettings();
+      if (!remote) {
+        await cloud.uploadSettings(cfg);
+      } else if (!(await cloud.settingsSyncState(cfg)).inSync) {
+        if (remote.payload) {
+          await config.saveGlobal(remote.payload as any);
+          applyAppConfig(remote.payload as any);
+        }
       }
+      setSync({ exists: true, inSync: true });
     } catch (e: any) {
       setError(String(e?.message ?? e));
     } finally {
       setBusy(false);
     }
-  };
+  }, []);
 
   const signInOAuth = async (provider: "github" | "google") => {
     setBusy(true);
@@ -99,7 +93,6 @@ export function AccountMenu() {
       const status = await cloud.signInOAuth(provider);
       setAuth(status);
       setOpen(true);
-      void doSync();
     } catch (e: any) {
       setError(String(e?.message ?? e));
     } finally {
@@ -112,8 +105,7 @@ export function AccountMenu() {
     try {
       await cloud.signOut();
       setAuth({ signed_in: false, email: null, username: null });
-      setSyncResult(null);
-      setSyncView("idle");
+      setSync(null);
     } catch (e: any) {
       setError(String(e?.message ?? e));
     } finally {
@@ -122,15 +114,6 @@ export function AccountMenu() {
   };
 
   const signedIn = !!auth?.signed_in;
-
-  const statusLabel = syncResult
-    ? syncResult.status === "synced" ? "In sync"
-    : syncResult.status === "pushed" ? "Pushed changes"
-    : syncResult.status === "pulled" ? "Pulled from cloud"
-    : syncResult.status === "conflict" ? "Conflict detected"
-    : syncResult.status === "signed_out" ? "Signed out"
-    : "Disabled"
-    : null;
 
   return (
     <div className="relative" data-tauri-no-drag>
@@ -171,9 +154,11 @@ export function AccountMenu() {
               <div className="text-[13px] font-semibold truncate" style={{ color: "#E8EAF0" }}>
                 {signedIn ? truncateName(auth?.username ?? auth?.email) : "Authenticate"}
               </div>
+              {!signedIn && 
               <div className="text-[11px]" style={{ color: "rgba(232,234,240,0.35)" }}>
-                {signedIn ? "Syncing aurora.json" : "Sign in to sync settings"}
+                Sign in to sync settings
               </div>
+              }
             </div>
           </div>
         </div>
@@ -201,90 +186,17 @@ export function AccountMenu() {
             <MenuViewSeparator />
             <div className="px-2 py-1 space-y-1">
               <div className="flex items-center justify-between px-1.5 pb-1">
-                <span className="text-[11px] font-semibold uppercase tracking-wider flex items-center gap-1.5" style={{ color: "rgba(232,234,240,0.35)" }}>
-                  <Cloud size={11} /> Settings Sync
+                <span className="text-[11px] font-semibold tracking-wider flex items-center gap-1.5" style={{ color: "rgba(232,234,240,0.35)" }}>
+                  Settings Sync
                 </span>
-                {statusLabel && (
-                  <span className="text-[11px] flex items-center gap-1" style={{ color: syncView === "conflict" ? "#FFB86B" : "rgba(90,200,150,0.8)" }}>
-                    <ShieldCheck size={11} /> {statusLabel}
-                  </span>
-                )}
               </div>
-
-              {syncView === "conflict" && syncResult?.remote_version ? (
-                <div className="space-y-1">
-                  <div className="px-1.5 text-[11px]" style={{ color: "rgba(232,234,240,0.45)" }}>
-                    Your settings changed on another device. Choose what to keep.
-                  </div>
-                  <div className="flex gap-1.5">
-                    <Button variant="secondary" size="sm" className="flex-1" disabled={busy} onClick={() => resolve("keep_local", syncResult.remote_version!)}>
-                      <CloudUpload size={12} /> Keep local
-                    </Button>
-                    <Button variant="secondary" size="sm" className="flex-1" disabled={busy} onClick={() => resolve("keep_cloud", syncResult.remote_version!)}>
-                      <CloudDownload size={12} /> Keep cloud
-                    </Button>
-                    <Button variant="primary" size="sm" className="flex-1" disabled={busy} onClick={() => resolve("merge", syncResult.remote_version!)}>
-                      <RefreshCw size={12} /> Merge
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <Button variant="secondary" size="md" className="w-full" disabled={busy || syncView === "syncing"} onClick={doSync}>
-                  {syncView === "syncing" ? (
-                    <><RefreshCw size={13} className="animate-spin" /> Syncing…</>
-                  ) : (
-                    <><RefreshCw size={13} /> Sync now</>
-                  )}
-                </Button>
-              )}
+              <Button variant="secondary" size="md" className="w-full" disabled={busy || (sync?.inSync ?? false)} onClick={doSync}>
+                <RefreshCcw size={13} /> Sync settings
+              </Button>
             </div>
           </>
         )}
 
-        {/* ── Updates ── */}
-        {updatesEnabled && (
-          <>
-            <MenuViewSeparator />
-            <div className="px-2 py-1">
-              <div className="flex items-center justify-between px-1.5 pb-1">
-                <span className="text-[11px] font-semibold uppercase tracking-wider flex items-center gap-1.5" style={{ color: "rgba(232,234,240,0.35)" }}>
-                  <Shield size={11} /> Updates
-                </span>
-                {updateState.checking && <RefreshCw size={11} className="animate-spin" style={{ color: "rgba(232,234,240,0.3)" }} />}
-              </div>
-              {updateState.info?.available && !updateState.info.dismissed ? (
-                <div className="space-y-1">
-                  <div className="px-1.5 text-[11px] flex items-center gap-1.5" style={{ color: "rgba(232,234,240,0.6)" }}>
-                    <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: "#FF6B6B" }} />
-                    Aurora {updateState.info.latest_version} is available
-                    <span className="ml-auto text-[10px]" style={{ color: "rgba(232,234,240,0.3)" }}>v{updateState.info.current_version}</span>
-                  </div>
-                  <div className="flex gap-1.5">
-                    <Button variant="primary" size="sm" className="flex-1" onClick={updateState.openRelease}>
-                      <ExternalLink size={12} /> View on GitHub
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={updateState.dismiss} title="Dismiss this version">
-                      <X size={13} />
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <Button variant="ghost" size="sm" className="w-full" onClick={updateState.refresh}>
-                  <RefreshCw size={12} /> Check for updates
-                </Button>
-              )}
-            </div>
-          </>
-        )}
-
-        {signedIn && (
-          <>
-            <MenuViewSeparator />
-            <MenuViewItem icon={<LogOut size={13} />} onClick={signOut} danger>
-              Sign out
-            </MenuViewItem>
-          </>
-        )}
       </MenuView>
     </div>
   );

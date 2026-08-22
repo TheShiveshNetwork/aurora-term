@@ -48,9 +48,7 @@ export function applyAppConfig(cfg: AppConfig) {
 
   // Cloud sync + update notifications
   settings.setCloudAutoSync(cfg.cloud?.auto_sync ?? false);
-  settings.setCloudApiBaseUrl(cfg.cloud?.api_base_url ?? "");
   settings.setUpdatesEnabled(cfg.updates?.enabled ?? true);
-  settings.setUpdatesIntervalHours(cfg.updates?.check_interval_hours ?? 24);
 
   // Keybindings
   const overrides: Record<string, string> = {};

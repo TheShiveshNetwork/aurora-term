@@ -13,11 +13,11 @@ export interface UpdateCheckerState {
 }
 
 /**
- * Polls the backend's GitHub Releases proxy on mount and then on the
- * configured interval. `dismissed` is decided by the Rust layer from
+ * Checks for app updates on mount (i.e. every app restart) and then on a fixed
+ * background interval. `dismissed` is decided by the Rust layer from
  * `state.json` (UiState.dismissed_update_version).
  */
-export function useUpdateChecker(enabled: boolean, intervalHours: number): UpdateCheckerState {
+export function useUpdateChecker(enabled: boolean): UpdateCheckerState {
   const [info, setInfo] = useState<UpdateInfo | null>(null);
   const [checking, setChecking] = useState(false);
   const seq = useRef(0);
@@ -52,14 +52,13 @@ export function useUpdateChecker(enabled: boolean, intervalHours: number): Updat
       return;
     }
     refresh();
-    const intervalMs = Math.max(MIN_INTERVAL_MS, intervalHours * 60 * 60 * 1000);
-    const timer = setInterval(refresh, intervalMs);
+    const timer = setInterval(refresh, MIN_INTERVAL_MS);
     return () => {
       clearInterval(timer);
       seq.current++;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, intervalHours]);
+  }, [enabled]);
 
   return { info, checking, refresh, dismiss, openRelease };
 }

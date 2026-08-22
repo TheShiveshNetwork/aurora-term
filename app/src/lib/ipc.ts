@@ -66,12 +66,10 @@ export interface EditorConfig {
 
 export interface CloudConfig {
   auto_sync: boolean;
-  api_base_url: string;
 }
 
 export interface UpdatesConfig {
   enabled: boolean;
-  check_interval_hours: number;
 }
 
 export interface AppConfig {

@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
-import { config, system, SyncAction, SyncResult, AuthStatus } from "./ipc";
+import { listen } from "@tauri-apps/api/event";
+import { system, AuthStatus } from "./ipc";
 import { WEB_AUTH_URL } from "../../configs/appConfig";
 
 // The desktop talks to Supabase directly with the publishable key (public by
@@ -57,20 +58,6 @@ function contentHash(payload: unknown): Promise<string> {
   return sha256Hex(JSON.stringify(canonicalJson(payload)));
 }
 
-// Deep-merge `over` on top of `base` (remote wins). Used for the "merge"
-// conflict resolution.
-function deepMerge(base: any, over: any): any {
-  if (Array.isArray(base) || Array.isArray(over)) return over;
-  if (base && typeof base === "object" && over && typeof over === "object") {
-    const out: Record<string, any> = { ...base };
-    for (const k of Object.keys(over)) {
-      out[k] = k in base ? deepMerge(base[k], over[k]) : over[k];
-    }
-    return out;
-  }
-  return over;
-}
-
 // ── Auth status ─────────────────────────────────────────────────────────
 
 export async function authStatus(): Promise<AuthStatus> {
@@ -103,113 +90,51 @@ export async function signInOAuth(provider: "github" | "google"): Promise<AuthSt
   return authStatus();
 }
 
-// ── Sync (compare-and-swap under RLS) ───────────────────────────────────
+// ── Sync (manual upload / download under RLS) ────────────────────────────
+// The app never auto-syncs. The user explicitly uploads the current config to
+// the cloud, or downloads (and applies) the cloud config, via the UI buttons.
+// Each operation is a plain upsert / read of the user's `configs` row, so there
+// is no conflict resolution or merge step.
 
-export async function syncNow(cfg: any): Promise<SyncResult> {
+export async function uploadSettings(cfg: any): Promise<void> {
   const { data: userData, error: userErr } = await supabase.auth.getUser();
-  if (userErr || !userData.user) {
-    return { status: "signed_out", remote_payload: null, remote_version: null, remote_updated_at: null };
-  }
+  if (userErr || !userData.user) throw new Error("Not signed in");
   const userId = userData.user.id;
 
   const version = await contentHash(cfg);
-
-  const { data: remote, error: fetchErr } = await supabase
-    .from("configs")
-    .select("version, payload, updated_at")
-    .eq("user_id", userId)
-    .maybeSingle();
-  if (fetchErr) throw new Error(fetchErr.message);
-
-  // No remote document yet → seed it with the local config.
-  if (!remote) {
-    const now = new Date().toISOString();
-    const { error } = await supabase
-      .from("configs")
-      .insert({ user_id: userId, version, payload: cfg, updated_at: now });
-    if (error) throw new Error(error.message);
-    return { status: "pushed", remote_payload: cfg, remote_version: version, remote_updated_at: now };
-  }
-
-  // Identical content → already in sync.
-  if (remote.version === version) {
-    return { status: "synced", remote_payload: remote.payload, remote_version: remote.version, remote_updated_at: remote.updated_at };
-  }
-
-  // CAS update: succeeds only if the remote hasn't changed since we read it.
   const now = new Date().toISOString();
-  const { data: updated, error: updErr } = await supabase
+  const { error } = await supabase
     .from("configs")
-    .update({ version, payload: cfg, updated_at: now })
-    .eq("user_id", userId)
-    .eq("version", remote.version)
-    .select("version, payload, updated_at");
-  if (updErr) throw new Error(updErr.message);
-  if (!updated || updated.length === 0) {
-    const { data: cur } = await supabase
-      .from("configs")
-      .select("version, payload, updated_at")
-      .eq("user_id", userId)
-      .maybeSingle();
-    return { status: "conflict", remote_payload: cur?.payload ?? null, remote_version: cur?.version ?? null, remote_updated_at: cur?.updated_at ?? null };
-  }
-  return { status: "pushed", remote_payload: updated[0].payload, remote_version: updated[0].version, remote_updated_at: updated[0].updated_at };
+    .upsert({ user_id: userId, version, payload: cfg, updated_at: now }, { onConflict: "user_id" });
+  if (error) throw new Error(error.message);
 }
 
-export async function resolveConflict(
-  action: SyncAction,
-  cfg: any,
-  remoteVersion: string,
-): Promise<SyncResult> {
+export type RemoteConfig = { payload: any; version: string | null; updated_at: string | null };
+
+export async function downloadSettings(): Promise<RemoteConfig | null> {
   const { data: userData, error: userErr } = await supabase.auth.getUser();
-  if (userErr || !userData.user) {
-    return { status: "signed_out", remote_payload: null, remote_version: null, remote_updated_at: null };
-  }
+  if (userErr || !userData.user) throw new Error("Not signed in");
   const userId = userData.user.id;
-  const now = new Date().toISOString();
 
-  // Adopt the cloud document wholesale.
-  if (action === "keep_cloud") {
-    const { data: remote, error } = await supabase
-      .from("configs")
-      .select("version, payload, updated_at")
-      .eq("user_id", userId)
-      .maybeSingle();
-    if (error) throw new Error(error.message);
-    if (!remote) throw new Error("No cloud config to adopt");
-    if (remote.payload) await config.saveGlobal(remote.payload as any);
-    return { status: "pulled", remote_payload: remote.payload, remote_version: remote.version, remote_updated_at: remote.updated_at };
-  }
-
-  const basePayload =
-    action === "merge"
-      ? deepMerge(
-          cfg,
-          (await supabase.from("configs").select("payload").eq("user_id", userId).maybeSingle()).data?.payload ?? {},
-        )
-      : cfg;
-  const version = await contentHash(basePayload);
-
-  const { data: updated, error } = await supabase
+  const { data, error } = await supabase
     .from("configs")
-    .update({ version, payload: basePayload, updated_at: now })
+    .select("payload, version, updated_at")
     .eq("user_id", userId)
-    .eq("version", remoteVersion)
-    .select("version, payload, updated_at");
+    .maybeSingle();
   if (error) throw new Error(error.message);
-  if (!updated || updated.length === 0) {
-    const { data: cur } = await supabase
-      .from("configs")
-      .select("version, payload, updated_at")
-      .eq("user_id", userId)
-      .maybeSingle();
-    return { status: "conflict", remote_payload: cur?.payload ?? null, remote_version: cur?.version ?? null, remote_updated_at: cur?.updated_at ?? null };
-  }
-  // `keep_local` publishes the local doc; `merge` publishes the blended doc,
-  // which the UI treats like a pull.
-  const status = action === "merge" ? "pulled" : "pushed";
-  if (status === "pulled") await config.saveGlobal(updated[0].payload as any);
-  return { status, remote_payload: updated[0].payload, remote_version: updated[0].version, remote_updated_at: updated[0].updated_at };
+  return data;
+}
+
+export type SyncState = { exists: boolean; inSync: boolean };
+
+// Compare the local config against the cloud copy without transferring the
+// payload. `version` is the content hash of the stored config, so a matching
+// hash means nothing needs to be pushed or pulled.
+export async function settingsSyncState(cfg: any): Promise<SyncState> {
+  const remote = await downloadSettings();
+  if (!remote) return { exists: false, inSync: false };
+  const localHash = await contentHash(cfg);
+  return { exists: true, inSync: localHash === remote.version };
 }
 
 // ── Deep-link receipt (web → desktop handoff) ───────────────────────────
@@ -226,6 +151,23 @@ export async function importSessionFromUrl(url: string): Promise<void> {
 }
 
 export function initCloud(): void {
+  // Reflect any Supabase auth-state change (including the deep-link handoff's
+  // setSession, and sign-out) into our UI event, so the account menu always
+  // shows the current sign-in state without depending solely on the deep-link
+  // callback firing first.
+  supabase.auth.onAuthStateChange(() => {
+    window.dispatchEvent(new CustomEvent(AUTH_CHANGED));
+  });
+
+  // Deep links forwarded by the single-instance plugin (Windows/Linux) when the
+  // app is already running and the OS spawns a second instance to deliver the
+  // `aurora://` URL. The live instance receives it here and imports the session.
+  listen<string>("aurora-deep-link", (e) => {
+    void importSessionFromUrl(e.payload);
+  }).catch(() => {
+    /* not in Tauri */
+  });
+
   // The deep-link plugin only exists inside a Tauri build; outside it (e.g.
   // `pnpm dev` in a plain browser) this import simply fails and is ignored.
   import("@tauri-apps/plugin-deep-link")
@@ -244,6 +186,7 @@ export const cloud = {
   onAuthChange,
   signInOAuth,
   signOut,
-  syncNow,
-  resolveConflict,
+  uploadSettings,
+  downloadSettings,
+  settingsSyncState,
 };

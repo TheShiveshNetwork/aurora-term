@@ -8,6 +8,7 @@ import PermissionsSettingsView from "./PermissionsSettingsView";
 import KeybindingsSettingsView from "./KeybindingsSettingsView";
 import AboutSettingsView from "./AboutSettingsView";
 import CloudSettingsView from "./CloudSettingsView";
+import AccountsSettingsView from "./AccountsSettingsView";
 import { ProviderDetailView } from "./ProviderDetailView";
 import { Breadcrumbs, SettingsContext, DraftSettings } from "./SettingsShared";
 import { ProviderName } from "@aurora/types";
@@ -29,7 +30,7 @@ interface SettingsTarget {
   element?: string;
 }
 
-type SectionId = "general" | "agent" | "about";
+type SectionId = "general" | "agent" | "user" | "about";
 type SubPageId = string;
 
 interface SubPage {
@@ -54,7 +55,6 @@ const SECTIONS: Section[] = [
       { id: "workspace", label: "Workspace", view: <WorkspaceSettingsView /> },
       { id: "appearance", label: "Appearance", view: <AppearanceSettingsView /> },
       { id: "keybindings", label: "Keybindings", view: <KeybindingsSettingsView /> },
-      { id: "cloud", label: "Cloud & Updates", view: <CloudSettingsView /> },
     ],
   },
   {
@@ -63,6 +63,14 @@ const SECTIONS: Section[] = [
     items: [
       { id: "ai", label: "AI Providers", view: <AISettingsView /> },
       { id: "permissions", label: "Permissions", view: <PermissionsSettingsView /> },
+    ],
+  },
+  {
+    id: "user",
+    label: "User",
+    items: [
+      { id: "account", label: "Account", view: <AccountsSettingsView /> },
+      { id: "cloud", label: "Cloud", view: <CloudSettingsView /> },
     ],
   },
   {
