@@ -1,0 +1,86 @@
+# Aurora Term — Rust & project standards
+
+These rules are the project's source of truth. They are mirrored by `agents.md`
+and `claude.md` (symlinks) so every agent tool stays in sync.
+
+## Rust coding standards
+
+* Prioritize correctness and clarity; speed/efficiency are secondary unless stated.
+* No comments that summarize code. Comments only explain non-obvious **why**.
+* Never `unwrap()`/`expect()` in production paths. Propagate errors with `?` into `AppError`.
+* Never silently swallow fallible errors. Prefer `?`, `if let Err(e)` handling, or
+  `tracing` logging. `let _ =` is only acceptable for intentional best-effort
+  cleanup (e.g. killing a child on shutdown).
+* Avoid panicking operations (indexing, `.unwrap()`). Guard out-of-bounds work.
+* Never create `mod.rs` files — prefer `src/some_module.rs`.
+* Use full words for variable names (no `q` for `queue`).
+* Use variable shadowing to scope clones in async contexts for clarity.
+
+## Crate separation of concerns (hard rule)
+
+**Each crate has exactly ONE job.** Respect the boundary; do not leak
+responsibilities across crates.
+
+* `aurora-core` — shared types, `AppError`, config schema. Zero I/O, zero Tauri, zero async.
+* `aurora-pty` — PTY lifecycle, sessions, readers. No Tauri.
+* `aurora-db` — SQLite history + search. No Tauri.
+* `aurora-config` — JSON + keychain persistence. No Tauri; `new()` takes `PathBuf`, never `&impl Manager`.
+* `aurora-sidecar` — sidecar process lifecycle. No Tauri.
+* `aurora-lsp-fetch` — prebuilt bundle acquisition (download/verify/extract). No Tauri, no server spawn.
+* `aurora-lsp` — language-server process lifecycle only. No Tauri, no network, no downloads.
+* `aurora-commands` — thin IPC adapters only. No business logic; delegate to crates.
+* `aurora-app` (Tauri binary) — the **only** crate allowed to touch Tauri APIs.
+
+Rules of engagement:
+* Route new logic to the crate whose single job covers it. If a change would make
+  a crate do two jobs, extend the responsible crate or add a new single-job crate.
+* Dependencies flow downward only: `aurora-core` depends on nothing internal;
+  feature crates depend on `aurora-core`; `commands`/`app` depend on feature crates.
+* Library crates communicate results via `tokio::sync::mpsc` channels, never by
+  calling Tauri APIs directly.
+
+## Concurrency & async
+
+* Use `tokio::sync::Mutex`, never `std::sync::Mutex`, for async state.
+* Never hold a lock across a slow/await operation (network, process spawn, file I/O).
+  Lock briefly, release, do the slow work, re-lock only to commit results.
+* Never nest async mutex locks (`tokio::sync::Mutex` is not reentrant) — take, drop,
+  then take again.
+* Independent work must not block each other. Use per-resource/per-key locks to
+  coalesce, and keep global locks out of the hot path (e.g. language-server setup
+  runs fully in parallel across different languages).
+* Spawn background tasks with `tokio::spawn`; forward results over channels.
+
+## Errors & logging
+
+* `AppError` is the single error type everywhere; each crate converts `Into` it and
+  derives `serde::Serialize` so Tauri can serialize it to the frontend.
+* Log with `tracing::info!`/`tracing::error!`. Never `println!`.
+* Secrets (API keys) live only in the OS keychain (`keyring`) — never in config,
+  logs, or the frontend. Frontend receives `hasApiKey: bool` only.
+* IDs are `uuid::Uuid::new_v4().to_string()`.
+
+## Hard rules
+
+* Never hardcode model strings or filesystem paths in Rust — read from `AppConfig`
+  or resolve via Tauri path APIs.
+* Never call a provider/adapter directly from a command — go through its router/trait.
+* Never add Tauri deps to any crate except `aurora-app`.
+* Never `invoke()` outside `app/src/lib/ipc.ts`; mirror every Rust IPC struct there.
+* Run `cargo clippy --workspace -- -D warnings` (zero warnings) and
+  `cargo test --workspace` before any commit.
+
+## Pull request hygiene
+
+* Clear, capitalized, imperative title; no conventional-commit prefixes; no trailing punctuation.
+* Optionally prefix with the crate name when one crate is the clear scope.
+* End the body with a `Release Notes:` section (blank line after) containing
+  `- Added / Fixed / Improved ...` or `- N/A`.
+
+## Rules hygiene
+
+* Keep this file high-signal. Prefer "traps to avoid" over "maps to follow";
+  architectural layouts go stale — read the code for structure.
+* Do not edit `.rules` inline during normal feature/fix work. Propose changes in a
+  **"Suggested .rules additions"** section of the PR; reviewers merge them.
+* A new rule must be: non-obvious, repeatedly encountered, and specific enough to act on.
