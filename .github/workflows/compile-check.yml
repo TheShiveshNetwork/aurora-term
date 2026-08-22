@@ -17,15 +17,6 @@ on:
         - '.gitignore'
         
   workflow_dispatch:
-    inputs:
-      environment:
-        description: 'Target environment'
-        required: true
-        default: 'staging'
-        type: choice
-        options:
-          - staging
-          - production
 
 concurrency:
   group: ci-${{ github.ref }}
