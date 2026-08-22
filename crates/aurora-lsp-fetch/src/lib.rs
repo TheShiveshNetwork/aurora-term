@@ -22,9 +22,11 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, OnceLock};
 
 use aurora_core::{AppError, ServerRuntime, ServerWeight};
 use sha2::Digest;
+use tokio::sync::Mutex as AsyncMutex;
 
 // ─── Manifest types ──────────────────────────────────────────────────────────
 
@@ -260,6 +262,24 @@ fn write_installed_meta(target_dir: &Path, meta: &InstalledMeta) -> Result<(), A
         .map_err(|e| AppError::Lsp(format!("failed to write installed meta: {}", e)))
 }
 
+/// Verify a previously-extracted bundle is actually usable before reusing it.
+/// Guards against a cache that a buggy extractor left half-written. The entry
+/// binary must exist, and a few language-specific companions must be present.
+fn bundle_is_complete(target_dir: &Path, language_id: &str, entry_relative: &str) -> bool {
+    if !target_dir.join(entry_relative).exists() {
+        return false;
+    }
+    // `typescript-language-server` resolves `typescript` from its own
+    // `node_modules`. If that got truncated on disk the server can't start, so
+    // verify the compiler entry point is present.
+    if language_id == "typescript" || language_id == "javascript" {
+        return target_dir
+            .join("node_modules/typescript/lib/tsserver.js")
+            .exists();
+    }
+    true
+}
+
 // ─── Manifest fetch (ETag-revalidated, locally cached) ───────────────────────
 
 /// Fetch the manifest, reusing the locally cached copy when the remote has not
@@ -331,6 +351,42 @@ pub async fn get_manifest(
     serde_json::from_str(&txt).map_err(|e| AppError::Lsp(format!("manifest parse failed: {}", e)))
 }
 
+// ─── Concurrency guards ──────────────────────────────────────────────────────
+//
+// Several language servers can be set up at once (multiple files/tabs open, or
+// several languages in one project). Acquisition must be (a) parallel across
+// *different* languages and (b) safe across *concurrent* requests for the same
+// language. These guards make that happen:
+//
+// * `lang_install_lock` — one mutex per language, keyed by `language_id`. Two
+//   concurrent `ensure_installed` calls for the same language serialize on it and
+//   coalesce (the second waiter re-checks and finds the bundle already present).
+//   Different languages hold independent locks, so they install in parallel.
+// * `node_runtime_lock` — a single mutex guarding the shared portable-Node
+//   directory. Every node-based language server needs it, so concurrent installs
+//   of different node languages must not race on the node download/extract.
+
+type LockMap = AsyncMutex<HashMap<String, Arc<AsyncMutex<()>>>>;
+
+async fn lang_install_lock(language_id: &str) -> Arc<AsyncMutex<()>> {
+    static LANG_LOCKS: OnceLock<LockMap> = OnceLock::new();
+    let map = LANG_LOCKS.get_or_init(|| AsyncMutex::new(HashMap::new()));
+    // Hold the map lock only long enough to fetch/create the per-language entry;
+    // no await happens inside this critical section.
+    let mut guard = map.lock().await;
+    guard
+        .entry(language_id.to_string())
+        .or_insert_with(|| Arc::new(AsyncMutex::new(())))
+        .clone()
+}
+
+fn node_runtime_lock() -> Arc<AsyncMutex<()>> {
+    static NODE_LOCK: OnceLock<Arc<AsyncMutex<()>>> = OnceLock::new();
+    NODE_LOCK
+        .get_or_init(|| Arc::new(AsyncMutex::new(())))
+        .clone()
+}
+
 // ─── Uniform acquisition path ────────────────────────────────────────────────
 
 /// Ensure the server for `language_id` is available on disk, returning a fully
@@ -360,12 +416,34 @@ pub async fn ensure_installed(
 
     let target_dir = cache_dir.join(language_id);
 
-    // 2. Already installed locally: reuse the on-disk server, skip all network.
+    // 2. Fast path: already installed locally (no lock needed). Reuse the on-disk
+    //    server and skip all network. Verify completeness so a half-written cache
+    //    from an older extractor is not reused.
     if let Some(meta) = read_installed_meta(&target_dir) {
-        return resolve_from_cache(&target_dir, &meta, language_id, cache_dir).await;
+        if bundle_is_complete(&target_dir, language_id, &meta.entry_relative) {
+            return resolve_from_cache(&target_dir, &meta, language_id, cache_dir).await;
+        }
+        tracing::warn!("LSP: cached bundle for '{}' is incomplete; re-acquiring", language_id);
+        let _ = clear_dir(&target_dir);
     }
 
-    // 3. Not installed yet: fetch manifest (network) and download/verify/extract.
+    // 3. Acquire a per-language lock so concurrent requests for the SAME language
+    //    don't race on download/extract (which would corrupt the shared cache
+    //    dir). Different languages hold independent locks and install in parallel.
+    //    The second waiter re-checks below and finds the bundle already present.
+    let lang_lock = lang_install_lock(language_id).await;
+    let _lang_guard = lang_lock.lock().await;
+
+    // Re-check after acquiring the lock: a concurrent caller may have finished
+    // installing while we waited.
+    if let Some(meta) = read_installed_meta(&target_dir) {
+        if bundle_is_complete(&target_dir, language_id, &meta.entry_relative) {
+            return resolve_from_cache(&target_dir, &meta, language_id, cache_dir).await;
+        }
+        let _ = clear_dir(&target_dir);
+    }
+
+    // 4. Not installed yet: fetch manifest (network) and download/verify/extract.
     let manifest = get_manifest(cache_dir, api_base_url).await?;
     let entry = manifest.get(language_id).ok_or_else(|| {
         AppError::Lsp(format!("no prebuilt bundle registered for '{}'", language_id))
@@ -559,6 +637,16 @@ pub async fn ensure_node_runtime(cache_dir: &Path) -> Result<PathBuf, AppError> 
         return Ok(node_dir);
     }
 
+    // The portable Node directory is shared by every node-based language server,
+    // so concurrent installs of different node languages must not race on the
+    // download/extract. Serialize on a single lock, then re-check (another
+    // waiter may have finished installing while we waited).
+    let node_lock = node_runtime_lock();
+    let _node_guard = node_lock.lock().await;
+    if exe.exists() {
+        return Ok(node_dir);
+    }
+
     let (url, _archive_ext) = node_asset_for_platform();
     tracing::info!("LSP: fetching portable Node {} for node-based bundles", NODE_VERSION);
     let node_ext = if url.to_ascii_lowercase().ends_with(".zip") {
@@ -735,38 +823,62 @@ fn extract_tar_inner<R: std::io::Read>(reader: R, dest: &Path) -> Result<(), App
         .entries()
         .map_err(|e| AppError::Lsp(format!("tar read failed: {}", e)))?;
     for entry in entries {
-        let mut entry = entry.map_err(|e| AppError::Lsp(format!("tar entry failed: {}", e)))?;
-        let rel = entry
-            .path()
-            .map_err(|e| AppError::Lsp(format!("tar path failed: {}", e)))?
-            .into_owned();
+        // A single malformed/unextractable entry (symlink, exotic type, long
+        // path, …) must NOT abort the whole extraction — that previously left
+        // bundles half-written (e.g. a gutted `node_modules/typescript/lib`
+        // with no `tsserver.js`, which made the TS server fail to start). Skip
+        // bad entries and keep going.
+        let mut entry = match entry {
+            Ok(e) => e,
+            Err(e) => {
+                tracing::warn!("LSP: skipping unreadable tar entry: {}", e);
+                continue;
+            }
+        };
+        let rel = match entry.path() {
+            Ok(p) => p.into_owned(),
+            Err(e) => {
+                tracing::warn!("LSP: skipping tar entry with bad path: {}", e);
+                // Drain the body so the next header reads cleanly.
+                let _ = std::io::copy(&mut entry, &mut std::io::sink());
+                continue;
+            }
+        };
         // Drop a leading "./" so the join stays inside `dest`.
         let rel = rel.strip_prefix("./").unwrap_or(&rel);
         let header = entry.header();
         let kind = header.entry_type();
         let out = long_path(&dest.join(rel));
 
-        if kind.is_dir() {
-            std::fs::create_dir_all(&out).map_err(|e| {
-                AppError::Lsp(format!("mkdir failed ({}): {}", out.display(), e))
-            })?;
-        } else if kind.is_symlink() {
-            // Symlinks can't be created without elevated rights on Windows and
-            // aren't needed by LSP servers, so skip them to keep extraction from
-            // aborting.
+        // Symlinks can't be created without elevated rights on Windows and
+        // aren't needed by LSP servers. Drain the body so the reader stays
+        // aligned, then skip.
+        if kind.is_symlink() {
+            let _ = std::io::copy(&mut entry, &mut std::io::sink());
             continue;
+        }
+
+        let res = if kind.is_dir() {
+            std::fs::create_dir_all(&out).map(|_| ())
         } else {
             if let Some(parent) = out.parent() {
-                std::fs::create_dir_all(parent).map_err(|e| {
-                    AppError::Lsp(format!("mkdir failed ({}): {}", parent.display(), e))
-                })?;
+                if let Err(e) = std::fs::create_dir_all(parent) {
+                    Err(e)
+                } else {
+                    match std::fs::File::create(&out) {
+                        Ok(mut f) => std::io::copy(&mut entry, &mut f).map(|_| ()),
+                        Err(e) => Err(e),
+                    }
+                }
+            } else {
+                Ok(())
             }
-            let mut f = std::fs::File::create(&out).map_err(|e| {
-                AppError::Lsp(format!("create failed ({}): {}", out.display(), e))
-            })?;
-            std::io::copy(&mut entry, &mut f).map_err(|e| {
-                AppError::Lsp(format!("write failed ({}): {}", out.display(), e))
-            })?;
+        };
+        if let Err(e) = res {
+            tracing::warn!("LSP: failed to extract {}: {}", out.display(), e);
+            // Drain the remaining body so the next entry reads cleanly.
+            let _ = std::io::copy(&mut entry, &mut std::io::sink());
+            continue;
         }
     }
     Ok(())

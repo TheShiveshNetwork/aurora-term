@@ -474,7 +474,6 @@ version = "0.1.0"
 dependencies = [
  "aurora-core",
  "serde",
- "serde_json",
  "tokio",
  "tracing",
 ]

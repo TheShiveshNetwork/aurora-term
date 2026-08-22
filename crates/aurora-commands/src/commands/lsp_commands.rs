@@ -31,9 +31,9 @@ pub async fn lsp_ensure_and_start(
     let narrowed = narrow_root(&language_id, &root_path, &file_path_buf);
     let server_key = format!("{}|{}", language_id, narrowed.to_string_lossy());
 
-    {
-        let mut mgr = state.lsp_manager.lock().await;
-        mgr.start(aurora_lsp::LspStartParams {
+    state
+        .lsp_manager
+        .start(aurora_lsp::LspStartParams {
             server_key: server_key.clone(),
             language_id,
             exec: resolved.program,
@@ -44,7 +44,6 @@ pub async fn lsp_ensure_and_start(
         })
         .await
         .map_err(|e| e.to_string())?;
-    }
     Ok(server_key)
 }
 
@@ -55,15 +54,21 @@ pub async fn lsp_send(
     server_key: String,
     message: String,
 ) -> Result<(), String> {
-    let mut mgr = state.lsp_manager.lock().await;
-    mgr.send(&server_key, message).await.map_err(|e| e.to_string())
+    state
+        .lsp_manager
+        .send(&server_key, message)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Stop the running server for `server_key`.
 #[command]
 pub async fn lsp_stop(state: State<'_, AppState>, server_key: String) -> Result<(), String> {
-    let mut mgr = state.lsp_manager.lock().await;
-    mgr.stop(&server_key).await.map_err(|e| e.to_string())
+    state
+        .lsp_manager
+        .stop(&server_key)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Spawn the background task that forwards decoded server messages to the
@@ -92,8 +97,7 @@ pub fn start_lsp_idle_sweep(app: &tauri::AppHandle) {
         loop {
             interval.tick().await;
             let state = app.state::<AppState>();
-            let mut mgr = state.lsp_manager.lock().await;
-            mgr.tick().await;
+            state.lsp_manager.tick().await;
         }
     });
 }

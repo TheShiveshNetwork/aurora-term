@@ -97,7 +97,11 @@ pub struct LspStartParams {
 
 /// Manages the set of running language servers, keyed by `server_key`.
 pub struct LspManager {
-    servers: std::collections::HashMap<String, RunningServer>,
+    /// All running servers, keyed by `server_key`. Guarded by its own async mutex
+    /// (not the whole `LspManager`) so a slow `send`/spawn never blocks unrelated
+    /// servers. The lock is released during the (potentially slow) process spawn,
+    /// keeping server startups parallel.
+    servers: tokio::sync::Mutex<std::collections::HashMap<String, RunningServer>>,
     tx: UnboundedSender<LspIncoming>,
 }
 
@@ -105,7 +109,7 @@ impl LspManager {
     /// Create a manager that forwards decoded server messages to `tx`.
     pub fn new(tx: UnboundedSender<LspIncoming>) -> Self {
         Self {
-            servers: std::collections::HashMap::new(),
+            servers: tokio::sync::Mutex::new(std::collections::HashMap::new()),
             tx,
         }
     }
@@ -116,7 +120,12 @@ impl LspManager {
     /// `server_key` is `"{language_id}|{root}"`. Heavy servers are subject to
     /// the concurrent cap: if too many heavy servers are alive, the
     /// least-recently-used one is evicted first.
-    pub async fn start(&mut self, params: LspStartParams) -> Result<(), AppError> {
+    ///
+    /// The process spawn happens *without* holding the servers lock, so concurrent
+    /// `start` calls for different servers run their spawns in parallel instead of
+    /// serializing on a single global lock. A per-key re-check on re-acquire
+    /// prevents a duplicate (concurrent) spawn from leaking a process.
+    pub async fn start(&self, params: LspStartParams) -> Result<(), AppError> {
         let LspStartParams {
             server_key,
             language_id,
@@ -127,27 +136,40 @@ impl LspManager {
             runtime,
         } = params;
 
-        if let Some(server) = self.servers.get_mut(&server_key) {
-            server.last_used = Instant::now();
+        // Fast path: already running — no lock needed beyond the brief check.
+        if self.servers.lock().await.contains_key(&server_key) {
             return Ok(());
         }
 
         // Enforce the concurrent heavy-server cap with LRU eviction *before*
-        // spawning a fourth heavy server.
+        // spawning a fourth heavy server. Held only briefly.
         if weight == ServerWeight::Heavy {
-            let heavy_count = self
+            let do_evict = self
                 .servers
+                .lock()
+                .await
                 .values()
                 .filter(|s| s.weight == ServerWeight::Heavy)
-                .count();
-            if heavy_count >= MAX_HEAVY_SERVERS {
-                self.evict_lru_heavy();
+                .count()
+                >= MAX_HEAVY_SERVERS;
+            if do_evict {
+                self.evict_lru_heavy().await;
             }
         }
 
+        // Spawn the process OUTSIDE the lock so other servers can start in parallel.
         let program = exec;
         let (child, stdin, stdout) =
             launch(&program, &args, &root, weight, runtime).await?;
+
+        // Re-acquire and insert. If a concurrent `start` for this exact key already
+        // won, kill our freshly-spawned duplicate rather than leak it.
+        let mut servers = self.servers.lock().await;
+        if servers.contains_key(&server_key) {
+            let mut duplicate = child;
+            let _ = duplicate.start_kill();
+            return Ok(());
+        }
 
         let tx = self.tx.clone();
         let lang = language_id.clone();
@@ -155,7 +177,7 @@ impl LspManager {
         tokio::spawn(read_loop(stdout, lang, key, tx));
 
         let log_key = server_key.clone();
-        self.servers.insert(
+        servers.insert(
             server_key.clone(),
             RunningServer {
                 child,
@@ -171,15 +193,16 @@ impl LspManager {
                 server_key,
             },
         );
+        drop(servers);
 
         tracing::info!("LSP server started: {}", log_key);
         Ok(())
     }
 
     /// Send a raw JSON-RPC message (without headers) to the running server.
-    pub async fn send(&mut self, server_key: &str, message: String) -> Result<(), AppError> {
-        let server = self
-            .servers
+    pub async fn send(&self, server_key: &str, message: String) -> Result<(), AppError> {
+        let mut servers = self.servers.lock().await;
+        let server = servers
             .get_mut(server_key)
             .ok_or_else(|| AppError::Lsp(format!("server not running: {}", server_key)))?;
         server.last_used = Instant::now();
@@ -190,8 +213,8 @@ impl LspManager {
     }
 
     /// Stop a running server, killing its process.
-    pub async fn stop(&mut self, server_key: &str) -> Result<(), AppError> {
-        if let Some(mut server) = self.servers.remove(server_key) {
+    pub async fn stop(&self, server_key: &str) -> Result<(), AppError> {
+        if let Some(mut server) = self.servers.lock().await.remove(server_key) {
             let _ = server.child.kill().await;
             tracing::info!("LSP server stopped: {}", server_key);
         }
@@ -200,95 +223,110 @@ impl LspManager {
 
     /// Stop every running server, killing its process. Used on application
     /// shutdown so language-server processes don't linger and leak memory.
-    pub async fn stop_all(&mut self) {
-        let keys: Vec<String> = self.servers.keys().cloned().collect();
-        for key in keys {
-            if let Some(mut server) = self.servers.remove(&key) {
-                tokio::spawn(async move {
-                    let _ = server.child.kill().await;
-                });
-                tracing::info!("LSP server stopped on shutdown: {}", key);
-            }
+    pub async fn stop_all(&self) {
+        let servers = std::mem::take(&mut *self.servers.lock().await);
+        for (key, mut server) in servers {
+            tokio::spawn(async move {
+                let _ = server.child.kill().await;
+            });
+            tracing::info!("LSP server stopped on shutdown: {}", key);
         }
     }
 
     /// Evict the least-recently-used heavy server.
-    fn evict_lru_heavy(&mut self) {
-        let victim = self
-            .servers
-            .iter()
-            .filter(|(_, s)| s.weight == ServerWeight::Heavy)
-            .min_by_key(|(_, s)| s.last_used)
-            .map(|(k, _)| k.clone());
+    async fn evict_lru_heavy(&self) {
+        let victim = {
+            let servers = self.servers.lock().await;
+            servers
+                .iter()
+                .filter(|(_, s)| s.weight == ServerWeight::Heavy)
+                .min_by_key(|(_, s)| s.last_used)
+                .map(|(k, _)| k.clone())
+        };
         if let Some(key) = victim {
             let (lang, skey) = {
-                let s = self.servers.get(&key).unwrap();
-                (s.language_id.clone(), s.server_key.clone())
+                let servers = self.servers.lock().await;
+                let srv = match servers.get(&key) {
+                    Some(s) => s,
+                    None => return,
+                };
+                (srv.language_id.clone(), srv.server_key.clone())
             };
-            self.kill_and_notify(&key, &lang, &skey);
+            self.kill_and_notify(&key, &lang, &skey).await;
         }
     }
 
     /// Periodic maintenance: detect crashed servers (restart with backoff,
     /// bounded), then evict idle servers using a weight-aware timeout.
-    pub async fn tick(&mut self) {
+    pub async fn tick(&self) {
         let now = Instant::now();
 
         // --- Crash detection + bounded restart ---
         let mut restart: Vec<String> = Vec::new();
         let mut remove: Vec<(String, String, String)> = Vec::new();
-        for (key, srv) in self.servers.iter_mut() {
-            match srv.child.try_wait() {
-                Ok(Some(_)) | Err(_) => {
-                    let recent = now.duration_since(srv.last_used) < RESTART_WINDOW;
-                    if srv.crashes < MAX_RESTARTS && recent {
-                        restart.push(key.clone());
-                    } else {
-                        remove.push((
-                            key.clone(),
-                            srv.language_id.clone(),
-                            srv.server_key.clone(),
-                        ));
+        {
+            let mut servers = self.servers.lock().await;
+            for (key, srv) in servers.iter_mut() {
+                match srv.child.try_wait() {
+                    Ok(Some(_)) | Err(_) => {
+                        let recent = now.duration_since(srv.last_used) < RESTART_WINDOW;
+                        if srv.crashes < MAX_RESTARTS && recent {
+                            restart.push(key.clone());
+                        } else {
+                            remove.push((
+                                key.clone(),
+                                srv.language_id.clone(),
+                                srv.server_key.clone(),
+                            ));
+                        }
                     }
+                    Ok(None) => {}
                 }
-                Ok(None) => {}
             }
         }
         for key in &restart {
             self.relaunch(key).await;
         }
         for (key, lang, skey) in remove {
-            self.kill_and_notify(&key, &lang, &skey);
+            self.kill_and_notify(&key, &lang, &skey).await;
         }
 
         // --- Idle eviction (weight-aware) ---
         let now = Instant::now();
-        let mut idle: Vec<(String, String, String)> = Vec::new();
-        for (key, srv) in &self.servers {
-            let timeout = if srv.weight == ServerWeight::Heavy {
-                HEAVY_IDLE
-            } else {
-                LIGHT_IDLE
-            };
-            if now.duration_since(srv.last_used) > timeout {
-                idle.push((
-                    key.clone(),
-                    srv.language_id.clone(),
-                    srv.server_key.clone(),
-                ));
-            }
-        }
+        let idle: Vec<(String, String, String)> = {
+            let servers = self.servers.lock().await;
+            servers
+                .iter()
+                .filter_map(|(key, srv)| {
+                    let timeout = if srv.weight == ServerWeight::Heavy {
+                        HEAVY_IDLE
+                    } else {
+                        LIGHT_IDLE
+                    };
+                    if now.duration_since(srv.last_used) > timeout {
+                        Some((
+                            key.clone(),
+                            srv.language_id.clone(),
+                            srv.server_key.clone(),
+                        ))
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        };
         for (key, lang, skey) in idle {
-            self.kill_and_notify(&key, &lang, &skey);
+            self.kill_and_notify(&key, &lang, &skey).await;
         }
     }
 
     /// Re-launch a crashed server, applying exponential backoff. On failure the
     /// server is left in place (crashes already incremented) so the next tick
     /// retries, up to `MAX_RESTARTS`.
-    async fn relaunch(&mut self, key: &str) {
+    async fn relaunch(&self, key: &str) {
         let (program, args, root, weight, runtime, backoff) = {
-            let srv = match self.servers.get_mut(key) {
+            let mut servers = self.servers.lock().await;
+            let srv = match servers.get_mut(key) {
                 Some(s) => s,
                 None => return,
             };
@@ -306,15 +344,23 @@ impl LspManager {
         tokio::time::sleep(backoff).await;
         match launch(&program, &args, &root, weight, runtime).await {
             Ok((child, stdin, stdout)) => {
-                if let Some(srv) = self.servers.get_mut(key) {
-                    srv.child = child;
-                    srv.stdin = Some(stdin);
-                    srv.last_used = Instant::now();
-                    let tx = self.tx.clone();
-                    let lang = srv.language_id.clone();
-                    let keyc = key.to_string();
-                    tokio::spawn(read_loop(stdout, lang, keyc, tx));
-                    tracing::info!("LSP server restarted (attempt {}): {}", srv.crashes, key);
+                let mut servers = self.servers.lock().await;
+                match servers.get_mut(key) {
+                    Some(srv) => {
+                        srv.child = child;
+                        srv.stdin = Some(stdin);
+                        srv.last_used = Instant::now();
+                        let tx = self.tx.clone();
+                        let lang = srv.language_id.clone();
+                        let keyc = key.to_string();
+                        tokio::spawn(read_loop(stdout, lang, keyc, tx));
+                        tracing::info!("LSP server restarted (attempt {}): {}", srv.crashes, key);
+                    }
+                    None => {
+                        // Server was removed while we were relaunching; kill the orphan.
+                        let mut orphan = child;
+                        let _ = orphan.start_kill();
+                    }
                 }
             }
             Err(e) => {
@@ -324,8 +370,8 @@ impl LspManager {
     }
 
     /// Kill a server and notify the frontend so it can fall back to Lezer.
-    fn kill_and_notify(&mut self, key: &str, language_id: &str, server_key: &str) {
-        if let Some(mut srv) = self.servers.remove(key) {
+    async fn kill_and_notify(&self, key: &str, language_id: &str, server_key: &str) {
+        if let Some(mut srv) = self.servers.lock().await.remove(key) {
             tokio::spawn(async move {
                 let _ = srv.child.kill().await;
             });
@@ -340,19 +386,19 @@ impl LspManager {
     }
 
     /// Whether a server for `server_key` is currently running.
-    pub fn is_running(&self, server_key: &str) -> bool {
-        self.servers.contains_key(server_key)
+    pub async fn is_running(&self, server_key: &str) -> bool {
+        self.servers.lock().await.contains_key(server_key)
     }
 }
 
-/// Spawn the server process, applying runtime-specific memory caps.
-async fn launch(
-    program: &Path,
-    args: &[String],
-    root: &Path,
-    weight: ServerWeight,
-    runtime: ServerRuntime,
-) -> Result<(Child, ChildStdin, tokio::process::ChildStdout), AppError> {
+    /// Spawn the server process, applying runtime-specific memory caps.
+    async fn launch(
+        program: &Path,
+        args: &[String],
+        root: &Path,
+        weight: ServerWeight,
+        runtime: ServerRuntime,
+    ) -> Result<(Child, ChildStdin, tokio::process::ChildStdout), AppError> {
     let mut cmd = Command::new(program);
     cmd.current_dir(root)
         .stdin(std::process::Stdio::piped())

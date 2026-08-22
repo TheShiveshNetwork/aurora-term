@@ -35,6 +35,11 @@ export class AuroraWorkspace extends Workspace {
   // Tracks URIs for which we've actually sent `didOpen`, so we never send a
   // duplicate `textDocument/didOpen` (the server rejects those).
   private opened = new Set<string>();
+  // Whether the client has finished the `initialize` handshake. `didOpen` must
+  // NOT be sent before this — servers ignore/drop documents opened prior to
+  // `initialized`, which would leave hover/definition returning nothing even
+  // though the LSP extension is loaded.
+  private initialized = false;
 
   private nextFileVersion(uri: string): number {
     return (this.fileVersions[uri] = (this.fileVersions[uri] ?? -1) + 1);
@@ -66,13 +71,12 @@ export class AuroraWorkspace extends Workspace {
     }
     const newFile = new AuroraWorkspaceFile(uri, languageId, this.nextFileVersion(uri), view.state.doc, view);
     this.files.push(newFile);
-    if (!this.opened.has(uri)) {
+    // Defer `didOpen` until the server has finished `initialize` (handled in
+    // `connected()`). If the server is already initialized, open it now. The
+    // `didClose`-first guard keeps re-opening idempotent across HMR / reconnects
+    // where the server may still hold the document open.
+    if (this.initialized && !this.opened.has(uri)) {
       this.opened.add(uri);
-      // Clear any stale server-side document left by a previous client session
-      // (e.g. after a dev-server reload / HMR). The library's `close()` never
-      // sends `exit`/`shutdown`, so the language server still has these URIs
-      // open; re-opening them makes it reject with "already open document".
-      // Sending `didClose` first makes re-opening idempotent.
       this.client.didClose(uri);
       this.client.didOpen(newFile);
     }
@@ -91,11 +95,20 @@ export class AuroraWorkspace extends Workspace {
     }
   }
 
-  // The base implementation re-sends `didOpen` for every open file once the
-  // client finishes initializing. We already send `didOpen` from `openFile`
-  // when an editor is created, so re-opening here would duplicate the request
-  // and the server would reject it ("already open"), killing the pipe.
-  connected(): void {}
+  // Called by the plugin once the client has completed the `initialize` handshake
+  // and the server is ready to receive document notifications. Open every file
+  // we've registered so far (they were deferred from `openFile` until now). The
+  // `didClose`-first guard makes this safe when reconnecting to a server that
+  // still holds the document open (HMR / client restart).
+  connected(): void {
+    this.initialized = true;
+    for (const file of this.files) {
+      if (this.opened.has(file.uri)) continue;
+      this.opened.add(file.uri);
+      this.client.didClose(file.uri);
+      this.client.didOpen(file);
+    }
+  }
 
   displayFile(uri: string): Promise<EditorView | null> {
     const existing = this.getFile(uri);
