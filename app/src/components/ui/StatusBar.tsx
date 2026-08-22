@@ -136,6 +136,13 @@ export function StatusBar({ noFolder }: { noFolder?: boolean }) {
   const isLoading = useLoaderStore((s) => s.count > 0);
   const cwd = activeTabId ? (sessionCwds[activeTabId] || projectDir || cwdAbsolute) : (projectDir || cwdAbsolute);
   const activeFileTab = viewMode === "file" ? tabs.find(t => t.id === activeTabId && t.type === "file") : undefined;
+  const activeFilePath = activeFileTab?.filePath || "";
+  // Whether the active file actually lives inside the current project root.
+  // External files (absolute paths outside `cwd`) must not be shown prefixed
+  // with the project folder name.
+  const normCwdCheck = cwd.replace(/\\/g, "/");
+  const normActiveCheck = activeFilePath.replace(/\\/g, "/");
+  const fileUnderCwd = !!activeFilePath && normActiveCheck.startsWith(normCwdCheck + "/");
   const [showPathTooltip, setShowPathTooltip] = useState(false);
   const [tooltipCopied, setTooltipCopied] = useState(false);
   const tooltipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -248,73 +255,109 @@ export function StatusBar({ noFolder }: { noFolder?: boolean }) {
         {cwd && !noFolder && (
           <>
             {sysInfo.git_branch && <span style={{ color: "rgba(255,255,255,0.15)" }}>|</span>}
-            <div className="flex items-center">
-              <Folder size={11} className="shrink-0 mr-1" style={{ color: "rgba(232,234,240,0.4)" }} />
+            {activeFileTab && !fileUnderCwd ? (
+              // External file: show only its absolute path, not prefixed by the
+              // project folder name.
+              <div className="flex items-center">
+                <Folder size={11} className="shrink-0 mr-1" style={{ color: "rgba(232,234,240,0.4)" }} />
+                <div
+                  className="relative cursor-pointer hover:underline flex items-center"
+                  onMouseEnter={() => setShowPathTooltip(true)}
+                  onMouseLeave={() => {
+                    setShowPathTooltip(false);
+                    setTooltipCopied(false);
+                    if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current);
+                  }}
+                  onClick={() => {
+                    navigator.clipboard.writeText(activeFileTab.filePath || "");
+                    setTooltipCopied(true);
+                    if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current);
+                    tooltipTimeoutRef.current = setTimeout(() => setTooltipCopied(false), 1500);
+                  }}
+                >
+                  <CollapsibleFilePath filePath={activeFileTab.filePath || ""} cwd={cwd} />
 
-              <div
-                className="relative cursor-pointer hover:underline"
-                onMouseEnter={() => setShowCwdTooltip(true)}
-                onMouseLeave={() => {
-                  setShowCwdTooltip(false);
-                  setCwdCopied(false);
-                  if (cwdTooltipTimeoutRef.current) clearTimeout(cwdTooltipTimeoutRef.current);
-                }}
-                onClick={() => {
-                  navigator.clipboard.writeText(cwd || "");
-                  setCwdCopied(true);
-                  if (cwdTooltipTimeoutRef.current) clearTimeout(cwdTooltipTimeoutRef.current);
-                  cwdTooltipTimeoutRef.current = setTimeout(() => setCwdCopied(false), 1500);
-                }}
-              >
-                {cwd.split(/[/\\]/).filter(Boolean).pop() || cwd}
-
-                <Tooltip show={showCwdTooltip}>
-                  <Folder size={11} style={{ color: "rgba(79,140,255,0.6)" }} />
-                  <span className="text-[10px] max-w-[360px] truncate" style={{ color: "rgba(232,234,240,0.7)" }}>
-                    {cwd}
-                  </span>
-                  {cwdCopied ? (
-                    <span className="text-[9px] shrink-0" style={{ color: "#3DDC84" }}>Copied!</span>
-                  ) : (
-                    <Copy size={11} className="shrink-0" style={{ color: "rgba(232,234,240,0.35)" }} />
-                  )}
-                </Tooltip>
+                  <Tooltip show={showPathTooltip}>
+                    <span className="text-[10px] max-w-[360px] truncate" style={{ color: "rgba(232,234,240,0.7)" }}>
+                      {activeFileTab.filePath}
+                    </span>
+                    {tooltipCopied ? (
+                      <span className="text-[9px] shrink-0" style={{ color: "#3DDC84" }}>Copied!</span>
+                    ) : (
+                      <Copy size={11} className="shrink-0" style={{ color: "rgba(232,234,240,0.35)" }} />
+                    )}
+                  </Tooltip>
+                </div>
               </div>
+            ) : (
+              <div className="flex items-center">
+                <Folder size={11} className="shrink-0 mr-1" style={{ color: "rgba(232,234,240,0.4)" }} />
 
-              {activeFileTab && (
-                <>
-                  <span className="select-none">/</span>
-                  <div
-                    className="relative cursor-pointer hover:underline flex items-center"
-                    onMouseEnter={() => setShowPathTooltip(true)}
-                    onMouseLeave={() => {
-                      setShowPathTooltip(false);
-                      setTooltipCopied(false);
-                      if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current);
-                    }}
-                    onClick={() => {
-                      navigator.clipboard.writeText(activeFileTab.filePath || "");
-                      setTooltipCopied(true);
-                      if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current);
-                      tooltipTimeoutRef.current = setTimeout(() => setTooltipCopied(false), 1500);
-                    }}
-                  >
-                    <CollapsibleFilePath filePath={activeFileTab.filePath || ""} cwd={cwd} />
+                <div
+                  className="relative cursor-pointer hover:underline"
+                  onMouseEnter={() => setShowCwdTooltip(true)}
+                  onMouseLeave={() => {
+                    setShowCwdTooltip(false);
+                    setCwdCopied(false);
+                    if (cwdTooltipTimeoutRef.current) clearTimeout(cwdTooltipTimeoutRef.current);
+                  }}
+                  onClick={() => {
+                    navigator.clipboard.writeText(cwd || "");
+                    setCwdCopied(true);
+                    if (cwdTooltipTimeoutRef.current) clearTimeout(cwdTooltipTimeoutRef.current);
+                    cwdTooltipTimeoutRef.current = setTimeout(() => setCwdCopied(false), 1500);
+                  }}
+                >
+                  {cwd.split(/[/\\]/).filter(Boolean).pop() || cwd}
 
-                    <Tooltip show={showPathTooltip}>
-                      <span className="text-[10px] max-w-[360px] truncate" style={{ color: "rgba(232,234,240,0.7)" }}>
-                        {activeFileTab.filePath}
-                      </span>
-                      {tooltipCopied ? (
-                        <span className="text-[9px] shrink-0" style={{ color: "#3DDC84" }}>Copied!</span>
-                      ) : (
-                        <Copy size={11} className="shrink-0" style={{ color: "rgba(232,234,240,0.35)" }} />
-                      )}
-                    </Tooltip>
-                  </div>
-                </>
-              )}
-            </div>
+                  <Tooltip show={showCwdTooltip}>
+                    <Folder size={11} style={{ color: "rgba(79,140,255,0.6)" }} />
+                    <span className="text-[10px] max-w-[360px] truncate" style={{ color: "rgba(232,234,240,0.7)" }}>
+                      {cwd}
+                    </span>
+                    {cwdCopied ? (
+                      <span className="text-[9px] shrink-0" style={{ color: "#3DDC84" }}>Copied!</span>
+                    ) : (
+                      <Copy size={11} className="shrink-0" style={{ color: "rgba(232,234,240,0.35)" }} />
+                    )}
+                  </Tooltip>
+                </div>
+
+                {activeFileTab && fileUnderCwd && (
+                  <>
+                    <span className="select-none">/</span>
+                    <div
+                      className="relative cursor-pointer hover:underline flex items-center"
+                      onMouseEnter={() => setShowPathTooltip(true)}
+                      onMouseLeave={() => {
+                        setShowPathTooltip(false);
+                        setTooltipCopied(false);
+                        if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current);
+                      }}
+                      onClick={() => {
+                        navigator.clipboard.writeText(activeFileTab.filePath || "");
+                        setTooltipCopied(true);
+                        if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current);
+                        tooltipTimeoutRef.current = setTimeout(() => setTooltipCopied(false), 1500);
+                      }}
+                    >
+                      <CollapsibleFilePath filePath={activeFileTab.filePath || ""} cwd={cwd} />
+
+                      <Tooltip show={showPathTooltip}>
+                        <span className="text-[10px] max-w-[360px] truncate" style={{ color: "rgba(232,234,240,0.7)" }}>
+                          {activeFileTab.filePath}
+                        </span>
+                        {tooltipCopied ? (
+                          <span className="text-[9px] shrink-0" style={{ color: "#3DDC84" }}>Copied!</span>
+                        ) : (
+                          <Copy size={11} className="shrink-0" style={{ color: "rgba(232,234,240,0.35)" }} />
+                        )}
+                      </Tooltip>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
           </>
         )}
       </div>

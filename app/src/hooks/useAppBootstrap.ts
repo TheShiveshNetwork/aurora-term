@@ -48,6 +48,7 @@ export function applyAppConfig(cfg: AppConfig) {
 
   // Cloud sync + update notifications
   settings.setCloudAutoSync(cfg.cloud?.auto_sync ?? false);
+  settings.setCloudSynced(cfg.cloud?.synced ?? true);
   settings.setUpdatesEnabled(cfg.updates?.enabled ?? true);
 
   // Keybindings

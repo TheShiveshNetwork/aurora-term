@@ -625,7 +625,8 @@ export function GitView({ cwd, tabId }: GitViewProps) {
   const tabs = useSessionStore(s => s.tabs);
 
   const handleOpenFile = useCallback(async (filePath: string) => {
-    const resolvedPath = cwd ? `${cwd}/${filePath}`.replace(/\/\//g, "/") : filePath;
+    const isAbs = /^[A-Z]:[/\\]|^[/\\]|^~/i.test(filePath);
+    const resolvedPath = !isAbs && cwd ? `${cwd}/${filePath}`.replace(/\/\//g, "/") : filePath;
 
     // Check for actual merge conflict markers in file content
     let type: "file" | "merge" = "file";
@@ -691,7 +692,8 @@ export function GitView({ cwd, tabId }: GitViewProps) {
   const handleOpenSelectedFileDiff = useCallback(async () => {
     const path = selectedFile;
     if (!path) return;
-    const resolvedPath = cwd ? `${cwd}/${path}`.replace(/\/\//g, "/") : path;
+    const isAbs = /^[A-Z]:[/\\]|^[/\\]|^~/i.test(path);
+    const resolvedPath = !isAbs && cwd ? `${cwd}/${path}`.replace(/\/\//g, "/") : path;
     const existing = useSessionStore.getState().tabs.find(t => t.type === "diff" && t.filePath === resolvedPath && !t.diffCommitHash);
     if (existing) { setActiveTabId(existing.id); return; }
     try {

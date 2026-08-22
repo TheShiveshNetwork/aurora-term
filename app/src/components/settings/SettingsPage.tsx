@@ -19,6 +19,7 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { Button } from "../ui/Button";
 import { useAppBootstrap } from "../../hooks/useAppBootstrap";
 import { useNotificationStore } from "../../stores/useToastStore";
+import { useSettingsStore } from "../../stores/useSettingsStore";
 
 // Event used to forward settings errors (save/apply failures) from the settings
 // window to the main terminal window so the user sees them where they're working.
@@ -272,7 +273,14 @@ export default function SettingsPage() {
     if (!draft) return;
     setSaving(true);
     try {
-      await config.saveGlobal(draft.config);
+      // Local config changed → mark it as not-yet-synced so the cloud buttons
+      // reflect pending changes without needing to query the backend.
+      const configToSave: AppConfig = {
+        ...draft.config,
+        cloud: { ...(draft.config.cloud ?? { auto_sync: false }), synced: false },
+      };
+      await config.saveGlobal(configToSave);
+      useSettingsStore.getState().setCloudSynced(false);
       await state.updateSidebar(
         draft.sidebarCollapsed,
         draft.tabBarVisible,
@@ -310,10 +318,22 @@ export default function SettingsPage() {
     );
   }
 
-  const isDirty = !!(draft && initial && JSON.stringify(draft) !== JSON.stringify(initial));
+  // The `cloud` object is application-managed sync state (set automatically by
+  // Upload/Revert and by saving), not a user-edited setting. Ignore it when
+  // deciding whether the user has unsaved *settings* changes — otherwise the
+  // automatic sync write (which flips `cloud.synced`) makes the Settings page
+  // think it needs saving, creating a save↔sync loop.
+  const normalized = (d: DraftSettings | null) => {
+    if (!d) return "";
+    const copy: any = JSON.parse(JSON.stringify(d));
+    if (copy.config) delete copy.config.cloud;
+    return JSON.stringify(copy);
+  };
+
+  const isDirty = !!(draft && initial && normalized(draft) !== normalized(initial));
   const saveDisabled = saving || applying || !draft || !initial || !isDirty;
-  const applyDisabled = saving || applying || !draft || !applied || JSON.stringify(draft) === JSON.stringify(applied);
-  const hasChanges = isDirty || !!(draft && applied && JSON.stringify(draft) !== JSON.stringify(applied));
+  const applyDisabled = saving || applying || !draft || !applied || normalized(draft) === normalized(applied);
+  const hasChanges = isDirty || !!(draft && applied && normalized(draft) !== normalized(applied));
 
   return (
     <SettingsContext.Provider value={{ draft, updateDraft, providerPage, setProviderPage }}>

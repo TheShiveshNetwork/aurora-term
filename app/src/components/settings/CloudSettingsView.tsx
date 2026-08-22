@@ -5,7 +5,8 @@ import { Button } from "../ui/Button";
 import { cloud } from "../../lib/cloud";
 import { config, AuthStatus } from "../../lib/ipc";
 import { applyAppConfig } from "../../hooks/useAppBootstrap";
-import { CloudDownload, CloudUpload, Check } from "lucide-react";
+import { useSettingsStore } from "../../stores/useSettingsStore";
+import { ArrowUpFromLine, Undo2, Check } from "lucide-react";
 
 export default function CloudSettingsView() {
   const context = useContext(SettingsContext);
@@ -14,26 +15,15 @@ export default function CloudSettingsView() {
 
   const updatesEnabled = draft.config.updates?.enabled ?? true;
 
+  const cloudSynced = useSettingsStore((s) => s.cloudSynced);
+  const setCloudSynced = useSettingsStore((s) => s.setCloudSynced);
+
   const [auth, setAuth] = useState<AuthStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [sync, setSync] = useState<{ exists: boolean; inSync: boolean } | null>(null);
-
-  const refreshSync = async () => {
-    try {
-      const cfg = await config.get();
-      setSync(await cloud.settingsSyncState(cfg));
-    } catch {
-      setSync(null);
-    }
-  };
 
   const refreshAuth = () => {
-    cloud.authStatus().then((a) => {
-      setAuth(a);
-      if (a.signed_in) void refreshSync();
-      else setSync(null);
-    }).catch(() => {});
+    cloud.authStatus().then(setAuth).catch(() => {});
   };
 
   useEffect(() => {
@@ -49,7 +39,9 @@ export default function CloudSettingsView() {
     try {
       const cfg = await config.get();
       await cloud.uploadSettings(cfg);
-      setSync({ exists: true, inSync: true });
+      const saved = await config.get();
+      await config.saveGlobal({ ...saved, cloud: { ...(saved.cloud ?? { auto_sync: false }), synced: true } });
+      setCloudSynced(true);
     } catch (e: any) {
       setError(String(e?.message ?? e));
     } finally {
@@ -71,7 +63,9 @@ export default function CloudSettingsView() {
         await config.saveGlobal(remote.payload as any);
         applyAppConfig(remote.payload as any);
       }
-      setSync({ exists: true, inSync: true });
+      const saved = await config.get();
+      await config.saveGlobal({ ...saved, cloud: { ...(saved.cloud ?? { auto_sync: false }), synced: true } });
+      setCloudSynced(true);
     } catch (e: any) {
       setError(String(e?.message ?? e));
     } finally {
@@ -87,7 +81,7 @@ export default function CloudSettingsView() {
 
       <div id="setting-cloud-sync">
         <FieldRow label="Sync">
-          {sync?.inSync && (
+          {signedIn && cloudSynced && (
             <div className="flex items-center gap-2 text-xs" style={{ color: "rgba(90,200,150,0.7)" }}>
               <Check size={14} />
               Up to date with the cloud
@@ -95,15 +89,15 @@ export default function CloudSettingsView() {
           )}
         </FieldRow>
         <div className="text-[11px] my-2" style={{ color: "rgba(232,234,240,0.3)" }}>
-          Upload your settings to the cloud, or install the settings saved in the cloud
+          Upload your local config to the cloud, or Revert to discard local changes and restore the settings saved in the cloud
         </div>
         <div className="flex flex-col mt-2 gap-1">
           <div className="flex gap-2">
-            <Button variant="secondary" size="sm" disabled={busy || !signedIn || (sync?.inSync ?? false)} onClick={upload}>
-              <CloudUpload size={12} /> Upload
+            <Button variant="secondary" size="sm" disabled={busy || !signedIn || cloudSynced} onClick={upload}>
+              <ArrowUpFromLine size={12} /> Update
             </Button>
-            <Button variant="secondary" size="sm" disabled={busy || !signedIn || !sync?.exists || (sync?.inSync ?? false)} onClick={download}>
-              <CloudDownload size={12} /> Download
+            <Button variant="secondary" size="sm" disabled={busy || !signedIn || cloudSynced} onClick={download}>
+              <Undo2 size={12} /> Revert
             </Button>
           </div>
           {!signedIn && (

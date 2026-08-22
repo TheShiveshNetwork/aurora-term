@@ -36,6 +36,7 @@ export interface DefaultSettings {
   indentMarkers: boolean;
   lspEnabled: boolean;
   cloudAutoSync: boolean;
+  cloudSynced: boolean;
   updatesEnabled: boolean;
 }
 
@@ -61,5 +62,6 @@ export const DEFAULT_SETTINGS: DefaultSettings = {
   indentMarkers: true,
   lspEnabled: true,
   cloudAutoSync: false,
+  cloudSynced: true,
   updatesEnabled: true,
 };

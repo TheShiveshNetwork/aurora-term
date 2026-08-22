@@ -47,6 +47,7 @@ interface SettingsStore {
   indentMarkers: boolean;
   lspEnabled: boolean;
   cloudAutoSync: boolean;
+  cloudSynced: boolean;
   updatesEnabled: boolean;
 
   setTheme: (theme: "dark" | "light") => void;
@@ -70,6 +71,7 @@ interface SettingsStore {
   setIndentMarkers: (enabled: boolean) => void;
   setLspEnabled: (enabled: boolean) => void;
   setCloudAutoSync: (enabled: boolean) => void;
+  setCloudSynced: (synced: boolean) => void;
   setUpdatesEnabled: (enabled: boolean) => void;
 }
 
@@ -98,6 +100,7 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
   setIndentMarkers: (indentMarkers) => set({ indentMarkers }),
   setLspEnabled: (lspEnabled) => set({ lspEnabled }),
   setCloudAutoSync: (cloudAutoSync) => set({ cloudAutoSync }),
+  setCloudSynced: (cloudSynced) => set({ cloudSynced }),
   setUpdatesEnabled: (updatesEnabled) => set({ updatesEnabled }),
   setKeybindingOverride: (id, keys) => set((state) => ({ keybindingOverrides: { ...state.keybindingOverrides, [id]: keys } })),
   resetKeybindingOverride: (id) => set((state) => {

@@ -66,6 +66,7 @@ export interface EditorConfig {
 
 export interface CloudConfig {
   auto_sync: boolean;
+  synced: boolean;
 }
 
 export interface UpdatesConfig {

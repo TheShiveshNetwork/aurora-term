@@ -78,7 +78,7 @@ function NumberField({
   return (
     <NumberFieldContext.Provider value={{ fieldId, size: sizeValue }}>
       <NumberFieldPrimitive.Root
-        className={cn("flex w-full flex-col items-start gap-2", className)}
+        className={cn("flex max-w-[160px] flex-col items-start gap-2", className)}
         data-size={sizeValue}
         data-slot="number-field"
         id={fieldId}

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  RefreshCcw, Github, LogOut, RefreshCw, User,
+  CloudUpload, Github, LogOut, RefreshCw, User,
 } from "lucide-react";
 import { MenuView, MenuViewItem, MenuViewSeparator } from "../ui/MenuView";
 import { Button } from "../ui/Button";
@@ -22,28 +22,16 @@ export function AccountMenu() {
   const [auth, setAuth] = useState<AuthStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [sync, setSync] = useState<{ exists: boolean; inSync: boolean } | null>(null);
   const hasCheckedAuth = useRef(false);
 
+  const cloudSynced = useSettingsStore((s) => s.cloudSynced);
+  const setCloudSynced = useSettingsStore((s) => s.setCloudSynced);
   const updatesEnabled = useSettingsStore((s) => s.updatesEnabled);
   const updateState = useUpdateChecker(updatesEnabled);
 
-  const refreshSync = useCallback(async () => {
-    try {
-      const cfg = await config.get();
-      setSync(await cloud.settingsSyncState(cfg));
-    } catch {
-      setSync(null);
-    }
-  }, []);
-
   const refreshAuth = useCallback(() => {
-    cloud.authStatus().then((a) => {
-      setAuth(a);
-      if (a.signed_in) void refreshSync();
-      else setSync(null);
-    }).catch(() => {});
-  }, [refreshSync]);
+    cloud.authStatus().then(setAuth).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (hasCheckedAuth.current) return;
@@ -54,16 +42,10 @@ export function AccountMenu() {
   // Re-check auth whenever the deep-link handoff (or sign-out) fires.
   useEffect(() => cloud.onAuthChange(refreshAuth), [refreshAuth]);
 
-  // Recompute sync state each time the menu opens so the buttons reflect the
-  // latest local/remote config (e.g. after local settings changed).
-  useEffect(() => {
-    if (open && auth?.signed_in) void refreshSync();
-  }, [open, auth?.signed_in, refreshSync]);
-
   // Single sync action: reconcile to the cloud's canonical config. If nothing
   // is saved in the cloud yet, upload the current device's settings as the
-  // seed; otherwise pull (download + apply) the cloud config. No-op when already
-  // in sync.
+  // seed; otherwise pull (download + apply) the cloud config. The local
+  // `synced` flag is updated directly — no backend round-trip to compute state.
   const doSync = useCallback(async () => {
     setBusy(true);
     setError(null);
@@ -72,13 +54,13 @@ export function AccountMenu() {
       const remote = await cloud.downloadSettings();
       if (!remote) {
         await cloud.uploadSettings(cfg);
-      } else if (!(await cloud.settingsSyncState(cfg)).inSync) {
-        if (remote.payload) {
-          await config.saveGlobal(remote.payload as any);
-          applyAppConfig(remote.payload as any);
-        }
+      } else if (remote.payload) {
+        await config.saveGlobal(remote.payload as any);
+        applyAppConfig(remote.payload as any);
       }
-      setSync({ exists: true, inSync: true });
+      const saved = await config.get();
+      await config.saveGlobal({ ...saved, cloud: { ...(saved.cloud ?? { auto_sync: false }), synced: true } });
+      setCloudSynced(true);
     } catch (e: any) {
       setError(String(e?.message ?? e));
     } finally {
@@ -105,7 +87,6 @@ export function AccountMenu() {
     try {
       await cloud.signOut();
       setAuth({ signed_in: false, email: null, username: null });
-      setSync(null);
     } catch (e: any) {
       setError(String(e?.message ?? e));
     } finally {
@@ -190,8 +171,8 @@ export function AccountMenu() {
                   Settings Sync
                 </span>
               </div>
-              <Button variant="secondary" size="md" className="w-full" disabled={busy || (sync?.inSync ?? false)} onClick={doSync}>
-                <RefreshCcw size={13} /> Sync settings
+              <Button variant="secondary" size="md" className="w-full" disabled={busy || cloudSynced} onClick={doSync}>
+                <CloudUpload size={13} /> Sync settings
               </Button>
             </div>
           </>
