@@ -1,0 +1,65 @@
+name: Mirror release binaries to Supabase Store bucket
+
+# Runs only after a GitHub release is published (i.e. after the build workflow
+# uploaded the installer assets). It waits for the assets to be present, then
+# triggers the aurora-api edge function, which re-hosts the built .exe/.msi
+# files into the public `aurora` Storage bucket and returns versioned URLs.
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mirror-store-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    # Never run for drafts or pre-releases.
+    if: ${{ !github.event.release.draft && !github.event.release.prerelease }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate app release tag
+        id: tag
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          # Only stable app releases (vX.Y.Z); skip LSP / other tags.
+          if echo "$TAG" | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "is_app=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_app=false" >> "$GITHUB_OUTPUT"
+            echo "Tag '$TAG' is not a stable app version; skipping mirror."
+          fi
+
+      - name: Wait for installer assets to be uploaded
+        id: assets
+        if: steps.tag.outputs.is_app == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          ready=false
+          for i in $(seq 1 30); do
+            count=$(gh release view "$TAG" --json assets \
+              -q '.assets | map(select(.name | test("\\.(exe|msi)$"))) | length')
+            echo "Attempt $i: $count installer asset(s) found"
+            if [ "$count" -gt 0 ]; then ready=true; break; fi
+            sleep 20
+          done
+          echo "ready=$ready" >> "$GITHUB_OUTPUT"
+          if [ "$ready" != "true" ]; then
+            echo "No installer assets found after waiting; leaving the bucket untouched."
+          fi
+
+      - name: Trigger Supabase mirror
+        if: steps.assets.outputs.ready == 'true'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_FUNCTION_TOKEN: ${{ secrets.SUPABASE_FUNCTION_TOKEN }}
+        run: |
+          curl -fS --retry 3 --retry-delay 10 \
+            -X POST "${SUPABASE_URL}/functions/v1/aurora-api/v1/update/store" \
+            -H "Authorization: Bearer ${SUPABASE_FUNCTION_TOKEN}"

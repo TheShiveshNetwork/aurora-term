@@ -6,6 +6,10 @@ const fn default_enabled() -> bool {
     true
 }
 
+const fn default_synced() -> bool {
+    true
+}
+
 /// Default for EditorConfig.theme
 fn default_editor_theme() -> String {
     "dracula".to_string()
@@ -15,6 +19,39 @@ fn default_git_gui_mode() -> String {
     "tab".to_string()
 }
 
+fn default_update_interval_hours() -> u32 {
+    24
+}
+
+/// Cloud sync preferences. `api_base_url` points at the Aurora backend
+/// (a Supabase Edge Function) that holds the service-role key — the app
+/// itself never bundles any Supabase secrets. An empty URL disables cloud
+/// features.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct CloudConfig {
+    #[serde(default)]
+    pub auto_sync: bool,
+    #[serde(default)]
+    pub api_base_url: String,
+    /// Whether the locally-saved config has been pushed to the cloud since the
+    /// last local change. Tracked client-side to avoid round-tripping the
+    /// backend just to decide whether the sync buttons should be enabled.
+    #[serde(default = "default_synced")]
+    pub synced: bool,
+}
+
+/// Update notification preferences. The app checks the GitHub Releases
+/// feed through the backend proxy (`/v1/update/latest`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UpdatesConfig {
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_update_interval_hours")]
+    pub check_interval_hours: u32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct AppConfig {
@@ -22,7 +59,12 @@ pub struct AppConfig {
     pub ai: AiConfig,
     pub keybindings: KeybindingsConfig,
     pub appearance: AppearanceConfig,
+    #[serde(default)]
     pub editor: EditorConfig,
+    #[serde(default)]
+    pub cloud: CloudConfig,
+    #[serde(default)]
+    pub updates: UpdatesConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,7 +107,30 @@ pub struct ProviderConfig {
     pub fast_model: String,
     pub balanced_model: String,
     pub powerful_model: String,
+    /// When set, this single model overrides all three tiers so the app uses
+    /// exactly one model for every AI feature. Falls back to the per-tier
+    /// fields when empty.
+    #[serde(default)]
+    pub selected_model: Option<String>,
     pub base_url: Option<String>,
+}
+
+impl ProviderConfig {
+    /// Resolve the effective (fast, balanced, powerful) model triplet.
+    /// If `selected_model` is configured, it replaces all three tiers.
+    pub fn effective_models(&self) -> (String, String, String) {
+        if let Some(m) = &self.selected_model {
+            let trimmed = m.trim();
+            if !trimmed.is_empty() {
+                return (trimmed.to_string(), trimmed.to_string(), trimmed.to_string());
+            }
+        }
+        (
+            self.fast_model.clone(),
+            self.balanced_model.clone(),
+            self.powerful_model.clone(),
+        )
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -102,11 +167,28 @@ pub struct EditorConfig {
     #[serde(default = "default_enabled")]
     pub word_wrap: bool,
     #[serde(default = "default_enabled")]
-    pub ai_code_completion: bool,
-    #[serde(default = "default_enabled")]
-    pub ai_suggestions: bool,
+    pub ai_live_suggestions: bool,
     #[serde(default = "default_enabled")]
     pub indent_markers: bool,
+    #[serde(default = "default_enabled")]
+    pub lsp_enabled: bool,
+    #[serde(default)]
+    pub font_size: u32,
+}
+
+impl Default for EditorConfig {
+    fn default() -> Self {
+        Self {
+            theme: "dracula".to_string(),
+            show_minimap: true,
+            git_gui_mode: "tab".to_string(),
+            word_wrap: true,
+            ai_live_suggestions: true,
+            indent_markers: true,
+            lsp_enabled: true,
+            font_size: 14,
+        }
+    }
 }
 
 impl Default for AppConfig {
@@ -137,6 +219,7 @@ impl Default for AppConfig {
                     fast_model: "llama-3.2-3b-preview".to_string(),
                     balanced_model: "llama-3.3-70b-versatile".to_string(),
                     powerful_model: "deepseek-r1-distill-llama-70b".to_string(),
+                    selected_model: None,
                     base_url: Some("https://api.groq.com/openai/v1".to_string()),
                 },
                 anthropic: ProviderConfig {
@@ -144,6 +227,7 @@ impl Default for AppConfig {
                     fast_model: "claude-haiku-4-5-20251015".to_string(),
                     balanced_model: "claude-sonnet-4-6-20260217".to_string(),
                     powerful_model: "claude-opus-4-7-20260416".to_string(),
+                    selected_model: None,
                     base_url: None,
                 },
                 openai: ProviderConfig {
@@ -151,6 +235,7 @@ impl Default for AppConfig {
                     fast_model: "gpt-5-mini".to_string(),
                     balanced_model: "gpt-5.4-mini".to_string(),
                     powerful_model: "gpt-5.5".to_string(),
+                    selected_model: None,
                     base_url: None,
                 },
                 gemini: ProviderConfig {
@@ -158,20 +243,23 @@ impl Default for AppConfig {
                     fast_model: "gemini-3.1-flash-lite".to_string(),
                     balanced_model: "gemini-3.5-flash".to_string(),
                     powerful_model: "gemini-3.1-pro".to_string(),
+                    selected_model: None,
                     base_url: None,
                 },
                 nvidia: ProviderConfig {
                     enabled: false,
                     fast_model: "meta/llama-3.1-8b-instruct".to_string(),
-                    balanced_model: "meta/llama-4-scout-17b-16e-instruct".to_string(),
-                    powerful_model: "meta/llama-3.1-405b-instruct".to_string(),
+                    balanced_model: "meta/llama-3.1-8b-instruct".to_string(),
+                    powerful_model: "meta/llama-3.1-8b-instruct".to_string(),
+                    selected_model: None,
                     base_url: Some("https://integrate.api.nvidia.com/v1".to_string()),
                 },
                 ollama: ProviderConfig {
                     enabled: false,
                     fast_model: "llama3.2:3b".to_string(),
-                    balanced_model: "llama3.1:8b".to_string(),
-                    powerful_model: "llama3.1:70b".to_string(),
+                    balanced_model: "llama3.2:3b".to_string(),
+                    powerful_model: "llama3.2:3b".to_string(),
+                    selected_model: None,
                     base_url: Some("http://localhost:11434".to_string()),
                 },
             },
@@ -195,9 +283,21 @@ impl Default for AppConfig {
                 show_minimap: true,
                 git_gui_mode: "tab".to_string(),
                 word_wrap: true,
-                ai_code_completion: true,
-                ai_suggestions: true,
+                ai_live_suggestions: true,
                 indent_markers: true,
+                lsp_enabled: true,
+                font_size: 14,
+            },
+            cloud: CloudConfig {
+                auto_sync: false,
+                api_base_url:
+                    "https://yybxsggbvuzjzlwlwbtv.supabase.co/functions/v1/aurora-api"
+                        .to_string(),
+                synced: true,
+            },
+            updates: UpdatesConfig {
+                enabled: true,
+                check_interval_hours: 24,
             },
         }
     }

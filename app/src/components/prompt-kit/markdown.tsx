@@ -32,15 +32,15 @@ const INITIAL_COMPONENTS: Partial<Components> = {
 
     if (isInline) {
       return (
-        <span
+        <code
           className={cn(
-            "bg-primary-foreground rounded-sm px-1 font-mono text-sm",
+            "bg-[#1A2230] text-[#E8EAF0] rounded-sm px-1.5 py-0.5 font-mono text-[12px] border border-white/[0.06]",
             className
           )}
           {...props}
         >
           {children}
-        </span>
+        </code>
       )
     }
 
@@ -54,6 +54,38 @@ const INITIAL_COMPONENTS: Partial<Components> = {
   },
   pre: function PreComponent({ children }) {
     return <>{children}</>
+  },
+  // Tables: fixed layout at 100% width so columns always fit the available
+  // space and cells wrap — no horizontal scroll for wide tables.
+  table: function TableComponent({ children, ...props }) {
+    return (
+      <table
+        className="w-full table-fixed border-collapse my-2 text-[13px]"
+        {...props}
+      >
+        {children}
+      </table>
+    )
+  },
+  th: function ThComponent({ children, ...props }) {
+    return (
+      <th
+        className="border border-white/[0.08] bg-white/[0.04] px-2.5 py-1.5 text-left font-semibold text-on-surface/90 break-words align-top"
+        {...props}
+      >
+        {children}
+      </th>
+    )
+  },
+  td: function TdComponent({ children, ...props }) {
+    return (
+      <td
+        className="border border-white/[0.06] px-2.5 py-1.5 text-on-surface/75 align-top break-words"
+        {...props}
+      >
+        {children}
+      </td>
+    )
   },
 }
 
@@ -73,9 +105,6 @@ const MemoizedMarkdownBlock = memo(
         {content}
       </ReactMarkdown>
     )
-  },
-  function propsAreEqual(prevProps, nextProps) {
-    return prevProps.content === nextProps.content
   }
 )
 

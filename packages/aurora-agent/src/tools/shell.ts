@@ -458,7 +458,10 @@ export function createShellTool(role: AgentRole) {
           command: input.command.slice(0, 200),
           role,
         });
-        return { success: false, error: 'User rejected or cancelled command execution.' };
+        return {
+          success: false,
+          error: resumeData.stderr?.trim() || 'User rejected or cancelled command execution.',
+        };
       }
 
       toolLog.info('Shell command result received', {

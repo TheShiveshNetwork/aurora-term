@@ -86,10 +86,11 @@ export function AgentPromptInput({
     ? Array.from(
       new Set(
         [
+          currentProviderConfig.selectedModel,
           currentProviderConfig.fastModel,
           currentProviderConfig.balancedModel,
           currentProviderConfig.powerfulModel,
-        ].filter(Boolean)
+        ].filter((m): m is string => Boolean(m))
       )
     )
     : [];

@@ -157,17 +157,7 @@ export function MergeEditor({ filePath, cwd, onClose, onSave }: MergeEditorProps
 
     let cancelled = false;
 
-    Promise.all([
-      import("codemirror"),
-      import("@codemirror/state"),
-      import("@codemirror/view"),
-      getLanguageExtension(filePath),
-    ]).then(([
-      { basicSetup, EditorView: EditorViewClass },
-      { EditorState },
-      { EditorView: EditorViewClass2 },
-      langExt,
-    ]) => {
+    getLanguageExtension(filePath).then((langExt) => {
       if (cancelled) return;
 
       const baseExt = [
@@ -182,11 +172,11 @@ export function MergeEditor({ filePath, cwd, onClose, onSave }: MergeEditorProps
           doc: parsedData.ours,
           extensions: [
             ...baseExt,
-            EditorViewClass2.editable.of(false),
+            EditorView.editable.of(false),
             EditorState.readOnly.of(true),
             READONLY_EDITOR_THEME,
             themeCompartmentOurs.current.of([]),
-            wordWrapCompartmentOurs.current.of(wordWrap ? EditorViewClass2.lineWrapping : []),
+            wordWrapCompartmentOurs.current.of(wordWrap ? EditorView.lineWrapping : []),
           ],
         }),
         parent: mountOursRef.current!,
@@ -199,11 +189,11 @@ export function MergeEditor({ filePath, cwd, onClose, onSave }: MergeEditorProps
           doc: parsedData.theirs,
           extensions: [
             ...baseExt,
-            EditorViewClass2.editable.of(false),
+            EditorView.editable.of(false),
             EditorState.readOnly.of(true),
             READONLY_EDITOR_THEME,
             themeCompartmentTheirs.current.of([]),
-            wordWrapCompartmentTheirs.current.of(wordWrap ? EditorViewClass2.lineWrapping : []),
+            wordWrapCompartmentTheirs.current.of(wordWrap ? EditorView.lineWrapping : []),
           ],
         }),
         parent: mountTheirsRef.current!,
@@ -211,7 +201,7 @@ export function MergeEditor({ filePath, cwd, onClose, onSave }: MergeEditorProps
       viewTheirsRef.current = viewTheirs;
 
       // 3. Result Editor (Editable, with merge conflict resolution widgets)
-      const updateListener = EditorViewClass2.updateListener.of((update) => {
+      const updateListener = EditorView.updateListener.of((update) => {
         if (update.docChanged) {
           const text = update.state.doc.toString();
           setConflictCount(countConflicts(text));
@@ -226,7 +216,7 @@ export function MergeEditor({ filePath, cwd, onClose, onSave }: MergeEditorProps
             updateListener,
             mergeConflictResolver(),
             themeCompartmentResult.current.of([]),
-            wordWrapCompartmentResult.current.of(wordWrap ? EditorViewClass2.lineWrapping : []),
+            wordWrapCompartmentResult.current.of(wordWrap ? EditorView.lineWrapping : []),
           ],
         }),
         parent: mountResultRef.current!,
@@ -278,17 +268,15 @@ export function MergeEditor({ filePath, cwd, onClose, onSave }: MergeEditorProps
     const vR = viewResultRef.current;
     if (!vO || !vT || !vR) return;
 
-    import("@codemirror/view").then(({ EditorView }) => {
-      if (viewOursRef.current === vO) {
-        vO.dispatch({ effects: wordWrapCompartmentOurs.current.reconfigure(wordWrap ? EditorView.lineWrapping : []) });
-      }
-      if (viewTheirsRef.current === vT) {
-        vT.dispatch({ effects: wordWrapCompartmentTheirs.current.reconfigure(wordWrap ? EditorView.lineWrapping : []) });
-      }
-      if (viewResultRef.current === vR) {
-        vR.dispatch({ effects: wordWrapCompartmentResult.current.reconfigure(wordWrap ? EditorView.lineWrapping : []) });
-      }
-    });
+    if (viewOursRef.current === vO) {
+      vO.dispatch({ effects: wordWrapCompartmentOurs.current.reconfigure(wordWrap ? EditorView.lineWrapping : []) });
+    }
+    if (viewTheirsRef.current === vT) {
+      vT.dispatch({ effects: wordWrapCompartmentTheirs.current.reconfigure(wordWrap ? EditorView.lineWrapping : []) });
+    }
+    if (viewResultRef.current === vR) {
+      vR.dispatch({ effects: wordWrapCompartmentResult.current.reconfigure(wordWrap ? EditorView.lineWrapping : []) });
+    }
   }, [wordWrap]);
 
   // ── vertical resize: top (ours/theirs) vs bottom (result) ──────────────

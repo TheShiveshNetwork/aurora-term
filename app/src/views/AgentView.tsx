@@ -15,6 +15,8 @@ import { StatusDrawer } from "../components/agents/StatusDrawer";
 import { AgentPromptInput, AttachedFile } from "../components/agents/AgentPromptInput";
 import { useVoiceInput } from "../hooks/useVoiceInput";
 import { system } from "../lib/ipc";
+import { resolveSlashCommand } from "../lib/agentSlash";
+import { useSessionStore } from "../stores/useSessionStore";
 
 // Import prompt-kit components
 import {
@@ -28,6 +30,8 @@ import { FileUpload, FileUploadContent } from "../components/prompt-kit/file-upl
 
 // Import agent components
 import { AgentTurnMessage } from "../components/agents";
+import { CommandApprovalCard } from "../components/agents/CommandApprovalCard";
+import { QuestionApprovalCard } from "../components/agents/QuestionApprovalCard";
 import type { ChatMessage } from "../stores/useAgentStore";
 
 export function AgentView() {
@@ -97,6 +101,7 @@ export function AgentView() {
   const {
     startTask,
     status,
+    queue,
     chatHistory,
     retryTask,
     approveAndRunPending,
@@ -107,6 +112,7 @@ export function AgentView() {
     stepCount,
     maxSteps,
     activeSubagent,
+    pendingToolCall,
   } = useAgentExecution(targetSessionId);
 
   const sessionState = targetSessionId ? sessions[targetSessionId] || CONST_DEFAULT_SESSION_STATE : CONST_DEFAULT_SESSION_STATE;
@@ -121,7 +127,7 @@ export function AgentView() {
     }
   }, [targetSessionId]);
 
-  const handleSend = useCallback(() => {
+  const handleSend = useCallback(async () => {
     const trimmed = input.trim();
     if (!trimmed || isThinking) return;
 
@@ -130,6 +136,24 @@ export function AgentView() {
 
     if (sessionState.pendingToolCall?.name === "ask_user") {
       submitAnswer(trimmed);
+      return;
+    }
+
+    // Slash-command dispatch (/skills /mcp /btw /file)
+    const slash = await resolveSlashCommand(trimmed, {
+      cwd: useAppShellStore.getState().projectDir || useAppShellStore.getState().cwdAbsolute,
+      sessionId: targetSessionId,
+      model: selectedModel,
+      isTaskRunning: isThinking,
+    });
+    if (slash.handled) {
+      if (slash.assistantMessage && targetSessionId) {
+        const store = useAgentStore.getState();
+        store.addChatMessage(targetSessionId, { role: "user", content: trimmed, agentType: "developer" });
+        store.addChatMessage(targetSessionId, { role: "assistant", content: slash.assistantMessage, agentType: "developer" });
+      } else if (slash.goal && targetSessionId) {
+        startTask(slash.goal, "developer", selectedModel);
+      }
       return;
     }
 
@@ -146,9 +170,26 @@ export function AgentView() {
     }
   }, [input, isThinking, attachedFiles, startTask, selectedModel, sessionState.pendingToolCall, submitAnswer, targetSessionId]);
 
-  const handleHeroSend = useCallback((text: string, files?: AttachedFile[]) => {
+  const handleHeroSend = useCallback(async (text: string, files?: AttachedFile[]) => {
     if (isThinking) return;
     useAppShellStore.getState().setViewMode("agent");
+
+    const slash = await resolveSlashCommand(text, {
+      cwd: useAppShellStore.getState().projectDir || useAppShellStore.getState().cwdAbsolute,
+      sessionId: targetSessionId,
+      model: selectedModel,
+      isTaskRunning: isThinking,
+    });
+    if (slash.handled) {
+      if (slash.assistantMessage && targetSessionId) {
+        const store = useAgentStore.getState();
+        store.addChatMessage(targetSessionId, { role: "user", content: text, agentType: "developer" });
+        store.addChatMessage(targetSessionId, { role: "assistant", content: slash.assistantMessage, agentType: "developer" });
+      } else if (slash.goal && targetSessionId) {
+        startTask(slash.goal, "developer", selectedModel);
+      }
+      return;
+    }
 
     let finalPrompt = text;
     if (files && files.length > 0) {
@@ -198,17 +239,93 @@ export function AgentView() {
     }
   };
 
+  // Auto-open a diff tab when the developer agent proposes a file write/patch
+  useEffect(() => {
+    const handler = async (e: Event) => {
+      const { path, type, newContent, search, replace } = (e as CustomEvent).detail;
+      if (!path) return;
+      const fileName = path.split(/[/\\]/).pop() || path;
+      try {
+        let oldContent = "";
+        const exists = await system.pathExists(path);
+        if (exists) {
+          oldContent = await system.readFileContent(path);
+        }
+        let resolvedNew = newContent || "";
+        if (type === "patch" && search) {
+          resolvedNew = oldContent.replace(search, replace || "");
+        }
+        const sessionStore = useSessionStore.getState();
+        const existingTab = sessionStore.tabs.find(
+          (t) => t.type === "diff" && t.filePath === path && t.diffCommitHash === "pending-agent-change"
+        );
+        if (existingTab) {
+          sessionStore.updateTab(existingTab.id, {
+            diffOldContent: oldContent,
+            diffNewContent: resolvedNew,
+          });
+          sessionStore.setActiveTabId(existingTab.id);
+        } else {
+          const tabId = `diff-agent-${Date.now()}`;
+          sessionStore.addTab({
+            id: tabId,
+            name: `⚙ Draft: ${fileName}`,
+            type: "diff",
+            filePath: path,
+            diffOldContent: oldContent,
+            diffNewContent: resolvedNew,
+            diffCommitHash: "pending-agent-change",
+            created_at: Date.now(),
+          });
+          // Explicitly set as active tab even if another tab is open
+          sessionStore.setActiveTabId(tabId);
+        }
+      } catch (err) {
+        console.warn("Failed to auto-open agent diff:", err);
+      }
+    };
+    window.addEventListener("aurora-agent-file-change", handler);
+    return () => window.removeEventListener("aurora-agent-file-change", handler);
+  }, []);
+
+  // Close pending-agent-change diff tabs after approve/reject
+  useEffect(() => {
+    const closeHandler = (e: Event) => {
+      const { path } = (e as CustomEvent).detail;
+      if (!path) return;
+      const sessionStore = useSessionStore.getState();
+      const tab = sessionStore.tabs.find(
+        (t) => t.type === "diff" && t.filePath === path && t.diffCommitHash === "pending-agent-change"
+      );
+      if (tab) {
+        sessionStore.removeTab(tab.id);
+      }
+    };
+    window.addEventListener("aurora-close-agent-diff", closeHandler);
+    return () => window.removeEventListener("aurora-close-agent-diff", closeHandler);
+  }, []);
+
   const showEmptyState = chatHistory.length === 0 && !isThinking;
 
-  // Pair chat history into turns (user + optional assistant)
-  const turns: Array<{ user: ChatMessage; assistant: ChatMessage | null }> = [];
-  for (let idx = 0; idx < chatHistory.length; idx++) {
+  // Pair chat history into turns, supporting standalone assistant messages/errors
+  const turns: Array<{ user: ChatMessage | null; assistant: ChatMessage | null }> = [];
+  let idx = 0;
+  while (idx < chatHistory.length) {
     const msg = chatHistory[idx];
     if (msg.role === "user") {
       const next = chatHistory[idx + 1];
-      const assistant = next?.role === "assistant" ? next : null;
-      turns.push({ user: msg, assistant });
-      if (assistant) idx++;
+      if (next?.role === "assistant") {
+        turns.push({ user: msg, assistant: next });
+        idx += 2;
+      } else {
+        turns.push({ user: msg, assistant: null });
+        idx += 1;
+      }
+    } else if (msg.role === "assistant") {
+      turns.push({ user: null, assistant: msg });
+      idx += 1;
+    } else {
+      idx += 1;
     }
   }
   const lastTurnIndex = turns.length - 1;
@@ -368,7 +485,7 @@ export function AgentView() {
                       const isLastTurn = idx === lastTurnIndex;
                       return (
                         <AgentTurnMessage
-                          key={turn.user.id}
+                          key={turn.user?.id || turn.assistant?.id || `turn-${idx}`}
                           userMsg={turn.user}
                           assistantMsg={turn.assistant}
                           isThinking={isLastTurn && isThinking}
@@ -411,6 +528,31 @@ export function AgentView() {
                 {/* Input Area */}
                 <div className="shrink-0 pb-3 px-5 w-full">
                   <div className="max-w-[900px] mx-auto w-full flex flex-col overflow-visible">
+                    {/* Command Approval Card when awaiting approval */}
+                    {status === "paused" && (function () {
+                      const pendingCmd = queue.find((c) => c.status === "requires_action");
+                      if (!pendingCmd) return null;
+                      return (
+                        <CommandApprovalCard
+                          className="mb-3"
+                          command={pendingCmd.command}
+                          explanation={pendingCmd.explanation}
+                          onApprove={approveAndRunPending}
+                          onSkip={skipPending}
+                        />
+                      );
+                    })()}
+
+                    {/* Clarifying Question Card */}
+                    {status === "paused" && pendingToolCall?.name === "ask_user" && (
+                      <QuestionApprovalCard
+                        className="mb-3"
+                        question={pendingToolCall.args?.question || "The agent has a clarifying question."}
+                        onAnswer={submitAnswer}
+                        onSkip={skipPending}
+                      />
+                    )}
+
                     {/* Status Drawer inside Input container */}
                     {targetSessionId && showStatusDrawer && (
                       <StatusDrawer

@@ -1,15 +1,19 @@
 import { useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { v4 as uuidv4 } from "uuid";
-import { preloadFileContent, pty } from "../lib/ipc";
+import { preloadFileContent, pty, PtyBusyEvent } from "../lib/ipc";
 import { useSessionStore } from "../stores/useSessionStore";
 import { useBlockStore } from "../stores/useBlockStore";
 import { Tab } from "@aurora/types";
 import { cleanPtyData, stripAnsi } from "../lib/terminal/cleanup";
+import { getDefaultShellLaunch } from "../lib/shell";
+import { registerOpenFile } from "../lib/openFileRef";
+import { normalizePath } from "../lib/fileUtils";
 
 let listenersRegistered = false;
 let unregisterData: (() => void) | null = null;
 let unregisterExit: (() => void) | null = null;
+let unregisterBusy: (() => void) | null = null;
 
 function registerPtyListeners() {
   if (listenersRegistered) return;
@@ -51,6 +55,17 @@ function registerPtyListeners() {
       );
     }
   ).then((unsub) => { unregisterExit = unsub; });
+
+  // Authoritative busy signal from the Rust process watchdog: it walks the
+  // shell's process tree, so it stays "busy" for the entire lifetime of a
+  // foreground command (unlike the prompt sentinel, which is prompt-render only).
+  getCurrentWindow().listen<PtyBusyEvent>(
+    "pty_busy",
+    (event) => {
+      const { session_id, busy } = event.payload;
+      useSessionStore.getState().setSessionBusy(session_id, busy);
+    }
+  ).then((unsub) => { unregisterBusy = unsub; });
 }
 
 export function usePTY() {
@@ -62,8 +77,8 @@ export function usePTY() {
   }, []);
 
   const spawnSession = async (
-    shell: string = "powershell.exe",
-    args: string[] = [],
+    shell: string = getDefaultShellLaunch().shell,
+    args: string[] = getDefaultShellLaunch().args,
     env: Record<string, string> = {},
     cwd?: string,
     existingSessionId?: string
@@ -128,7 +143,8 @@ export function usePTY() {
   };
 
   const openFile = (filePath: string, cwd?: string, options?: { lineNumber?: number; matchStart?: number; matchEnd?: number }) => {
-    const existing = tabs.find(t => t.type === "file" && t.filePath === filePath);
+    const normPath = normalizePath(filePath);
+    const existing = tabs.find(t => t.type === "file" && t.filePath != null && normalizePath(t.filePath) === normPath);
     if (existing) {
       updateTab(existing.id, {
         scrollToLine: options?.lineNumber,
@@ -183,6 +199,10 @@ export function usePTY() {
 
     return fileId;
   };
+
+  useEffect(() => {
+    registerOpenFile(openFile);
+  }, [openFile]);
 
   return {
     tabs,

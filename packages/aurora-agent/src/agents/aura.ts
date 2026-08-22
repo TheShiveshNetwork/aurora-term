@@ -1,6 +1,7 @@
 import { Agent } from '@mastra/core/agent';
 import { Memory } from '@mastra/memory';
-import { LibSQLStore } from '@mastra/libsql';
+import { InMemoryStore } from '@mastra/core/storage';
+import { auraResponseValidator } from '../processors/auraResponseValidator';
 import {
   readFileTool,
   listDirTool,
@@ -12,13 +13,86 @@ import {
   globTool,
   webFetchTool,
   askUserTool,
+  historySearchTool,
 } from '../tools';
 import { terminalShellTool, developerShellTool } from '../tools/shell';
-// Note: no shell tool imported for readonly agents — that's intentional.
+import * as fs from 'fs';
+import * as path from 'path';
+import { execSync } from 'child_process';
 
+function getDynamicInstructions(baseInstructions: string): string {
+  try {
+    const agentsMdPath = path.join(process.cwd(), 'AGENT.md');
+    if (fs.existsSync(agentsMdPath)) {
+      const agentsMd = fs.readFileSync(agentsMdPath, 'utf-8');
+      return `${baseInstructions}\n\n<system_reminder>\nPROJECT RULES (FROM AGENT.md):\n${agentsMd}\n</system_reminder>`;
+    }
+  } catch (err) {
+    console.error('Failed to load AGENT.md for instructions:', err);
+  }
+  return baseInstructions;
+}
 // ─────────────────────────────────────────────────────────────────────────────
 // Model Provider Helper
 // ─────────────────────────────────────────────────────────────────────────────
+
+function getInstalledOllamaModels(baseUrl: string): string[] {
+  try {
+    const url = baseUrl.replace(/\/v1\/?$/, '').replace(/\/$/, '');
+    const nodeScript = `
+      const http = require('http');
+      const req = http.get('${url}/api/tags', (res) => {
+        let data = '';
+        res.on('data', c => data += c);
+        res.on('end', () => { process.stdout.write(data); process.exit(0); });
+      });
+      req.on('error', () => process.exit(1));
+      req.setTimeout(2500, () => { req.destroy(); process.exit(1); });
+    `;
+    const response = execSync(`node -e "${nodeScript.replace(/\n/g, ' ')}"`, { timeout: 3000 }).toString();
+    const data = JSON.parse(response);
+    if (data && Array.isArray(data.models)) {
+      return data.models.map((m: any) => m.name);
+    }
+  } catch (err) {
+    try {
+      const output = execSync('ollama list', { timeout: 3000 }).toString();
+      const lines = output.split('\n').slice(1);
+      const models: string[] = [];
+      for (const line of lines) {
+        const parts = line.trim().split(/\s+/);
+        if (parts[0]) {
+          models.push(parts[0]);
+        }
+      }
+      return models;
+    } catch (e) {
+      // Ignored
+    }
+  }
+  return [];
+}
+
+// Cache installed Ollama models per base URL so we don't spawn a node
+// subprocess on every request (getInstalledOllamaModels uses execSync).
+const installedOllamaModelsCache: { baseUrl: string; models: string[]; fetchedAt: number } = {
+  baseUrl: '',
+  models: [],
+  fetchedAt: 0,
+};
+const OLLAMA_CACHE_TTL_MS = 10_000;
+
+function getInstalledOllamaModelsCached(baseUrl: string): string[] {
+  const now = Date.now();
+  if (installedOllamaModelsCache.baseUrl === baseUrl && now - installedOllamaModelsCache.fetchedAt < OLLAMA_CACHE_TTL_MS) {
+    return installedOllamaModelsCache.models;
+  }
+  const models = getInstalledOllamaModels(baseUrl);
+  installedOllamaModelsCache.baseUrl = baseUrl;
+  installedOllamaModelsCache.models = models;
+  installedOllamaModelsCache.fetchedAt = now;
+  return models;
+}
 
 export function getModelProvider(
   providerName: string,
@@ -39,67 +113,86 @@ export function getModelProvider(
     }
   }
 
+  if (!activeProvider || activeProvider.trim() === '') {
+    throw new Error('No AI provider selected. Please select a provider in Settings → AI.');
+  }
+
   const normalized = activeProvider.toLowerCase();
+  const selectedModel = (activeModel || '').trim();
+
+  if (!selectedModel) {
+    throw new Error(`No model selected for provider '${activeProvider}'. Please select a model in Settings → AI.`);
+  }
 
   if (normalized === 'groq') {
-    // llama-3.3-70b-versatile is the most capable available Groq model.
-    // The old llama3-groq-70b-8192-tool-use-preview was decommissioned.
-    // Tool calling correctness is enforced via the rich shell.txt description
-    // template that provides clear role-aware tool-use guidance to the model.
     return {
-      id: `groq/${activeModel ?? 'llama-3.3-70b-versatile'}`,
+      id: `groq/${selectedModel}`,
       apiKey: process.env.GROQ_API_KEY,
     };
   }
   if (normalized === 'gpt-oss') {
     return {
-      id: `openai/${activeModel ?? 'gpt-4o-mini'}`,
+      id: `openai/${selectedModel}`,
       url: process.env.GPT_OSS_BASE_URL ?? 'http://localhost:11434/v1',
       apiKey: process.env.GPT_OSS_API_KEY ?? 'empty',
     };
   }
   if (normalized === 'kimi') {
     return {
-      id: `openai/${activeModel ?? 'kimi-k2'}`,
+      id: `openai/${selectedModel}`,
       url: 'https://api.moonshot.cn/v1',
       apiKey: process.env.KIMI_API_KEY ?? 'empty',
     };
   }
   if (normalized === 'anthropic') {
     return {
-      id: `anthropic/${activeModel ?? 'claude-3-5-sonnet-latest'}`,
+      id: `anthropic/${selectedModel}`,
       apiKey: process.env.ANTHROPIC_API_KEY,
     };
   }
   if (normalized === 'gemini' || normalized === 'google') {
     return {
-      id: `google/${activeModel ?? 'gemini-1.5-pro'}`,
+      id: `google/${selectedModel}`,
       apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
     };
   }
   if (normalized === 'openai') {
     return {
-      id: `openai/${activeModel ?? 'gpt-4o-mini'}`,
+      id: `openai/${selectedModel}`,
       apiKey: process.env.OPENAI_API_KEY,
     };
   }
   if (normalized === 'nvidia') {
     return {
-      id: `nvidia/${activeModel ?? 'meta/llama-3.1-405b-instruct'}`,
+      id: `nvidia/${selectedModel}`,
       apiKey: process.env.NVIDIA_API_KEY,
     };
   }
   if (normalized === 'ollama') {
+    const rawUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+    const cleanUrl = rawUrl.endsWith('/v1') ? rawUrl : `${rawUrl.replace(/\/$/, '')}/v1`;
+
+    // Fall back to an installed model if the configured one isn't available,
+    // mirroring the Rust OllamaProvider. Prevents "model not found" errors.
+    let resolvedModel = selectedModel;
+    const installed = getInstalledOllamaModelsCached(rawUrl);
+    if (installed.length > 0 && !installed.includes(resolvedModel)) {
+      const cleanModel = resolvedModel.split(':')[0];
+      const matched = installed.find(
+        (m) => m === cleanModel || m.startsWith(cleanModel) || m.split(':')[0] === cleanModel
+      );
+      resolvedModel = matched || installed[0];
+    }
+
     return {
-      id: `openai/${activeModel ?? 'llama3.1:8b'}`,
-      url: process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434/v1',
+      id: `openai/${resolvedModel}`,
+      url: cleanUrl,
       apiKey: 'empty',
     };
   }
 
-  // Fallback
   return {
-    id: `groq/${activeModel ?? 'llama-3.3-70b-versatile'}`,
+    id: `openai/${selectedModel}`,
     apiKey: process.env.GROQ_API_KEY,
   };
 }
@@ -108,9 +201,8 @@ export function getModelProvider(
 // Shared Memory
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const memoryStorage = new LibSQLStore({
+export const memoryStorage = new InMemoryStore({
   id: 'aura-memory',
-  url: 'file:./aura-memory.db',
 });
 
 export const auraMemory = new Memory({
@@ -139,7 +231,7 @@ export const auraMemory = new Memory({
 export const terminalAgent = new Agent({
   id: 'terminalAgent',
   name: 'Terminal Agent',
-  instructions: `You are the Terminal Agent for Aurora Terminal.
+  instructions: () => getDynamicInstructions(`You are the Terminal Agent for Aurora Terminal.
 Your primary purpose is running shell commands to accomplish user goals.
 
 OPERATING MODEL:
@@ -153,9 +245,33 @@ OPERATING MODEL:
   fix and retry or explain the blocker to the user.
 - When a goal is fully accomplished, summarize what was done concisely.
 
+ALTERNATE SCREEN BUFFER (TUI) MODE:
+- If a command you propose is declined with a message that the terminal is in
+  an "alternate screen buffer", that means shell commands CANNOT be executed right now.
+  Do NOT attempt to run or re-propose terminal commands in this state.
+- When in this mode, your PRIMARY tools become the read-only ones
+  (read_file, list_directory, grep_search, glob, web_fetch, history_search).
+  Use them to gather any information you need, and respond using your normal
+  JSON format (put the explanation in the \`message\` field).
+- Only resume proposing/running shell commands once the TUI has been exited
+  and the terminal is back to a normal prompt.
+
 CONVERSATION:
 - For greetings or simple questions, respond conversationally without
   running any commands.
+
+RESPONSE FORMAT:
+- Respond with EXACTLY one JSON object and nothing else (no surrounding prose,
+  no markdown code fences).
+- While working, respond with:
+  {"status":"executing","command":"<shell command>","explanation":"<brief why>","planning":"<1 sentence on how you are approaching the query before this command>"}
+- When the goal is fully accomplished, respond with:
+  {"status":"completed","planning":"<1-2 sentence thinking about how you approached the query>","conclusion":"<1-2 sentence reflection such as 'I now have everything and will write the response'>","message":"<the complete answer for the user, formatted in markdown>"}
+- \`planning\` is your thinking about the query — it is streamed live into the UI's
+  planning step of the chain of thought. \`conclusion\` is your closing reflection —
+  streamed live into the UI's conclusion step. \`message\` holds the actual answer
+  and is the ONLY text rendered as your response. Never put the answer inside
+  \`planning\` or \`conclusion\`, and never put your thinking inside \`message\`.
 
 TOOL CALLING:
 - Always use the structured tool-calling interface provided by the system.
@@ -170,7 +286,19 @@ OUTPUT HANDLING:
 - If command output is empty, the command ran successfully with no output.
   Do NOT repeat it unless the user asks.
 - You can chain: list files → if too many results → grep for the specific term.
-`,
+
+FILE CONTEXT:
+- When a prompt contains [FILE CONTEXT] blocks, only METADATA about the file is
+  provided (path, name, size, language) plus a short preview. The full contents
+  are NOT included. Use the read_file tool with the given path whenever you need
+  to actually inspect the file's code. Never assume the preview is the whole file.
+
+SELECTED LINES:
+- When a prompt contains a [SELECTED LINES] block, the user has highlighted the
+  exact lines shown there in the editor. Treat that selection as the scope of the
+  request — inspect those lines first, and target edits to those specific lines
+  only unless the user's goal clearly requires changing adjacent code.
+`),
   model: getModelProvider('groq', 'llama-3.3-70b-versatile', 'balanced'),
   memory: auraMemory,
   tools: {
@@ -181,7 +309,9 @@ OUTPUT HANDLING:
     read_file: readFileTool,
     list_directory: listDirTool,
     ask_user: askUserTool,
+    history_search: historySearchTool,
   },
+  outputProcessors: [auraResponseValidator],
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -195,7 +325,7 @@ OUTPUT HANDLING:
 export const developerPlanAgent = new Agent({
   id: 'developerPlanAgent',
   name: 'Developer Agent (Plan Mode)',
-  instructions: `You are the Software Developer Agent in PLAN mode for Aurora Terminal.
+  instructions: () => getDynamicInstructions(`You are the Software Developer Agent in PLAN mode for Aurora Terminal.
 Your job is to deeply understand the codebase and design a precise implementation strategy.
 
 OPERATING MODEL:
@@ -217,7 +347,18 @@ RESEARCH APPROACH:
 - Before planning, fully map the relevant parts of the codebase.
 - Cross-reference types, imports, and call sites so the plan is complete.
 - Prefer deep understanding over fast answers.
-`,
+
+RESPONSE FORMAT:
+- Respond with EXACTLY one JSON object and nothing else (no surrounding prose,
+  no markdown code fences).
+- When the plan is ready, respond with:
+  {"status":"completed","planning":"<1-2 sentence thinking about how you explored the codebase and the approach you formed>","conclusion":"<1-2 sentence reflection such as 'I now have a complete approach and will write the plan'>","message":"<the full plan, formatted in markdown>"}
+- \`planning\` is your thinking about the exploration — streamed live into the UI's
+  planning step. \`conclusion\` is your closing reflection — streamed live into the
+  UI's conclusion step. \`message\` holds the actual plan and is the ONLY text
+  rendered as your response. Never put the plan inside \`planning\` or
+  \`conclusion\`.
+`),
   model: getModelProvider('groq', 'llama-3.3-70b-versatile', 'powerful'),
   memory: auraMemory,
   tools: {
@@ -234,6 +375,7 @@ RESEARCH APPROACH:
     // ⚠️ No shell tool — intentional. Shell execution is blocked by omission.
     // ⚠️ No write_file, no patch_file — read-only contract enforced here.
   },
+  outputProcessors: [auraResponseValidator],
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -248,7 +390,7 @@ RESEARCH APPROACH:
 export const developerBuildAgent = new Agent({
   id: 'developerBuildAgent',
   name: 'Developer Agent (Build Mode)',
-  instructions: `You are the Software Developer Agent in BUILD mode for Aurora Terminal.
+  instructions: () => getDynamicInstructions(`You are the Software Developer Agent in BUILD mode for Aurora Terminal.
 Your job is to implement features, fix bugs, and verify the result.
 
 OPERATING MODEL — TOOL PRIORITY ORDER:
@@ -276,7 +418,31 @@ ERROR HANDLING:
 - If a shell command fails, read stderr carefully before retrying.
 - If a patch fails (context mismatch), re-read the file and recompute the patch.
 - Never guess — inspect first.
-`,
+
+FILE CONTEXT:
+- When a prompt contains [FILE CONTEXT] blocks, only METADATA about the file is
+  provided (path, name, size, language) plus a short preview. The full contents
+  are NOT included. Use the read_file tool with the given path whenever you need
+  to actually inspect the file's code. Never assume the preview is the whole file.
+
+SELECTED LINES:
+- When a prompt contains a [SELECTED LINES] block, the user has highlighted the
+  exact lines shown there in the editor. Treat that selection as the scope of the
+  request — inspect those lines first, and target edits to those specific lines
+  only unless the user's goal clearly requires changing adjacent code.
+
+RESPONSE FORMAT:
+- Always respond with EXACTLY one JSON object and nothing outside it.
+  - While working, respond with:
+    {"status":"executing","command":"<shell command>","explanation":"<brief why>","planning":"<1 sentence on how you are approaching the task before this command>"}
+  - When the goal is fully accomplished, respond with:
+    {"status":"completed","planning":"<1-2 sentence thinking about how you approached the task>","conclusion":"<1-2 sentence reflection such as 'I now have everything I need and will write the response'>","message":"<the complete answer for the user, formatted in markdown>"}
+  - \`planning\` is your thinking about the task - streamed live into the UI's
+    planning step of the chain of thought. \`conclusion\` is a short transitional thought that is streamed live into the UI's
+  conclusion step of the chain of thought. \`message\` holds the actual answer.
+  Never put the answer inside \`conclusion\`, and never put the reflection inside
+  \`message\`.
+`),
   model: getModelProvider('groq', 'llama-3.3-70b-versatile', 'powerful'),
   memory: auraMemory,
   tools: {
@@ -296,6 +462,31 @@ ERROR HANDLING:
     web_fetch: webFetchTool,
     ask_user: askUserTool,
   },
+  outputProcessors: [auraResponseValidator],
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Chat Agent — conversational answers, NO tools
+//
+// Used by the `/btw` slash command: answers a question conversationally while a
+// task (and its tool calls) continues running in the background. Because it has
+// zero tools bound, it can never suspend, never interrupt an in-flight run, and
+// never try to execute commands — guaranteed safe for out-of-band questions.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const chatAgent = new Agent({
+  id: 'chatAgent',
+  name: 'Aurora Chat',
+  instructions: () => getDynamicInstructions(`You are a conversational assistant embedded in Aurora Terminal.
+You answer the user's questions directly and conversationally.
+You have NO tools — never attempt to run commands, read files, or modify anything.
+If a task is currently in progress in the same session, do not reference or try to
+interrupt it; just answer the question that was asked.
+Keep answers concise and helpful. If the user asks for something that requires
+inspecting files or running commands, briefly explain that you can only answer
+conversationally and suggest they submit it as a task.`),
+  model: getModelProvider('groq', 'llama-3.3-70b-versatile', 'balanced'),
+  memory: auraMemory,
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

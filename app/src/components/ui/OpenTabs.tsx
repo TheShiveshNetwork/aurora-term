@@ -145,6 +145,19 @@ export function OpenTabs({ onKillTab }: OpenTabsProps) {
     setRenameTabId(null);
   };
 
+  // Scroll active tab into view when it changes
+  useEffect(() => {
+    if (!activeTabId) return;
+    const t = setTimeout(() => {
+      const container = containerRef.current;
+      if (!container) return;
+      const activeEl = container.querySelector<HTMLElement>(`[data-tabrow-idx="${tabs.findIndex((tab) => tab.id === activeTabId)}"]`);
+      if (!activeEl) return;
+      activeEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }, 50);
+    return () => clearTimeout(t);
+  }, [activeTabId, tabs]);
+
   // Close context menu on outside click
   useEffect(() => {
     const close = () => {

@@ -3,6 +3,8 @@ import { Tab } from "@aurora/types";
 
 import { FileViewer } from "../components/editor/FileViewer";
 import { EmptyState } from "../components/ui/EmptyState";
+import { useSettingsStore } from "../stores/useSettingsStore";
+import { KEYBINDING_IDS, getEffectiveKeybinding } from "../lib/keybindings";
 import auroraIcon from "/static/aurora-icon.png";
 
 interface FileWorkspaceViewProps {
@@ -12,6 +14,11 @@ interface FileWorkspaceViewProps {
 }
 
 export function FileWorkspaceView({ tab, onOpenFile, onOpenFolder }: FileWorkspaceViewProps) {
+  const keybindingOverrides = useSettingsStore((state) => state.keybindingOverrides);
+  const openFileKeys = getEffectiveKeybinding(KEYBINDING_IDS.openFile, keybindingOverrides);
+  const openFolderKeys = getEffectiveKeybinding(KEYBINDING_IDS.openFolder, keybindingOverrides);
+  const commandPaletteKeys = getEffectiveKeybinding(KEYBINDING_IDS.commandPalette, keybindingOverrides);
+
   return tab.filePath ? (
     <div className="relative h-full">
       <FileViewer tabId={tab.id} filePath={tab.filePath} fileName={tab.name} />
@@ -39,8 +46,8 @@ export function FileWorkspaceView({ tab, onOpenFile, onOpenFolder }: FileWorkspa
           Get Started
         </span>
         <div className="flex gap-4">
-          <ViewOptionButton label="Open File" icon={<FileText className="text-on-primary" />} onClick={onOpenFile} keymap="Ctrl + O" />
-          <ViewOptionButton label="Open Folder" icon={<FolderOpen className="text-on-secondary" />} onClick={onOpenFolder} keymap="Ctrl + Shift + O" />
+          <ViewOptionButton label="Open File" icon={<FileText className="text-on-primary" />} onClick={onOpenFile} keymap={openFileKeys} />
+          <ViewOptionButton label="Open Folder" icon={<FolderOpen className="text-on-secondary" />} onClick={onOpenFolder} keymap={openFolderKeys} />
           <ViewOptionButton label="Clone Repository" icon={<GitBranch className="text-on-secondary" />} onClick={() => { /* TODO */ }} keymap="Ctrl + Shift + Alt + C" />
           {/* TODO: <ViewOptionButton label="Connect Remote" icon={<MonitorSmartphone className="text-on-secondary" />}} keymap="Ctrl + Shift + O" /> */}
         </div>
@@ -57,7 +64,7 @@ export function FileWorkspaceView({ tab, onOpenFile, onOpenFolder }: FileWorkspa
           <div className="flex gap-3 items-start">
             <span className="text-gray-500"><Palette size={16} /></span>
             <p>
-              Use the command palette <span className="text-gray-300 font-mono bg-white/[0.03] px-1 py-0.5 rounded border border-white/5">Ctrl + P</span> to access all features.
+              Use the command palette <span className="text-gray-300 font-mono bg-white/[0.03] px-1 py-0.5 rounded border border-white/5">{commandPaletteKeys}</span> to access all features.
             </p>
           </div>
           <div className="flex gap-3 items-start">
@@ -105,14 +112,17 @@ function ViewOptionButton({
 
         {keymap && (
           <div className="flex items-center gap-1 text-[11px] font-mono text-gray-500 tracking-wide">
-            {keymap.split(" + ").map((key, index, array) => (
-              <span key={key} className="flex items-center gap-1">
-                <kbd className="px-1.5 py-0.5 rounded bg-white/[0.03] border border-white/5 text-gray-400 shadow-sm">
-                  {key}
-                </kbd>
-                {index < array.length - 1 && <span className="text-gray-600 font-sans">+</span>}
-              </span>
-            ))}
+            {keymap.split("+").map((key, index, array) => {
+              const k = key.trim();
+              return (
+                <span key={k} className="flex items-center gap-1">
+                  <kbd className="px-1.5 py-0.5 rounded bg-white/[0.03] border border-white/5 text-gray-400 shadow-sm">
+                    {k}
+                  </kbd>
+                  {index < array.length - 1 && <span className="text-gray-600 font-sans">+</span>}
+                </span>
+              );
+            })}
           </div>
         )}
       </div>

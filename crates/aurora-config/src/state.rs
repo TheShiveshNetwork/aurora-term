@@ -47,6 +47,9 @@ pub struct UiState {
 
     #[serde(default)]
     pub checked_branches: HashMap<String, Vec<String>>,
+
+    #[serde(default)]
+    pub dismissed_update_version: Option<String>,
 }
 
 const fn default_true() -> bool {
@@ -74,6 +77,7 @@ impl Default for UiState {
             last_project_dir: None,
             last_workspace_cwd: None,
             checked_branches: HashMap::new(),
+            dismissed_update_version: None,
         }
     }
 }

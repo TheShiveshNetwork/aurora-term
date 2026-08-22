@@ -1,6 +1,7 @@
+import { getAllWebviewWindows, WebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { getCurrentWindow, PhysicalPosition } from "@tauri-apps/api/window";
+
 export async function openGitViewWindow(projectDir: string) {
-  const { getAllWebviewWindows, WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-  const { getCurrentWindow, PhysicalPosition } = await import("@tauri-apps/api/window");
   const all = await getAllWebviewWindows();
   const existing = all.find((w) => w.label === "gitview");
 
@@ -10,7 +11,7 @@ export async function openGitViewWindow(projectDir: string) {
   } else {
     const projectName = projectDir.split(/[/\\]/).filter(Boolean).pop() || projectDir;
     const url = `/?gitview=true&projectDir=${encodeURIComponent(projectDir)}`;
-    const windowTitle = `Aurora - ${projectName} Git View`;
+    const windowTitle = `Aurora - ${projectName} git`;
 
     const mainPos = await getCurrentWindow().outerPosition();
     const mainSize = await getCurrentWindow().outerSize();

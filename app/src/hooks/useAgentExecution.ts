@@ -2,7 +2,7 @@ import { useCallback, useRef, useEffect } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { formatTauriError } from "../lib/utils";
 
-import { useAgentStore, AgentCommand, defaultSessionState, CONST_DEFAULT_SESSION_STATE } from "../stores/useAgentStore";
+import { useAgentStore, AgentCommand, defaultSessionState, CONST_DEFAULT_SESSION_STATE, sanitizeMessage } from "../stores/useAgentStore";
 import { useAppShellStore } from "../stores/useAppShellStore";
 import { useBlockStore } from "../stores/useBlockStore";
 import { useSettingsStore } from "../stores/useSettingsStore";
@@ -11,12 +11,88 @@ import { pty, system, config } from "../lib/ipc";
 import { Block } from "@aurora/types";
 
 // ── Constants ──────────────────────────────────────────────────────────────
-const AGENT_VIEW_SESSION_ID = "agent-view";
 const HEAD_TAIL_CHARS = 200;
 
 function truncateOutput(output: string): string {
   if (output.length <= HEAD_TAIL_CHARS * 2 + 100) return output;
   return `[Output truncated: ${output.length} characters total]\n\nFirst ${HEAD_TAIL_CHARS} characters:\n${output.slice(0, HEAD_TAIL_CHARS)}\n\nLast ${HEAD_TAIL_CHARS} characters:\n${output.slice(-HEAD_TAIL_CHARS)}`;
+}
+
+// Guarantees the chain-of-thought Planning/Conclusion nodes reflect the agent's
+// reasoning even if the live poll missed the tail of a very fast stream.
+async function syncFinalThinking(sessionId: string) {
+  try {
+    const res = await system.agentGetThinking(sessionId);
+    if (!res || res.status !== "ok") return;
+    const store = useAgentStore.getState();
+    if (res.planning) {
+      store.setPlanningThinking(sessionId, res.planning);
+      const pNode = store.sessions[sessionId]?.chainNodes.find((n) => n.type === "planning");
+      if (pNode && pNode.content !== res.planning) {
+        store.updateChainNode(sessionId, pNode.id, { content: res.planning });
+      }
+    }
+    if (res.conclusion) store.streamConclusion(sessionId, res.conclusion);
+  } catch {
+    /* non-fatal */
+  }
+}
+
+// ── Active file context builder ───────────────────────────────────────────
+// Returns context for the SINGLE file open in the active tab only — never
+// every open file in the window. The sidecar injects a short preview plus a
+// directive to use read_file for full contents, and patch_file/write_file to
+// edit. If the user has lines selected in the editor, the selection is sent
+// too so the agent knows exactly which lines are being referenced. Returns
+// null when the session has no active file tab.
+async function buildFileContext(sessionId: string | null): Promise<string | null> {
+  if (!sessionId) return null;
+  const activeTab = useSessionStore.getState().tabs.find((t) => t.id === sessionId);
+  if (!activeTab?.filePath) return null;
+
+  const shell = useAppShellStore.getState();
+  const cwd = shell.projectDir || shell.cwdAbsolute;
+
+  try {
+    const res = await system.agentFileContext(
+      [activeTab.filePath],
+      cwd || undefined,
+      undefined,
+      activeTab.selection && activeTab.selection.text.trim()
+        ? {
+            path: activeTab.filePath,
+            startLine: activeTab.selection.startLine,
+            endLine: activeTab.selection.endLine,
+            text: activeTab.selection.text,
+          }
+        : null
+    );
+    if (res.status === "completed" && res.context) {
+      return res.context;
+    }
+  } catch (err) {
+    console.warn("Failed to build file context:", err);
+  }
+  return null;
+}
+
+// ── Duplicate tool-call guard (ADR §19.4) ──────────────────────────────────
+// If the model proposes the exact same tool call 3× in a row, auto-decline it so
+// a stuck agent can't loop forever (e.g. re-reading the same file). The resume
+// flow now returns real tool output, so this is only a secondary safety net.
+const recentToolCalls = new Map<string, string[]>();
+function toolCallKey(name?: string, args?: any): string {
+  return `${name}::${JSON.stringify(args ?? {})}`;
+}
+function isRepeatedToolCall(sessionId: string, key: string): boolean {
+  const arr = recentToolCalls.get(sessionId) ?? [];
+  const repeat = arr.length >= 2 && arr[arr.length - 1] === key && arr[arr.length - 2] === key;
+  arr.push(key);
+  recentToolCalls.set(sessionId, arr.slice(-6));
+  return repeat;
+}
+function resetToolCallGuard(sessionId: string) {
+  recentToolCalls.delete(sessionId);
 }
 
 // ── Sensitive command detection ───────────────────────────────────────────
@@ -100,6 +176,11 @@ export function useAgentExecution(sessionId: string | null) {
 
   const lastCommandResultRef = useRef<{ command: string; exitCode: number; output: string; stderr: string }>({ command: "", exitCode: 0, output: "", stderr: "" });
 
+  // Tracks the PTY session a currently-running tool-call command is executing
+  // in, so a user-initiated stop can interrupt just that command (Ctrl-C) and
+  // leave the terminal session itself alive.
+  const runningToolPtySessionRef = useRef<string | null>(null);
+
   // ── Helper to cache command result after execution ─────────────────────────
   const cacheCommandResult = useCallback((cmd: string, result: { exitCode?: number; output?: string; stderr?: string } | undefined) => {
     lastCommandResultRef.current = {
@@ -124,9 +205,59 @@ export function useAgentExecution(sessionId: string | null) {
       return;
     }
 
+    // When the agent's terminal is occupied by a TUI (alternate screen buffer
+    // active), shell commands cannot be executed there. Decline the command and
+    // resume the agent with a clear reason so it falls back to tool calls /
+    // natural-language responses instead of injecting keystrokes into the TUI.
+    const declineCommandForAltScreen = async (sid: string, tid: string, stp: any) => {
+      useAgentStore.getState().addLog(sid, "Command skipped: terminal is in alternate screen buffer (TUI active).");
+      useAgentStore.getState().addAgentLog(
+        sid,
+        "execute",
+        "Command skipped — terminal is in an alternate screen buffer (a TUI is active); commands cannot be executed there."
+      );
+      const feedback =
+        "The terminal is currently in an alternate screen buffer, so shell commands cannot be executed there. Do NOT attempt to run terminal commands. Respond in natural language, or use your available tool calls (read_file, list_directory, grep_search, glob, web_fetch, history_search) to gather information.";
+      const stepResult = await system.agentDeclineTool(
+        useAgentStore.getState().sessions[sid]?.agentType || "terminal",
+        useAgentStore.getState().sessions[sid]?.agentMode || "build",
+        stp.run_id,
+        stp.tool_call_id,
+        sid,
+        feedback
+      );
+      useAgentStore.getState().setPendingToolCall(sid, null);
+      await handleStepResult(sid, tid, stepResult);
+    };
+
     // 1. Gated Tool Approval Suspension
     if (step.status === "requires_approval") {
+      // Secondary safety net: auto-decline the 3rd identical tool call in a row
+      // so a stuck model can't loop forever (e.g. re-reading the same file).
+      const dupKey = toolCallKey(step.tool_name, step.args);
+      if (isRepeatedToolCall(targetSessionId, dupKey)) {
+        console.warn(`Skipped — already executed: ${step.tool_name}`, step);
+        state.addAgentLog(targetSessionId, "tool", `Skipped — already executed: ${step.tool_name}`);
+        state.resumeTask(targetSessionId);
+        const stepResult = await system.agentDeclineTool(
+          useAgentStore.getState().sessions[targetSessionId]?.agentType || "terminal",
+          useAgentStore.getState().sessions[targetSessionId]?.agentMode || "build",
+          step.run_id,
+          step.tool_call_id,
+          targetSessionId
+        );
+        state.setPendingToolCall(targetSessionId, null);
+        await handleStepResult(targetSessionId, taskId, stepResult);
+        return;
+      }
+
       if (step.tool_name === "exec_command" || step.tool_name === "shell_terminal" || step.tool_name === "shell_developer") {
+        // Terminal occupied by a TUI — never inject commands into it. Decline and
+        // let the agent fall back to tool calls / natural-language responses.
+        if (useSessionStore.getState().alternateBufferActive[targetSessionId]) {
+          await declineCommandForAltScreen(targetSessionId, taskId, step);
+          return;
+        }
         const cmd = step.args.command;
         // If this command was the last one executed successfully, auto-approve
         // with cached output instead of showing the approval UI again.
@@ -138,7 +269,8 @@ export function useAgentExecution(sessionId: string | null) {
             useAgentStore.getState().sessions[targetSessionId]?.agentMode || "build",
             step.run_id,
             step.tool_call_id,
-            { approved: true, stdout: lastResult.output, stderr: lastResult.stderr, exitCode: 0 }
+            { approved: true, stdout: lastResult.output, stderr: lastResult.stderr, exitCode: 0 },
+            targetSessionId
           );
           state.setPendingToolCall(targetSessionId, null);
           await handleStepResult(targetSessionId, taskId, stepResult);
@@ -173,7 +305,8 @@ export function useAgentExecution(sessionId: string | null) {
             useAgentStore.getState().sessions[targetSessionId]?.agentMode || "build",
             step.run_id,
             step.tool_call_id,
-            { approved: true, stdout: result?.output || "", stderr: "", exitCode: result?.exitCode ?? 0 }
+            { approved: true, stdout: result?.output || "", stderr: "", exitCode: result?.exitCode ?? 0 },
+            targetSessionId
           );
           state.setPendingToolCall(targetSessionId, null);
           await handleStepResult(targetSessionId, taskId, stepResult);
@@ -207,12 +340,24 @@ export function useAgentExecution(sessionId: string | null) {
             useAgentStore.getState().sessions[targetSessionId]?.agentMode || "build",
             step.run_id,
             step.tool_call_id,
-            { approved: true }
+            { approved: true },
+            targetSessionId
           );
           state.setPendingToolCall(targetSessionId, null);
           await handleStepResult(targetSessionId, taskId, stepResult);
           return;
         }
+
+        // Add chain node so file write/patch is visible in chain-of-thought
+        const filePath = step.args.path || "";
+        const fileShortName = filePath.split(/[\\/]/).pop() || filePath;
+        const fileNodeId = state.addChainNode(targetSessionId, {
+          type: "command",
+          label: step.tool_name === "write_file" ? `Write ${fileShortName}` : `Patch ${fileShortName}`,
+          subLabel: filePath,
+          status: "pending",
+        });
+        state.updateChainNode(targetSessionId, fileNodeId, { status: "active" });
 
         state.setPendingToolCall(targetSessionId, {
           runId: step.run_id,
@@ -229,7 +374,26 @@ export function useAgentExecution(sessionId: string | null) {
           search: step.args.search,
           replace: step.args.replace,
         });
+        // Auto-open the Files tab so the user sees the pending change immediately
+        state.setActiveDrawerTab(targetSessionId, "files");
+        // Emit event to auto-open diff tab for review
+        window.dispatchEvent(new CustomEvent("aurora-agent-file-change", {
+          detail: {
+            path: step.args.path,
+            type: step.tool_name === "write_file" ? "write" : "patch",
+            newContent: step.args.content || "",
+            search: step.args.search,
+            replace: step.args.replace,
+          },
+        }));
       } else if (step.tool_name === "ask_user") {
+        // Add chain node for question
+        state.addChainNode(targetSessionId, {
+          type: "planning",
+          label: "Asking a clarifying question…",
+          subLabel: step.args.question || step.message,
+          status: "active",
+        });
         state.setPendingToolCall(targetSessionId, {
           runId: step.run_id,
           toolCallId: step.tool_call_id,
@@ -241,6 +405,25 @@ export function useAgentExecution(sessionId: string | null) {
           role: "assistant",
           content: step.args.question || step.message || "A clarifying question has been asked",
         });
+      } else {
+        // Fallback: auto-approve any unrecognized tool suspension
+        // (e.g., read_file, grep_search, list_directory, search_files, glob, web_fetch)
+        // These tools execute directly in the sidecar and don't need frontend PTY approval.
+        console.warn(`Auto-approving unrecognized tool suspension: ${step.tool_name}`, step);
+        state.resumeTask(targetSessionId);
+        const stepResult = await system.agentApproveTool(
+          useAgentStore.getState().sessions[targetSessionId]?.agentType || "terminal",
+          useAgentStore.getState().sessions[targetSessionId]?.agentMode || "build",
+          step.run_id,
+          step.tool_call_id,
+          { approved: true },
+          targetSessionId,
+          step.tool_name,
+          step.args
+        );
+        state.setPendingToolCall(targetSessionId, null);
+        await handleStepResult(targetSessionId, taskId, stepResult);
+        return;
       }
       return;
     }
@@ -248,12 +431,19 @@ export function useAgentExecution(sessionId: string | null) {
     // 2. Completed
     if (step.status === "completed") {
       const msg = step.message || "Task completed successfully";
+      // Pull the final streamed thinking so the chain-of-thought nodes always
+      // show the agent's planning + conclusion reasoning, not the user's prompt.
+      await syncFinalThinking(targetSessionId);
       state.completeTask(targetSessionId, msg);
       const totalMs = useAgentStore.getState().sessions[targetSessionId]?.queue
         .reduce((acc, cmd) => acc + (cmd.durationMs || 0), 0) || 0;
       const snap = useAgentStore.getState().sessions[targetSessionId] || defaultSessionState();
+      // For chat / no-command turns the queue is empty, so fall back to the
+      // wall-clock run time so "Worked for" reflects the real elapsed duration.
+      const runMs = snap.startedAt ? Date.now() - snap.startedAt : 0;
+      const durationMs = totalMs > 0 ? totalMs : runMs;
       state.addChatMessage(targetSessionId, {
-        role: "assistant", content: msg, durationMs: totalMs,
+        role: "assistant", content: sanitizeMessage(msg), durationMs,
         chainNodes: snap.chainNodes, agentLogs: snap.agentLogs, subagent: snap.activeSubagent,
         agentType: snap.agentType,
       });
@@ -263,10 +453,12 @@ export function useAgentExecution(sessionId: string | null) {
     // 3. Error
     if (step.status === "error") {
       const errMsg = step.message || "An error occurred during agent planning";
+      await syncFinalThinking(targetSessionId);
       state.failTask(targetSessionId, errMsg);
       const snap = useAgentStore.getState().sessions[targetSessionId] || defaultSessionState();
+      const runMs = snap.startedAt ? Date.now() - snap.startedAt : 0;
       state.addChatMessage(targetSessionId, {
-        role: "assistant", content: errMsg, isError: true,
+        role: "assistant", content: errMsg, isError: true, durationMs: runMs,
         chainNodes: snap.chainNodes, agentLogs: snap.agentLogs, subagent: snap.activeSubagent,
         agentType: snap.agentType,
       });
@@ -275,6 +467,13 @@ export function useAgentExecution(sessionId: string | null) {
 
     // 4. Executing (legacy or direct command path)
     if (step.status === "executing" && step.command) {
+      // Terminal occupied by a TUI — skip command execution (would corrupt it).
+      if (useSessionStore.getState().alternateBufferActive[targetSessionId]) {
+        state.addLog(targetSessionId, "Command skipped: terminal is in alternate screen buffer (TUI active).");
+        useAgentStore.getState().addAgentLog(targetSessionId, "execute", "Command skipped — terminal is in an alternate screen buffer (TUI active).");
+        if (executeNextStepRef.current) await executeNextStepRef.current(taskId);
+        return;
+      }
       const cmd = step.command;
       const explanation = step.explanation || "Executing planned command";
       const subagent = (step.subagent as AgentCommand["subagent"]) || "none";
@@ -360,10 +559,24 @@ export function useAgentExecution(sessionId: string | null) {
     const requireReviewForWrites = cfg.ai.require_review_for_writes;
 
     try {
+      let goal: string | null = lastOutput === undefined ? originalGoal : null;
+      if (goal) {
+        resetToolCallGuard(targetSessionId);
+        const fileCtx = await buildFileContext(targetSessionId);
+        if (fileCtx) goal = `${goal}\n\n[FILE CONTEXT]\n${fileCtx}`;
+        // If the agent's own terminal is occupied by a TUI (alternate screen
+        // buffer active), tell the agent up front so it explains the situation
+        // to the user instead of silently completing or attempting a command
+        // that can't run.
+        if (useSessionStore.getState().alternateBufferActive[targetSessionId]) {
+          goal = `${goal}\n\n[TERMINAL STATE] The terminal is currently in an ALTERNATE SCREEN BUFFER. Shell commands CANNOT be executed there right now. Do NOT attempt to run terminal commands. Respond using your normal JSON format and put the explanation in the \`message\` field: state that commands cannot be run while the terminal is occupied by a TUI, and offer to use your read-only tool calls (read_file, list_directory, grep_search, glob, web_fetch, history_search) or answer in chat. Do not wrap the message in extra prose outside the JSON object.`;
+        }
+      }
+
       const step = await system.agentPlanStep(
         taskId,
         targetSessionId,
-        lastOutput === undefined ? originalGoal : null,
+        goal,
         lastOutput || null,
         exitCode !== undefined ? exitCode : null,
         agentType,
@@ -374,9 +587,15 @@ export function useAgentExecution(sessionId: string | null) {
       );
 
       await handleStepResult(targetSessionId, taskId, step);
-    } catch (err: any) {
-      console.error("Agent plan step failed:", err);
-      const errMsg = formatTauriError(err);
+  } catch (err: any) {
+    // If the run was already stopped/cancelled (e.g. the sidecar aborted at the
+    // user's request), don't overwrite the "Cancelled by user" status/message.
+    const current = useAgentStore.getState().sessions[targetSessionId];
+    if (current && (current.status === "error" || current.status === "completed")) {
+      return;
+    }
+    console.error("Agent plan step failed:", err);
+    const errMsg = formatTauriError(err);
       const friendlyMsg = errMsg.includes("API key") || errMsg.includes("provider")
         ? "No AI provider configured. Please go to Settings → AI and add an API key."
         : errMsg.includes("timeout") || errMsg.includes("network")
@@ -401,18 +620,30 @@ export function useAgentExecution(sessionId: string | null) {
     const targetSessionId = sessionRef.current;
     if (!targetSessionId) return;
 
-    // AgentView uses a dedicated session ID — redirect PTY operations to the
-    // real terminal session so output appears in the user's terminal.
-    const isAgentView = targetSessionId === AGENT_VIEW_SESSION_ID;
-    const ptySessionId = isAgentView
-      ? useAppShellStore.getState().lastActiveTerminalId || targetSessionId
-      : targetSessionId;
+    // Resolve a real PTY session for command execution. AgentView sessions and
+    // non-terminal tabs (file/diff/merge) have no PTY of their own — their
+    // commands run in the BACKGROUND on the last-active (or first) terminal tab
+    // so output never interrupts the current view.
+    const activeTab = useSessionStore.getState().tabs.find((t) => t.id === targetSessionId);
+    const hasOwnPty = activeTab?.type === "terminal";
+    let ptySessionId = targetSessionId;
 
-    if (isAgentView && ptySessionId === targetSessionId) {
-      console.warn("AgentView: no terminal session available for PTY command");
+    if (!hasOwnPty) {
+      ptySessionId =
+        useAppShellStore.getState().lastActiveTerminalId ||
+        useSessionStore.getState().tabs.find((t) => t.type === "terminal")?.id ||
+        targetSessionId;
+    }
+
+    if (ptySessionId === targetSessionId && !hasOwnPty) {
+      console.warn("No terminal session available for PTY command");
       useAgentStore.getState().addLog(targetSessionId, "Cannot run shell command: no terminal session open.");
       return { exitCode: -1, output: "No terminal session available. Open a terminal tab first." };
     }
+
+    // Remember which PTY session this tool call runs in so a stop can interrupt
+    // just this command without killing the terminal session.
+    runningToolPtySessionRef.current = ptySessionId;
 
     const state = useAgentStore.getState();
     const freshSession = state.sessions[targetSessionId] || defaultSessionState();
@@ -461,7 +692,17 @@ export function useAgentExecution(sessionId: string | null) {
 
       const result = await waitForBlockCompletion(ptySessionId, blockId);
       const durationMs = Date.now() - startedAt;
-      const cmdStatus = result.exitCode === 0 ? "success" : "error";
+
+      // If the user hit stop while this command was running, the run is already
+      // cancelled — don't resurrect a "done"/"success" state on the chain node
+      // or queue item. Keep it terminal-but-cancelled so no spinner/loader lingers.
+      const runStatus = useAgentStore.getState().sessions[targetSessionId]?.status;
+      const wasStopped = runStatus === "error" || runStatus === "completed";
+      const cmdStatus = wasStopped
+        ? "cancelled"
+        : result.exitCode === 0
+          ? "success"
+          : "error";
 
       state.updateCommandStatus(targetSessionId, index, cmdStatus, durationMs);
       state.addLog(targetSessionId, `Command finished with exit code ${result.exitCode} in ${durationMs}ms`);
@@ -473,7 +714,7 @@ export function useAgentExecution(sessionId: string | null) {
 
       if (chainNodeId) {
         state.updateChainNode(targetSessionId, chainNodeId, {
-          status: cmdStatus === "success" ? "done" : "failed",
+          status: wasStopped ? "failed" : cmdStatus === "success" ? "done" : "failed",
           durationMs,
         });
       }
@@ -492,6 +733,8 @@ export function useAgentExecution(sessionId: string | null) {
       const errMsg = formatTauriError(err);
       state.failTask(targetSessionId, errMsg);
       throw err;
+    } finally {
+      runningToolPtySessionRef.current = null;
     }
   }, []);
 
@@ -519,6 +762,7 @@ export function useAgentExecution(sessionId: string | null) {
 
     state.addChatMessage(targetSessionId, { role: "user", content: goal, agentType: type });
     state.startTask(targetSessionId, taskId, goal);
+    state.setThinking(targetSessionId, "");
     state.setAgentType(targetSessionId, type);
     state.setAgentMode(targetSessionId, mode);
     if (customModel) {
@@ -547,6 +791,23 @@ export function useAgentExecution(sessionId: string | null) {
       try {
         let stepResult: any;
         if (name === "exec_command" || name === "shell_terminal" || name === "shell_developer") {
+          // Terminal occupied by a TUI — never inject commands into it, even if the
+          // user approved. Decline so the agent falls back to tools / NL instead.
+          if (useSessionStore.getState().alternateBufferActive[targetSessionId]) {
+            const feedback =
+              "The terminal is currently in an alternate screen buffer, so shell commands cannot be executed there. Do NOT attempt to run terminal commands. Respond in natural language, or use your available tool calls (read_file, list_directory, grep_search, glob, web_fetch, history_search) to gather information.";
+            const stepResult = await system.agentDeclineTool(
+              freshSession.agentType,
+              freshSession.agentMode,
+              runId,
+              toolCallId,
+              targetSessionId,
+              feedback
+            );
+            state.setPendingToolCall(targetSessionId, null);
+            await handleStepResult(targetSessionId, freshSession.taskId!, stepResult);
+            return;
+          }
           // Find the queued command matching
           const currentIndex = freshSession.queue.findIndex((cmd) => cmd.status === "requires_action");
           if (currentIndex === -1) return;
@@ -566,7 +827,8 @@ export function useAgentExecution(sessionId: string | null) {
             freshSession.agentMode,
             runId,
             toolCallId,
-            { approved: true, stdout: result?.output || "", stderr: "", exitCode: result?.exitCode ?? 0 }
+            { approved: true, stdout: result?.output || "", stderr: "", exitCode: result?.exitCode ?? 0 },
+            targetSessionId
           );
         } else {
           // File write / patch approved
@@ -575,13 +837,26 @@ export function useAgentExecution(sessionId: string | null) {
             freshSession.agentMode,
             runId,
             toolCallId,
-            { approved: true }
+            { approved: true },
+            targetSessionId
           );
           
-          // Approve file changes status
+          // Approve file changes status and update chain node
           if (freshSession.filesChanged.length > 0) {
             const lastFile = freshSession.filesChanged[freshSession.filesChanged.length - 1];
             state.updateFileChangeStatus(targetSessionId, lastFile.path, "approved");
+            // Mark the chain node for this file as done
+            const fileNode = [...freshSession.chainNodes].reverse().find(
+              (n) => n.type === "command" && n.status === "active" &&
+                (n.label.startsWith("Write ") || n.label.startsWith("Patch "))
+            );
+            if (fileNode) {
+              state.updateChainNode(targetSessionId, fileNode.id, { status: "done" });
+            }
+            // Close the pending-agent-change diff tab for this file
+            window.dispatchEvent(new CustomEvent("aurora-close-agent-diff", {
+              detail: { path: lastFile.path },
+            }));
           }
         }
         
@@ -624,13 +899,26 @@ export function useAgentExecution(sessionId: string | null) {
         if (name !== "exec_command" && name !== "shell_terminal" && name !== "shell_developer" && freshSession.filesChanged.length > 0) {
           const lastFile = freshSession.filesChanged[freshSession.filesChanged.length - 1];
           state.updateFileChangeStatus(targetSessionId, lastFile.path, "rejected");
+          // Mark the chain node for this file as failed
+          const fileNode = [...freshSession.chainNodes].reverse().find(
+            (n) => n.type === "command" && n.status === "active" &&
+              (n.label.startsWith("Write ") || n.label.startsWith("Patch "))
+          );
+          if (fileNode) {
+            state.updateChainNode(targetSessionId, fileNode.id, { status: "failed" });
+          }
+          // Close the pending-agent-change diff tab for this file
+          window.dispatchEvent(new CustomEvent("aurora-close-agent-diff", {
+            detail: { path: lastFile.path },
+          }));
         }
         
         const stepResult = await system.agentDeclineTool(
           freshSession.agentType,
           freshSession.agentMode,
           runId,
-          toolCallId
+          toolCallId,
+          targetSessionId
         );
         state.setPendingToolCall(targetSessionId, null);
         await handleStepResult(targetSessionId, freshSession.taskId!, stepResult);
@@ -684,7 +972,8 @@ export function useAgentExecution(sessionId: string | null) {
         freshSession.agentMode,
         runId,
         toolCallId,
-        { approved: true, answer }
+        { approved: true, answer },
+        targetSessionId
       );
       await handleStepResult(targetSessionId, freshSession.taskId!, stepResult);
     } catch (e) {
@@ -723,7 +1012,57 @@ export function useAgentExecution(sessionId: string | null) {
       }).catch(() => {});
     }, 1500);
 
-    return () => clearInterval(intervalId);
+    // Poll live "thinking" stream while the agent is working. The planning
+    // text is streamed into the active "Planning" chain node so it appears as
+    // the planning step of the chain of thought. Once the final step starts
+    // emitting its completion JSON, the conclusion text streams into a live
+    // "Conclusion" chain node.
+    const pollThinking = () => {
+      system.agentGetThinking(sessionId).then((res) => {
+        if (!res || res.status !== "ok") return;
+        const store = useAgentStore.getState();
+        if (typeof res.thinking === "string") {
+          store.setThinking(sessionId, res.thinking);
+        }
+        if (typeof res.planning === "string" && res.planning) {
+          store.setPlanningThinking(sessionId, res.planning);
+          const nodes = store.sessions[sessionId]?.chainNodes || [];
+          const planningNode = nodes.find(
+            (n) => n.type === "planning" && (n.status === "active" || n.status === "pending")
+          );
+          if (planningNode && planningNode.content !== res.planning) {
+            store.updateChainNode(sessionId, planningNode.id, { content: res.planning });
+          }
+        }
+        if (typeof res.conclusion === "string" && res.conclusion) {
+          // Only one chain-of-thought node may load at a time. While Planning is
+          // still active, keep the spinner on Planning and do NOT surface the
+          // Conclusion node yet — it is created on the next poll, once Planning
+          // has closed. This prevents Planning and Conclusion spinning together.
+          const nodes = store.sessions[sessionId]?.chainNodes || [];
+          const planningNode = nodes.find(
+            (n) => n.type === "planning" && n.status === "active"
+          );
+          if (planningNode) {
+            const planningShown =
+              (store.sessions[sessionId]?.planningThinking || planningNode.content || "").trim().length > 0;
+            if (planningShown) {
+              store.updateChainNode(sessionId, planningNode.id, { status: "done" });
+            }
+            // Defer the Conclusion node until Planning is closed.
+            return;
+          }
+          store.streamConclusion(sessionId, res.conclusion);
+        }
+      }).catch(() => {});
+    };
+    pollThinking();
+    const thinkingIntervalId = setInterval(pollThinking, 300);
+
+    return () => {
+      clearInterval(intervalId);
+      clearInterval(thinkingIntervalId);
+    };
   }, [sessionId, sessionState.status]);
 
   // ── retryTask ────────────────────────────────────────────────────────────
@@ -741,6 +1080,57 @@ export function useAgentExecution(sessionId: string | null) {
     useAgentStore.getState().clearTask(targetSessionId);
   }, []);
 
+  // ── stopAgentRun ─────────────────────────────────────────────────────────
+  // Stops the entire AI run: interrupts any running tool-call command (Ctrl-C on
+  // its PTY session — the terminal session itself is left alive) and signals the
+  // sidecar to abort the in-flight generation. Mirrors the blue "stop AI" button.
+  const stopAgentRun = useCallback(() => {
+    const targetSessionId = sessionRef.current;
+    if (!targetSessionId) return;
+    const state = useAgentStore.getState();
+
+    // 1. Interrupt the running tool-call command (foreground process only).
+    const ptySessionId = runningToolPtySessionRef.current;
+    if (ptySessionId) {
+      pty.write(ptySessionId, "\u0003").catch(console.error);
+      const runningBlockId = useBlockStore.getState().runningBlockId[ptySessionId];
+      if (runningBlockId) {
+        useBlockStore.getState().updateBlock(ptySessionId, runningBlockId, {
+          status: "cancelled",
+          finished_at: Date.now(),
+        });
+        useBlockStore.getState().setRunningBlockId(ptySessionId, null);
+        useBlockStore.getState().setCommandOutputReceived(ptySessionId, false);
+      }
+      useSessionStore.getState().setSessionBusy(ptySessionId, false);
+      runningToolPtySessionRef.current = null;
+    }
+
+    // 2. Abort the in-flight sidecar generation (LLM step / tool resume).
+    system.agentStopRun(targetSessionId).catch(() => {});
+
+    // 3. Mark the run cancelled so the step loop halts. Guards in
+    //    handleStepResult / executeNextStep make any late result a no-op.
+    const snap = state.sessions[targetSessionId];
+    if (snap && snap.status !== "completed" && snap.status !== "error") {
+      state.failTask(targetSessionId, "Cancelled by user", "info");
+    }
+    // 4. Finalize any in-flight tool calls / queued commands so their loaders
+    //    and spinners are removed from the frontend immediately on stop.
+    useAgentStore.getState().finalizeInterruptedRun(targetSessionId);
+    state.setPendingToolCall(targetSessionId, null);
+    state.setCurrentCommandIndex(targetSessionId, -1);
+    const finalSnap = useAgentStore.getState().sessions[targetSessionId];
+    if (finalSnap) {
+      state.addChatMessage(targetSessionId, {
+        role: "assistant",
+        content: "Task cancelled by user.",
+        chainNodes: finalSnap.chainNodes ?? [],
+        agentType: finalSnap.agentType,
+      });
+    }
+  }, []);
+
   return {
     startTask,
     retryTask,
@@ -749,6 +1139,7 @@ export function useAgentExecution(sessionId: string | null) {
     skipPending,
     clearTask,
     submitAnswer,
+    stopAgentRun,
     status: sessionState.status,
     queue: sessionState.queue,
     originalGoal: sessionState.originalGoal,
@@ -758,6 +1149,7 @@ export function useAgentExecution(sessionId: string | null) {
     maxSteps: sessionState.maxSteps,
     chainNodes: sessionState.chainNodes,
     agentLogs: sessionState.agentLogs,
+    thinking: sessionState.thinking,
     activeSubagent: sessionState.activeSubagent,
     chatHistory: sessionState.chatHistory,
     pendingToolCall: sessionState.pendingToolCall,

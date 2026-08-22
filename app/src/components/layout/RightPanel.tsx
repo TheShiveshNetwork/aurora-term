@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { AgentOverlay } from "../agents/AgentOverlay";
 import { AgentDetails } from "../agents/AgentDetails";
+import { ErrorBoundary } from "../ui/ErrorBoundary";
 
 interface RightPanelProps {
   viewMode: "terminal" | "file" | "agent";
@@ -68,12 +69,14 @@ export function RightPanel({ viewMode, sessionId, onClose }: RightPanelProps) {
         />
       </div>
 
-      {/* Render correct panel based on viewMode */}
-      {isAgentView ? (
-        <AgentDetails sessionId={sessionId} onClose={onClose} />
-      ) : (
-        <AgentOverlay sessionId={sessionId} onClose={onClose} />
-      )}
+      {/* Render correct panel based on viewMode wrapped in ErrorBoundary */}
+      <ErrorBoundary>
+        {isAgentView ? (
+          <AgentDetails sessionId={sessionId} onClose={onClose} />
+        ) : (
+          <AgentOverlay sessionId={sessionId} onClose={onClose} />
+        )}
+      </ErrorBoundary>
     </div>
   );
 }

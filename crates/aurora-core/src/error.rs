@@ -15,6 +15,12 @@ pub enum AppError {
     Io(String),
     #[error("Sidecar error: {0}")]
     Sidecar(String),
+    #[error("LSP error: {0}")]
+    Lsp(String),
+    #[error("Cloud error: {0}")]
+    Cloud(String),
+    #[error("Update error: {0}")]
+    Update(String),
 }
 
 impl From<std::io::Error> for AppError {

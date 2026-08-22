@@ -10,3 +10,5 @@ export { grepSearchTool } from './grep';
 export { listDirTool } from './list_directory';
 export { searchFilesTool } from './search_files';
 export { terminalShellTool, developerShellTool } from './shell';
+export { historySearchTool } from './history_search';
+

@@ -3,7 +3,10 @@ use aurora_commands::state::AppState;
 use aurora_config::{ConfigManager, UiStateManager};
 use aurora_pty::{PtyManager, PtyEvent};
 use aurora_db::HistoryDb;
+use aurora_lsp::{LspIncoming, LspManager};
 use tauri::{Manager, Emitter};
+#[cfg(all(desktop, not(debug_assertions)))]
+use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_prevent_default::Flags;
 
 fn start_pty_event_bridge(
@@ -33,6 +36,12 @@ fn start_pty_event_bridge(
                             let _ = app_handle.emit("pty_exit", serde_json::json!({
                                 "session_id": &*session_id,
                                 "exit_code": exit_code,
+                            }));
+                        }
+                        Some(PtyEvent::Busy { session_id, busy }) => {
+                            let _ = app_handle.emit("pty_busy", serde_json::json!({
+                                "session_id": &*session_id,
+                                "busy": busy,
                             }));
                         }
                         None => {
@@ -65,7 +74,7 @@ fn start_pty_event_bridge(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_drag::init())
@@ -77,6 +86,25 @@ pub fn run() {
         .plugin(tauri_plugin_window_state::Builder::default()
             .with_denylist(&["settings"])
             .build())
+        .plugin(tauri_plugin_deep_link::init());
+
+    // Single-instance guarding is only for the shipped (release) app: it stops
+    // duplicate launches and forwards `aurora://` deep links to the live window.
+    // In dev we omit it so `pnpm tauri dev` can run next to an installed Aurora
+    // without the dev instance bouncing to the installed copy.
+    #[cfg(not(debug_assertions))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+        if let Some(url) = args.iter().find(|a| a.starts_with("aurora://")) {
+            let _ = app.emit("aurora-deep-link", url.clone());
+        }
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.unminimize();
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+    }));
+
+    builder
         .setup(|app| {
             // Resolve platform-specific config directory (single source of truth for persistence)
             let config_dir = app.path()
@@ -98,13 +126,25 @@ pub fn run() {
                     aurora_core::config::AppConfig::default()
                 });
 
+            // Cloud/update managers are constructed from the configured API
+            // base URL (empty = disabled). They stay in sync with config via
+            // the commands themselves.
+            let api_base_url = config_manager.merged_config.cloud.api_base_url.clone();
+
             // Initialize History Database on startup
-            let history_db = HistoryDb::new(Some(config_dir))?;
+            let history_db = HistoryDb::new(Some(config_dir.clone()))?;
 
             let pty_manager = PtyManager::new();
             let (pty_sender, pty_receiver) = tokio::sync::mpsc::unbounded_channel::<PtyEvent>();
 
             start_pty_event_bridge(app.handle().clone(), pty_receiver);
+
+            // ── LSP manager + cache dir + event bridge + idle sweep ──
+            let lsp_cache_dir = config_dir.join("lsp");
+            std::fs::create_dir_all(&lsp_cache_dir).ok();
+            let (lsp_sender, lsp_receiver) = tokio::sync::mpsc::unbounded_channel::<LspIncoming>();
+            let lsp_manager = LspManager::new(lsp_sender);
+            aurora_commands::start_lsp_event_bridge(app.handle().clone(), lsp_receiver);
 
             let app_state = AppState::new(
                 pty_manager,
@@ -112,8 +152,26 @@ pub fn run() {
                 ui_state_manager,
                 history_db,
                 pty_sender,
+                api_base_url,
+                lsp_manager,
+                lsp_cache_dir,
             );
             app.manage(app_state);
+
+            // Register the deep-link scheme the web companion uses to hand off
+            // a Supabase session after GitHub sign-in. Until this runs at least
+            // once (i.e. the desktop app has launched), the OS/browser has no
+            // handler for `aurora://` and web handoffs fail.
+            #[cfg(all(desktop, not(debug_assertions)))]
+            {
+                match app.deep_link().register("aurora") {
+                    Ok(()) => tracing::info!("Registered aurora:// deep-link scheme"),
+                    Err(e) => tracing::error!("Failed to register aurora:// deep link: {}", e),
+                }
+            }
+
+            // Idle sweep needs a reference to the managed state.
+            aurora_commands::start_lsp_idle_sweep(app.handle());
 
             // ── Platform-specific window customization ──
             let window = app.get_webview_window("main")
@@ -238,15 +296,36 @@ pub fn run() {
             aurora_commands::git_remote_list,
             aurora_commands::git_exec,
             aurora_commands::git_branch_list_all,
+            aurora_commands::git_fetch_prune,
             aurora_commands::git_is_repo,
             aurora_commands::agent_plan_step,
             aurora_commands::agent_approve_tool,
             aurora_commands::agent_decline_tool,
+            aurora_commands::agent_stop_run,
             aurora_commands::agent_chat,
-            aurora_commands::ai_edit_code,
+            aurora_commands::agent_btw,
+            aurora_commands::agent_skills,
+            aurora_commands::agent_mcp,
+            aurora_commands::agent_file_context,
             aurora_commands::ai_inline_complete,
             aurora_commands::agent_get_logs,
+            aurora_commands::agent_get_thinking,
+            // LSP commands
+            aurora_commands::lsp_ensure_and_start,
+            aurora_commands::lsp_send,
+            aurora_commands::lsp_stop,
             aurora_commands::get_available_commands,
+            // Cloud commands
+            aurora_commands::cloud_auth_status,
+            aurora_commands::cloud_sign_in_password,
+            aurora_commands::cloud_sign_in_oauth,
+            aurora_commands::cloud_sign_out,
+            aurora_commands::cloud_sync_now,
+            aurora_commands::cloud_resolve_conflict,
+            // Update commands
+            aurora_commands::update_check,
+            aurora_commands::update_dismiss,
+            aurora_commands::update_install,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -254,9 +333,13 @@ pub fn run() {
             if let tauri::RunEvent::Exit = event {
                 if let Some(state) = app_handle.try_state::<AppState>() {
                     let sidecar = state.sidecar.clone();
+                    let lsp_manager = state.lsp_manager.clone();
                     tauri::async_runtime::block_on(async move {
-                        let mut lock = sidecar.lock().await;
-                        let _ = lock.kill().await;
+                        {
+                            let mut lock = sidecar.lock().await;
+                            let _ = lock.kill().await;
+                        }
+                        lsp_manager.stop_all().await;
                     });
                 }
             }

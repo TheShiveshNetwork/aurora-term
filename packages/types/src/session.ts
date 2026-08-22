@@ -22,6 +22,7 @@ export interface Tab {
   scrollToLine?: number;
   scrollToMatchStart?: number;
   scrollToMatchEnd?: number;
+  selection?: { startLine: number; endLine: number; text: string } | null;
 }
 
 export interface SessionState {

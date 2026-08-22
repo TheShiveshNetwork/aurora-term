@@ -67,4 +67,5 @@ export interface UiState {
   last_project_dir: string | null;
   last_workspace_cwd: string | null;
   checked_branches: Record<string, string[]>;
+  dismissed_update_version: string | null;
 }

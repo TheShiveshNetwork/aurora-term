@@ -8,6 +8,10 @@ members = [
     "crates/aurora-sidecar",
     "crates/aurora-ai",
     "crates/aurora-commands",
+    "crates/aurora-cloud",
+    "crates/aurora-update",
+    "crates/aurora-lsp",
+    "crates/aurora-lsp-fetch",
     "tauri",
 ]
 
@@ -20,10 +24,14 @@ aurora-config   = { path = "crates/aurora-config" }
 aurora-sidecar  = { path = "crates/aurora-sidecar" }
 aurora-ai       = { path = "crates/aurora-ai" }
 aurora-commands = { path = "crates/aurora-commands" }
+aurora-lsp      = { path = "crates/aurora-lsp" }
+aurora-lsp-fetch = { path = "crates/aurora-lsp-fetch" }
+aurora-cloud    = { path = "crates/aurora-cloud" }
+aurora-update   = { path = "crates/aurora-update" }
 
 
 # Serialization
-serde      = { version = "1.0", features = ["derive"] }
+serde      = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 toml       = "0.8"
 
@@ -68,6 +76,11 @@ sysinfo = "0.31"
 notify  = "7.0"
 rfd     = "0.15"
 globset = "0.4"
+
+# Cloud sync
+semver    = "0.11"
+sha2      = "0.10"
+tiny_http = "0.12"
 
 [profile.release]
 opt-level     = "z"

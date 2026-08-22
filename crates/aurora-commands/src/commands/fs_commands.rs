@@ -1,7 +1,7 @@
 use serde::{Serialize, Deserialize};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::time::Instant;
+use std::time::{Instant, SystemTime};
 use tauri::command;
 use tauri::Emitter;
 use base64::Engine;
@@ -51,7 +51,11 @@ fn is_hidden_name(name: &str) -> bool {
     name.starts_with('.')
 }
 
-static READ_DIR_CACHE: Mutex<Option<(String, Vec<FileNode>, Instant)>> = Mutex::new(None);
+// Cache keyed by path. We store the directory's mtime so the cache is
+// invalidated automatically whenever its contents change (create/delete/rename),
+// which is what keeps the file tree in sync with disk deletions. A 2s TTL only
+// applies as a fallback when the mtime can't be read.
+static READ_DIR_CACHE: Mutex<Option<(String, Option<SystemTime>, Vec<FileNode>, Instant)>> = Mutex::new(None);
 
 #[command]
 pub fn read_dir(path: Option<String>) -> Result<Vec<FileNode>, AppError> {
@@ -61,12 +65,20 @@ pub fn read_dir(path: Option<String>) -> Result<Vec<FileNode>, AppError> {
     };
 
     let path_str = target_path.to_string_lossy().to_string();
+    let mtime = std::fs::metadata(&target_path).and_then(|m| m.modified()).ok();
 
     {
         if let Ok(cache) = READ_DIR_CACHE.lock() {
-            if let Some((cached_path, nodes, time)) = cache.as_ref() {
-                if *cached_path == path_str && time.elapsed() < std::time::Duration::from_secs(2) {
-                    return Ok(nodes.clone());
+            if let Some((cached_path, cached_mtime, nodes, time)) = cache.as_ref() {
+                if *cached_path == path_str {
+                    let hit = match (cached_mtime, mtime) {
+                        (Some(cm), Some(m)) => *cm == m,
+                        (None, None) => time.elapsed() < std::time::Duration::from_secs(2),
+                        _ => false,
+                    };
+                    if hit {
+                        return Ok(nodes.clone());
+                    }
                 }
             }
         }
@@ -117,7 +129,7 @@ pub fn read_dir(path: Option<String>) -> Result<Vec<FileNode>, AppError> {
 
     {
         if let Ok(mut cache) = READ_DIR_CACHE.lock() {
-            *cache = Some((path_str, nodes.clone(), Instant::now()));
+            *cache = Some((path_str, mtime, nodes.clone(), Instant::now()));
         }
     }
 
@@ -154,7 +166,15 @@ pub fn search_files(root: String, query: String) -> Result<Vec<FileNode>, AppErr
             continue;
         }
 
-        if name.to_lowercase().contains(&query_lower) {
+        // Relative path (forward-slash normalized) so queries like
+        // `src/components/button` match files deeper in the tree.
+        let rel = path
+            .strip_prefix(&root_path)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .replace('\\', "/");
+
+        if name.to_lowercase().contains(&query_lower) || rel.to_lowercase().contains(&query_lower) {
             let is_dir = path.is_dir();
             results.push(FileNode {
                 name,
@@ -179,10 +199,13 @@ pub fn search_files(root: String, query: String) -> Result<Vec<FileNode>, AppErr
 
 #[command]
 pub fn read_file_content(path: String) -> Result<String, AppError> {
-    let file_path = PathBuf::from(path);
+    let raw = PathBuf::from(&path);
+    // Canonicalize to resolve `..` / relative segments and case differences so
+    // that valid paths always pass the `is_file` check.
+    let file_path = std::fs::canonicalize(&raw).unwrap_or(raw);
 
     if !file_path.is_file() {
-        return Err(AppError::Io("File not found".to_string()));
+        return Err(AppError::Io(format!("File not found: {}", path)));
     }
 
     // Limit file size to 10MB to prevent loading huge files into editor
@@ -197,10 +220,11 @@ pub fn read_file_content(path: String) -> Result<String, AppError> {
 
 #[command]
 pub fn read_file_base64(path: String) -> Result<String, AppError> {
-    let file_path = PathBuf::from(path);
+    let raw = PathBuf::from(&path);
+    let file_path = std::fs::canonicalize(&raw).unwrap_or(raw);
 
     if !file_path.is_file() {
-        return Err(AppError::Io("File not found".to_string()));
+        return Err(AppError::Io(format!("File not found: {}", path)));
     }
 
     // Limit file size to 50MB for images

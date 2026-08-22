@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-/// AI task tier — determines which model is selected from
+/// model tier - determines which model is selected from
 /// the active provider's tier mapping.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub enum TaskTier {

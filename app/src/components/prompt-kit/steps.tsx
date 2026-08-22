@@ -15,7 +15,7 @@ export const StepsItem = ({
   className,
   ...props
 }: StepsItemProps) => (
-  <div className={cn("font-mono text-[10.5px] leading-relaxed text-on-surface-variant/50 break-all", className)} {...props}>
+  <div className={cn("font-mono text-[10.5px] leading-relaxed text-on-surface-variant/50 break-all whitespace-normal", className)} {...props}>
     {children}
   </div>
 )
@@ -36,14 +36,14 @@ export const StepsTrigger = ({
 }: StepsTriggerProps) => (
   <CollapsibleTrigger
     className={cn(
-      "group flex items-center justify-between cursor-pointer select-none hover:bg-white/[0.02] text-on-surface-variant/70 transition-colors",
+      "group flex items-center justify-between cursor-pointer select-none hover:bg-white/[0.02] text-on-surface-variant/70 transition-colors min-w-0",
       className
     )}
     {...props}
   >
-    <div className="flex items-center gap-2.5">
+    <div className="flex items-center gap-2.5 min-w-0">
       {leftIcon ? (
-        <span className="relative inline-flex size-4 items-center justify-center">
+        <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
           <span
             className={cn(
               "transition-opacity",
@@ -57,9 +57,9 @@ export const StepsTrigger = ({
           )}
         </span>
       ) : null}
-      <span className="text-[12.5px] font-medium">{children}</span>
+      <span className="text-[12.5px] font-medium min-w-0 whitespace-normal break-words">{children}</span>
     </div>
-    <ChevronDown className="size-3.5 transition-transform group-data-[state=open]:rotate-180" />
+    <ChevronDown className="size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-180" />
   </CollapsibleTrigger>
 )
 

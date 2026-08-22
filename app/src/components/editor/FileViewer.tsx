@@ -1,25 +1,45 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { EditorView } from "@codemirror/view";
-import type { Compartment } from "@codemirror/state";
+import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightSpecialChars, drawSelection, dropCursor, rectangularSelection, crosshairCursor, highlightActiveLine, tooltips } from "@codemirror/view";
+import { EditorState, Prec, Compartment, type Extension } from "@codemirror/state";
+import { autocompletion, completeAnyWord, closeBrackets, closeBracketsKeymap, completionKeymap } from "@codemirror/autocomplete";
+import { history, defaultKeymap, historyKeymap, indentWithTab } from "@codemirror/commands";
+import { foldGutter, indentOnInput, syntaxHighlighting, defaultHighlightStyle, bracketMatching, foldKeymap } from "@codemirror/language";
+import { highlightSelectionMatches, selectSelectionMatches } from "@codemirror/search";
+import { lintGutter, linter, lintKeymap } from "@codemirror/lint";
 import { listen } from "@tauri-apps/api/event";
 import { system, ai } from "../../lib/ipc";
 import { getLanguageExtension } from "../../lib/codeLang";
 import { isImageFile } from "../../lib/fileUtils";
-import { AlertCircle, Loader, Maximize2, Minimize2, Minus, Plus, RotateCcw, GitMerge } from "lucide-react";
+import { AlertCircle, Loader, Maximize2, Minimize2, Minus, Plus, RotateCw, GitMerge } from "lucide-react";
 import { useSessionStore } from "../../stores/useSessionStore";
 import { useSettingsStore } from "../../stores/useSettingsStore";
 import { closeAllPopups } from "../../lib/popups";
 import { getEditorTheme, createThemeCompartment } from "./editorThemes";
 import { createMinimapExtension, toggleMinimap } from "./minimapExtension";
 import { getLinterSource } from "./linterSources";
-import { aiExtension, inlineCompletion } from "./aiExtensions";
+import { inlineCompletion } from "./aiExtensions";
 import { mergeConflictResolver } from "./mergeConflictExtension";
 import { SearchPanel } from "./SearchPanel";
 import { indentMarkersExtension } from "./indentMarkersExtension";
 import { usePTY } from "../../hooks/usePTY";
 import { getDefaultShellLaunch } from "../../lib/shell";
 import { useAppShellStore } from "../../stores/useAppShellStore";
-
+import { useLoaderStore } from "../../stores/useLoaderStore";
+import { languageIdFromPath } from "../../extensions/lsp/languageId";
+import {
+  connectLanguage,
+  gotoDefinitionAt,
+  peekDefinition,
+  lspRenameSymbol,
+  lspFindReferences,
+  lspFormatDocument,
+  lspCodeAction,
+  lspOrganizeImports,
+  type PeekResult,
+} from "../../extensions/lsp/client";
+import { centerFindNext, centerFindPrevious } from "../../lib/editorScroll";
+import { openFileInApp } from "../../lib/openFileRef";
+import { PeekPanel } from "./PeekPanel";
 const STYLE_ID = "aurora-file-viewer-style";
 if (typeof document !== "undefined") {
   let s = document.getElementById(STYLE_ID) as HTMLStyleElement;
@@ -29,15 +49,86 @@ if (typeof document !== "undefined") {
     document.head.appendChild(s);
   }
   s.textContent = `
+    :root { --editor-font-size: 13px; }
+
+    /* Hide the built-in find panel (we render our own SearchPanel). */
     .cm-panel.cm-search { display: none !important; }
-    .cm-tooltip-autocomplete { background: rgba(15,18,25,0.92) !important; border: 1px solid rgba(232,234,240,0.1) !important; border-radius: 8px !important; backdrop-filter: blur(16px) !important; padding: 4px !important; }
-    .cm-tooltip-autocomplete ul { font-family: inherit !important; }
-    .cm-tooltip-autocomplete li { padding: 4px 8px !important; border-radius: 4px !important; }
-    .cm-tooltip-autocomplete li[aria-selected] { background: rgba(79,140,255,0.15) !important; }
-    .cm-completionLabel { font-size: 12px !important; color: rgba(232,234,240,0.85) !important; }
-    .cm-completionIcon { font-size: 11px !important; width: 1.2em !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; }
-    .cm-completionDetail { font-size: 10px !important; color: rgba(232,234,240,0.35) !important; margin-left: auto !important; padding-left: 12px !important; }
-    .cm-completionMatchedText { text-decoration: none !important; color: rgba(79,140,255,0.9) !important; }
+
+    /* Colors, borders and backgrounds of the LSP/lint UI are left entirely to the
+       active CodeMirror theme (which themes tooltips, panels and the
+       autocomplete to match the editor). We only bind the font size to the
+       editor's actual text size so the LSP/lint UI scales with it. */
+    .cm-tooltip,
+    .cm-lsp-hover-tooltip,
+    .cm-lsp-documentation,
+    .cm-lsp-signature-tooltip,
+    .cm-diagnostic,
+    .cm-diagnosticSource,
+    .cm-diagnosticAction,
+    .cm-lsp-rename-panel,
+    .cm-lsp-reference-panel,
+    .cm-lsp-reference,
+    .cm-lsp-message,
+    .cm-panel-lint,
+    .cm-code-action-menu {
+      font-size: var(--editor-font-size, 13px) !important;
+    }
+
+    /* Structural size constraints only (no color/theme overrides) so tooltips
+       and panels never overflow the editor viewport, including very long lines
+       in hover docs. */
+    .cm-lsp-hover-tooltip, .cm-lsp-documentation {
+      max-width: min(640px, var(--editor-tooltip-maxw, 92vw));
+      max-height: var(--editor-tooltip-maxh, 52vh);
+      overflow: auto;
+    }
+    .cm-lsp-signature-tooltip {
+      max-width: min(640px, var(--editor-tooltip-maxw, 92vw));
+      max-height: var(--editor-tooltip-maxh, 40vh);
+      overflow: auto;
+    }
+    .cm-lsp-rename-panel, .cm-lsp-reference-panel, .cm-panel-lint {
+      max-width: min(560px, var(--editor-tooltip-maxw, 92vw));
+      max-height: var(--editor-tooltip-maxh, 52vh);
+      overflow: auto;
+    }
+    .cm-tooltip-autocomplete {
+      max-width: var(--editor-tooltip-maxw, 92vw);
+      max-height: var(--editor-tooltip-maxh, 50vh);
+      overflow-y: auto;
+    }
+    .cm-code-action-menu {
+      max-width: min(320px, 92vw);
+    }
+
+    /* The code-action menu is rendered outside the editor DOM (appended to
+       <body>), so it cannot inherit CodeMirror's theme. Give it the app's
+       surface tokens so it still matches the surrounding chrome. */
+    .cm-code-action-menu {
+      background: var(--color-ui-surface, rgba(19,26,36,0.95));
+      border: 1px solid var(--color-ui-border, rgba(255,255,255,0.08));
+      border-radius: var(--radius-md, 14px);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.45);
+      padding: 4px;
+      min-width: 220px;
+      color: var(--color-on-surface, #E8EAF0);
+      backdrop-filter: blur(18px) saturate(140%);
+      -webkit-backdrop-filter: blur(18px) saturate(140%);
+    }
+    .cm-code-action-item {
+      display: block;
+      width: 100%;
+      text-align: left;
+      background: transparent;
+      border: none;
+      color: inherit;
+      padding: 6px 10px;
+      border-radius: var(--radius-sm, 10px);
+      cursor: pointer;
+      font: inherit;
+      transition: background .12s ease;
+    }
+    .cm-code-action-item:hover { background: var(--color-primary-container, rgba(79,140,255,0.15)); }
   `;
 }
 
@@ -77,13 +168,23 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
   const showMinimap = useSettingsStore((s) => s.showMinimap);
   const setShowMinimap = useSettingsStore((s) => s.setShowMinimap);
   const wordWrap = useSettingsStore((s) => s.wordWrap);
-  const aiCodeCompletion = useSettingsStore((s) => s.aiCodeCompletion);
-  const aiSuggestions = useSettingsStore((s) => s.aiSuggestions);
+  const aiLiveSuggestions = useSettingsStore((s) => s.aiLiveSuggestions);
   const indentMarkers = useSettingsStore((s) => s.indentMarkers);
-  const [editorZoom, setEditorZoom] = useState(13);
+  const lspEnabled = useSettingsStore((s) => s.lspEnabled);
+  const editorFontSize = useSettingsStore((s) => s.editorFontSize);
+  const [editorZoom, setEditorZoom] = useState(editorFontSize);
   const wordWrapCompartmentRef = useRef<Compartment | null>(null);
   const zoomCompartmentRef = useRef<Compartment | null>(null);
   const indentMarkersCompartmentRef = useRef<Compartment | null>(null);
+  const searchPanelCompartmentRef = useRef<Compartment | null>(null);
+  const lspCompartmentRef = useRef<Compartment | null>(null);
+  // Holds the resolved LSP extension set so a view (re)created while the server
+  // is still downloading/connecting picks it up. Also lets us verify the LSP is
+  // actually wired into a live editor before reporting "ready".
+  const lspExtRef = useRef<Extension[] | null>(null);
+  const pendingLspResolveRef = useRef<((ext: Extension[]) => void) | null>(null);
+  const [peek, setPeek] = useState<PeekResult | null>(null);
+  const contextPosRef = useRef<number | null>(null);
 
 
   const [imageSrc, setImageSrc] = useState("");
@@ -201,58 +302,6 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
     }
   };
 
-  const handleGoToDefinition = () => {
-    if (viewRef.current) {
-      const sel = viewRef.current.state.selection.main;
-      const word = viewRef.current.state.wordAt(sel.head);
-      if (word) {
-        const text = viewRef.current.state.sliceDoc(word.from, word.to);
-        console.log(`LSP: Go to Definition for "${text}"`);
-        window.dispatchEvent(new CustomEvent("focus-search-bar"));
-      }
-    }
-  };
-
-  const handlePeekDefinition = () => {
-    if (viewRef.current) {
-      const sel = viewRef.current.state.selection.main;
-      const word = viewRef.current.state.wordAt(sel.head);
-      if (word) {
-        const text = viewRef.current.state.sliceDoc(word.from, word.to);
-        console.log(`LSP: Peek Definition for "${text}"`);
-      }
-    }
-  };
-
-  const handleFindReferences = () => {
-    if (viewRef.current) {
-      const sel = viewRef.current.state.selection.main;
-      const word = viewRef.current.state.wordAt(sel.head);
-      if (word) {
-        const text = viewRef.current.state.sliceDoc(word.from, word.to);
-        console.log(`LSP: Find References for "${text}"`);
-      }
-    }
-  };
-
-  const handleRenameSymbol = () => {
-    if (viewRef.current) {
-      const sel = viewRef.current.state.selection.main;
-      const word = viewRef.current.state.wordAt(sel.head);
-      if (word) {
-        const text = viewRef.current.state.sliceDoc(word.from, word.to);
-        const newName = prompt(`Rename symbol "${text}" to:`, text);
-        if (newName && newName !== text) {
-          const fullText = viewRef.current.state.doc.toString();
-          const replaced = fullText.split(text).join(newName);
-          viewRef.current.dispatch({
-            changes: { from: 0, to: viewRef.current.state.doc.length, insert: replaced }
-          });
-        }
-      }
-    }
-  };
-
   const formatContent = (text: string, fp: string): string => {
     if (fp.endsWith(".json")) {
       return JSON.stringify(JSON.parse(text), null, 2);
@@ -315,6 +364,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
 
   useEffect(() => {
     let cancelled = false;
+    let tooltipResizeObserver: ResizeObserver | null = null;
 
     const loadFile = async () => {
       try {
@@ -333,24 +383,10 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
 
         const ext = filePath.split(".").pop()?.toLowerCase() || "";
         const [
-          { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightSpecialChars, drawSelection, dropCursor, rectangularSelection, crosshairCursor, highlightActiveLine },
-          { EditorState, Prec, Compartment },
-          { autocompletion, completeAnyWord, closeBrackets, closeBracketsKeymap, completionKeymap },
-          { history, defaultKeymap, historyKeymap, indentWithTab },
-          { foldGutter, indentOnInput, syntaxHighlighting, defaultHighlightStyle, bracketMatching, foldKeymap },
-          { highlightSelectionMatches, searchKeymap, selectSelectionMatches, SearchQuery, setSearchQuery },
-          { lintGutter, linter, lintKeymap },
           content,
           languageExt,
           lintSource,
         ] = await Promise.all([
-          import("@codemirror/view"),
-          import("@codemirror/state"),
-          import("@codemirror/autocomplete"),
-          import("@codemirror/commands"),
-          import("@codemirror/language"),
-          import("@codemirror/search"),
-          import("@codemirror/lint"),
           system.readFileContent(filePath),
           getLanguageExtension(filePath),
           getLinterSource(ext),
@@ -369,6 +405,20 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
         if (!indentMarkersCompartmentRef.current) {
           indentMarkersCompartmentRef.current = new Compartment();
         }
+
+        if (!searchPanelCompartmentRef.current) {
+          searchPanelCompartmentRef.current = new Compartment();
+        }
+
+        if (!lspCompartmentRef.current) {
+          lspCompartmentRef.current = new Compartment();
+        }
+
+        // Determine whether to bring up an LSP server for this file. When an
+        // LSP is active for the language we suppress the lighter built-in
+        // Lezer linter (the LSP supersedes it) to avoid duplicate diagnostics.
+        const languageId = isImage ? null : languageIdFromPath(filePath);
+        const useLsp = !!languageId && lspEnabled;
 
         initialContentRef.current = content.replace(/\r\n/g, "\n");
 
@@ -390,72 +440,31 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
           crosshairCursor(),
           highlightActiveLine(),
           highlightSelectionMatches(),
+          // Keep tooltips (hover, completions, diagnostics) inside the editor's
+          // own bounds instead of the whole window. By default CodeMirror uses
+          // the window as the "tooltip space", which lets the LSP hover spill
+          // under the right side panel when a token is near the editor's right
+          // edge. Returning the editor's rect confines it to the safe area.
+          tooltips({
+            tooltipSpace: (view) => {
+              const rect = view.dom.getBoundingClientRect();
+              return { top: rect.top, left: rect.left, bottom: rect.bottom, right: rect.right };
+            },
+          }),
           autocompletion({ activateOnTyping: true, maxRenderedOptions: 12 }),
           EditorState.languageData.of(() => [{ autocomplete: completeAnyWord }]),
           keymap.of([
             ...closeBracketsKeymap,
             ...defaultKeymap,
-            ...searchKeymap,
             ...historyKeymap,
             ...foldKeymap,
             ...completionKeymap,
             indentWithTab,
           ]),
-          Prec.high(keymap.of([
-            {
-              key: "Mod-c", run: (view) => {
-                if (!view.state.selection.main.empty) return false;
-                const line = view.state.doc.lineAt(view.state.selection.main.head);
-                navigator.clipboard.writeText(line.text + "\n");
-                return true;
-              }
-            },
-            {
-              key: "Mod-x", run: (view) => {
-                if (!view.state.selection.main.empty) return false;
-                const line = view.state.doc.lineAt(view.state.selection.main.head);
-                navigator.clipboard.writeText(line.text + "\n");
-                view.dispatch({
-                  changes: { from: line.from, to: line.to },
-                  selection: { anchor: line.from },
-                });
-                return true;
-              }
-            },
-            { key: "Mod-f", run: () => { toggleSearchRef.current?.(); return true; } },
-            { key: "Mod-g", run: () => { toggleSearchRef.current?.(); return true; } },
-            { key: "Shift-Mod-g", run: () => { toggleSearchRef.current?.(); return true; } },
-            { key: "F3", run: () => { toggleSearchRef.current?.(); return true; } },
-            { key: "Shift-F3", run: () => { toggleSearchRef.current?.(); return true; } },
-            { key: "Mod-s", run: () => { handleSaveActiveFile(); return true; } },
-            { key: "F12", run: () => { handleGoToDefinition(); return true; } },
-            { key: "Alt-F12", run: () => { handlePeekDefinition(); return true; } },
-            { key: "Shift-F12", run: () => { handleFindReferences(); return true; } },
-            { key: "F2", run: () => { handleRenameSymbol(); return true; } },
-            { key: "Shift-Mod-i", run: () => { handleFormatDocument(); return true; } },
-            { key: "Mod-F5", run: () => { handleRunFile(); return true; } },
-            { key: "Mod-=", run: () => { setEditorZoom((z) => Math.min(40, z + 1)); return true; } },
-            { key: "Mod-+", run: () => { setEditorZoom((z) => Math.min(40, z + 1)); return true; } },
-            { key: "Mod--", run: () => { setEditorZoom((z) => Math.max(8, z - 1)); return true; } },
-            { key: "Shift-Mod-l", run: selectSelectionMatches },
-          ])),
           lintGutter(),
-          ...(lintSource ? [linter(lintSource)] : []),
+          ...(useLsp ? [] : lintSource ? [linter(lintSource)] : []),
           keymap.of(lintKeymap),
-          ...(() => { console.log("Configuring editor, aiSuggestions status:", aiSuggestions); return []; })(),
-          ...(aiSuggestions ? [
-            ...aiExtension({
-              prompt: async ({ prompt, selection, codeBefore, codeAfter }) => {
-                const response = await ai.editCode(prompt, codeBefore, codeAfter, selection);
-                if (response.status !== "completed" || !response.code) {
-                  throw new Error(response.message ?? "Failed to edit code");
-                }
-                return response.code;
-              },
-              onError: (error) => console.error("AI edit error:", error),
-            }),
-          ] : []),
-          ...(aiCodeCompletion ? [
+          ...(aiLiveSuggestions ? [
             ...inlineCompletion({
               fetchFn: async (state, _signal, _view) => {
                 const cursorPos = state.selection.main.head;
@@ -480,12 +489,25 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
           })),
           createMinimapExtension(showMinimap),
           indentMarkersCompartmentRef.current.of(indentMarkers ? indentMarkersExtension() : []),
+          searchPanelCompartmentRef.current.of([]),
+          lspCompartmentRef.current.of(lspExtRef.current ?? []),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
               const currentContent = update.state.doc.toString();
               const isDirty = currentContent !== initialContentRef.current;
               updateTab(tabId, { dirty: isDirty, fileContent: currentContent, everChanged: true });
               setHasConflicts(/^<<<<<<< .+/m.test(currentContent) && /^>>>>>>> .+/m.test(currentContent));
+            }
+            if (update.selectionSet) {
+              const sel = update.state.selection.main;
+              if (!sel.empty) {
+                const fromLine = update.state.doc.lineAt(sel.from).number;
+                const toLine = update.state.doc.lineAt(sel.to).number;
+                const text = update.state.sliceDoc(sel.from, sel.to);
+                updateTab(tabId, { selection: { startLine: fromLine, endLine: toLine, text } });
+              } else {
+                updateTab(tabId, { selection: null });
+              }
             }
           }),
         ];
@@ -506,6 +528,33 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
 
         viewRef.current = view;
 
+        // If the LSP extension resolved while a previous view instance was
+        // alive (or before this view mounted), attach it now so the live editor
+        // is never left without LSP. This also resolves the pending "success"
+        // toast once the extension is genuinely wired into a live editor.
+        if (lspExtRef.current && lspCompartmentRef.current) {
+          view.dispatch({ effects: lspCompartmentRef.current.reconfigure(lspExtRef.current) });
+          const resolvePending = pendingLspResolveRef.current;
+          if (resolvePending) {
+            pendingLspResolveRef.current = null;
+            resolvePending(lspExtRef.current);
+          }
+        }
+
+        // Cap LSP/lint tooltips to the editor's actual box (not the viewport)
+        // so a wide/tall hover never spills under the right side panel or below
+        // the view. `tooltipSpace` confines placement; these bounds guarantee
+        // the placement math can never push the tooltip past the editor edges.
+        const updateTooltipBounds = () => {
+          const w = Math.max(220, view.dom.clientWidth - 24);
+          const h = Math.max(160, view.dom.clientHeight - 16);
+          view.dom.style.setProperty("--editor-tooltip-maxw", `${w}px`);
+          view.dom.style.setProperty("--editor-tooltip-maxh", `${h}px`);
+        };
+        updateTooltipBounds();
+        tooltipResizeObserver = new ResizeObserver(updateTooltipBounds);
+        tooltipResizeObserver.observe(view.dom);
+
         if (tab?.scrollToLine !== undefined) {
           try {
             const lineNum = Math.min(Math.max(1, tab.scrollToLine), view.state.doc.lines);
@@ -514,13 +563,13 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
             const mEnd = tab.scrollToMatchEnd ?? 0;
             const startPos = Math.min(lineInfo.from + mStart, lineInfo.to);
             const endPos = Math.min(lineInfo.from + mEnd, lineInfo.to);
-            
+
             view.dispatch({
               selection: { anchor: startPos, head: endPos },
-              scrollIntoView: true
+              effects: EditorView.scrollIntoView(startPos, { y: "center", yMargin: 48 })
             });
             view.focus();
-            
+
             updateTab(tabId, {
               scrollToLine: undefined,
               scrollToMatchStart: undefined,
@@ -537,6 +586,50 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
           }
         });
 
+        // Bring up the language server for this file (downloads on first use,
+        // then pipes LSP diagnostics/completions/hover into the editor). Runs
+        // after the view exists so we can attach the client plugin. Progress is
+        // surfaced via the shared loader state (status-bar spinner), not a toast.
+        if (useLsp && languageId) {
+          const root = useAppShellStore.getState().projectDir || null;
+          // Drive the shared loader so the status bar spins until the server is
+          // ready. The editor reconfigure may be deferred to a live view, but
+          // that doesn't keep the spinner alive — finish() is called once here.
+          useLoaderStore.getState().start();
+          const finish = () => useLoaderStore.getState().stop();
+          connectLanguage(languageId, filePath, root)
+            .then((ext) => {
+              if (cancelled) {
+                finish();
+                return ext;
+              }
+              // Cache the resolved extension so any view (re)created during the
+              // async fetch applies it automatically.
+              lspExtRef.current = ext;
+              if (viewRef.current && lspCompartmentRef.current) {
+                viewRef.current.dispatch({
+                  effects: lspCompartmentRef.current.reconfigure(ext),
+                });
+                finish();
+                return ext;
+              }
+              // The editor view isn't mounted yet (or was recreated while the
+              // server was starting). Defer until a live view picks up the
+              // extension — see the view-creation path above. The spinner ends
+              // now: the server itself is ready.
+              finish();
+              return new Promise<Extension[]>((resolve) => {
+                pendingLspResolveRef.current = resolve;
+              });
+            })
+            .catch((err) => {
+              if (!cancelled) {
+                console.error(`LSP setup failed for ${languageId}:`, err);
+              }
+              finish();
+            });
+        }
+
         setLoading(false);
       } catch (err) {
         if (!cancelled) {
@@ -551,13 +644,24 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
 
     return () => {
       cancelled = true;
+      if (tooltipResizeObserver) {
+        tooltipResizeObserver.disconnect();
+        tooltipResizeObserver = null;
+      }
       if (viewRef.current) {
         viewRef.current.destroy();
         viewRef.current = null;
       }
+      // Release any pending LSP "success" resolver so the toast can't hang if we
+      // unmount mid-connect, and clear the cached extension for a clean remount.
+      if (pendingLspResolveRef.current) {
+        pendingLspResolveRef.current(lspExtRef.current ?? []);
+        pendingLspResolveRef.current = null;
+      }
+      lspExtRef.current = null;
       updateTab(tabId, { dirty: false });
     };
-  }, [filePath, tabId, updateTab, isImage, imageMimeType, aiSuggestions, aiCodeCompletion]);
+  }, [filePath, tabId, updateTab, isImage, imageMimeType, aiLiveSuggestions]);
 
   // Separate useEffect to handle scrolling to a line on tab selection/navigation
   useEffect(() => {
@@ -570,13 +674,13 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
         const mEnd = tab.scrollToMatchEnd ?? 0;
         const startPos = Math.min(lineInfo.from + mStart, lineInfo.to);
         const endPos = Math.min(lineInfo.from + mEnd, lineInfo.to);
-        
+
         view.dispatch({
           selection: { anchor: startPos, head: endPos },
-          scrollIntoView: true
+          effects: EditorView.scrollIntoView(startPos, { y: "center", yMargin: 48 })
         });
         view.focus();
-        
+
         updateTab(tabId, {
           scrollToLine: undefined,
           scrollToMatchStart: undefined,
@@ -587,6 +691,16 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
       }
     }
   }, [tab?.scrollToLine, tab?.scrollToMatchStart, tab?.scrollToMatchEnd, tabId, updateTab]);
+
+  // Esc dismisses an open definition peek without navigating.
+  useEffect(() => {
+    if (!peek) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setPeek(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [peek]);
 
   // Reload file content when external changes are detected (git checkout, external editor, etc.)
   useEffect(() => {
@@ -689,58 +803,31 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
     const handleGoToDefinition = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       if (detail && detail.tabId !== tabId) return;
-      if (viewRef.current) {
-        const sel = viewRef.current.state.selection.main;
-        const word = viewRef.current.state.wordAt(sel.head);
-        if (word) {
-          const text = viewRef.current.state.sliceDoc(word.from, word.to);
-          console.log(`LSP: Go to Definition for "${text}"`);
-          window.dispatchEvent(new CustomEvent("focus-search-bar"));
-        }
-      }
+      const view = viewRef.current;
+      if (!view) return;
+      const pos = contextPosRef.current ?? view.state.selection.main.head;
+      view.dispatch({ selection: { anchor: pos } });
+      void gotoDefinitionAt(view);
     };
-    const handlePeekDefinition = (e: Event) => {
+    const handlePeekDefinition = async (e: Event) => {
       const detail = (e as CustomEvent).detail;
       if (detail && detail.tabId !== tabId) return;
-      if (viewRef.current) {
-        const sel = viewRef.current.state.selection.main;
-        const word = viewRef.current.state.wordAt(sel.head);
-        if (word) {
-          const text = viewRef.current.state.sliceDoc(word.from, word.to);
-          console.log(`LSP: Peek Definition for "${text}"`);
-        }
-      }
+      const view = viewRef.current;
+      if (!view) return;
+      const pos = contextPosRef.current ?? view.state.selection.main.head;
+      view.dispatch({ selection: { anchor: pos } });
+      const data = await peekDefinition(view);
+      if (data) setPeek(data);
     };
     const handleRenameSymbol = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       if (detail && detail.tabId !== tabId) return;
-      if (viewRef.current) {
-        const sel = viewRef.current.state.selection.main;
-        const word = viewRef.current.state.wordAt(sel.head);
-        if (word) {
-          const text = viewRef.current.state.sliceDoc(word.from, word.to);
-          const newName = prompt(`Rename symbol "${text}" to:`, text);
-          if (newName && newName !== text) {
-            const fullText = viewRef.current.state.doc.toString();
-            const replaced = fullText.split(text).join(newName);
-            viewRef.current.dispatch({
-              changes: { from: 0, to: viewRef.current.state.doc.length, insert: replaced }
-            });
-          }
-        }
-      }
+      if (viewRef.current) lspRenameSymbol(viewRef.current);
     };
     const handleFindReferences = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       if (detail && detail.tabId !== tabId) return;
-      if (viewRef.current) {
-        const sel = viewRef.current.state.selection.main;
-        const word = viewRef.current.state.wordAt(sel.head);
-        if (word) {
-          const text = viewRef.current.state.sliceDoc(word.from, word.to);
-          console.log(`LSP: Find References for "${text}"`);
-        }
-      }
+      if (viewRef.current) lspFindReferences(viewRef.current);
     };
     const handleChangeAllOccurrences = async () => {
       if (viewRef.current) {
@@ -779,6 +866,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
       const detail = (e as CustomEvent).detail;
       if (detail && detail.tabId !== tabId) return;
       if (viewRef.current) {
+        if (lspFormatDocument(viewRef.current)) return;
         try {
           const formatted = formatContent(viewRef.current.state.doc.toString(), filePath);
           viewRef.current.dispatch({
@@ -819,16 +907,45 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
       }).catch(console.error);
     };
 
-    const handleAiImprovement = (e: Event) => {
+    const handleFind = (e: Event) => {
       const detail = (e as CustomEvent).detail;
-      console.log("FileViewer handleAiImprovement received event", { detail, tabId, hasView: !!viewRef.current });
       if (detail && detail.tabId !== tabId) return;
-      const view = viewRef.current;
-      if (!view) return;
-      import("./aiExtensions").then(({ showAiEditInput }) => {
-        console.log("Imported showAiEditInput, calling it");
-        showAiEditInput(view);
-      });
+      toggleSearchRef.current?.();
+    };
+    const handleFindNext = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail && detail.tabId !== tabId) return;
+      if (viewRef.current) centerFindNext(viewRef.current);
+    };
+    const handleFindPrev = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail && detail.tabId !== tabId) return;
+      if (viewRef.current) centerFindPrevious(viewRef.current);
+    };
+    const handleZoomIn = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail && detail.tabId !== tabId) return;
+      setEditorZoom((z) => Math.min(40, z + 1));
+    };
+    const handleZoomOut = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail && detail.tabId !== tabId) return;
+      setEditorZoom((z) => Math.max(8, z - 1));
+    };
+    const handleSelectMatches = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail && detail.tabId !== tabId) return;
+      if (viewRef.current) selectSelectionMatches(viewRef.current);
+    };
+    const handleCodeAction = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail && detail.tabId !== tabId) return;
+      if (viewRef.current) lspCodeAction(viewRef.current);
+    };
+    const handleOrganizeImports = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail && detail.tabId !== tabId) return;
+      if (viewRef.current) lspOrganizeImports(viewRef.current);
     };
 
     window.addEventListener("file-select-all", handler);
@@ -844,7 +961,14 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
     window.addEventListener("file-change-all-occurrences", handleChangeAllOccurrences);
     window.addEventListener("file-format-document", handleFormatDocumentEvent);
     window.addEventListener("file-run", handleRunFile);
-    window.addEventListener("file-ai-improvement", handleAiImprovement);
+    window.addEventListener("file-find", handleFind);
+    window.addEventListener("file-find-next", handleFindNext);
+    window.addEventListener("file-find-prev", handleFindPrev);
+    window.addEventListener("file-zoom-in", handleZoomIn);
+    window.addEventListener("file-zoom-out", handleZoomOut);
+    window.addEventListener("file-select-matches", handleSelectMatches);
+    window.addEventListener("file-code-action", handleCodeAction);
+    window.addEventListener("file-organize-imports", handleOrganizeImports);
     return () => {
       window.removeEventListener("file-select-all", handler);
       window.removeEventListener("file-paste", handlePaste);
@@ -859,7 +983,14 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
       window.removeEventListener("file-change-all-occurrences", handleChangeAllOccurrences);
       window.removeEventListener("file-format-document", handleFormatDocumentEvent);
       window.removeEventListener("file-run", handleRunFile);
-      window.removeEventListener("file-ai-improvement", handleAiImprovement);
+      window.removeEventListener("file-find", handleFind);
+      window.removeEventListener("file-find-next", handleFindNext);
+      window.removeEventListener("file-find-prev", handleFindPrev);
+      window.removeEventListener("file-zoom-in", handleZoomIn);
+      window.removeEventListener("file-zoom-out", handleZoomOut);
+      window.removeEventListener("file-select-matches", handleSelectMatches);
+      window.removeEventListener("file-code-action", handleCodeAction);
+      window.removeEventListener("file-organize-imports", handleOrganizeImports);
     };
   }, [tabId, filePath, updateTab]);
 
@@ -893,6 +1024,19 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
       )
     });
   }, [indentMarkers]);
+
+  // Keep the LSP/lint UI font size in sync with the editor's actual displayed
+  // text size (editorZoom), so the hover/diagnostics/completion UI matches the
+  // editor window instead of the unrelated terminal font-size setting.
+  useEffect(() => {
+    document.documentElement.style.setProperty("--editor-font-size", `${editorZoom}px`);
+  }, [editorZoom]);
+
+  // When the editor font-size setting changes, rebase the editor zoom (Ctrl+scroll
+  // still adjusts editorZoom on top of this) so CodeMirror picks up the new size.
+  useEffect(() => {
+    setEditorZoom(editorFontSize);
+  }, [editorFontSize]);
 
   // React to editorZoom change
   useEffect(() => {
@@ -941,6 +1085,10 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+
+    contextPosRef.current = viewRef.current
+      ? viewRef.current.posAtCoords({ x: e.clientX, y: e.clientY }) ?? null
+      : null;
 
     let selectedText = "";
     if (viewRef.current) {
@@ -1027,7 +1175,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
                 onClick={resetZoom}
                 className="p-1 rounded hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface ml-2"
               >
-                <RotateCcw size={14} />
+                <RotateCw size={14} />
               </button>
             </div>
             {imageSrc && (
@@ -1069,6 +1217,21 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
                 view={viewRef.current}
                 onClose={() => { setShowSearch(false); setInitialFindText(""); }}
                 initialFindText={initialFindText}
+                searchPanelCompartment={searchPanelCompartmentRef.current}
+              />
+            )}
+            {peek && (
+              <PeekPanel
+                peek={peek}
+                onClose={() => setPeek(null)}
+                onNavigate={() => {
+                  openFileInApp(peek.path, undefined, {
+                    lineNumber: peek.targetRange.start.line + 1,
+                    matchStart: peek.targetRange.start.character,
+                    matchEnd: peek.targetRange.end.character,
+                  });
+                  setPeek(null);
+                }}
               />
             )}
             <button

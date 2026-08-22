@@ -36,40 +36,6 @@ A lightweight, high-performance, and extremely powerful **Agentic Terminal** des
    npm run tauri build
    ```
 
-## Workspace tree
-
-```text
-aurora-term/
-├── Cargo.toml
-├── Cargo.lock
-├── package.json
-├── pnpm-workspace.yaml
-├── turbo.json
-├── tsconfig.json
-├── index.html
-├── README.md
-├── AGENT.md
-├── adr/
-├── app/
-│   ├── package.json
-│   ├── vite.config.ts
-│   └── src/
-├── packages/
-│   ├── types/
-│   └── aurora-agent/
-├── crates/
-│   ├── aurora-core/
-│   ├── aurora-pty/
-│   ├── aurora-db/
-│   ├── aurora-config/
-│   ├── aurora-sidecar/
-│   ├── aurora-ai/
-│   └── aurora-commands/
-├── tauri/
-├── scripts/
-└── static/
-```
-
 ## Development
 
 ```bash
@@ -92,14 +58,6 @@ pnpm tauri dev
 | `aurora-ai` | AI provider abstraction and streaming responses | `tauri`, `reqwest`, `async-trait`, `futures-util`, `aurora-core` |
 | `aurora-commands` | Tauri command handlers that glue the backend together | `tauri`, `tokio`, `serde`, `uuid`, `chrono`, `base64`, `ignore`, `sysinfo`, `notify`, `rfd`, `which`, plus all core crates |
 | `tauri` | Native app shell and binary entrypoint | `tauri-build`, `tauri`, `tauri-plugin-opener`, `tauri-plugin-prevent-default`, plus the core crates |
-
-### pnpm workspace packages
-
-| Package | Why it exists | Main requirements |
-|---|---|---|
-| `app` (`@aurora/app`) | Main React frontend for the Tauri window | `react`, `react-dom`, `vite`, `typescript`, `@tauri-apps/api`, `@xterm/*`, `zustand`, `tailwindcss` |
-| `packages/types` (`@aurora/types`) | Shared TypeScript types used by the frontend | TypeScript-only shared models; no runtime build output |
-| `packages/aurora-agent` (`aurora-agent`) | AI agent sidecar server (Fastify + Mastra) that plans and executes multi-step terminal tasks via LLM | `fastify`, `@mastra/core`, `@mastra/libsql`, `@mastra/memory`, `dotenv`, `zod` |
 
 ## Natural Language Command Classification
 
@@ -166,41 +124,3 @@ pnpm dev --port 5000            # custom port
 ```
 
 Requires at least one LLM API key set via environment or keychain.
-
-## 🛠️ Tech Stack & Versions
-
-Aurora is built on a state-of-the-art native desktop and web technology stack:
-
-### Frontend
-| Technology | Version | Description |
-| :--- | :--- | :--- |
-| **React** | `^19.2.0` | Declarative UI framework |
-| **TypeScript** | `^6.0.0` | Strongly-typed JavaScript superset |
-| **Vite** | `^8.0.0` | Next-generation frontend tooling |
-| **Tailwind CSS** | `^4.0.0` | Dynamic utility-first CSS styling framework |
-| **@xterm/xterm** | `^5.3.0` | High-fidelity hardware-accelerated terminal renderer |
-| **@xterm/addon-fit** | `^0.11.0` | Responsive dimensions resizing addon |
-| **Zustand** | `^5.0.3` | Lightweight, reactive state management |
-| **Lucide React** | `^0.475.0` | Curated premium UI vector icons |
-
-### Backend / Core
-| Technology | Version | Description |
-| :--- | :--- | :--- |
-| **Tauri CLI / API** | `^2.1.0` / `^2.1.1` | Ultra-lightweight native Rust app wrapper |
-| **Rust** | `1.75+` | Safe, high-performance backend systems compiler |
-| **PTY Manager** | Custom (Rust) | Native Windows/Unix PTY process lifecycle controller |
-
-## 🔮 Future Roadmap (To Be Implemented)
-
-We are actively developing Aurora into the ultimate lightweight agentic terminal interface:
-
-  - Embedded file previewer for fast file inspections.
-  - Lightweight markdown rendering and code editor panels.
-  - Autonomous local workflow executor capable of running complex multi-step terminal actions.
-  - Direct task tracking checklist rendering inside a dedicated side-panel.
-  - Offline LLM execution via Ollama, Llama.cpp, or ONNX runtimes.
-  - Zero-latency local completion, command prediction, and explanation.
-  - Direct multi-provider connections for Anthropic (Claude), OpenAI (GPT-4o), Gemini, and DeepSeek.
-  - Safe API-key vaults stored in local secure keychain credentials.
-  - Visual keyboard-shortcut actions menu.
-  - Multi-session CLI automation scripting.

@@ -57,11 +57,16 @@ export function createLanguageLinter(ext: string): LintSource {
         const text = view.state.sliceDoc(from, to);
 
         // Syntax Error Check (Error)
+        // Skip zero-length error nodes — these are transient artifacts of
+        // mid-edit parsing (a caret sitting inside an unfinished token) and
+        // would otherwise flicker as false positives. Only flag errors that
+        // actually span content.
         if (nodeRef.type.isError) {
+          if (to <= from) return;
           const shortText = text.slice(0, 40);
           diagnostics.push({
             from,
-            to: Math.max(to, from + 1),
+            to,
             severity: "error",
             message: shortText ? `Unexpected token: ${shortText}` : "Syntax error",
           });

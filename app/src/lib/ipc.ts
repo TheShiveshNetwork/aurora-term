@@ -32,6 +32,7 @@ export interface ProviderConfig {
   fast_model: string;
   balanced_model: string;
   powerful_model: string;
+  selected_model: string | null;
   base_url: string | null;
 }
 
@@ -57,9 +58,19 @@ export interface EditorConfig {
   show_minimap: boolean;
   git_gui_mode: string;
   word_wrap: boolean;
-  ai_code_completion: boolean;
-  ai_suggestions: boolean;
+  ai_live_suggestions: boolean;
   indent_markers: boolean;
+  lsp_enabled: boolean;
+  font_size: number;
+}
+
+export interface CloudConfig {
+  auto_sync: boolean;
+  synced: boolean;
+}
+
+export interface UpdatesConfig {
+  enabled: boolean;
 }
 
 export interface AppConfig {
@@ -68,6 +79,13 @@ export interface AppConfig {
   keybindings: KeybindingsConfig;
   appearance: AppearanceConfig;
   editor: EditorConfig;
+  cloud: CloudConfig;
+  updates: UpdatesConfig;
+}
+
+export interface PtyBusyEvent {
+  session_id: string;
+  busy: boolean;
 }
 
 export const pty = {
@@ -109,14 +127,6 @@ export const ai = {
   fetchModels: (provider: ProviderName) =>
     invoke<ModelInfo[]>("ai_fetch_models", { provider }),
 
-  editCode: (prompt: string, codeBefore: string, codeAfter: string, selection: string) =>
-    invoke<{ status: string; code?: string; message?: string }>("ai_edit_code", {
-      prompt,
-      codeBefore,
-      codeAfter,
-      selection,
-    }),
-
   inlineComplete: (contextBefore: string, language: string) =>
     invoke<{ status: string; completion?: string }>("ai_inline_complete", {
       contextBefore,
@@ -151,6 +161,61 @@ export const state = {
     invoke<void>("state_update_checked_branches", { projectDir, branches }),
 };
 
+// ─── Cloud sync types mirrored from Rust side ───────────────────────────
+export type SyncStatus =
+  | "synced"
+  | "pushed"
+  | "pulled"
+  | "conflict"
+  | "signed_out"
+  | "disabled";
+
+export interface SyncResult {
+  status: SyncStatus;
+  remote_payload: AppConfig | null;
+  remote_version: string | null;
+  remote_updated_at: string | null;
+}
+
+export type SyncAction = "keep_local" | "keep_cloud" | "merge";
+
+export interface AuthStatus {
+  signed_in: boolean;
+  email: string | null;
+  username?: string | null;
+}
+
+export type UpdateStatus = "available" | "up_to_date" | "disabled" | "failed";
+
+export interface UpdateInfo {
+  status: UpdateStatus;
+  available: boolean;
+  current_version: string;
+  latest_version: string;
+  url: string | null;
+  notes: string | null;
+  published_at: string | null;
+  dismissed: boolean;
+}
+
+export const cloud = {
+  authStatus: () => invoke<AuthStatus>("cloud_auth_status"),
+  signInOAuth: (provider: string) =>
+    invoke<AuthStatus>("cloud_sign_in_oauth", { provider }),
+  signOut: () => invoke<void>("cloud_sign_out"),
+  syncNow: (config: AppConfig) => invoke<SyncResult>("cloud_sync_now", { config }),
+  resolveConflict: (action: SyncAction, config: AppConfig, remoteVersion: string) =>
+    invoke<SyncResult>("cloud_resolve_conflict", { action, config, remoteVersion }),
+};
+
+
+
+export const update = {
+  check: () => invoke<UpdateInfo>("update_check"),
+  dismiss: (version: string) => invoke<void>("update_dismiss", { version }),
+  install: () => invoke<void>("update_install"),
+};
+
 export interface FileNode {
   name: string;
   path: string;
@@ -180,6 +245,48 @@ export interface AgentStepResult {
 
 export interface AgentChatResult {
   status: string;
+  message?: string;
+}
+
+export interface AgentBtwResult {
+  status: string;
+  message?: string;
+}
+
+export interface AgentSkillInfo {
+  name: string;
+  path: string;
+  source: "project" | "global";
+  description?: string;
+}
+
+export interface AgentMcpInfo {
+  name: string;
+  type: string;
+  command?: string;
+  args?: string[];
+  url?: string;
+  description?: string;
+  source: "project" | "global";
+}
+
+export interface AgentSkillsResult {
+  status: string;
+  project: AgentSkillInfo[];
+  global: AgentSkillInfo[];
+  total: number;
+}
+
+export interface AgentMcpResult {
+  status: string;
+  project: AgentMcpInfo[];
+  global: AgentMcpInfo[];
+  total: number;
+}
+
+export interface AgentFileContextResult {
+  status: string;
+  context?: string;
   message?: string;
 }
 
@@ -316,7 +423,10 @@ export const system = {
     mode: string | undefined,
     runId: string,
     toolCallId: string | undefined,
-    resumeData?: any
+    resumeData?: any,
+    sessionId?: string,
+    toolName?: string,
+    args?: any
   ) =>
     invoke<AgentStepResult>("agent_approve_tool", {
       agentType,
@@ -324,21 +434,32 @@ export const system = {
       runId,
       toolCallId,
       resumeData,
+      sessionId,
+      toolName,
+      args,
     }),
   agentDeclineTool: (
     agentType: string | undefined,
     mode: string | undefined,
     runId: string,
-    toolCallId: string | undefined
+    toolCallId: string | undefined,
+    sessionId?: string,
+    feedback?: string
   ) =>
     invoke<AgentStepResult>("agent_decline_tool", {
       agentType,
       mode,
       runId,
       toolCallId,
+      sessionId,
+      feedback,
     }),
   agentGetLogs: () =>
     invoke<{ status: string; logs: Array<{ timestamp: number; type: string; content: string }> }>("agent_get_logs"),
+  agentGetThinking: (thread: string) =>
+    invoke<{ status: string; thinking: string; planning: string; conclusion: string }>("agent_get_thinking", { thread }),
+  agentStopRun: (threadId: string) =>
+    invoke<void>("agent_stop_run", { threadId }),
   agentChat: (
     message: string,
     sessionId?: string,
@@ -353,8 +474,36 @@ export const system = {
       agentType,
       mode,
     }),
+  agentBtw: (
+    message: string,
+    sessionId?: string,
+    model?: string
+  ) =>
+    invoke<AgentBtwResult>("agent_btw", {
+      sessionId,
+      message,
+      model,
+    }),
+  agentSkills: (cwd?: string) =>
+    invoke<AgentSkillsResult>("agent_skills", { cwd }),
+  agentMcp: (cwd?: string) =>
+    invoke<AgentMcpResult>("agent_mcp", { cwd }),
+  agentFileContext: (
+    paths: string[],
+    cwd?: string,
+    previewChars?: number,
+    selection?: { path: string; startLine: number; endLine: number; text: string } | null
+  ) =>
+    invoke<AgentFileContextResult>("agent_file_context", {
+      paths,
+      cwd,
+      previewChars,
+      selection,
+    }),
   revealInExplorer: (path: string) =>
     invoke<void>("reveal_in_explorer", { path }),
+  openExternalUrl: (url: string) =>
+    invoke<void>("plugin:opener|open_url", { url }),
   getCwdInfo: (cwd: string) =>
     invoke<{ git_branch: string | null }>("get_cwd_info", { cwd }),
   getGitBranch: (cwd: string) =>
@@ -403,6 +552,8 @@ export const system = {
     invoke<GitBranchInfo[]>("git_branch_list", { cwd }),
   gitBranchListAll: (cwd: string) =>
     invoke<GitBranchInfo[]>("git_branch_list_all", { cwd }),
+  gitFetchPrune: (cwd: string) =>
+    invoke<void>("git_fetch_prune", { cwd }),
   gitDiffUnstaged: (cwd: string, path?: string) =>
     invoke<string>("git_diff_unstaged", { cwd, path }),
   gitDiffStaged: (cwd: string, path?: string) =>

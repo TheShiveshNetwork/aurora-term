@@ -12,8 +12,10 @@ import { buildXtermTheme } from "../../lib/xtermTheme";
 import { getRowHeight } from "../../lib/terminal/blockAnchors";
 
 import { stripAnsi, cleanPtyData } from "../../lib/terminal/cleanup";
+import { mapKeyToPtyData, isGlobalAppShortcut, KbMode } from "../../lib/terminal/keymap";
 import { pty, system } from "../../lib/ipc";
 import { SquareTerminal } from "lucide-react";
+import { getDefaultShellLaunch } from "../../lib/shell";
 
 function findTrailingIncompleteEscape(data: string, lastAurora: number): number {
   let splitIndex = -1;
@@ -68,11 +70,23 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const webglAddonRef = useRef<WebglAddon | null>(null);
+  // Keyboard enhancement protocol negotiated by the TUI (set from a DEC private
+  // mode it emits at startup). Drives how modified Enter is encoded.
+  const kbModeRef = useRef<KbMode>("legacy");
 
   const isVisibleRef = useRef(isVisible);
   useEffect(() => {
     isVisibleRef.current = isVisible;
   }, [isVisible]);
+
+  const fontSize = useSettingsStore((state) => state.fontSize);
+
+  // Apply editor/terminal font size changes to the live xterm instance.
+  useEffect(() => {
+    if (termRef.current) {
+      termRef.current.options.fontSize = fontSize;
+    }
+  }, [fontSize]);
 
   useEffect(() => {
     const term = termRef.current;
@@ -119,7 +133,12 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
 
   // Subscribe only to the runningBlockId of this session to keep execution states in sync
   const runningBlockId = useBlockStore((state) => state.runningBlockId[sessionId]);
-  const isCommandRunning = !!runningBlockId;
+  // sessionBusy is the authoritative "a command is actually running in the shell"
+  // flag, driven by the Rust process watchdog (pty_busy event) which polls the
+  // shell's process tree. It is NOT cleared by prompt sentinels — only by the
+  // watchdog, session exit, or restart.
+  const sessionBusy = useSessionStore((state) => state.sessionBusy[sessionId] || false);
+  const isCommandRunning = !!runningBlockId || sessionBusy;
   const isAlternateActive = useSessionStore((state) => state.alternateBufferActive[sessionId] || false);
   const theme = useSettingsStore((state) => state.theme);
 
@@ -130,12 +149,6 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
   const resizeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastColsRef = useRef<number>(0);
   const lastRowsRef = useRef<number>(0);
-  const lastTransitionTimeRef = useRef<number>(0);
-
-  // Sync transition time on alternate active state change
-  useEffect(() => {
-    lastTransitionTimeRef.current = Date.now();
-  }, [isAlternateActive]);
 
   // Debounced PTY resize helper to prevent Windows ConPTY deadlocks/crashes from rapid concurrent resizes
   const debouncedResize = useMemo(() => {
@@ -207,37 +220,32 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
     if (!xtermRef.current) return;
 
     let isDisposed = false;
-    let lastAlternateBufferState = useSessionStore.getState().alternateBufferActive[sessionId] || false;
 
+    // Update store state when xterm's native buffer changes — no force-writing escape sequences.
+    // xterm.js handles \x1b[?1049h/l natively; we only track state for the UI layer.
     const syncAlternateBufferState = (active: boolean) => {
-      const currentXtermAlternate = termRef.current?.buffer?.active?.type === "alternate";
-      if (lastAlternateBufferState === active && currentXtermAlternate === active) return;
+      const current = useSessionStore.getState().alternateBufferActive[sessionId] || false;
+      if (current === active) return;
 
-      lastAlternateBufferState = active;
-      console.log(`[TerminalPane ${sessionId}] Alternate buffer transition: ${!active} -> ${active}`);
+      console.log(`[TerminalPane ${sessionId}] Alternate buffer transition: ${current} -> ${active}`);
       useSessionStore.getState().setAlternateBufferActive(sessionId, active);
 
-      if (!active && currentXtermAlternate) {
-        console.log(`[TerminalPane ${sessionId}] Forcing xterm buffer type to normal`);
-        termRef.current?.write("\x1b[?1049l");
-      } else if (active && !currentXtermAlternate) {
-        console.log(`[TerminalPane ${sessionId}] Forcing xterm buffer type to alternate`);
-        termRef.current?.write("\x1b[?1049h");
-      }
-
-      // When exiting alternate buffer, ensure any running block is finalized and state cleared.
+      // When exiting alternate buffer, restore focus but do NOT finalize the running block.
+      // Block finalization is handled by the CWD sentinel (shell prompt) or PTY exit event —
+      // alternate buffer transitions happen for TUI subprocesses (less, vim, spinners) that
+      // may be nested inside a still-running parent command.
       if (!active) {
-        console.log(`[TerminalPane ${sessionId}] Resetting mouse tracking on alternate buffer exit`);
-        termRef.current?.write("\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l");
-
-        const runningId = useBlockStore.getState().runningBlockId[sessionId];
-        if (runningId) {
-          console.log(`[TerminalPane ${sessionId}] Finalizing running block on alternate buffer exit`);
-          useBlockStore.getState().finalizeBlock(sessionId, runningId, 0);
+        // Some TUIs enable mouse tracking modes (DECSET 1000/1002/1003/1004/1006) 
+        // on entering the alternate buffer but never send the DECRST resets on exit. 
+        // If they remain enabled, xterm keeps intercepting wheel/click/drag
+        // scrollback won't scroll, text selection stays disabled, and right-click is forwarded to the PTY.
+        // Force-reset the modes so the primary buffer behaves normally again.
+        try {
+          termRef.current?.write("\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1004l\x1b[?1006l");
+        } catch {
+          // ignore write errors; the next buffer transition re-attempts
         }
-        useBlockStore.getState().setRunningBlockId(sessionId, null);
-        useBlockStore.getState().setCommandOutputReceived(sessionId, false);
-        // Restore focus to input.
+
         requestAnimationFrame(() => {
           if (isDisposed) return;
           window.dispatchEvent(
@@ -262,6 +270,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
       cursorStyle: "bar",
       cursorInactiveStyle: "none",
       cursorWidth: 1,
+      fontSize,
       theme: buildXtermTheme(),
       disableStdin: true, // Decoupled input
     });
@@ -271,7 +280,18 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
     // 2. Instantiate addons
     const fit = new FitAddon();
     const search = new SearchAddon();
-    const weblinks = new WebLinksAddon();
+    // Links open only on Ctrl/Cmd+Click (Windows/macOS convention), leaving
+    // plain clicks free for text selection. xterm passes the MouseEvent through
+    // to the handler, and the opener plugin opens the URL in the default browser.
+    const weblinks = new WebLinksAddon(
+      (event: MouseEvent, uri: string) => {
+        if (event.ctrlKey || event.metaKey) {
+          system.openExternalUrl(uri).catch((err) => {
+            console.warn(`Failed to open link "${uri}":`, err);
+          });
+        }
+      },
+    );
     fitRef.current = fit;
 
     term.loadAddon(fit);
@@ -298,9 +318,42 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
       }
     }
 
+    // Observe the keyboard enhancement protocol the TUI negotiates so modified
+    // keys (Ctrl/Shift/Alt/Meta+Enter) are encoded in the format the app
+    // expects. We only READ these DEC private modes and return false so xterm
+    // still processes them itself (alt-screen switch, cursor visibility, etc.).
+    //   DEC 1036  -> modifyOtherKeys  -> CSI-u   (fixterms / libtermkey)
+    //   DEC 9001  -> kitty keyboard protocol    -> CSI <... u
+    const kbModeHandlerH = term.parser.registerCsiHandler(
+      { prefix: "?", final: "h" },
+      (params: (number | number[])[]) => {
+        for (let i = 0; i < params.length; i++) {
+          const p = params[i];
+          if (typeof p === "number") {
+            if (p === 1036) kbModeRef.current = "csi-u";
+            else if (p === 9001) kbModeRef.current = "kitty";
+          }
+        }
+        return false;
+      },
+    );
+    const kbModeHandlerL = term.parser.registerCsiHandler(
+      { prefix: "?", final: "l" },
+      (params: (number | number[])[]) => {
+        for (let i = 0; i < params.length; i++) {
+          const p = params[i];
+          if (typeof p === "number" && (p === 1036 || p === 9001)) {
+            kbModeRef.current = "legacy";
+          }
+        }
+        return false;
+      },
+    );
+
     // Connect xterm onData to PTY write for interactive sub-processes
     const dataDisposable = term.onData((data) => {
       if (
+        useSessionStore.getState().sessionBusy[sessionId] ||
         useBlockStore.getState().runningBlockId[sessionId] ||
         useSessionStore.getState().alternateBufferActive[sessionId]
       ) {
@@ -343,25 +396,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
           if (cols > 0 && rows > 0 && (cols !== lastColsRef.current || rows !== lastRowsRef.current)) {
             lastColsRef.current = cols;
             lastRowsRef.current = rows;
-
-            const timeSinceTransition = Date.now() - lastTransitionTimeRef.current;
-            const isTransitioning = timeSinceTransition < 500;
-            if (isTransitioning) {
-              const remainingTime = 500 - timeSinceTransition + 50;
-              if ((term as any)._deferredResizeTimer) {
-                clearTimeout((term as any)._deferredResizeTimer);
-              }
-              (term as any)._deferredResizeTimer = setTimeout(() => {
-                if (!isDisposed) {
-                  debouncedResize(cols, rows);
-                }
-              }, remainingTime);
-            } else {
-              if ((term as any)._deferredResizeTimer) {
-                clearTimeout((term as any)._deferredResizeTimer);
-              }
-              debouncedResize(cols, rows);
-            }
+            debouncedResize(cols, rows);
           }
         } catch (err) {
           console.warn("Resize fit failed:", err);
@@ -380,6 +415,8 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
     let frameId = 0;
     let leftoverBuffer = "";
     let failsafeTimeout: ReturnType<typeof setTimeout> | null = null;
+    let clearResetTimer: ReturnType<typeof setTimeout> | null = null;
+    let localClearPending = false;
 
     const flushBuffer = () => {
       if (isDisposed) return;
@@ -406,11 +443,23 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
           const inAlt = useSessionStore.getState().alternateBufferActive[sessionId] || false;
 
           if (!inAlt) {
-            const { cwdValue, cleanData: stripped, exitCode } = cleanPtyData(cleanData);
+            const { cwdValue, cleanData: stripped, exitCode } = cleanPtyData(cleanData, { collapseClearWalk: localClearPending });
             cleanData = stripped;
 
             if (cwdValue) {
+              if (clearResetTimer) {
+                clearTimeout(clearResetTimer);
+              }
+              // Keep the clear-walk collapse armed for a short grace window so a
+              // second walk chunk arriving in a later pty read (split stream) is
+              // still collapsed. It only targets consecutive `\x1b[K\r\n` runs,
+              // which are unique to the WinPS clear walk.
+              clearResetTimer = setTimeout(() => {
+                localClearPending = false;
+              }, 250);
               console.log(`[TerminalPane ${sessionId}] Captured shell sentinel: ${cwdValue}`);
+              // The shell printed a fresh prompt. The process watchdog reports
+              // busy=false independently; here we only finalize the block.
               setCwd(cwdValue);
               setIsCwdLoading(false);
               syncAlternateBufferState(false);
@@ -442,10 +491,16 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
 
                 const inAltFailsafe = useSessionStore.getState().alternateBufferActive[sessionId] || false;
                 if (!inAltFailsafe) {
-                  const { cwdValue: failsafeCwdValue, cleanData: failsafeStripped, exitCode: failsafeExitCode } = cleanPtyData(failsafeData);
+                  const { cwdValue: failsafeCwdValue, cleanData: failsafeStripped, exitCode: failsafeExitCode } = cleanPtyData(failsafeData, { collapseClearWalk: localClearPending });
                   failsafeData = failsafeStripped;
 
                   if (failsafeCwdValue) {
+                    if (clearResetTimer) {
+                      clearTimeout(clearResetTimer);
+                    }
+                    clearResetTimer = setTimeout(() => {
+                      localClearPending = false;
+                    }, 250);
                     setCwd(failsafeCwdValue);
                     setIsCwdLoading(false);
                     syncAlternateBufferState(false);
@@ -506,6 +561,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
       if (term) {
         term.clear();
         term.write("\x1b[3J\x1b[H\x1b[2J");
+        localClearPending = true;
       }
     };
 
@@ -525,6 +581,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
       if (isDisposed) return;
       const code = (e as CustomEvent<number>).detail;
       console.warn(`[TerminalPane ${sessionId}] PTY session exited with code: ${code}`);
+      useSessionStore.getState().setSessionBusy(sessionId, false);
       setIsSessionDead(true);
       setSessionExitCode(code);
       if (termRef.current) {
@@ -566,9 +623,6 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
       }
       termRef.current = null;
       ro.disconnect();
-      if ((term as any)._deferredResizeTimer) {
-        clearTimeout((term as any)._deferredResizeTimer);
-      }
       try {
         term.dispose();
       } catch (err) {
@@ -581,12 +635,17 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
       window.removeEventListener("terminal-copy", handleTerminalCopy);
       dataDisposable.dispose();
       bufferDisposable.dispose();
+      kbModeHandlerH.dispose();
+      kbModeHandlerL.dispose();
       cancelAnimationFrame(frameId);
       if (resizeTimeoutRef.current) {
         clearTimeout(resizeTimeoutRef.current);
       }
       if (failsafeTimeout) {
         clearTimeout(failsafeTimeout);
+      }
+      if (clearResetTimer) {
+        clearTimeout(clearResetTimer);
       }
     };
   }, [sessionId, debouncedResize]);
@@ -597,6 +656,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
       setSessionExitCode(null);
 
       useSessionStore.getState().setAlternateBufferActive(sessionId, false);
+      useSessionStore.getState().setSessionBusy(sessionId, false);
       useBlockStore.getState().setRunningBlockId(sessionId, null);
       useBlockStore.getState().setCommandOutputReceived(sessionId, false);
 
@@ -612,9 +672,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
 
       useBlockStore.getState().clearBlocks(sessionId);
 
-      const isWin = window.navigator.userAgent.includes("Windows");
-      const defaultShell = isWin ? "powershell.exe" : "bash";
-      const args = isWin ? ["-NoLogo"] : [];
+      const { shell: defaultShell, args } = getDefaultShellLaunch();
 
       await pty.spawn(defaultShell, args, {}, cwd, sessionId);
       console.log(`[TerminalPane ${sessionId}] Successfully restarted dead PTY session!`);
@@ -651,6 +709,65 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
     }
   }, [isCommandRunning, isAlternateActive]);
 
+  // ── When a command is running OR a TUI owns the alternate screen, route
+  //    keystrokes to the PTY so interactive programs receive them even if focus drifted to the app chrome.
+  useEffect(() => {
+    if ((!isCommandRunning && !isAlternateActive) || !isVisible) return;
+
+      const handleGlobalKeyDown = (e: globalThis.KeyboardEvent) => {
+        const activeEl = document.activeElement;
+        if (!activeEl) return;
+        const isXterm = activeEl.classList.contains("xterm-helper-textarea");
+        const isEnterModified =
+          e.key === "Enter" && (e.ctrlKey || e.shiftKey || e.altKey || e.metaKey);
+        // Normally let xterm.js own keyboard input entirely so it produces the
+        // correct, capability-negotiated sequences (IME, arrows, Ctrl+letters,
+        // etc.). xterm.js 5.x has no modifyOtherKeys/CSI-u support, so it
+        // collapses Ctrl/Shift/Alt/Meta+Enter into a bare \r. Intercept only
+        // modified Enter and emit it in the protocol the TUI negotiated (CSI-u
+        // or kitty); leave every other key to xterm's native handling. This is
+        // generic (driven by the TUI's own negotiation) and not tied to any
+        // specific app.
+        if (isXterm && !isEnterModified) return;
+        if (activeEl.closest(".cm-editor")) return;
+        const el = activeEl as HTMLElement;
+      if (el.isContentEditable) return;
+      const tag = el.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || tag === "BUTTON" || tag === "A") return;
+      const role = el.getAttribute("role");
+      if (role === "button" || role === "textbox" || role === "combobox" || role === "searchbox") return;
+      if (el.closest('[role="button"],[contenteditable="true"]')) return;
+
+      // Never hijack app-level Global shortcuts (Ctrl+P, Ctrl+T, ...)
+      if (isGlobalAppShortcut(e)) return;
+
+      // Ctrl/Cmd+V pastes into the terminal when focus drifted
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v" && !e.altKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        navigator.clipboard
+          .readText()
+          .then((text) => {
+            if (text) pty.write(sessionId, text).catch(console.error);
+          })
+          .catch(() => {});
+        termRef.current?.focus();
+        return;
+      }
+
+      const data = mapKeyToPtyData(e, kbModeRef.current);
+      if (data) {
+        e.preventDefault();
+        e.stopPropagation();
+        pty.write(sessionId, data).catch(console.error);
+        termRef.current?.focus();
+      }
+    };
+
+    window.addEventListener("keydown", handleGlobalKeyDown, true);
+    return () => window.removeEventListener("keydown", handleGlobalKeyDown, true);
+  }, [isCommandRunning, isAlternateActive, isVisible, sessionId]);
+
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -667,6 +784,9 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
     <div
       ref={containerRef}
       onKeyDownCapture={handleKeyDownCapture}
+      onPointerDown={() => {
+        if (isCommandRunning) termRef.current?.focus();
+      }}
       onContextMenu={handleContextMenu}
       className="relative flex flex-col h-full w-full"
       style={{

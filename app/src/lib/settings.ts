@@ -1,3 +1,6 @@
+import { getAllWebviewWindows, WebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { getCurrentWindow, PhysicalPosition } from "@tauri-apps/api/window";
+
 export interface SettingsTarget {
   section: string;
   sub: string;
@@ -5,8 +8,6 @@ export interface SettingsTarget {
 }
 
 export async function openSettingsWindow(target?: SettingsTarget) {
-  const { getAllWebviewWindows, WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-  const { getCurrentWindow, PhysicalPosition } = await import("@tauri-apps/api/window");
   const all = await getAllWebviewWindows();
   const existing = all.find((w) => w.label === "settings");
 

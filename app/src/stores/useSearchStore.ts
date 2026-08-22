@@ -31,6 +31,7 @@ interface SearchStore {
   setSearching: (v: boolean) => void;
   clearResults: () => void;
   search: () => Promise<void>;
+  refreshResults: () => Promise<void>;
 }
 
 export const useSearchStore = create<SearchStore>((set, get) => ({
@@ -60,7 +61,12 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
   toggleCaseSensitive: () => set((s) => ({ caseSensitive: !s.caseSensitive })),
   setResults: (results) => set({ results }),
   setSearching: (isSearching) => set({ isSearching }),
-  clearResults: () => set({ results: [], hasSearched: false }),
+  clearResults: () => set((s) => ({
+    results: [],
+    hasSearched: false,
+    isSearching: false,
+    searchGeneration: s.searchGeneration + 1,
+  })),
 
   search: async () => {
     const { query, includePatterns, excludePatterns, caseSensitive } = get();
@@ -99,6 +105,45 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
       if (get().searchGeneration === generation) {
         set({ isSearching: false });
       }
+    }
+  },
+
+  // Silently re-run the current search (no loading flicker) so results stay in
+  // sync when files change on disk while the panel is open.
+  refreshResults: async () => {
+    const { query, includePatterns, excludePatterns, caseSensitive, isSearching } = get();
+    if (!query.trim() || isSearching) return;
+
+    const projectDir = useAppShellStore.getState().projectDir;
+    if (!projectDir) return;
+
+    const generation = get().searchGeneration + 1;
+    set({ searchGeneration: generation });
+
+    try {
+      const includeList = includePatterns
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const excludeList = excludePatterns
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+      const results = await system.searchInFiles(
+        projectDir,
+        query.trim(),
+        includeList,
+        excludeList,
+        caseSensitive,
+        2000,
+      );
+
+      if (get().searchGeneration === generation) {
+        set({ results, hasSearched: true });
+      }
+    } catch {
+      // Keep previous results if the refresh fails
     }
   },
 }));

@@ -1,0 +1,29 @@
+# ══════════════════════════════════════════════════════════
+# crates/aurora-cloud/Cargo.toml
+# Supabase-backed cloud sync + auth client.
+# The app never holds Supabase secrets — a backend Edge Function
+# (holding the service-role key) is the only Supabase client.
+# No Tauri types — takes plain values (base URL, config structs).
+# ══════════════════════════════════════════════════════════
+[package]
+name    = "aurora-cloud"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+aurora-core   = { workspace = true }
+aurora-config = { workspace = true }
+tokio         = { workspace = true }
+reqwest       = { workspace = true }
+serde         = { workspace = true }
+serde_json    = { workspace = true }
+tracing       = { workspace = true }
+keyring       = { workspace = true }
+sha2          = { workspace = true }
+base64        = { workspace = true }
+tiny_http     = { workspace = true }
+rand          = "0.8"
+webbrowser    = "1.0"
+
+[dev-dependencies]
+tokio = { workspace = true }

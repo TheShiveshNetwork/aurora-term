@@ -1,0 +1,54 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap");
+@import "tailwindcss";
+
+@theme {
+  --color-background: #0A0D14;
+  --color-surface: #0F131A;
+  --color-surface-container: #131A24;
+  --color-surface-container-high: #1A2230;
+
+  --color-on-background: #E8EAF0;
+  --color-on-surface: #E8EAF0;
+  --color-on-surface-variant: rgba(232, 234, 240, 0.55);
+
+  --color-outline: rgba(255, 255, 255, 0.08);
+  --color-outline-variant: rgba(255, 255, 255, 0.05);
+
+  --color-primary: #4F8CFF;
+  --color-primary-container: rgba(79, 140, 255, 0.15);
+  --color-on-primary: #0A0D14;
+
+  --color-secondary: #9A7CFF;
+  --color-tertiary: #42C6FF;
+  --color-error: #FF6B6B;
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--color-background);
+  color: var(--color-on-background);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+.glow {
+  background:
+    radial-gradient(600px circle at 20% 0%, rgba(79, 140, 255, 0.18), transparent 60%),
+    radial-gradient(500px circle at 80% 10%, rgba(154, 124, 255, 0.14), transparent 60%),
+    radial-gradient(700px circle at 50% 100%, rgba(66, 198, 255, 0.08), transparent 60%);
+}
+
+.hero-grid {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, black 40%, transparent 100%);
+}

@@ -8,9 +8,11 @@ import React, {
   SubmitEvent,
 } from "react";
 import { useBlockStore } from "../../stores/useBlockStore";
+import { useSessionStore } from "../../stores/useSessionStore";
 import { pty } from "../../lib/ipc";
 import type { InputMode } from "../../lib/nlClassifier";
 import { useHistoryNavigation } from "../../hooks/useHistoryNavigation";
+import { SlashMenu, SlashMenuHandle } from "./SlashMenu";
 
 function computeGhost(input: string, history: string[]): string {
   if (!input.trim()) return "";
@@ -51,6 +53,7 @@ export function GhostInput({
 }: GhostInputProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const mirrorRef = useRef<HTMLSpanElement>(null);
+  const slashMenuRef = useRef<SlashMenuHandle>(null);
   const textMetricsClass = "font-code-base text-sm font-normal leading-[22px]";
 
   useEffect(() => {
@@ -66,7 +69,7 @@ export function GhostInput({
 
   const { navigateUp, navigateDown, reset } = useHistoryNavigation(history);
 
-  const uniqueHistory = [...new Set(history.filter(Boolean).map(cmd => cmd.replace(/`+$/, '')))];
+  const uniqueHistory = [...new Set(history.filter(Boolean).map(cmd => cmd.replace(/[`\\]+$/, '').trim()))];
 
   const ghost = computeGhost(value, uniqueHistory);
 
@@ -92,13 +95,52 @@ export function GhostInput({
     return true;
   }, [ghost, onChange, value]);
 
+  const handleInsertSlash = useCallback(
+    (text: string) => {
+      onChange(text);
+      reset();
+      requestAnimationFrame(() => {
+        inputRef.current?.setSelectionRange(text.length, text.length);
+      });
+    },
+    [onChange, reset]
+  );
+
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
+      // Slash-command menu takes priority while it is open
+      const slashOpen = slashMenuRef.current?.isOpen();
+      if (slashOpen) {
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          slashMenuRef.current?.move(1);
+          return;
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          slashMenuRef.current?.move(-1);
+          return;
+        }
+        if (e.key === "Escape") {
+          e.preventDefault();
+          slashMenuRef.current?.close();
+          return;
+        }
+        if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
+          if ((slashMenuRef.current?.count() ?? 0) > 0) {
+            e.preventDefault();
+            slashMenuRef.current?.selectHighlighted();
+            return;
+          }
+        }
+      }
+
       if (e.key === "c" && e.ctrlKey) {
         const runningBlockId = sessionId ? useBlockStore.getState().runningBlockId[sessionId] : null;
         if (sessionId && runningBlockId) {
           e.preventDefault();
           pty.write(sessionId, "\u0003").catch(console.error);
+          useSessionStore.getState().setSessionBusy(sessionId, false);
 
           useBlockStore.getState().updateBlock(sessionId, runningBlockId, {
             status: "cancelled",
@@ -132,7 +174,7 @@ export function GhostInput({
 
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        const newValue = navigateDown();
+        const newValue = navigateDown(value);
         onChange(newValue);
         return;
       }
@@ -218,7 +260,7 @@ export function GhostInput({
   }, [reset, onSubmit]);
 
   return (
-    <form onSubmit={handleFormSubmit} className={`flex items-start ${className}`} onClick={handleWrapperClick}>
+    <form onSubmit={handleFormSubmit} className={`ghost-input flex items-start ${className}`} onClick={handleWrapperClick}>
       <div className="relative flex-1 flex items-start overflow-hidden">
         <span
           ref={mirrorRef}
@@ -234,6 +276,7 @@ export function GhostInput({
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
+          onBlur={() => slashMenuRef.current?.close()}
           placeholder={placeholder}
           autoComplete="off"
           autoCorrect="off"
@@ -242,7 +285,7 @@ export function GhostInput({
           rows={1}
           wrap="soft"
           className={`aurora-ta w-full bg-transparent border-none focus:ring-0 mt-4 pb-1 px-5 placeholder:text-outline/80 outline-none text-on-surface relative z-10 resize-none overflow-x-hidden whitespace-pre-wrap break-words ${textMetricsClass} ${inputClassName}`}
-          style={{ caretColor: "var(--color-primary)", maxHeight: `${TA_MAX_HEIGHT}px` }}
+          style={{ maxHeight: `${TA_MAX_HEIGHT}px` }}
         />
 
         {ghost && (
@@ -254,6 +297,8 @@ export function GhostInput({
             {ghost}
           </span>
         )}
+
+        <SlashMenu ref={slashMenuRef} value={value} inputRef={inputRef} onInsert={handleInsertSlash} />
       </div>
     </form>
   );

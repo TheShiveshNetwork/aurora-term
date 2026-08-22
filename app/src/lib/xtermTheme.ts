@@ -1,14 +1,34 @@
 import { Terminal, ITheme } from "@xterm/xterm";
 
+// Read a CSS custom property off :root at runtime. xterm's background must
+// mirror the app's background (never a hardcoded/duplicated value) so that
+// ANSI background-color cells composite correctly under the WebGL renderer.
+// A fully transparent theme background causes the WebGL addon to paint those
+// background-colored cells as opaque black — see buildXtermTheme below.
+function cssVar(name: string, fallback: string): string {
+  if (typeof document === "undefined" || !document.documentElement) return fallback;
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return value || fallback;
+}
+
 export function buildXtermTheme(): ITheme {
+  // The terminal lives inside the terminal workspace region, which uses
+  // `bg-surface-container-low`. Mirror that exact token so the terminal
+  // background is identical to the surrounding app chrome.
+  const bg = cssVar("--color-surface-container-low", "#131A24");
+  const selection = cssVar("--color-term-selection", "rgba(79,140,255,0.25)");
   return {
-    // Background is transparent so the CSS bg-[#0D1117] of the container shows through
-    background: "#00000000",
-    foreground: "#E8EAF0",
+    // Opaque background taken from the app's CSS theme variable. Using a
+    // transparent background ("#00000000") made the WebGL renderer fill any
+    // ANSI background-colored cells (e.g. Vite build manifest lines) with
+    // opaque black. An opaque, theme-matched background avoids that and keeps
+    // the terminal visually seamless with the surrounding app chrome.
+    background: bg,
+    foreground: cssVar("--color-term-fg", "#E8EAF0"),
     // cursor:               "#4F8CFF",
-    cursorAccent: "#0A0D14",
-    selectionBackground: "rgba(79,140,255,0.25)",
-    selectionForeground: "#E8EAF0",
+    cursorAccent: bg,
+    selectionBackground: selection,
+    selectionForeground: cssVar("--color-term-fg", "#E8EAF0"),
 
     // One Dark Pro — aligned with Aurora palette
     black: "#1E2430",

@@ -1,9 +1,11 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use aurora_pty::{PtyManager, PtyEvent};
 use aurora_db::HistoryDb;
 use aurora_config::{ConfigManager, UiStateManager};
 use aurora_core::config::AppConfig;
+use aurora_lsp::LspManager;
 use crate::watcher::{FileWatcher, GitWatcher, FileContentWatcher};
 
 pub struct AppState {
@@ -17,15 +19,24 @@ pub struct AppState {
     pub git_watcher: GitWatcher,
     pub sidecar: Arc<Mutex<aurora_sidecar::manager::SidecarManager>>,
     pub pty_event_sender: tokio::sync::mpsc::UnboundedSender<PtyEvent>,
+    pub cloud: Arc<Mutex<aurora_cloud::sync::SyncManager>>,
+    pub updates: Arc<Mutex<aurora_update::client::UpdateClient>>,
+    pub lsp_manager: Arc<LspManager>,
+    pub lsp_cache_dir: PathBuf,
+    pub api_base_url: String,
 }
 
 impl AppState {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         pty_manager: PtyManager,
         config_manager: ConfigManager,
         ui_state_manager: UiStateManager,
         history_db: HistoryDb,
         pty_event_sender: tokio::sync::mpsc::UnboundedSender<PtyEvent>,
+        api_base_url: String,
+        lsp_manager: LspManager,
+        lsp_cache_dir: PathBuf,
     ) -> Self {
         let merged_config = config_manager.merged_config.clone();
         Self {
@@ -39,6 +50,15 @@ impl AppState {
             git_watcher: GitWatcher::new(),
             sidecar: Arc::new(Mutex::new(aurora_sidecar::manager::SidecarManager::new())),
             pty_event_sender,
+            cloud: Arc::new(Mutex::new(aurora_cloud::sync::SyncManager::new(
+                api_base_url.clone(),
+            ))),
+            updates: Arc::new(Mutex::new(aurora_update::client::UpdateClient::new(
+                api_base_url.clone(),
+            ))),
+            lsp_manager: Arc::new(lsp_manager),
+            lsp_cache_dir,
+            api_base_url,
         }
     }
 }

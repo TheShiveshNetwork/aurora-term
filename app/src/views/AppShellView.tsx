@@ -1,6 +1,8 @@
 import { type SubmitEvent, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { openSettingsWindow } from "../lib/settings";
 import { v4 as uuidv4 } from "uuid";
 import { Tab } from "@aurora/types";
 
@@ -15,6 +17,7 @@ import { useBlockStore } from "../stores/useBlockStore";
 import { useSessionStore } from "../stores/useSessionStore";
 import { useSettingsStore } from "../stores/useSettingsStore";
 import { useAgentStore, CONST_DEFAULT_SESSION_STATE } from "../stores/useAgentStore";
+import { useNotificationStore } from "../stores/useToastStore";
 import { TabBar } from "../components/ui/TabBar";
 import { SidePanel } from "../components/ui/SidePanel";
 import { StatusBar } from "../components/ui/StatusBar";
@@ -29,7 +32,9 @@ import { GIT_DIFF_TAB_EVENT, type GitDiffTabPayload } from "../lib/gitDiffBridge
 import { TerminalWorkspaceView } from "./TerminalWorkspaceView";
 import { NewWindowView } from "./NewWindowView";
 import { getDefaultShellLaunch, isWindowsPlatform } from "../lib/shell";
+import { fileNameFromPath } from "../lib/pathUtils";
 import { classifyInput, setAvailableCommands, type ShellType } from "../lib/nlClassifier";
+import { resolveSlashCommand } from "../lib/agentSlash";
 import { closeAllPopups, onClosePopups } from "../lib/popups";
 
 import { FileWorkspaceView } from "./FileWorkspaceView";
@@ -38,7 +43,6 @@ import { DiffWorkspaceView } from "../components/editor/DiffWorkspaceView";
 import { CommitDiffView } from "../components/editor/CommitDiffView";
 import { GitView } from "../components/git/GitView";
 import { MergeWorkspaceView } from "./MergeWorkspaceView";
-import { NotificationContainer } from "../components/ui/NotificationContainer";
 
 export function AppShellView() {
   const { tabs, activeTabId, spawnSession, killSession, openFile, setActiveTabId } = useAppBootstrap();
@@ -61,6 +65,7 @@ export function AppShellView() {
     projectDirLabel,
     cwd,
     cwdAbsolute,
+    sessionCwds,
     shellHistory,
     interactedSessions,
     isCwdLoading,
@@ -99,6 +104,19 @@ export function AppShellView() {
     }
   }, [createAgentSession]);
 
+  // Surface settings save/apply failures forwarded from the settings window.
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    listen("aurora:settings-error", (event) => {
+      useNotificationStore.getState().addNotification(event.payload, "error");
+    }).then((u) => {
+      unlisten = u;
+    });
+    return () => {
+      unlisten?.();
+    };
+  }, []);
+
   useEffect(() => {
     const handleOpen = (e: Event) => {
       const { path, options } = (e as CustomEvent).detail;
@@ -112,6 +130,16 @@ export function AppShellView() {
   useEffect(() => {
     const unlisten = listen<GitDiffTabPayload>(GIT_DIFF_TAB_EVENT, (event) => {
       const payload = event.payload;
+      const existing = useSessionStore.getState().tabs.find(
+        t => t.type === "diff" && (
+          (payload.filePath && t.filePath === payload.filePath && !t.diffCommitHash) ||
+          (!payload.filePath && t.name === payload.name)
+        )
+      );
+      if (existing) {
+        useSessionStore.getState().setActiveTabId(existing.id);
+        return;
+      }
       useSessionStore.getState().addTab(payload);
       useSessionStore.getState().setActiveTabId(payload.id);
     });
@@ -138,7 +166,7 @@ export function AppShellView() {
     targetSessionId,
   } = useCommandExecution(tabs, activeTabId);
 
-  const { startTask } = useAgentExecution(activeTabId);
+  const { startTask, stopAgentRun } = useAgentExecution(activeTabId);
 
   const agentStatus = useAgentStore((state) =>
     activeTabId ? (state.sessions[activeTabId]?.status ?? "idle") : "idle"
@@ -146,24 +174,43 @@ export function AppShellView() {
   const isAiRunning = agentStatus === "planning" || agentStatus === "executing" || agentStatus === "paused";
   const isRunning = isCommandRunning || isAiRunning;
 
-  const handleStop = useCallback(() => {
-    if (isCommandRunning) {
-      handleStopCurrentCommand();
-    }
-    if (isAiRunning && activeTabId) {
-      const store = useAgentStore.getState();
-      store.setPendingToolCall(activeTabId, null);
-      store.setCurrentCommandIndex(activeTabId, -1);
-      store.failTask(activeTabId, "Cancelled by user");
-      const snap = store.sessions[activeTabId];
-      store.addChatMessage(activeTabId, {
-        role: "assistant",
-        content: "Task cancelled by user.",
-        chainNodes: snap?.chainNodes ?? [],
-        agentType: snap?.agentType,
-      });
-    }
-  }, [isCommandRunning, isAiRunning, activeTabId, handleStopCurrentCommand]);
+  // Red stop — stops the terminal command only.
+  const handleStopCommand = useCallback(() => {
+    handleStopCurrentCommand();
+  }, [handleStopCurrentCommand]);
+
+  // Blue stop — stops the AI response/task, interrupting any running tool call,
+  // but never kills the terminal session (that is the red button's job).
+  const handleStopAi = useCallback(() => {
+    stopAgentRun();
+  }, [stopAgentRun]);
+
+  // Command history for the input bar: this session's executed blocks (chronological)
+  // merged with the shell's history. Dedupe keeping the most recent occurrence and
+  // order oldest → newest so ArrowUp starts at the newest entry without repeats.
+  const commandHistory = useMemo(() => {
+    const blockCommands = activeTabBlocks
+      .filter((block) => block.command && block.command !== "init-aurora")
+      .map((block) => block.command as string);
+
+    const newestFirst: string[] = [];
+    const seen = new Set<string>();
+    const pushUnique = (raw: string) => {
+      const clean = raw.replace(/[`\\]+$/, "").trim();
+      if (!clean) return;
+      const key = clean.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      newestFirst.push(clean);
+    };
+
+    // Blocks (this session) are more recent than identical entries in the shell
+    // history, so scan them first. shellHistory is newest-first from read_shell_history.
+    for (let i = blockCommands.length - 1; i >= 0; i--) pushUnique(blockCommands[i]);
+    for (const cmd of shellHistory) pushUnique(cmd);
+
+    return [...newestFirst].reverse();
+  }, [activeTabBlocks, shellHistory]);
 
   const shellType: ShellType = useMemo(() => isWindowsPlatform() ? "powershell" : "bash", []);
   const inputMode = useMemo(() => classifyInput(activeCommandInput, shellType), [activeCommandInput, shellType]);
@@ -176,16 +223,56 @@ export function AppShellView() {
     event: SubmitEvent<HTMLFormElement>,
     defaultSubmit: (e: SubmitEvent<HTMLFormElement>, commandOverride?: string) => void,
     isFilePrompt = false,
-    attachedFiles: AttachedFile[] = []
+    attachedFiles: AttachedFile[] = [],
+    forceAi = false
   ) => {
     event.preventDefault();
+
+    const agentStatus = activeTabId
+      ? (useAgentStore.getState().sessions[activeTabId]?.status ?? "idle")
+      : "idle";
+
+    // While the AI model is producing a response (or awaiting approval), no
+    // commands can be sent to the agent OR the terminal. The input stays
+    // typable; the blue send button shows the loading indicator and is
+    // disabled. This matches the send button's disabled state exactly so Enter
+    // can never submit while the button is disabled.
+    if (agentStatus === "planning" || agentStatus === "paused") {
+      return;
+    }
+
     const input = activeCommandInput.trim();
     if (!input && attachedFiles.length === 0) return;
 
+    // Slash-command dispatch (/skills /mcp /btw /file) takes priority over
+    // NL/command classification.
+    const slash = await resolveSlashCommand(input, {
+      cwd: cwdAbsolute,
+      sessionId: activeTabId,
+      isTaskRunning: agentStatus === "executing",
+    });
+    if (slash.handled) {
+      if (slash.assistantMessage) {
+        if (activeTabId) {
+          const store = useAgentStore.getState();
+          store.addChatMessage(activeTabId, { role: "user", content: input, agentType: "terminal" });
+          store.addChatMessage(activeTabId, { role: "assistant", content: slash.assistantMessage, agentType: "terminal" });
+        }
+        setCommandInput("");
+        setShowAiBar(true);
+      } else if (slash.goal) {
+        setCommandInput("");
+        setShowAiBar(true);
+        startTask(slash.goal, isFilePrompt ? undefined : "terminal");
+      }
+      return;
+    }
+
     // Explicit prefix overrides take priority over the classifier
     const hasExplicitNL = input.startsWith("? ") || input.startsWith("/ai ");
-    // Route to agent if explicitly prefixed, or if classified as natural language
-    const isNlQuery = hasExplicitNL || isFilePrompt || (inputMode === "natural-language");
+    // The blue send button always routes to AI. While a terminal command is
+    // running, submitting also routes to AI directly — never to the shell.
+    const isNlQuery = forceAi || hasExplicitNL || isFilePrompt || isCommandRunning || (inputMode === "natural-language");
 
     if (isNlQuery) {
       const cleanGoal = hasExplicitNL
@@ -240,6 +327,11 @@ export function AppShellView() {
   const pendingTab = pendingCloseTabId ? tabs.find((tab) => tab.id === pendingCloseTabId) || null : null;
   const hasInteracted = activeTabId ? Boolean(interactedSessions[activeTabId]) : false;
 
+  const inputCwdAbsolute = targetSessionId
+    ? sessionCwds[targetSessionId] || projectDir || cwdAbsolute
+    : projectDir || cwdAbsolute;
+  const inputCwdLabel = inputCwdAbsolute ? fileNameFromPath(inputCwdAbsolute) : "";
+
 
   const handleSelectFolderDirectly = (path: string) => {
     useAppShellStore.getState().setProjectDir(path);
@@ -277,25 +369,18 @@ export function AppShellView() {
     }
   };
 
-  const handleOpenRecentFile = (filePath: string) => {
+    const handleOpenRecentFile = (filePath: string) => {
     setShowMenuDropdown(false);
     const baseCwd = projectDir || cwdAbsolute;
-    system.readDir(baseCwd)
-      .then(() => {
-        const absolutePath = baseCwd ? `${baseCwd}/${filePath}`.replace(/\/\//g, "/") : filePath;
-        openFile(absolutePath, baseCwd);
-        setViewMode("file");
-      })
-      .catch(() => {
-        openFile(filePath, baseCwd);
-        setViewMode("file");
-      });
+    const isAbs = /^[A-Z]:[/\\]|^[/\\]|^~/i.test(filePath);
+    const absolutePath = !isAbs && baseCwd ? `${baseCwd}/${filePath}`.replace(/\/\//g, "/") : filePath;
+    openFile(absolutePath, baseCwd);
+    setViewMode("file");
   };
 
   const handleNewWindow = async () => {
     setShowMenuDropdown(false);
     try {
-      const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
       new WebviewWindow(`aurora_${Date.now()}`, {
         title: "Aurora Terminal",
         url: "/",
@@ -313,7 +398,6 @@ export function AppShellView() {
   const handleOpenSettings = async () => {
     setShowMenuDropdown(false);
     try {
-      const { openSettingsWindow } = await import("../lib/settings");
       await openSettingsWindow();
     } catch (error) {
       console.error("Failed to open settings window:", error);
@@ -523,6 +607,7 @@ export function AppShellView() {
         onOpenFolder={handleOpenFolder}
         onOpenFile={handleOpenFile}
         onOpenRecentFile={handleOpenRecentFile}
+        onOpenCommandPalette={() => { closeAllPopups(); window.dispatchEvent(new CustomEvent("focus-search-bar")); }}
         onNewWindow={handleNewWindow}
         onNewTab={handleNewTab}
         onCloseSession={handleCloseSession}
@@ -680,13 +765,28 @@ export function AppShellView() {
                               commitHash={tab.diffCommitHash || ""}
                               filePath={tab.filePath || ""}
                               collapsible={true}
+                              onOpenFile={(path) => {
+                                const base = projectDir || cwdAbsolute;
+                                const isAbs = /^[A-Z]:[/\\]|^[/\\]|^~/i.test(path);
+                                const abs = isAbs ? path : (base ? `${base}/${path}`.replace(/\/\//g, "/") : path);
+                                openFile(abs, base);
+                                setViewMode("file");
+                              }}
                             />
                           ) : tab.type === "diff" ? (
                             <DiffWorkspaceView
+                              tabId={tab.id}
                               filePath={tab.filePath || ""}
                               oldContent={tab.diffOldContent || ""}
                               newContent={tab.diffNewContent || ""}
                               commitHash={tab.diffCommitHash || ""}
+                              onOpenFile={(path) => {
+                                const base = projectDir || cwdAbsolute;
+                                const isAbs = /^[A-Z]:[/\\]|^[/\\]|^~/i.test(path);
+                                const abs = isAbs ? path : (base ? `${base}/${path}`.replace(/\/\//g, "/") : path);
+                                openFile(abs, base);
+                                setViewMode("file");
+                              }}
                             />
                           ) : tab.type === "git" ? (
                             <GitView cwd={projectDir || cwdAbsolute} tabId={tab.id} />
@@ -705,39 +805,44 @@ export function AppShellView() {
                 </div>
               </div>
 
-              {/* Terminal view: command variant (default) */}
-              {chatInputOpen && activeTab?.type === "terminal" && !isAlternateActive && (
+              {/* Terminal view: command variant (default) — keep the bar (Stop only) visible
+                  while a command runs even if it enters the alternate screen buffer */}
+              {chatInputOpen && activeTab?.type === "terminal" && (!isAlternateActive || isRunning) && (
                 <CommandInputBar
                   sessionId={targetSessionId}
-                  cwd={cwd}
+                  cwd={inputCwdLabel}
                   isLoading={isCwdLoading}
-                  isRunning={isRunning}
+                  isCommandRunning={isCommandRunning}
+                  isAiRunning={isAiRunning}
                   value={activeCommandInput}
-                  history={[
-                    ...activeTabBlocks.filter((block) => block.command && block.command !== "init-aurora").map((block) => block.command as string),
-                    ...shellHistory.slice().reverse(),
-                  ]}
+                  history={commandHistory}
+                  hideCwdBreadcrumb={false}
                   onChange={setCommandInput}
-                  onSubmit={(e, files) => handleInterceptedSubmit(e, handleExecuteCommand, false, files)}
-                  onStop={handleStop}
+                  onSubmit={(e, files, forceAi) => handleInterceptedSubmit(e, handleExecuteCommand, false, files, !!forceAi)}
+                  onStopCommand={handleStopCommand}
+                  onStopAi={handleStopAi}
                   onOpenAiBar={() => setShowAiBar(true)}
                   inputMode={inputMode}
                 />
               )}
 
-              {/* File view: prompt variant — AI-only, no classifier */}
+              {/* File view: prompt variant — AI-only, no classifier. No terminal
+                  commands show here (they run in the background), so only the
+                  blue AI-stop is ever visible. */}
               {fileChatInputOpen && activeTab?.type === "file" && (
                 <CommandInputBar
                   variant="prompt"
                   sessionId={null}
-                  cwd={cwd}
+                  cwd={inputCwdLabel}
                   isLoading={false}
-                  isRunning={false}
+                  isCommandRunning={false}
+                  isAiRunning={isAiRunning}
                   value={activeCommandInput}
                   history={[]}
                   onChange={setCommandInput}
                   onSubmit={(e, files) => handleInterceptedSubmit(e, handleFileCommandSubmit, true, files)}
-                  onStop={handleStop}
+                  onStopCommand={handleStopCommand}
+                  onStopAi={handleStopAi}
                   onOpenAiBar={() => setShowAiBar(true)}
                 />
               )}
@@ -872,16 +977,9 @@ export function AppShellView() {
           window.dispatchEvent(new CustomEvent("file-run", { detail: { tabId: activeTabId, filePath: contextMenu?.filePath } }));
           clearContextMenu();
         }}
-        onAiImprovement={() => {
-          if (activeTabId) {
-            window.dispatchEvent(new CustomEvent("file-ai-improvement", { detail: { tabId: activeTabId } }));
-          }
-          clearContextMenu();
-        }}
       />
 
       <StatusBar noFolder={tabs.length === 0} />
-      <NotificationContainer />
     </div>
   );
 }

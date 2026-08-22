@@ -1,0 +1,30 @@
+# Aurora — Supabase project configuration
+# Generated/committed so `site/supabase` is a complete Supabase project root.
+# Local-only settings (db/studio/realtime ports) are for `supabase start`;
+# `functions deploy` and `db push` use the linked remote project.
+
+project_id = "aurora"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+major_version = 15
+
+[studio]
+enabled = true
+port = 54323
+
+[realtime]
+enabled = true
+
+[storage]
+enabled = true
+
+[auth]
+enabled = true

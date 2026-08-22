@@ -5,6 +5,7 @@ interface SessionStore {
   tabs: Tab[];
   activeTabId: string | null;
   alternateBufferActive: Record<string, boolean>; // keyed by sessionId
+  sessionBusy: Record<string, boolean>; // keyed by sessionId — a foreground command is running in the shell
   addTab: (tab: Tab) => void;
   removeTab: (id: string) => void;
   setActiveTabId: (id: string) => void;
@@ -12,6 +13,7 @@ interface SessionStore {
   updateTab: (id: string, partial: Partial<Tab>) => void;
   reorderTabs: (fromIndex: number, toIndex: number) => void;
   setAlternateBufferActive: (id: string, active: boolean) => void;
+  setSessionBusy: (id: string, busy: boolean) => void;
   setTabs: (tabs: Tab[]) => void;
 }
 
@@ -19,6 +21,7 @@ export const useSessionStore = create<SessionStore>((set) => ({
   tabs: [],
   activeTabId: null,
   alternateBufferActive: {},
+  sessionBusy: {},
   setTabs: (tabs) => set({ tabs }),
   addTab: (tab) =>
     set((state) => ({
@@ -60,4 +63,14 @@ export const useSessionStore = create<SessionStore>((set) => ({
         [id]: active,
       },
     })),
+  setSessionBusy: (id, busy) =>
+    set((state) => {
+      if (state.sessionBusy[id] === busy) return state;
+      return {
+        sessionBusy: {
+          ...state.sessionBusy,
+          [id]: busy,
+        },
+      };
+    }),
 }));

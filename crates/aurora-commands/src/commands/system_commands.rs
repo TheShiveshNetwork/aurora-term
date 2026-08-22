@@ -158,11 +158,25 @@ pub async fn get_git_log(cwd: String, max_count: Option<u32>, skip: Option<u32>,
     // Build log args — with optional branch filter
     let cc1 = cwd.clone(); let ls = limit_str.clone(); let brs = branches.clone(); let sk = skip_val.to_string();
     let log_h = tokio::task::spawn_blocking(move || {
+        // Validate each requested ref resolves (branches can be deleted/renamed
+        // while still persisted in UI state). A single stale ref would make
+        // `git log <ref>...` fail with `fatal: ambiguous argument` and blank
+        // the whole graph, so drop unresolvable names and fall back to --all.
+        let mut valid_brs: Vec<String> = Vec::new();
+        for b in &brs {
+            let resolves = run_git(&["rev-parse", "--verify", "--quiet", b], Some(&cc1))
+                .ok()
+                .is_some_and(|s| !s.trim().is_empty());
+            if resolves {
+                valid_brs.push(b.clone());
+            }
+        }
+
         let mut args = vec!["log"];
-        if brs.is_empty() {
+        if valid_brs.is_empty() {
             args.push("--all");
         } else {
-            for b in &brs {
+            for b in &valid_brs {
                 args.push(b.as_str());
             }
         }
@@ -456,7 +470,7 @@ pub struct GitStatusEntry {
 pub async fn git_status(cwd: String) -> Result<Vec<GitStatusEntry>, AppError> {
     tokio::task::spawn_blocking(move || {
         let output = run_git_strict(&[
-            "status", "--porcelain",
+            "status", "--porcelain", "--untracked-files=all",
         ], Some(&cwd))?;
         let mut entries = Vec::new();
         for line in output.lines() {
@@ -607,6 +621,20 @@ pub struct GitBranchInfo {
     pub commit_hash: String,
 }
 
+/// Prunes stale remote-tracking refs (e.g. branches deleted on the remote that
+/// still linger locally as `remotes/origin/<name>`). Best-effort: network or
+/// auth failures are swallowed so callers never error out. The frontend gates
+/// this behind a cooldown so it is not hammered on every UI interaction.
+#[command]
+pub async fn git_fetch_prune(cwd: String) -> Result<(), AppError> {
+    tokio::task::spawn_blocking(move || {
+        // `--prune` removes remote-tracking refs that no longer exist upstream;
+        // we don't fetch a specific remote so all configured remotes are pruned.
+        let _ = run_git(&["fetch", "--prune", "--quiet"], Some(&cwd));
+        Ok(())
+    }).await.map_err(|e| AppError::Io(e.to_string()))?
+}
+
 #[command]
 pub async fn git_branch_list_all(cwd: String) -> Result<Vec<GitBranchInfo>, AppError> {
     tokio::task::spawn_blocking(move || {
@@ -659,8 +687,11 @@ pub async fn git_is_repo(cwd: String) -> Result<bool, AppError> {
 #[command]
 pub async fn git_branch_list(cwd: String) -> Result<Vec<GitBranchInfo>, AppError> {
     tokio::task::spawn_blocking(move || {
-        // Get all branches with their upstream tracking info
-        let output = run_git_strict(&[
+        // Get all branches with their upstream tracking info. Use the lenient
+        // `run_git` (same as get_git_log): a non-fatal git hiccup must not
+        // error here, or `branches` stays empty and the frontend's branch
+        // selection (and thus the commit graph) never populates.
+        let output = run_git(&[
             "branch", "-vv", "--format=%(refname:short)|||%(objectname)|||%(upstream:short)|||%(upstream:track)",
         ], Some(&cwd))?;
         // Also get current branch
@@ -773,16 +804,46 @@ fn strip_diff_headers(output: &str) -> String {
     }
 }
 
+/// Diff a new (untracked) file against the empty tree so its full content shows
+/// as additions. `git diff --no-index` exits non-zero when the files differ (the
+/// normal case for a new file), so we capture stdout regardless of exit code.
+fn run_git_diff_noindex(cwd: &str, path: &str) -> Result<String, AppError> {
+    let mut cmd = Command::new("git");
+    cmd.args(["diff", "--no-index", "--", "/dev/null", path]);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+    cmd.current_dir(cwd);
+    let output = cmd
+        .output()
+        .map_err(|e| AppError::Io(e.to_string()))?;
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
 #[command]
 pub async fn git_diff_unstaged(cwd: String, path: Option<String>) -> Result<String, AppError> {
     tokio::task::spawn_blocking(move || {
-        let mut args: Vec<String> = vec!["diff".into()];
-        if let Some(p) = path {
-            args.push("--".into());
-            args.push(p);
-        }
-        let arg_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-        let raw = run_git_strict(&arg_refs, Some(&cwd))?;
+        let raw = match path {
+            Some(p) => {
+                // Untracked (new) files produce no output from `git diff`, so compare
+                // them against the empty file to render the full content as additions.
+                let is_untracked = run_git(
+                    &["ls-files", "--others", "--exclude-standard", "--", &p],
+                    Some(&cwd),
+                )
+                .map(|out| out.lines().any(|l| l.trim() == p))
+                .unwrap_or(false);
+
+                if is_untracked {
+                    run_git_diff_noindex(&cwd, &p)
+                } else {
+                    run_git_strict(&["diff", "--", &p], Some(&cwd))
+                }
+            }
+            None => run_git_strict(&["diff"], Some(&cwd)),
+        }?;
         Ok(strip_diff_headers(&raw))
     }).await.map_err(|e| AppError::Io(e.to_string()))?
 }

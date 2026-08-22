@@ -5,6 +5,7 @@ import {
   developerPlanAgent,
   developerBuildAgent,
   codeCompletionAgent,
+  chatAgent,
   memoryStorage,
 } from '../agents/aura';
 import { agentTaskWorkflow } from '../workflows/tasks';
@@ -28,6 +29,7 @@ import {
   askUserTool,
   terminalShellTool,
   developerShellTool,
+  historySearchTool,
 } from '../tools';
 
 import { ConsoleLogger, createCustomTransport } from '@mastra/core/logger';
@@ -82,6 +84,7 @@ export const mastra = new Mastra({
     developerPlanAgent,
     developerBuildAgent,
     codeCompletionAgent,
+    chatAgent,
   },
   workflows: {
     agentTaskWorkflow,
@@ -105,5 +108,6 @@ export const mastra = new Mastra({
     ask_user: askUserTool,
     shell_terminal: terminalShellTool,
     shell_developer: developerShellTool,
+    history_search: historySearchTool,
   },
 });

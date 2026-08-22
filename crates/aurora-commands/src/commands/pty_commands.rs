@@ -15,7 +15,55 @@ pub async fn pty_spawn(
     let id = session_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let mut manager = state.pty_manager.lock().await;
     let sender = state.pty_event_sender.clone();
-    manager.spawn(id.clone(), shell, args, env, cwd, sender).await?;
+
+    let resolved_shell = if shell.is_empty() {
+        aurora_pty::shell::detect_default_shell()
+    } else {
+        #[cfg(not(target_os = "windows"))]
+        {
+            if shell == "powershell.exe" || shell == "pwsh" || shell == "bash" || shell == "zsh" {
+                aurora_pty::shell::detect_default_shell()
+            } else if !shell.contains('/') {
+                which::which(&shell)
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .unwrap_or_else(|_| aurora_pty::shell::detect_default_shell())
+            } else {
+                shell
+            }
+        }
+        #[cfg(target_os = "windows")]
+        {
+            if shell == "bash" || shell == "zsh" {
+                aurora_pty::shell::detect_default_shell()
+            } else if !shell.contains('\\') && !shell.contains('/') {
+                which::which(&shell)
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .unwrap_or_else(|_| aurora_pty::shell::detect_default_shell())
+            } else {
+                shell
+            }
+        }
+    };
+
+    let resolved_cwd = match cwd {
+        Some(ref d) if !d.is_empty() => Some(d.clone()),
+        _ => {
+            if let Ok(mut dir) = std::env::current_dir() {
+                if (dir.ends_with("tauri") || dir.ends_with("app"))
+                    && dir.parent().is_some_and(|p| p.join("pnpm-workspace.yaml").exists() || p.join("Cargo.toml").exists())
+                {
+                    if let Some(parent) = dir.parent() {
+                        dir = parent.to_path_buf();
+                    }
+                }
+                Some(dir.to_string_lossy().into_owned())
+            } else {
+                None
+            }
+        }
+    };
+
+    manager.spawn(id.clone(), resolved_shell, args, env, resolved_cwd, sender).await?;
     Ok(id)
 }
 
@@ -51,5 +99,13 @@ pub async fn pty_kill(
 
 #[command]
 pub fn get_cwd() -> Result<String, AppError> {
-    Ok(std::env::current_dir()?.to_string_lossy().into_owned())
+    let mut current = std::env::current_dir()?;
+    if (current.ends_with("tauri") || current.ends_with("app"))
+        && current.parent().is_some_and(|p| p.join("pnpm-workspace.yaml").exists() || p.join("Cargo.toml").exists())
+    {
+        if let Some(parent) = current.parent() {
+            current = parent.to_path_buf();
+        }
+    }
+    Ok(current.to_string_lossy().into_owned())
 }

@@ -7,6 +7,8 @@ export interface SettingsManifestEntry {
   subPage: string;
 }
 
+import { KEYBINDING_IDS, getEffectiveKeybinding } from "../../lib/keybindings";
+
 const CATEGORY: Record<string, Record<string, string>> = {
   general: {
     window: "Window",
@@ -16,6 +18,7 @@ const CATEGORY: Record<string, Record<string, string>> = {
     keybindings: "Keybindings",
   },
   agent: { ai: "AI", permissions: "Permissions" },
+  user: { account: "Account", cloud: "Cloud" },
   about: { about: "About" },
 };
 
@@ -32,18 +35,20 @@ export const SETTINGS_MANIFEST: SettingsManifestEntry[] = [
   { id: "restore-tabs", label: "Keep Opened Tabs On Startup", description: "Keep and restore opened tabs when launching the app", elementId: "setting-restore-tabs", section: "general", subPage: "workspace" },
   // ── Editor ──
   { id: "fontFamily", label: "Font Family", description: "Terminal font family", elementId: "setting-font-family", section: "general", subPage: "editor" },
-  { id: "fontSize", label: "Font Size", description: "Terminal font size", elementId: "setting-font-size", section: "general", subPage: "editor" },
+  { id: "fontSize", label: "Editor Font Size", description: "Font size for the editor and terminal", elementId: "setting-editor-font-size", section: "general", subPage: "editor" },
   { id: "cursorStyle", label: "Cursor Style", description: "Terminal cursor appearance", elementId: "setting-cursor-style", section: "general", subPage: "editor" },
   { id: "cursorBlink", label: "Cursor Blink", description: "Toggle cursor blinking in terminal", elementId: "setting-cursor-blink", section: "general", subPage: "editor" },
   { id: "wordWrap", label: "Word Wrap", description: "Toggle editor word wrapping", elementId: "setting-word-wrap", section: "general", subPage: "editor" },
   { id: "showMinimap", label: "Show Minimap", description: "Toggle editor code minimap", elementId: "setting-show-minimap", section: "general", subPage: "editor" },
-  { id: "aiCodeCompletion", label: "AI Code Completion", description: "Enable AI-powered inline code suggestions in the editor", elementId: "setting-ai-code-completion", section: "general", subPage: "editor" },
-  { id: "aiSuggestions", label: "AI Suggestions and Improvements", description: "Enable AI-powered inline code improvements and edit suggestions (Ctrl+L)", elementId: "setting-ai-suggestions", section: "general", subPage: "editor" },
+  { id: "aiLiveSuggestions", label: "AI Live Suggestions", description: "Show AI ghost-text suggestions while typing in the file view", elementId: "setting-ai-live-suggestions", section: "general", subPage: "editor" },
   // ── Appearance ──
   { id: "theme", label: "Theme", description: "Dark/Light theme", elementId: "setting-theme", section: "general", subPage: "appearance" },
-  { id: "editorTheme", label: "Editor Theme", description: "CodeMirror editor color theme", elementId: "setting-editor-theme", section: "general", subPage: "appearance" },
+  { id: "editorTheme", label: "Editor Theme", description: "Editor color theme", elementId: "setting-editor-theme", section: "general", subPage: "appearance" },
   // ── Keybindings ──
   { id: "keybindings", label: "Keybindings", description: "Terminal keybinding mode", elementId: "setting-keybindings", section: "general", subPage: "keybindings" },
+  { id: "cloud", label: "Cloud", description: "Settings sync and update notifications", elementId: "setting-cloud-sync", section: "user", subPage: "cloud" },
+  { id: "updates", label: "Check for Updates", description: "Release update notifications", elementId: "setting-about-updates", section: "about", subPage: "about" },
+  { id: "account", label: "Account", description: "Sign in, account details, and sign out", elementId: "setting-account", section: "user", subPage: "account" },
   // ── AI ──
   { id: "ai-providers", label: "AI Providers", description: "Select and configure AI providers", elementId: "setting-ai-providers", section: "agent", subPage: "ai" },
   { id: "default-provider", label: "Default Provider", description: "Set default AI provider", elementId: "setting-default-provider", section: "agent", subPage: "ai" },
