@@ -63,12 +63,3 @@ jobs:
           curl -fS --retry 3 --retry-delay 10 \
             -X POST "${SUPABASE_URL}/functions/v1/aurora-api/v1/update/store" \
             -H "Authorization: Bearer ${SUPABASE_FUNCTION_TOKEN}"
-
-      - name: Show resulting package URLs
-        if: steps.assets.outputs.ready == 'true'
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_FUNCTION_TOKEN: ${{ secrets.SUPABASE_FUNCTION_TOKEN }}
-        run: |
-          curl -fsS "${SUPABASE_URL}/functions/v1/aurora-api/v1/update/store" \
-            -H "Authorization: Bearer ${SUPABASE_FUNCTION_TOKEN}"

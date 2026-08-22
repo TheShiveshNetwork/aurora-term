@@ -12,11 +12,21 @@ create table if not exists public.configs (
   updated_at timestamptz not null default now()
 );
 
--- Cache for the GitHub Releases proxy.
+-- Cache for the GitHub Releases proxy. One row per release family, keyed by
+-- `app_release` or `lsp_release`. `lsp_release` additionally carries the
+-- mirrored bundle list in `packages`; the rest are release metadata.
 create table if not exists public.release_cache (
-  key text primary key,
-  payload jsonb not null,
-  fetched_at timestamptz not null default now()
+  id           bigint generated always as identity primary key,
+  key          text not null unique
+               check (key in ('app_release','lsp_release')),
+  version      text,
+  url          text,
+  download_url text,
+  notes        text,
+  published_at timestamptz,
+  packages     jsonb,
+  mirrored_at  timestamptz,
+  fetched_at   timestamptz not null default now()
 );
 
 create index if not exists idx_configs_updated on public.configs (updated_at desc);

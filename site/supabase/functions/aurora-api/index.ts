@@ -8,18 +8,17 @@ import { Hono } from "npm:hono@4";
  * GitHub Releases API. All user/auth and settings-sync traffic goes directly
  * from the apps to Supabase under RLS — this function only serves updates.
  *
- * Two separate collections are cached (different rows in `release_cache`):
- *   - app_latest : newest app release whose tag looks like vX.Y.Z
- *   - lsp_latest : newest release whose tag mentions "lsp" (e.g. lsp-bundles)
+ * One row per release family is cached in `release_cache`:
+ *   - app_release : newest app release (tag vX.Y.Z) + mirrored installers
+ *   - lsp_release : newest LSP build (rolling, no version) + mirrored bundles
+ * Each row carries version, url, download_url (Supabase bucket link, else
+ * GitHub fallback), notes, published_at, packages[], mirrored_at.
  *
  * Endpoints:
  *   GET /v1/health         -> { ok: true }
- *   GET /v1/update/latest -> { version, url, notes, publishedAt }  (app)
- *   GET /v1/update/lsp    -> { version, url, notes, publishedAt }  (lsp bundles)
- *   GET /v1/update/store  -> { version, packages:[{name,arch,url}], mirroredAt }
- *   GET /v1/update/lsp/store -> { version, packages:[{name,arch,url}], mirroredAt }
- *   POST /v1/update/store -> re-mirror latest app release binaries into `aurora` bucket
- *   POST /v1/update/lsp/store -> re-mirror latest LSP build binaries into `aurora` bucket
+ *   GET /v1/update/latest -> app_release row
+ *   GET /v1/update/lsp    -> lsp_release row
+ *   POST /v1/update/store -> force re-mirror app release into `aurora` bucket
  *
  * Env: SUPABASE_URL, SUPABASE_SECRET_KEY, AURORA_GITHUB_REPO, AURORA_GITHUB_TOKEN
  */
@@ -130,15 +129,21 @@ function isLspTag(tag: string): boolean {
 // ---------------------------------------------------------------------------
 
 const STORE_BUCKET = "aurora";
-const STORE_CACHE_KEY = "app_store";
-const LSP_STORE_CACHE_KEY = "lsp_store";
+const APP_CACHE_KEY = "app_release";
+const LSP_CACHE_KEY = "lsp_release";
 
-type StorePackage = { name: string; arch: string; url: string };
-type StoreResult = {
-  version: string;
-  packages: StorePackage[];
-  mirroredAt: string;
-  skipped?: string[];
+type Package = { name: string; arch: string; url: string };
+// One row in `release_cache` per release family: `app_release` or `lsp_release`.
+// LSP rows keep `version` null (rolling release). `download_url` is the Supabase
+// bucket link when mirrored, otherwise falls back to the GitHub release URL.
+type ReleaseRow = {
+  version: string | null;
+  url: string | null;
+  download_url: string | null;
+  notes: string | null;
+  published_at: string | null;
+  packages: Package[] | null;
+  mirrored_at: string | null;
 };
 
 // App (Microsoft Store) mirrors only installers.
@@ -244,14 +249,14 @@ const MAX_ASSET_BYTES = (() => {
 })();
 
 async function mirrorPackages(
-  version: string,
+  folder: string,
   assets: any[],
   want: (name: string) => boolean,
-): Promise<StoreResult> {
+): Promise<{ packages: Package[]; mirroredAt: string; skipped: string[] }> {
   await ensureStoreBucket();
-  const safeVersion = sanitizeSegment(version);
+  const safeFolder = sanitizeSegment(folder);
   const binaries = (assets ?? []).filter((a) => want(String(a.name ?? "").toLowerCase()));
-  const packages: StorePackage[] = [];
+  const packages: Package[] = [];
   const skipped: string[] = [];
   for (const a of binaries) {
     const name = String(a.name ?? "");
@@ -281,7 +286,7 @@ async function mirrorPackages(
       }
       const safeName = sanitizeSegment(name);
       const url = await uploadBinary(
-        `${safeVersion}/${safeName}`,
+        `${safeFolder}/${safeName}`,
         bytes,
         contentTypeFor(safeName),
       );
@@ -292,20 +297,47 @@ async function mirrorPackages(
       skipped.push(name);
     }
   }
-  return { version: safeVersion, packages, mirroredAt: new Date().toISOString(), skipped };
+  return { packages, mirroredAt: new Date().toISOString(), skipped };
 }
 
-// Mirrors only when the cached version differs from the requested one.
+// Picks the primary installer from a mirrored package list (prefer Windows .exe).
+function primaryPackageUrl(packages: Package[]): string | null {
+  if (!packages.length) return null;
+  const exe = packages.find((p) => p.name.toLowerCase().endsWith(".exe"));
+  return (exe ?? packages[0]).url;
+}
+
+// Builds a package list straight from GitHub release assets (no bucket mirror),
+// used for LSP where binaries stay on GitHub.
+function githubPackages(release: any, want: (name: string) => boolean): Package[] {
+  return (release?.assets ?? [])
+    .filter((a: any) => want(String(a.name ?? "").toLowerCase()))
+    .map((a: any) => ({
+      name: sanitizeSegment(String(a.name)),
+      arch: archFor(String(a.name)),
+      url: String(a.browser_download_url),
+    }));
+}
+
+// Mirrors only when the cache is stale. `sourceVersion` is the upstream tag used
+// for change detection: for app it is the semver (null when unchanged -> skip);
+// for LSP it is null, so LSP relies purely on the TTL.
 async function maybeMirror(
   cacheKey: string,
-  version: string,
+  sourceVersion: string | null,
+  folder: string,
   assets: any[],
   want: (name: string) => boolean,
-): Promise<StoreResult> {
+): Promise<{ packages: Package[]; mirroredAt: string; skipped: string[] }> {
   const cached = await getCached(cacheKey);
-  if (cached && cached.version === version) return cached;
-  const result = await mirrorPackages(version, assets, want);
-  await cacheRelease(cacheKey, result);
+  if (cached && (sourceVersion === null || cached.version === sourceVersion)) {
+    return {
+      packages: cached.packages ?? [],
+      mirroredAt: cached.mirrored_at ?? "",
+      skipped: [],
+    };
+  }
+  const result = await mirrorPackages(folder, assets, want);
   return result;
 }
 
@@ -368,90 +400,141 @@ function classify(releases: any[]): {
   return { app, lsp };
 }
 
-async function getCached(key: string): Promise<any | null> {
+async function getStoredRow(key: string): Promise<ReleaseRow | null> {
   const { status, data } = await pg(
-    `release_cache?select=payload,fetched_at&key=eq.${key}`,
+    `release_cache?select=version,url,download_url,notes,published_at,packages,mirrored_at,fetched_at&key=eq.${key}`,
   );
   if (status !== 200 || !Array.isArray(data) || !data.length) return null;
-  if (Date.now() - new Date(data[0].fetched_at).getTime() > CACHE_TTL_MS) {
-    return null;
-  }
-  return data[0].payload;
+  return data[0];
 }
 
-async function cacheRelease(key: string, payload: any) {
+// Same as getStoredRow but enforces the TTL: returns null once the row is older
+// than CACHE_TTL_MS, so callers know they must re-check upstream.
+async function getCached(key: string): Promise<ReleaseRow | null> {
+  const row = await getStoredRow(key);
+  if (!row) return null;
+  if (Date.now() - new Date(row.fetched_at).getTime() > CACHE_TTL_MS) return null;
+  return row;
+}
+
+// Resets only the TTL marker without rewriting the cached payload.
+async function touchRow(key: string) {
+  await pg(`release_cache?key=eq.${key}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Prefer: "return=minimal",
+    },
+    body: { fetched_at: new Date().toISOString() },
+  });
+}
+
+async function cacheRelease(key: string, row: ReleaseRow) {
   await pg("release_cache", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Prefer: "resolution=merge-duplicates,return=minimal",
     },
-    body: { key, payload, fetched_at: new Date().toISOString() },
+    body: { key, ...row, fetched_at: new Date().toISOString() },
   });
 }
 
-// Resolves one collection. A single GitHub fetch refreshes BOTH collections,
-// so the app and lsp caches stay consistent and share one rate-limit budget.
-async function resolveLatest(kind: "app" | "lsp"): Promise<ReleaseDoc | null> {
-  const key = kind === "app" ? "app_latest" : "lsp_latest";
-  const cached = await getCached(key);
-  if (cached) return cached;
+// Resolves one release family into a single `release_cache` row.
+//  - app: mirrors installers into the Supabase bucket; download_url = bucket link.
+//  - lsp: NOT uploaded to Supabase (size limits). The row just caches the GitHub
+//        release metadata; download_url = GitHub manifest URL. The cache is only
+//        rewritten when the upstream release is newer than what we already hold.
+async function resolveRelease(kind: "app" | "lsp", force = false): Promise<ReleaseRow | null> {
+  const key = kind === "app" ? APP_CACHE_KEY : LSP_CACHE_KEY;
+  if (!force) {
+    const cached = await getCached(key);
+    if (cached) return cached;
+  }
   const releases = await fetchReleasesList();
   if (!releases) return null;
   const { app, lsp } = classify(releases);
-  if (app) await cacheRelease("app_latest", app);
-  if (lsp) await cacheRelease("lsp_latest", lsp);
-  // Re-host the built binaries to the `aurora` bucket so clients/Store get a
-  // direct, versioned URL. Best-effort and non-blocking for update checks.
-  if (app) {
-    const appRelease = findAppRelease(releases);
-    maybeMirror(STORE_CACHE_KEY, app.version, appRelease?.assets ?? [], isAppAsset)
-      .catch((e) =>
-        console.error("aurora-api: store mirror skipped:", (e as Error).message),
-      );
+  const doc = kind === "app" ? app : lsp;
+  if (!doc) return null;
+  const release = kind === "app" ? findAppRelease(releases) : findLspRelease(releases);
+  const tag = String(release?.tag_name ?? "");
+
+  // ---- LSP: GitHub-only, refresh only when upstream is newer ----
+  if (kind === "lsp") {
+    const stored = await getStoredRow(key);
+    const ghPub = doc.published_at;
+    const storedPub = stored?.published_at ?? null;
+    if (
+      !force && storedPub && ghPub &&
+      new Date(ghPub).getTime() <= new Date(storedPub).getTime()
+    ) {
+      // Upstream unchanged within the TTL window — just reset the 3h window.
+      await touchRow(key);
+      return stored;
+    }
+    const row: ReleaseRow = {
+      version: null,
+      url: doc.url,
+      download_url: doc.download_url,
+      notes: doc.notes,
+      published_at: doc.published_at,
+      packages: githubPackages(release, isLspAsset),
+      mirrored_at: null,
+    };
+    await cacheRelease(key, row);
+    return row;
   }
-  if (lsp) {
-    const lspRelease = findLspRelease(releases);
-    maybeMirror(LSP_STORE_CACHE_KEY, lsp.version, lspRelease?.assets ?? [], isLspAsset)
-      .catch((e) =>
-        console.error("aurora-api: lsp mirror skipped:", (e as Error).message),
-      );
+
+  // ---- App: mirror installers to the Supabase bucket ----
+  const folder = sanitizeSegment(doc.version ?? tag);
+  const mirrored = force
+    ? await mirrorPackages(folder, release?.assets ?? [], isAppAsset).catch(() => ({
+        packages: [] as Package[],
+        mirroredAt: "",
+        skipped: [] as string[],
+      }))
+    : await maybeMirror(key, doc.version, folder, release?.assets ?? [], isAppAsset)
+      .catch(() => ({
+        packages: [] as Package[],
+        mirroredAt: "",
+        skipped: [] as string[],
+      }));
+
+  let download_url: string | null = doc.download_url;
+  if (mirrored.packages.length > 0) {
+    download_url = primaryPackageUrl(mirrored.packages) ?? doc.download_url;
   }
-  return kind === "app" ? app : lsp;
+
+  const row: ReleaseRow = {
+    version: doc.version,
+    url: doc.url,
+    download_url,
+    notes: doc.notes,
+    published_at: doc.published_at,
+    packages: mirrored.packages,
+    mirrored_at: mirrored.mirroredAt || null,
+  };
+  await cacheRelease(key, row);
+  return row;
 }
 
 app.get("/v1/health", (c) => c.json({ ok: true }));
 
 app.get("/v1/update/latest", async (c) => {
-  const r = await resolveLatest("app");
+  const r = await resolveRelease("app");
   if (!r) return c.json({ error: "not found" }, 404);
   return c.json(r);
 });
 
 app.get("/v1/update/lsp", async (c) => {
-  const r = await resolveLatest("lsp");
+  const r = await resolveRelease("lsp");
   if (!r) return c.json({ error: "not found" }, 404);
   return c.json(r);
 });
 
-// Read the currently mirrored Store package URLs (last mirrored version).
-app.get("/v1/update/store", async (c) => {
-  const r = await getCached(STORE_CACHE_KEY);
-  if (!r) return c.json({ error: "not mirrored yet" }, 404);
-  return c.json(r);
-});
-
-// Read the currently mirrored LSP bundle URLs (last mirrored version).
-app.get("/v1/update/lsp/store", async (c) => {
-  const r = await getCached(LSP_STORE_CACHE_KEY);
-  if (!r) return c.json({ error: "not mirrored yet" }, 404);
-  return c.json(r);
-});
-
-// Force a re-mirror of the latest app release's binaries into the `aurora`
-// bucket. Safe to call after publishing a GitHub release; skips re-download if
-// the version is unchanged. Recommended trigger from CI or manually.
-// Guarded by AURORA_DEPLOY_TOKEN when configured (see README).
+// Read the cached `app_release` row (metadata + mirrored package URLs).
+// Force a re-mirror of the latest app release into the `aurora` bucket and
+// refresh the `app_release` row. Guarded by AURORA_DEPLOY_TOKEN when set.
 app.post("/v1/update/store", async (c) => {
   if (DEPLOY_TOKEN) {
     const auth = c.req.header("authorization") ?? "";
@@ -460,37 +543,9 @@ app.post("/v1/update/store", async (c) => {
     }
   }
   try {
-    const releases = await fetchReleasesList();
-    if (!releases) return c.json({ error: "github unreachable" }, 502);
-    const appRelease = findAppRelease(releases);
-    if (!appRelease) return c.json({ error: "no app release" }, 404);
-    const version = String(appRelease.tag_name ?? "").replace(/^v/, "");
-    const result = await maybeMirror(STORE_CACHE_KEY, version, appRelease.assets ?? [], isAppAsset);
-    return c.json(result);
-  } catch (e) {
-    return c.json({ error: (e as Error).message }, 500);
-  }
-});
-
-// Force a re-mirror of the latest LSP build's binaries into the `aurora`
-// bucket (same job the GET /v1/update/lsp check does, but on-demand). Skips
-// re-download if the version is unchanged. Guarded by AURORA_DEPLOY_TOKEN.
-app.post("/v1/update/lsp/store", async (c) => {
-  if (DEPLOY_TOKEN) {
-    const auth = c.req.header("authorization") ?? "";
-    if (auth !== `Bearer ${DEPLOY_TOKEN}`) {
-      return c.json({ error: "unauthorized" }, 401);
-    }
-  }
-  try {
-    const releases = await fetchReleasesList();
-    if (!releases) return c.json({ error: "github unreachable" }, 502);
-    const lspRelease = findLspRelease(releases);
-    if (!lspRelease) return c.json({ error: "no lsp release" }, 404);
-    const rawTag = String(lspRelease.tag_name ?? "");
-    const version = rawTag.startsWith("v") ? rawTag.slice(1) : rawTag;
-    const result = await maybeMirror(LSP_STORE_CACHE_KEY, version, lspRelease.assets ?? [], isLspAsset);
-    return c.json(result);
+    const r = await resolveRelease("app", true);
+    if (!r) return c.json({ error: "no app release" }, 404);
+    return c.json(r);
   } catch (e) {
     return c.json({ error: (e as Error).message }, 500);
   }
