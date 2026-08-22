@@ -16,6 +16,8 @@ import { Hono } from "npm:hono@4";
  *   GET /v1/health         -> { ok: true }
  *   GET /v1/update/latest -> { version, url, notes, publishedAt }  (app)
  *   GET /v1/update/lsp    -> { version, url, notes, publishedAt }  (lsp bundles)
+ *   GET /v1/update/store  -> { version, packages:[{name,arch,url}], mirroredAt }
+ *   POST /v1/update/store -> re-mirror latest release binaries into `aurora` bucket
  *
  * Env: SUPABASE_URL, SUPABASE_SECRET_KEY, AURORA_GITHUB_REPO, AURORA_GITHUB_TOKEN
  */
@@ -30,7 +32,10 @@ const SERVICE_KEY =
   "";
 const GITHUB_REPO = Deno.env.get("AURORA_GITHUB_REPO") ?? "";
 const GITHUB_TOKEN = Deno.env.get("AURORA_GITHUB_TOKEN") ?? "";
-const CACHE_TTL_MS = 30 * 60 * 1000;
+// Optional shared secret required to call POST /v1/update/store. If set, the
+// endpoint rejects any request without `Authorization: Bearer <token>`.
+const DEPLOY_TOKEN = Deno.env.get("AURORA_DEPLOY_TOKEN") ?? "";
+const CACHE_TTL_MS = 3 * 60 * 60 * 1000;
 
 const app = new Hono().basePath("/aurora-api");
 
@@ -107,6 +112,149 @@ function isLspTag(tag: string): boolean {
   return tag.toLowerCase().includes("lsp");
 }
 
+// ---------------------------------------------------------------------------
+// Microsoft Store binary mirror
+//
+// GitHub release asset URLs 302-redirect to objects.githubusercontent.com, which
+// the Microsoft Store submission fetcher rejects. To get a stable, direct,
+// versioned Package URL we download each built .exe/.msi and re-host it in the
+// public Supabase Storage bucket `aurora`:
+//
+//   https://<project>/storage/v1/object/public/aurora/<version>/<asset>
+//
+// Each version gets its own path, so the URL is a permanent permalink and we
+// never overwrite an older release. Use these URLs as the Package URL(s) in the
+// Store submission (one per architecture).
+// ---------------------------------------------------------------------------
+
+const STORE_BUCKET = "aurora";
+const STORE_CACHE_KEY = "app_store";
+
+type StorePackage = { name: string; arch: string; url: string };
+type StoreResult = {
+  version: string;
+  packages: StorePackage[];
+  mirroredAt: string;
+};
+
+function contentTypeFor(name: string): string {
+  const n = name.toLowerCase();
+  if (n.endsWith(".exe")) return "application/x-msdownload";
+  if (n.endsWith(".msi")) return "application/x-msi";
+  return "application/octet-stream";
+}
+
+function archFor(name: string): string {
+  const n = name.toLowerCase();
+  if (n.includes("arm64")) return "arm64";
+  if (n.includes("x86") || n.includes("win32") || n.includes("386")) return "x86";
+  if (n.includes("x64") || n.includes("amd64")) return "x64";
+  return "x64";
+}
+
+// Strips characters that could allow path traversal / separator injection in the
+// Storage object path. Values originate from GitHub release tags/asset names, but
+// we sanitize defensively so a crafted tag can't escape the version folder.
+function sanitizeSegment(s: string): string {
+  return s
+    .replace(/[\0-\x1f\x7f]/g, "") // control chars
+    .replace(/[\/\\]/g, "_") // path separators
+    .replace(/\.\.+/g, "_") // traversal
+    .replace(/^\.+/, "") // leading dots
+    .trim();
+}
+
+async function ensureStoreBucket() {
+  // Create (ignore if it already exists), then force it public.
+  await fetch(`${SUPABASE_URL}/storage/v1/bucket`, {
+    method: "POST",
+    headers: {
+      apikey: SERVICE_KEY,
+      Authorization: `Bearer ${SERVICE_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ name: STORE_BUCKET, public: true }),
+  }).catch(() => {});
+  await fetch(`${SUPABASE_URL}/storage/v1/bucket/${STORE_BUCKET}`, {
+    method: "PUT",
+    headers: {
+      apikey: SERVICE_KEY,
+      Authorization: `Bearer ${SERVICE_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ public: true }),
+  });
+}
+
+async function uploadBinary(
+  path: string,
+  bytes: ArrayBuffer,
+  contentType: string,
+): Promise<string> {
+  const res = await fetch(
+    `${SUPABASE_URL}/storage/v1/object/${STORE_BUCKET}/${path}?upsert=true`,
+    {
+      method: "POST",
+      headers: {
+        apikey: SERVICE_KEY,
+        Authorization: `Bearer ${SERVICE_KEY}`,
+        "Content-Type": contentType,
+        "x-upsert": "true",
+      },
+      body: bytes,
+    },
+  );
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(`storage upload failed (${res.status}): ${t}`);
+  }
+  return `${SUPABASE_URL}/storage/v1/object/public/${STORE_BUCKET}/${path}`;
+}
+
+async function mirrorStore(version: string, assets: any[]): Promise<StoreResult> {
+  await ensureStoreBucket();
+  const safeVersion = sanitizeSegment(version);
+  const binaries = (assets ?? []).filter((a) => {
+    const n = String(a.name ?? "").toLowerCase();
+    return n.endsWith(".exe") || n.endsWith(".msi");
+  });
+  const packages: StorePackage[] = [];
+  for (const a of binaries) {
+    const name = sanitizeSegment(String(a.name));
+    const dl = await fetch(String(a.browser_download_url), {
+      headers: GITHUB_TOKEN ? { Authorization: `Bearer ${GITHUB_TOKEN}` } : {},
+    });
+    if (!dl.ok) {
+      throw new Error(`download failed ${a.browser_download_url}: ${dl.status}`);
+    }
+    const bytes = await dl.arrayBuffer();
+    const url = await uploadBinary(
+      `${safeVersion}/${name}`,
+      bytes,
+      contentTypeFor(name),
+    );
+    packages.push({ name, arch: archFor(name), url });
+  }
+  return { version: safeVersion, packages, mirroredAt: new Date().toISOString() };
+}
+
+async function maybeMirrorStore(version: string, assets: any[]): Promise<StoreResult> {
+  const cached = await getCached(STORE_CACHE_KEY);
+  if (cached && cached.version === version) return cached;
+  const result = await mirrorStore(version, assets);
+  await cacheRelease(STORE_CACHE_KEY, result);
+  return result;
+}
+
+// Finds the raw app release object (with assets) for the latest app tag.
+function findAppRelease(releases: any[]): any | null {
+  for (const r of releases) {
+    if (r.draft || r.prerelease) continue;
+    if (isAppTag(String(r.tag_name ?? ""))) return r;
+  }
+  return null;
+}
+
 async function fetchReleasesList(): Promise<any[] | null> {
   if (!GITHUB_REPO) return null;
   const headers: Record<string, string> = {
@@ -149,7 +297,7 @@ function classify(releases: any[]): {
   return { app, lsp };
 }
 
-async function getCached(key: string): Promise<ReleaseDoc | null> {
+async function getCached(key: string): Promise<any | null> {
   const { status, data } = await pg(
     `release_cache?select=payload,fetched_at&key=eq.${key}`,
   );
@@ -160,7 +308,7 @@ async function getCached(key: string): Promise<ReleaseDoc | null> {
   return data[0].payload;
 }
 
-async function cacheRelease(key: string, payload: ReleaseDoc) {
+async function cacheRelease(key: string, payload: any) {
   await pg("release_cache", {
     method: "POST",
     headers: {
@@ -182,6 +330,14 @@ async function resolveLatest(kind: "app" | "lsp"): Promise<ReleaseDoc | null> {
   const { app, lsp } = classify(releases);
   if (app) await cacheRelease("app_latest", app);
   if (lsp) await cacheRelease("lsp_latest", lsp);
+  if (app) {
+    // Re-host the built binaries to the `aurora` bucket so the Store gets a
+    // direct, versioned URL. Best-effort and non-blocking for update checks.
+    const appRelease = findAppRelease(releases);
+    maybeMirrorStore(app.version, appRelease?.assets ?? []).catch((e) =>
+      console.error("aurora-api: store mirror skipped:", (e as Error).message),
+    );
+  }
   return kind === "app" ? app : lsp;
 }
 
@@ -197,6 +353,37 @@ app.get("/v1/update/lsp", async (c) => {
   const r = await resolveLatest("lsp");
   if (!r) return c.json({ error: "not found" }, 404);
   return c.json(r);
+});
+
+// Read the currently mirrored Store package URLs (last mirrored version).
+app.get("/v1/update/store", async (c) => {
+  const r = await getCached(STORE_CACHE_KEY);
+  if (!r) return c.json({ error: "not mirrored yet" }, 404);
+  return c.json(r);
+});
+
+// Force a re-mirror of the latest app release's binaries into the `aurora`
+// bucket. Safe to call after publishing a GitHub release; skips re-download if
+// the version is unchanged. Recommended trigger from CI or manually.
+// Guarded by AURORA_DEPLOY_TOKEN when configured (see README).
+app.post("/v1/update/store", async (c) => {
+  if (DEPLOY_TOKEN) {
+    const auth = c.req.header("authorization") ?? "";
+    if (auth !== `Bearer ${DEPLOY_TOKEN}`) {
+      return c.json({ error: "unauthorized" }, 401);
+    }
+  }
+  try {
+    const releases = await fetchReleasesList();
+    if (!releases) return c.json({ error: "github unreachable" }, 502);
+    const appRelease = findAppRelease(releases);
+    if (!appRelease) return c.json({ error: "no app release" }, 404);
+    const version = String(appRelease.tag_name ?? "").replace(/^v/, "");
+    const result = await maybeMirrorStore(version, appRelease.assets ?? []);
+    return c.json(result);
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 500);
+  }
 });
 
 Deno.serve(app.fetch);
