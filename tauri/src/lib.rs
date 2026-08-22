@@ -5,6 +5,7 @@ use aurora_pty::{PtyManager, PtyEvent};
 use aurora_db::HistoryDb;
 use aurora_lsp::{LspIncoming, LspManager};
 use tauri::{Manager, Emitter};
+#[cfg(all(desktop, not(debug_assertions)))]
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_prevent_default::Flags;
 
@@ -73,7 +74,7 @@ fn start_pty_event_bridge(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_drag::init())
@@ -85,23 +86,25 @@ pub fn run() {
         .plugin(tauri_plugin_window_state::Builder::default()
             .with_denylist(&["settings"])
             .build())
-        .plugin(tauri_plugin_deep_link::init())
-        .plugin(
-            // On Windows/Linux, opening an `aurora://` link while the app is
-            // already running launches a second process. This forwards the URL
-            // to the live instance (and focuses its window) so the desktop app
-            // — not the throwaway second instance — receives the auth tokens.
-            tauri_plugin_single_instance::init(|app, args, _cwd| {
-                if let Some(url) = args.iter().find(|a| a.starts_with("aurora://")) {
-                    let _ = app.emit("aurora-deep-link", url.clone());
-                }
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.unminimize();
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
-            }),
-        )
+        .plugin(tauri_plugin_deep_link::init());
+
+    // Single-instance guarding is only for the shipped (release) app: it stops
+    // duplicate launches and forwards `aurora://` deep links to the live window.
+    // In dev we omit it so `pnpm tauri dev` can run next to an installed Aurora
+    // without the dev instance bouncing to the installed copy.
+    #[cfg(not(debug_assertions))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+        if let Some(url) = args.iter().find(|a| a.starts_with("aurora://")) {
+            let _ = app.emit("aurora-deep-link", url.clone());
+        }
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.unminimize();
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+    }));
+
+    builder
         .setup(|app| {
             // Resolve platform-specific config directory (single source of truth for persistence)
             let config_dir = app.path()
@@ -159,7 +162,7 @@ pub fn run() {
             // a Supabase session after GitHub sign-in. Until this runs at least
             // once (i.e. the desktop app has launched), the OS/browser has no
             // handler for `aurora://` and web handoffs fail.
-            #[cfg(desktop)]
+            #[cfg(all(desktop, not(debug_assertions)))]
             {
                 match app.deep_link().register("aurora") {
                     Ok(()) => tracing::info!("Registered aurora:// deep-link scheme"),
