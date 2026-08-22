@@ -369,19 +369,13 @@ export function AppShellView() {
     }
   };
 
-  const handleOpenRecentFile = (filePath: string) => {
+    const handleOpenRecentFile = (filePath: string) => {
     setShowMenuDropdown(false);
     const baseCwd = projectDir || cwdAbsolute;
-    system.readDir(baseCwd)
-      .then(() => {
-        const absolutePath = baseCwd ? `${baseCwd}/${filePath}`.replace(/\/\//g, "/") : filePath;
-        openFile(absolutePath, baseCwd);
-        setViewMode("file");
-      })
-      .catch(() => {
-        openFile(filePath, baseCwd);
-        setViewMode("file");
-      });
+    const isAbs = /^[A-Z]:[/\\]|^[/\\]|^~/i.test(filePath);
+    const absolutePath = !isAbs && baseCwd ? `${baseCwd}/${filePath}`.replace(/\/\//g, "/") : filePath;
+    openFile(absolutePath, baseCwd);
+    setViewMode("file");
   };
 
   const handleNewWindow = async () => {

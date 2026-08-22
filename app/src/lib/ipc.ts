@@ -66,12 +66,11 @@ export interface EditorConfig {
 
 export interface CloudConfig {
   auto_sync: boolean;
-  api_base_url: string;
+  synced: boolean;
 }
 
 export interface UpdatesConfig {
   enabled: boolean;
-  check_interval_hours: number;
 }
 
 export interface AppConfig {
@@ -214,6 +213,7 @@ export const cloud = {
 export const update = {
   check: () => invoke<UpdateInfo>("update_check"),
   dismiss: (version: string) => invoke<void>("update_dismiss", { version }),
+  install: () => invoke<void>("update_install"),
 };
 
 export interface FileNode {

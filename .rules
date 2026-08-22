@@ -60,6 +60,46 @@ Rules of engagement:
   logs, or the frontend. Frontend receives `hasApiKey: bool` only.
 * IDs are `uuid::Uuid::new_v4().to_string()`.
 
+## Tauri IPC & integration standards
+
+* All Rust `#[tauri::command]` functions must live inside `aurora-commands` or
+  `aurora-app` and act strictly as lightweight wrappers around crate methods.
+* Validate all inputs in Rust before executing logic — never rely exclusively on
+  frontend validation.
+* Never emit Tauri window events globally (`app_handle.emit()`) when targeting a single window;
+  use `window.emit()` or channel-based IPC streams (`tauri::ipc::Channel`).
+* Use `tauri::State` only for managing long-lived application singletons or services managed
+  by `aurora-app`.
+* Scope capabilities strictly via `capabilities/*.json` using least-privilege principles.
+
+## TypeScript & IPC bridge standards
+
+* Never call `invoke()` directly in UI components. All IPC calls must pass through
+  `app/src/lib/ipc.ts` or scoped API modules.
+* Maintain 1:1 type safety with Rust: every Rust DTO exposed over IPC must have a corresponding
+  TypeScript `type` or `interface` in `app/src/types/ipc.ts`.
+* Enable strict type checking (`strict: true` in `tsconfig.json`). Never use `any` — use
+  `unknown` for untyped inputs and narrow with type guards.
+* Handle IPC errors gracefully: wrap `invoke()` calls in typed `try/catch` blocks or a `Result`
+  wrapper to capture serialized `AppError` payloads.
+
+## React & UI standards
+
+* Prefer functional components and custom hooks to isolate state and side effects.
+* Use React `Suspense` or explicit loading states for async IPC invocations; never render raw `null`
+  or broken states while waiting for response data.
+* Clean up event listeners in `useEffect` return functions (e.g., unsubscribing from Tauri `listen()` promises).
+* Avoid inline function declarations or large anonymous objects in hot-path render properties; wrap with
+  `useCallback` or `useMemo` when passing callbacks to heavy child components.
+* Keep state close to where it is used. Lift state only when multiple components require synchronized access.
+
+## Build, bundle & Vite standards
+
+* Strictly separate UI assets from backend Rust binaries. Use relative paths or Vite aliases (`@/`)
+  for internal imports.
+* Never store secret tokens, API keys, or security material in `.env` or Vite frontend code.
+* Run `npm run typecheck` (or `tsc --noEmit`) and `npm run lint` before committing frontend changes.
+
 ## Hard rules
 
 * Never hardcode model strings or filesystem paths in Rust — read from `AppConfig`
@@ -84,3 +124,4 @@ Rules of engagement:
 * Do not edit `.rules` inline during normal feature/fix work. Propose changes in a
   **"Suggested .rules additions"** section of the PR; reviewers merge them.
 * A new rule must be: non-obvious, repeatedly encountered, and specific enough to act on.
+* Do not use emdashes in writing anywhere especially markdown files. Instead use normal '-'

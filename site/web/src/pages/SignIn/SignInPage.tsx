@@ -1,13 +1,13 @@
 import { Loader2 } from "lucide-react";
 import { useState } from "react";
 import { startOAuth } from "../../lib/aurora";
-import { Button, Container, GithubIcon, GoogleIcon } from "../../components/ui";
+import { Button, Container, GithubIcon } from "../../components/ui";
 
 export default function SignInPage() {
-  const [busy, setBusy] = useState<null | "google" | "github">(null);
+  const [busy, setBusy] = useState<null | "github">(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function go(provider: "google" | "github") {
+  async function go(provider: "github") {
     setBusy(provider);
     setError(null);
     try {
@@ -34,14 +34,6 @@ export default function SignInPage() {
           </p>
 
           <div className="mt-6 flex flex-col gap-3">
-            <button
-              onClick={() => go("google")}
-              disabled={busy !== null}
-              className="flex items-center justify-center gap-2.5 rounded-full border border-outline bg-surface px-5 py-3 text-[14px] font-medium transition-colors hover:border-primary/50 disabled:opacity-60"
-            >
-              {busy === "google" ? <Loader2 size={16} className="animate-spin" /> : <GoogleIcon />}
-              Continue with Google
-            </button>
             <button
               onClick={() => go("github")}
               disabled={busy !== null}

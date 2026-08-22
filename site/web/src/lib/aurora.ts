@@ -6,6 +6,7 @@
 // imports them with `supabase.auth.setSession` and syncs settings under RLS.
 
 import { supabase } from "./supabaseClient";
+import { WEB_URL } from "./appConfig";
 import type { Session } from "@supabase/supabase-js";
 
 const DEEP_LINK = "aurora://auth/callback";
@@ -31,7 +32,7 @@ export function getScheme(): string {
 
 export async function startOAuth(provider: "google" | "github"): Promise<string> {
   const scheme = getScheme();
-  const redirectTo = `${location.origin}/auth/callback?scheme=${encodeURIComponent(scheme)}`;
+  const redirectTo = `${WEB_URL}/auth/callback?scheme=${encodeURIComponent(scheme)}`;
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider,
     options: { redirectTo },

@@ -86,6 +86,22 @@ pub fn run() {
             .with_denylist(&["settings"])
             .build())
         .plugin(tauri_plugin_deep_link::init())
+        .plugin(
+            // On Windows/Linux, opening an `aurora://` link while the app is
+            // already running launches a second process. This forwards the URL
+            // to the live instance (and focuses its window) so the desktop app
+            // — not the throwaway second instance — receives the auth tokens.
+            tauri_plugin_single_instance::init(|app, args, _cwd| {
+                if let Some(url) = args.iter().find(|a| a.starts_with("aurora://")) {
+                    let _ = app.emit("aurora-deep-link", url.clone());
+                }
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.unminimize();
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }),
+        )
         .setup(|app| {
             // Resolve platform-specific config directory (single source of truth for persistence)
             let config_dir = app.path()
@@ -306,6 +322,7 @@ pub fn run() {
             // Update commands
             aurora_commands::update_check,
             aurora_commands::update_dismiss,
+            aurora_commands::update_install,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

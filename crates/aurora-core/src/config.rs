@@ -6,6 +6,10 @@ const fn default_enabled() -> bool {
     true
 }
 
+const fn default_synced() -> bool {
+    true
+}
+
 /// Default for EditorConfig.theme
 fn default_editor_theme() -> String {
     "dracula".to_string()
@@ -30,6 +34,11 @@ pub struct CloudConfig {
     pub auto_sync: bool,
     #[serde(default)]
     pub api_base_url: String,
+    /// Whether the locally-saved config has been pushed to the cloud since the
+    /// last local change. Tracked client-side to avoid round-tripping the
+    /// backend just to decide whether the sync buttons should be enabled.
+    #[serde(default = "default_synced")]
+    pub synced: bool,
 }
 
 /// Update notification preferences. The app checks the GitHub Releases
@@ -284,6 +293,7 @@ impl Default for AppConfig {
                 api_base_url:
                     "https://yybxsggbvuzjzlwlwbtv.supabase.co/functions/v1/aurora-api"
                         .to_string(),
+                synced: true,
             },
             updates: UpdatesConfig {
                 enabled: true,

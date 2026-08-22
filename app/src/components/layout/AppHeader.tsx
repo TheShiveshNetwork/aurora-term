@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Command, ExternalLink, FileText, FolderOpen, History, Menu, PanelLeft, PanelLeftClose, PanelRight, PanelRightClose, PanelBottom, PanelBottomClose, PinIcon, PinOff, Plus, Search, Settings, SplitSquareHorizontal, SquareTerminal, Terminal, GitBranch, File, Sliders } from "lucide-react";
+import { Command, ExternalLink, FileText, FolderOpen, History, Menu, PanelLeft, PanelLeftClose, PanelRight, PanelRightClose, PanelBottom, PanelBottomClose, PinIcon, PinOff, Plus, Search, Settings, SplitSquareHorizontal, SquareTerminal, Terminal, GitBranch, File, Sliders, Download, Loader2 } from "lucide-react";
 import type { AppViewMode } from "../../stores/useAppShellStore";
 import { useSettingsStore } from "../../stores/useSettingsStore";
 import { KEYBINDING_IDS, getEffectiveKeybinding, getEffectiveKeybindings } from "../../lib/keybindings";
 import { WindowControls } from "../ui/WindowControls";
+import { Button } from "../ui/Button";
 import { MenuView, MenuViewItem, MenuViewSeparator } from "../ui/MenuView";
 import { openSettingsWindow } from "../../lib/settings";
 import { AccountMenu } from "./AccountMenu";
@@ -11,6 +12,7 @@ import { AccountMenu } from "./AccountMenu";
 import auroraIcon from "/static/aurora-icon.svg";
 import { SETTINGS_MANIFEST, categoryFor } from "../settings/settingsManifest";
 import { system } from "../../lib/ipc";
+import { useUpdateStore } from "../../stores/useUpdateStore";
 
 interface AppHeaderProps {
   isStandalone?: boolean;
@@ -88,6 +90,11 @@ export function AppHeader({
 
   const keybindingOverrides = useSettingsStore((state) => state.keybindingOverrides);
   const effectiveKeybindings = useMemo(() => getEffectiveKeybindings(keybindingOverrides), [keybindingOverrides]);
+
+  const updateInfo = useUpdateStore((s) => s.info);
+  const updateInstalling = useUpdateStore((s) => s.installing);
+  const installUpdate = useUpdateStore((s) => s.install);
+  const showUpdate = !!updateInfo?.available;
 
   const measureSearchSpace = useCallback(() => {
     const header = headerRef.current;
@@ -245,6 +252,24 @@ export function AppHeader({
       {/* ── Right: panel toggles + pin + settings + avatar + window controls ── */}
       <div data-tauri-drag-region className="flex items-stretch justify-end gap-0.5 shrink-0 self-stretch">
         <div id="header-right" data-tauri-drag-region className="flex items-center py-1 gap-0.5">
+          {showUpdate && (
+          <Button
+            variant="primary"
+            size="sm"
+            data-tauri-no-drag
+            disabled={updateInstalling}
+            className="shrink-0"
+            title={updateInstalling ? "Installing update…" : `Update available — install v${updateInfo?.latest_version ?? ""}`}
+            onClick={installUpdate}
+          >
+            {updateInstalling ? (
+              <Loader2 size={13} className="animate-spin" />
+            ) : (
+              <Download size={13} />
+            )}
+            {updateInstalling ? "Installing…" : "Update"}
+          </Button>
+        )}
           {!noFolder && !isStandalone && (
             <>
               <IconBtn onClick={onToggleSidebar} title={sidebarCollapsed ? "Show Sidebar" : "Hide Sidebar"}>

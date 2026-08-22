@@ -47,9 +47,8 @@ interface SettingsStore {
   indentMarkers: boolean;
   lspEnabled: boolean;
   cloudAutoSync: boolean;
-  cloudApiBaseUrl: string;
+  cloudSynced: boolean;
   updatesEnabled: boolean;
-  updatesIntervalHours: number;
 
   setTheme: (theme: "dark" | "light") => void;
   setMode: (mode: EditorMode) => void;
@@ -72,9 +71,8 @@ interface SettingsStore {
   setIndentMarkers: (enabled: boolean) => void;
   setLspEnabled: (enabled: boolean) => void;
   setCloudAutoSync: (enabled: boolean) => void;
-  setCloudApiBaseUrl: (url: string) => void;
+  setCloudSynced: (synced: boolean) => void;
   setUpdatesEnabled: (enabled: boolean) => void;
-  setUpdatesIntervalHours: (hours: number) => void;
 }
 
 export const useSettingsStore = create<SettingsStore>((set) => ({
@@ -102,9 +100,8 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
   setIndentMarkers: (indentMarkers) => set({ indentMarkers }),
   setLspEnabled: (lspEnabled) => set({ lspEnabled }),
   setCloudAutoSync: (cloudAutoSync) => set({ cloudAutoSync }),
-  setCloudApiBaseUrl: (cloudApiBaseUrl) => set({ cloudApiBaseUrl }),
+  setCloudSynced: (cloudSynced) => set({ cloudSynced }),
   setUpdatesEnabled: (updatesEnabled) => set({ updatesEnabled }),
-  setUpdatesIntervalHours: (updatesIntervalHours) => set({ updatesIntervalHours }),
   setKeybindingOverride: (id, keys) => set((state) => ({ keybindingOverrides: { ...state.keybindingOverrides, [id]: keys } })),
   resetKeybindingOverride: (id) => set((state) => {
     const { [id]: _, ...rest } = state.keybindingOverrides;
