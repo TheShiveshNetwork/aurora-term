@@ -1058,15 +1058,16 @@ export function GitView({ cwd, tabId }: GitViewProps) {
             style={{ borderColor: "var(--color-outline-variant)", height: selectedFile ? commitHistoryH : undefined, minHeight: selectedFile ? COMMIT_HISTORY_MIN : undefined }}
           >
             <SectionHeader label="Commit History" />
-            {checkedBranches.length === 0 ? (
-              <div className="flex items-center justify-center flex-1 min-h-0">
-                <span className="text-xs" style={{ color: "rgba(232,234,240,0.25)" }}>
-                  Select branches to view commit history
-                </span>
-              </div>
-            ) : (
-              <GitTree variant="expanded" branchNames={checkedBranches} />
-            )}
+            {/* Always render the graph. When nothing is explicitly selected we
+                fall back to all branches (branchNames undefined → Rust `--all`),
+                so the graph is never blank even if `branches` failed to load
+                (e.g. gitBranchList errored in a strict runner). The branch
+                checkboxes above still narrow the view when a selection exists. */}
+            <GitTree
+              variant="expanded"
+              cwd={cwd}
+              branchNames={checkedBranches.length > 0 ? checkedBranches : undefined}
+            />
           </div>
         </div>
       </div>
