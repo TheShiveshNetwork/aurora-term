@@ -15,11 +15,13 @@ function readError(): string | null {
 export default function AuthCallbackPage() {
   const [status, setStatus] = useState("Completing sign in…");
   const [done, setDone] = useState(false);
-  const [handoffFailed, setHandoffFailed] = useState(false);
+  // After a moment, if the browser blocked the automatic (non-gesture) handoff,
+  // gently surface the manual button instead of showing a scary failure.
+  const [showManualHint, setShowManualHint] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    let fallbackTimer: number | undefined;
+    let hintTimer: number | undefined;
     (async () => {
       const error = readError();
       if (error) {
@@ -36,12 +38,12 @@ export default function AuthCallbackPage() {
         }
         setStatus("Opening the Aurora app…");
         setDone(true);
+        // Best-effort automatic handoff. Browsers block external-protocol
+        // navigations that aren't triggered by a user gesture, so this may be
+        // silently ignored — the button below covers that case.
         handoffToApp(session);
-        fallbackTimer = window.setTimeout(() => {
-          if (!cancelled) {
-            setHandoffFailed(true);
-            setStatus("Couldn't open Aurora automatically.");
-          }
+        hintTimer = window.setTimeout(() => {
+          if (!cancelled) setShowManualHint(true);
         }, 1500);
       } catch (e) {
         setStatus(`Sign-in failed: ${(e as Error).message}`);
@@ -49,7 +51,7 @@ export default function AuthCallbackPage() {
     })();
     return () => {
       cancelled = true;
-      if (fallbackTimer) window.clearTimeout(fallbackTimer);
+      if (hintTimer) window.clearTimeout(hintTimer);
     };
   }, []);
 
@@ -68,13 +70,6 @@ export default function AuthCallbackPage() {
             <p className="mt-2 text-[13px] text-on-surface-variant/80">
               Returning you to the Aurora app…
             </p>
-            {handoffFailed && (
-              <p className="mt-1 text-[12px] text-on-surface-variant/60">
-                Make sure the Aurora desktop app is running — start it with{" "}
-                <code className="rounded bg-surface px-1">pnpm tauri dev</code> — then click
-                below.
-              </p>
-            )}
             <button
               onClick={async () => {
                 const { data } = await supabase.auth.getSession();
@@ -84,6 +79,12 @@ export default function AuthCallbackPage() {
             >
               Open Aurora app
             </button>
+            {showManualHint && (
+              <p className="mt-3 text-[12px] text-on-surface-variant/60">
+                Aurora didn't open? Make sure the desktop app is installed and
+                running, then click the button above.
+              </p>
+            )}
           </>
         ) : (
           <p className="mt-2 text-[12px] text-on-surface-variant/70">
