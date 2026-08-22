@@ -9,6 +9,7 @@ import { runCodeActions } from "./codeActions";
 import { lspClickable } from "./clickable";
 import { openFileInApp } from "../../lib/openFileRef";
 import { system } from "../../lib/ipc";
+import { useLoaderStore } from "../../stores/useLoaderStore";
 import { notify } from "../../lib/notify";
 import { centerOnRange } from "../../lib/editorScroll";
 import { pathsEqual } from "../../lib/fileUtils";
@@ -162,6 +163,7 @@ export async function connectLanguage(
       if (!(event.ctrlKey || event.metaKey)) return false;
       const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
       if (pos == null) return false;
+      console.debug("[LSP] ctrl/cmd+click at offset", pos);
       event.preventDefault();
       view.dispatch({ selection: { anchor: pos } });
       void gotoDefinitionAt(view);
@@ -242,6 +244,11 @@ function rangeToOffset(doc: Text, range: DefLocation["range"]): { from: number; 
 
 // Ask the language server for the definition at the view's current cursor. Shares
 // the request plumbing between "go to" and "peek".
+//
+// We try `textDocument/definition` first, then fall back to `declaration` and
+// `typeDefinition`. Servers vary in which they implement (and some return an
+// empty result for one but not another), so the fallbacks make Ctrl+click /
+// F12 resilient across languages instead of silently doing nothing.
 async function requestDefinition(view: EditorView): Promise<DefLocation[]> {
   if (!lspMod) return [];
   const plugin = lspMod.LSPPlugin.get(view);
@@ -252,39 +259,65 @@ async function requestDefinition(view: EditorView): Promise<DefLocation[]> {
   const client = plugin.client;
   const currentUri = plugin.uri;
   const pos = view.state.selection.main.head;
-  const line = view.state.doc.lineAt(pos);
-  let result: any;
+  // The library requires pending edits to be flushed to the server before a
+  // manual request (its internal hover/completion paths do this automatically).
   try {
-    result = await client.request<any, any>("textDocument/definition", {
-      textDocument: { uri: currentUri },
-      position: { line: line.number - 1, character: pos - line.from },
-    });
-  } catch (e: any) {
-    notify(`Definition failed: ${e?.message ?? e}`, "error");
-    return [];
+    client.sync();
+  } catch {
+    // Sync is best-effort; never let it block the definition request.
   }
-  const locs = normalizeDefinitions(result);
-  return locs;
+  const position = plugin.toPosition(pos);
+  const params = { textDocument: { uri: currentUri }, position };
+  for (const method of [
+    "textDocument/definition",
+    "textDocument/declaration",
+    "textDocument/typeDefinition",
+  ]) {
+    try {
+      const result = await client.request<any, any>(method, params);
+      const locs = normalizeDefinitions(result);
+      if (locs.length) {
+        console.debug(`[LSP] ${method} ->`, locs.length, "location(s)");
+        return locs;
+      }
+      console.debug(`[LSP] ${method} returned no locations`);
+    } catch (e: any) {
+      console.error(`[LSP] ${method} failed:`, e);
+    }
+  }
+  return [];
 }
 
 // Go to definition: if it lands in the current file, scroll to it (no new tab);
 // otherwise open the target file and scroll to the definition there (reusing an
 // existing tab for that file when one is already open).
 export async function gotoDefinitionAt(view: EditorView): Promise<void> {
-  const locs = await requestDefinition(view);
-  if (locs.length === 0) return;
-  const loc = locs[0];
-  const currentUri = lspMod?.LSPPlugin.get(view)?.uri;
-  const sameFile = currentUri ? pathsEqual(uriToPath(loc.uri), uriToPath(currentUri)) : false;
-  if (sameFile) {
-    const { from, to } = rangeToOffset(view.state.doc, loc.range);
-    centerOnRange(view, from, to);
-  } else {
-    openFileInApp(uriToPath(loc.uri), undefined, {
-      lineNumber: loc.range.start.line + 1,
-      matchStart: loc.range.start.character,
-      matchEnd: loc.range.end.character,
-    });
+  // Mark a background operation so the status-bar spinner shows during the
+  // whole navigation (LSP request + file open / scroll). Counter-based, so the
+  // file's own LSP setup composes without flicker.
+  useLoaderStore.getState().start();
+  try {
+    const locs = await requestDefinition(view);
+    if (locs.length === 0) return;
+    const loc = locs[0];
+    if (!loc.range) {
+      console.debug("[LSP] definition has no range; skipping navigation");
+      return;
+    }
+    const currentUri = lspMod?.LSPPlugin.get(view)?.uri;
+    const sameFile = currentUri ? pathsEqual(uriToPath(loc.uri), uriToPath(currentUri)) : false;
+    if (sameFile) {
+      const { from, to } = rangeToOffset(view.state.doc, loc.range);
+      centerOnRange(view, from, to);
+    } else {
+      openFileInApp(uriToPath(loc.uri), undefined, {
+        lineNumber: loc.range.start.line + 1,
+        matchStart: loc.range.start.character,
+        matchEnd: loc.range.end.character,
+      });
+    }
+  } finally {
+    useLoaderStore.getState().stop();
   }
 }
 

@@ -319,10 +319,7 @@ pub fn run() {
                             let mut lock = sidecar.lock().await;
                             let _ = lock.kill().await;
                         }
-                        {
-                            let mut lock = lsp_manager.lock().await;
-                            lock.stop_all().await;
-                        }
+                        lsp_manager.stop_all().await;
                     });
                 }
             }

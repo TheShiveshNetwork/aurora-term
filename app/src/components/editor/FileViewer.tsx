@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightSpecialChars, drawSelection, dropCursor, rectangularSelection, crosshairCursor, highlightActiveLine, tooltips } from "@codemirror/view";
-import { EditorState, Prec, Compartment } from "@codemirror/state";
+import { EditorState, Prec, Compartment, type Extension } from "@codemirror/state";
 import { autocompletion, completeAnyWord, closeBrackets, closeBracketsKeymap, completionKeymap } from "@codemirror/autocomplete";
 import { history, defaultKeymap, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { foldGutter, indentOnInput, syntaxHighlighting, defaultHighlightStyle, bracketMatching, foldKeymap } from "@codemirror/language";
@@ -24,6 +24,7 @@ import { indentMarkersExtension } from "./indentMarkersExtension";
 import { usePTY } from "../../hooks/usePTY";
 import { getDefaultShellLaunch } from "../../lib/shell";
 import { useAppShellStore } from "../../stores/useAppShellStore";
+import { useLoaderStore } from "../../stores/useLoaderStore";
 import { languageIdFromPath } from "../../extensions/lsp/languageId";
 import {
   connectLanguage,
@@ -39,9 +40,6 @@ import {
 import { centerFindNext, centerFindPrevious } from "../../lib/editorScroll";
 import { openFileInApp } from "../../lib/openFileRef";
 import { PeekPanel } from "./PeekPanel";
-import { toStr } from "../../stores/useToastStore";
-import { notify } from "../../lib/notify";
-
 const STYLE_ID = "aurora-file-viewer-style";
 if (typeof document !== "undefined") {
   let s = document.getElementById(STYLE_ID) as HTMLStyleElement;
@@ -180,6 +178,11 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
   const indentMarkersCompartmentRef = useRef<Compartment | null>(null);
   const searchPanelCompartmentRef = useRef<Compartment | null>(null);
   const lspCompartmentRef = useRef<Compartment | null>(null);
+  // Holds the resolved LSP extension set so a view (re)created while the server
+  // is still downloading/connecting picks it up. Also lets us verify the LSP is
+  // actually wired into a live editor before reporting "ready".
+  const lspExtRef = useRef<Extension[] | null>(null);
+  const pendingLspResolveRef = useRef<((ext: Extension[]) => void) | null>(null);
   const [peek, setPeek] = useState<PeekResult | null>(null);
   const contextPosRef = useRef<number | null>(null);
 
@@ -487,7 +490,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
           createMinimapExtension(showMinimap),
           indentMarkersCompartmentRef.current.of(indentMarkers ? indentMarkersExtension() : []),
           searchPanelCompartmentRef.current.of([]),
-          lspCompartmentRef.current.of([]),
+          lspCompartmentRef.current.of(lspExtRef.current ?? []),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
               const currentContent = update.state.doc.toString();
@@ -524,6 +527,19 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
         });
 
         viewRef.current = view;
+
+        // If the LSP extension resolved while a previous view instance was
+        // alive (or before this view mounted), attach it now so the live editor
+        // is never left without LSP. This also resolves the pending "success"
+        // toast once the extension is genuinely wired into a live editor.
+        if (lspExtRef.current && lspCompartmentRef.current) {
+          view.dispatch({ effects: lspCompartmentRef.current.reconfigure(lspExtRef.current) });
+          const resolvePending = pendingLspResolveRef.current;
+          if (resolvePending) {
+            pendingLspResolveRef.current = null;
+            resolvePending(lspExtRef.current);
+          }
+        }
 
         // Cap LSP/lint tooltips to the editor's actual box (not the viewport)
         // so a wide/tall hover never spills under the right side panel or below
@@ -572,38 +588,46 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
 
         // Bring up the language server for this file (downloads on first use,
         // then pipes LSP diagnostics/completions/hover into the editor). Runs
-        // after the view exists so we can attach the client plugin. The setup
-        // is surfaced through a generic async notification (loading → done).
+        // after the view exists so we can attach the client plugin. Progress is
+        // surfaced via the shared loader state (status-bar spinner), not a toast.
         if (useLsp && languageId) {
-          const label = languageId.charAt(0).toUpperCase() + languageId.slice(1);
           const root = useAppShellStore.getState().projectDir || null;
-
-          notify(
-            {
-              loadingTitle: `Setting up ${label} language server`,
-              loadingMessage: `Setting up the ${label} language server…`,
-              successMessage: `${label} language server ready`,
-              successDuration: 3000,
-              errorDuration: 8000,
-              errorMessage: (err) => {
-                const msg = toStr(err);
-                if (msg.includes("Network Error:")) {
-                  return `Network Error: lsp for ${label} not installed, please connect to the internet to proceed.`;
-                }
-                return `LSP unavailable for ${label}: ${msg}`;
-              },
-              isCancelled: () => cancelled,
-            },
-            () =>
-              connectLanguage(languageId, filePath, root).then((ext) => {
-                if (!cancelled && viewRef.current === view && lspCompartmentRef.current) {
-                  viewRef.current.dispatch({
-                    effects: lspCompartmentRef.current.reconfigure(ext),
-                  });
-                }
+          // Drive the shared loader so the status bar spins until the server is
+          // ready. The editor reconfigure may be deferred to a live view, but
+          // that doesn't keep the spinner alive — finish() is called once here.
+          useLoaderStore.getState().start();
+          const finish = () => useLoaderStore.getState().stop();
+          connectLanguage(languageId, filePath, root)
+            .then((ext) => {
+              if (cancelled) {
+                finish();
                 return ext;
-              }),
-          );
+              }
+              // Cache the resolved extension so any view (re)created during the
+              // async fetch applies it automatically.
+              lspExtRef.current = ext;
+              if (viewRef.current && lspCompartmentRef.current) {
+                viewRef.current.dispatch({
+                  effects: lspCompartmentRef.current.reconfigure(ext),
+                });
+                finish();
+                return ext;
+              }
+              // The editor view isn't mounted yet (or was recreated while the
+              // server was starting). Defer until a live view picks up the
+              // extension — see the view-creation path above. The spinner ends
+              // now: the server itself is ready.
+              finish();
+              return new Promise<Extension[]>((resolve) => {
+                pendingLspResolveRef.current = resolve;
+              });
+            })
+            .catch((err) => {
+              if (!cancelled) {
+                console.error(`LSP setup failed for ${languageId}:`, err);
+              }
+              finish();
+            });
         }
 
         setLoading(false);
@@ -628,6 +652,13 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
         viewRef.current.destroy();
         viewRef.current = null;
       }
+      // Release any pending LSP "success" resolver so the toast can't hang if we
+      // unmount mid-connect, and clear the cached extension for a clean remount.
+      if (pendingLspResolveRef.current) {
+        pendingLspResolveRef.current(lspExtRef.current ?? []);
+        pendingLspResolveRef.current = null;
+      }
+      lspExtRef.current = null;
       updateTab(tabId, { dirty: false });
     };
   }, [filePath, tabId, updateTab, isImage, imageMimeType, aiLiveSuggestions]);

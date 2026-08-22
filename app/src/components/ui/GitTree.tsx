@@ -256,7 +256,7 @@ function drawGraph(
       if (commitBounds) {
         // expanded — vertical column lines + center-to-center connector
         const cx = lx(cLane);
-        const px = lx(cLane === pLane ? cLane : pLane);
+        const px = lx(pLane);
 
         // vertical through current row — only top→center for off-spine lanes (no tail below dot)
         ctx.beginPath();
@@ -390,9 +390,14 @@ function GraphCanvas({ data, graph, width, commitCenters, totalHeight, commitBou
 interface GitTreeProps {
   variant?: "compact" | "expanded";
   branchNames?: string[];
+  // Explicit cwd for this graph. When omitted (e.g. the side panel in the main
+  // window) it falls back to the app-shell store. Required in the standalone
+  // git-view window, whose store is a separate instance and would otherwise be
+  // empty — causing the graph to fetch from "" and render "No workspace open".
+  cwd?: string;
 }
 
-export function GitTree({ variant = "compact", branchNames }: GitTreeProps) {
+export function GitTree({ variant = "compact", branchNames, cwd }: GitTreeProps) {
   const [data, setData] = useState<GitLogResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -418,7 +423,8 @@ export function GitTree({ variant = "compact", branchNames }: GitTreeProps) {
 
   const rootRef = useRef<HTMLDivElement>(null);
   const fetchKeyRef = useRef(0);
-  const cwdAbsolute = useAppShellStore((s) => s.projectDir || s.cwdAbsolute);
+  const storeCwd = useAppShellStore((s) => s.projectDir || s.cwdAbsolute);
+  const cwdAbsolute = cwd ?? storeCwd;
   const gitLogVersion = useGitStore((s) => s.gitLogVersion[cwdAbsolute] || 0);
   const addTab = useSessionStore((s) => s.addTab);
   const setActiveTabId = useSessionStore((s) => s.setActiveTabId);

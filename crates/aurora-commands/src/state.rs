@@ -21,7 +21,7 @@ pub struct AppState {
     pub pty_event_sender: tokio::sync::mpsc::UnboundedSender<PtyEvent>,
     pub cloud: Arc<Mutex<aurora_cloud::sync::SyncManager>>,
     pub updates: Arc<Mutex<aurora_update::client::UpdateClient>>,
-    pub lsp_manager: Arc<Mutex<LspManager>>,
+    pub lsp_manager: Arc<LspManager>,
     pub lsp_cache_dir: PathBuf,
     pub api_base_url: String,
 }
@@ -56,7 +56,7 @@ impl AppState {
             updates: Arc::new(Mutex::new(aurora_update::client::UpdateClient::new(
                 api_base_url.clone(),
             ))),
-            lsp_manager: Arc::new(Mutex::new(lsp_manager)),
+            lsp_manager: Arc::new(lsp_manager),
             lsp_cache_dir,
             api_base_url,
         }

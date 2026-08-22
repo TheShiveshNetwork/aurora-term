@@ -687,8 +687,11 @@ pub async fn git_is_repo(cwd: String) -> Result<bool, AppError> {
 #[command]
 pub async fn git_branch_list(cwd: String) -> Result<Vec<GitBranchInfo>, AppError> {
     tokio::task::spawn_blocking(move || {
-        // Get all branches with their upstream tracking info
-        let output = run_git_strict(&[
+        // Get all branches with their upstream tracking info. Use the lenient
+        // `run_git` (same as get_git_log): a non-fatal git hiccup must not
+        // error here, or `branches` stays empty and the frontend's branch
+        // selection (and thus the commit graph) never populates.
+        let output = run_git(&[
             "branch", "-vv", "--format=%(refname:short)|||%(objectname)|||%(upstream:short)|||%(upstream:track)",
         ], Some(&cwd))?;
         // Also get current branch

@@ -285,7 +285,7 @@ export function GhostInput({
           rows={1}
           wrap="soft"
           className={`aurora-ta w-full bg-transparent border-none focus:ring-0 mt-4 pb-1 px-5 placeholder:text-outline/80 outline-none text-on-surface relative z-10 resize-none overflow-x-hidden whitespace-pre-wrap break-words ${textMetricsClass} ${inputClassName}`}
-          style={{ caretColor: "var(--color-primary)", maxHeight: `${TA_MAX_HEIGHT}px` }}
+          style={{ maxHeight: `${TA_MAX_HEIGHT}px` }}
         />
 
         {ghost && (
