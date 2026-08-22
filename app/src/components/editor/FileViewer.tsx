@@ -24,6 +24,7 @@ import { indentMarkersExtension } from "./indentMarkersExtension";
 import { usePTY } from "../../hooks/usePTY";
 import { getDefaultShellLaunch } from "../../lib/shell";
 import { useAppShellStore } from "../../stores/useAppShellStore";
+import { useLoaderStore } from "../../stores/useLoaderStore";
 import { languageIdFromPath } from "../../extensions/lsp/languageId";
 import {
   connectLanguage,
@@ -39,9 +40,6 @@ import {
 import { centerFindNext, centerFindPrevious } from "../../lib/editorScroll";
 import { openFileInApp } from "../../lib/openFileRef";
 import { PeekPanel } from "./PeekPanel";
-import { toStr } from "../../stores/useToastStore";
-import { notify } from "../../lib/notify";
-
 const STYLE_ID = "aurora-file-viewer-style";
 if (typeof document !== "undefined") {
   let s = document.getElementById(STYLE_ID) as HTMLStyleElement;
@@ -590,51 +588,46 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
 
         // Bring up the language server for this file (downloads on first use,
         // then pipes LSP diagnostics/completions/hover into the editor). Runs
-        // after the view exists so we can attach the client plugin. The setup
-        // is surfaced through a generic async notification (loading → done).
+        // after the view exists so we can attach the client plugin. Progress is
+        // surfaced via the shared loader state (status-bar spinner), not a toast.
         if (useLsp && languageId) {
-          const label = languageId.charAt(0).toUpperCase() + languageId.slice(1);
           const root = useAppShellStore.getState().projectDir || null;
-
-          notify(
-            {
-              loadingTitle: `Setting up ${label} language server`,
-              loadingMessage: `Setting up the ${label} language server…`,
-              successMessage: `${label} language server ready`,
-              successDuration: 3000,
-              errorDuration: 8000,
-              errorMessage: (err) => {
-                const msg = toStr(err);
-                if (msg.includes("Network Error:")) {
-                  return `Network Error: lsp for ${label} not installed, please connect to the internet to proceed.`;
-                }
-                return `LSP unavailable for ${label}: ${msg}`;
-              },
-              // Only resolve success once the extension is actually reconfigured
-              // into a live editor — never while it's still pending or was
-              // dropped because the view changed.
-              isCancelled: () => cancelled,
-            },
-            () =>
-              connectLanguage(languageId, filePath, root).then((ext) => {
-                if (cancelled) return ext;
-                // Cache the resolved extension so any view (re)created during the
-                // async fetch applies it automatically.
-                lspExtRef.current = ext;
-                if (viewRef.current && lspCompartmentRef.current) {
-                  viewRef.current.dispatch({
-                    effects: lspCompartmentRef.current.reconfigure(ext),
-                  });
-                  return ext;
-                }
-                // The editor view isn't mounted yet (or was recreated while the
-                // server was starting). Defer success until a live view picks up
-                // the extension — see the view-creation path above.
-                return new Promise<Extension[]>((resolve) => {
-                  pendingLspResolveRef.current = resolve;
+          // Drive the shared loader so the status bar spins until the server is
+          // ready. The editor reconfigure may be deferred to a live view, but
+          // that doesn't keep the spinner alive — finish() is called once here.
+          useLoaderStore.getState().start();
+          const finish = () => useLoaderStore.getState().stop();
+          connectLanguage(languageId, filePath, root)
+            .then((ext) => {
+              if (cancelled) {
+                finish();
+                return ext;
+              }
+              // Cache the resolved extension so any view (re)created during the
+              // async fetch applies it automatically.
+              lspExtRef.current = ext;
+              if (viewRef.current && lspCompartmentRef.current) {
+                viewRef.current.dispatch({
+                  effects: lspCompartmentRef.current.reconfigure(ext),
                 });
-              }),
-          );
+                finish();
+                return ext;
+              }
+              // The editor view isn't mounted yet (or was recreated while the
+              // server was starting). Defer until a live view picks up the
+              // extension — see the view-creation path above. The spinner ends
+              // now: the server itself is ready.
+              finish();
+              return new Promise<Extension[]>((resolve) => {
+                pendingLspResolveRef.current = resolve;
+              });
+            })
+            .catch((err) => {
+              if (!cancelled) {
+                console.error(`LSP setup failed for ${languageId}:`, err);
+              }
+              finish();
+            });
         }
 
         setLoading(false);

@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Cpu, GitBranch, Wifi, WifiOff, Copy, Folder } from "lucide-react";
+import { Cpu, GitBranch, Wifi, WifiOff, Copy, Folder, Loader2 } from "lucide-react";
 import { useAIStore } from "../../stores/useAIStore";
 import { useAppShellStore } from "../../stores/useAppShellStore";
+import { useLoaderStore } from "../../stores/useLoaderStore";
 import { useShallow } from "zustand/react/shallow";
 import { system } from "../../lib/ipc";
 import { useSessionStore } from "../../stores/useSessionStore";
@@ -132,6 +133,7 @@ export function StatusBar({ noFolder }: { noFolder?: boolean }) {
       viewMode: s.viewMode,
     }))
   );
+  const isLoading = useLoaderStore((s) => s.count > 0);
   const cwd = activeTabId ? (sessionCwds[activeTabId] || projectDir || cwdAbsolute) : (projectDir || cwdAbsolute);
   const activeFileTab = viewMode === "file" ? tabs.find(t => t.id === activeTabId && t.type === "file") : undefined;
   const [showPathTooltip, setShowPathTooltip] = useState(false);
@@ -319,6 +321,16 @@ export function StatusBar({ noFolder }: { noFolder?: boolean }) {
 
       {/* Right side */}
       <div className="flex items-center gap-4">
+        {/* Background-activity spinner — shows while anything is loading
+            (LSP setup, Ctrl+click file navigation, …). Driven by useLoaderStore. */}
+        {isLoading && (
+          <Loader2
+            size={11}
+            className="animate-spin"
+            aria-label="Loading"
+          />
+        )}
+
         {/* RAM usage */}
         <div
           className="relative flex items-center gap-1.5"

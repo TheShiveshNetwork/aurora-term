@@ -9,6 +9,7 @@ import { runCodeActions } from "./codeActions";
 import { lspClickable } from "./clickable";
 import { openFileInApp } from "../../lib/openFileRef";
 import { system } from "../../lib/ipc";
+import { useLoaderStore } from "../../stores/useLoaderStore";
 import { notify } from "../../lib/notify";
 import { centerOnRange } from "../../lib/editorScroll";
 import { pathsEqual } from "../../lib/fileUtils";
@@ -291,24 +292,32 @@ async function requestDefinition(view: EditorView): Promise<DefLocation[]> {
 // otherwise open the target file and scroll to the definition there (reusing an
 // existing tab for that file when one is already open).
 export async function gotoDefinitionAt(view: EditorView): Promise<void> {
-  const locs = await requestDefinition(view);
-  if (locs.length === 0) return;
-  const loc = locs[0];
-  if (!loc.range) {
-    console.debug("[LSP] definition has no range; skipping navigation");
-    return;
-  }
-  const currentUri = lspMod?.LSPPlugin.get(view)?.uri;
-  const sameFile = currentUri ? pathsEqual(uriToPath(loc.uri), uriToPath(currentUri)) : false;
-  if (sameFile) {
-    const { from, to } = rangeToOffset(view.state.doc, loc.range);
-    centerOnRange(view, from, to);
-  } else {
-    openFileInApp(uriToPath(loc.uri), undefined, {
-      lineNumber: loc.range.start.line + 1,
-      matchStart: loc.range.start.character,
-      matchEnd: loc.range.end.character,
-    });
+  // Mark a background operation so the status-bar spinner shows during the
+  // whole navigation (LSP request + file open / scroll). Counter-based, so the
+  // file's own LSP setup composes without flicker.
+  useLoaderStore.getState().start();
+  try {
+    const locs = await requestDefinition(view);
+    if (locs.length === 0) return;
+    const loc = locs[0];
+    if (!loc.range) {
+      console.debug("[LSP] definition has no range; skipping navigation");
+      return;
+    }
+    const currentUri = lspMod?.LSPPlugin.get(view)?.uri;
+    const sameFile = currentUri ? pathsEqual(uriToPath(loc.uri), uriToPath(currentUri)) : false;
+    if (sameFile) {
+      const { from, to } = rangeToOffset(view.state.doc, loc.range);
+      centerOnRange(view, from, to);
+    } else {
+      openFileInApp(uriToPath(loc.uri), undefined, {
+        lineNumber: loc.range.start.line + 1,
+        matchStart: loc.range.start.character,
+        matchEnd: loc.range.end.character,
+      });
+    }
+  } finally {
+    useLoaderStore.getState().stop();
   }
 }
 

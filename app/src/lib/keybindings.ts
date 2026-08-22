@@ -79,7 +79,6 @@ export const DEFAULT_KEYBINDINGS: KeybindingDef[] = [
   { id: KEYBINDING_IDS.find, command: "Find", keys: "Ctrl+F", when: "Editor" },
   { id: KEYBINDING_IDS.selectAll, command: "Select All", keys: "Ctrl+A", when: "Editor" },
   { id: KEYBINDING_IDS.cut, command: "Cut Line", keys: "Ctrl+X", when: "Editor" },
-  { id: KEYBINDING_IDS.pasteClipboard, command: "Paste", keys: "Ctrl+V", when: "Editor / Terminal" },
   { id: KEYBINDING_IDS.toggleComment, command: "Toggle Comment", keys: "Ctrl+/", when: "Editor" },
   { id: KEYBINDING_IDS.formatDoc, command: "Format Document", keys: "Ctrl+Shift+I", when: "Editor" },
   { id: KEYBINDING_IDS.goToDefinition, command: "Go to Definition", keys: "F12", when: "Editor" },
