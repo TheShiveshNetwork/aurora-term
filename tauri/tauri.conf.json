@@ -30,7 +30,9 @@
     "active": true,
     "targets": "all",
     "resources": [
-      "../static/aurora-icon.png"
+      "../static/aurora-icon.png",
+      "binaries/aurora-agent-real-*",
+      "../packages/aurora-agent/node_modules/@libsql/**/*"
     ],
     "externalBin": [
       "binaries/aurora-agent"

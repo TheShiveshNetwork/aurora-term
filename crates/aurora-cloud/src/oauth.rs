@@ -29,6 +29,12 @@ pub async fn run_oauth_flow(client: &CloudClient, provider: &str) -> Result<Stri
 
     let port = match server.server_addr() {
         tiny_http::ListenAddr::IP(addr) => addr.port(),
+        #[cfg(unix)]
+        tiny_http::ListenAddr::Unix(_) => {
+            return Err(AppError::Cloud(
+                "Local auth server bound to a Unix socket unexpectedly".to_string(),
+            ))
+        }
     };
     let redirect_uri = format!("http://127.0.0.1:{}/oauth/callback", port);
 

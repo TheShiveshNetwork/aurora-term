@@ -1,18 +1,29 @@
-name: 'release'
-on:
-  workflow_dispatch:
-  push:
-    tags:
-      - 'v*'
+name: 'quick compile check'
 
-permissions:
-  contents: write
+on:
+  pull_request:
+    branches: [main]
+    paths-ignore:
+        - '**.md'
+        - 'adr/**'
+        - '.*'
+        - '.*/**'
+        - '**/.*'
+        - '**/.*/**'
+        - 'aurora-lsp-bundles'
+        - 'site/'
+        - 'static/'
+        - 'supabase/'
+        - '.gitignore'
+        
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build-tauri:
-    env:
-      APPIMAGE_EXTRACT_AND_RUN: '1'
-      NO_STRIP: '1'
+  check:
     strategy:
       fail-fast: false
       matrix:
@@ -54,21 +65,20 @@ jobs:
             libglib2.0-dev \
             libfuse2
 
-
       - uses: pnpm/action-setup@v4
         with:
           version: latest
+
+      - name: install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: 'clippy'
 
       - name: setup node
         uses: actions/setup-node@v6
         with:
           node-version: lts/*
           cache: 'pnpm'
-
-      - name: install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
@@ -81,35 +91,11 @@ jobs:
       - name: install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Extract version from tag
-        id: version
-        shell: bash
-        run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-          else
-            VERSION=$(node -e "console.log(JSON.parse(require('fs').readFileSync('tauri/tauri.conf.json','utf8')).version)")
-            echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
-          fi
+      - name: TypeScript typecheck
+        run: pnpm typecheck
 
-      - name: Patch tauri.conf.json version
-        shell: bash
-        run: |
-          node -e "
-            const fs = require('fs');
-            const c = JSON.parse(fs.readFileSync('tauri/tauri.conf.json','utf8'));
-            c.version = '${{ steps.version.outputs.VERSION }}';
-            fs.writeFileSync('tauri/tauri.conf.json', JSON.stringify(c,null,2) + '\n');
-          "
+      - name: cargo check
+        run: cargo check --workspace --all-targets
 
-      - uses: tauri-apps/tauri-action@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          projectPath: './tauri'
-          tagName: ${{ github.ref_name }}
-          releaseName: 'Aurora ${{ github.ref_name }}'
-          releaseBody: 'See the assets to download this version and install.'
-          releaseDraft: true
-          prerelease: false
-          args: ${{ matrix.args }}
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets
