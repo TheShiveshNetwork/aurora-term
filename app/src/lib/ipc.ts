@@ -213,6 +213,7 @@ export const cloud = {
 export const update = {
   check: () => invoke<UpdateInfo>("update_check"),
   dismiss: (version: string) => invoke<void>("update_dismiss", { version }),
+  install: () => invoke<void>("update_install"),
 };
 
 export interface FileNode {

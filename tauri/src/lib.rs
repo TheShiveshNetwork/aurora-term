@@ -322,6 +322,7 @@ pub fn run() {
             // Update commands
             aurora_commands::update_check,
             aurora_commands::update_dismiss,
+            aurora_commands::update_install,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

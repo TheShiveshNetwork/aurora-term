@@ -1,8 +1,6 @@
-import { useEffect, useRef, useState } from "react";
-import { update, UpdateInfo } from "../lib/ipc";
-import { openUrl } from "@tauri-apps/plugin-opener";
-
-const MIN_INTERVAL_MS = 60 * 60 * 1000;
+import { useEffect } from "react";
+import { UpdateInfo } from "../lib/ipc";
+import { useUpdateStore } from "../stores/useUpdateStore";
 
 export interface UpdateCheckerState {
   info: UpdateInfo | null;
@@ -14,51 +12,24 @@ export interface UpdateCheckerState {
 
 /**
  * Checks for app updates on mount (i.e. every app restart) and then on a fixed
- * background interval. `dismissed` is decided by the Rust layer from
- * `state.json` (UiState.dismissed_update_version).
+ * background interval. The actual state lives in `useUpdateStore` (one instance
+ * per webview) so multiple components (header button, account menu, settings
+ * page) share a single source of truth and a single checker.
+ * `dismissed` is decided by the Rust layer from `state.json`.
  */
 export function useUpdateChecker(enabled: boolean): UpdateCheckerState {
-  const [info, setInfo] = useState<UpdateInfo | null>(null);
-  const [checking, setChecking] = useState(false);
-  const seq = useRef(0);
-
-  const refresh = async () => {
-    const id = ++seq.current;
-    setChecking(true);
-    try {
-      const result = await update.check();
-      if (id === seq.current) setInfo(result);
-    } catch {
-      // Keep the previous result on transient failures.
-    } finally {
-      if (id === seq.current) setChecking(false);
-    }
-  };
-
-  const dismiss = async () => {
-    if (!info || !info.available) return;
-    await update.dismiss(info.latest_version);
-    setInfo((prev) => (prev ? { ...prev, available: false, dismissed: true } : prev));
-  };
-
-  const openRelease = () => {
-    if (!info || !info.url) return;
-    openUrl(info.url).catch(() => {});
-  };
+  const info = useUpdateStore((s) => s.info);
+  const checking = useUpdateStore((s) => s.checking);
+  const refresh = useUpdateStore((s) => s.refresh);
+  const dismiss = useUpdateStore((s) => s.dismiss);
+  const openRelease = useUpdateStore((s) => s.openRelease);
+  const start = useUpdateStore((s) => s.start);
 
   useEffect(() => {
-    if (!enabled) {
-      setInfo(null);
-      return;
-    }
-    refresh();
-    const timer = setInterval(refresh, MIN_INTERVAL_MS);
-    return () => {
-      clearInterval(timer);
-      seq.current++;
-    };
+    const stop = start(enabled);
+    return stop;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled]);
+  }, [enabled, start]);
 
   return { info, checking, refresh, dismiss, openRelease };
 }
