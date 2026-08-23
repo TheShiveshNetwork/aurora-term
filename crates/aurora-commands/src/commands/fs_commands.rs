@@ -469,16 +469,32 @@ pub fn watch_git(
     let cwd_for_watcher = cwd.clone();
     let mut watcher = notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
         if let Ok(event) = res {
+            // Keep full paths (normalize separators) so we can detect changes
+            // under `.git/refs` and `.git/packed-refs`, which a bare file_name
+            // would lose (e.g. `refs/heads/feature` collapses to `feature`).
             let paths: Vec<String> = event.paths.iter()
-                .filter_map(|p| p.file_name().and_then(|n| n.to_str().map(|s| s.to_string())))
+                .filter_map(|p| p.to_str().map(|s| s.replace('\\', "/")))
                 .collect();
 
-            let event_type = if paths.iter().any(|p| p.contains("index") || p.ends_with(".lock")) {
-                "index"
-            } else if paths.iter().any(|p| p == "HEAD" || p.starts_with("refs/")) {
+            let is_refs = paths.iter().any(|p| {
+                p.ends_with("/HEAD")
+                    || p.ends_with("/HEAD.lock")
+                    || p.ends_with("/packed-refs")
+                    || p.contains("/refs/")
+            });
+            let is_remote = paths.iter().any(|p| {
+                p.contains("/refs/remotes/") || p.ends_with("/FETCH_HEAD")
+            });
+            let is_index = paths.iter().any(|p| p.ends_with("/index") || p.contains(".lock"));
+
+            // `refs` takes priority over `index`/`lock` so that ref updates
+            // (including their `.lock` temp files) are classified as `refs`.
+            let event_type = if is_refs {
                 "refs"
-            } else if paths.iter().any(|p| p.starts_with("FETCH_HEAD") || p.starts_with("refs/remotes/")) {
+            } else if is_remote {
                 "remote"
+            } else if is_index {
+                "index"
             } else {
                 "index"
             };
@@ -495,6 +511,7 @@ pub fn watch_git(
         git_dir.join("HEAD"),
         git_dir.join("FETCH_HEAD"),
         git_dir.join("refs"),
+        git_dir.join("packed-refs"),
     ];
 
     for path in &paths_to_watch {
