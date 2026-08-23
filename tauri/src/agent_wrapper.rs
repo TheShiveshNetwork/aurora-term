@@ -124,7 +124,10 @@ fn main() {
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        // CREATE_NO_WINDOW (0x08000000) | DETACHED_PROCESS (0x00000008): the real
+        // agent is a console-subsystem binary, and CREATE_NO_WINDOW alone can still
+        // let it flash a console on Windows. Detaching guarantees no console window.
+        cmd.creation_flags(0x08000000 | 0x00000008);
     }
     
     let mut child = cmd.spawn().expect("Failed to execute real aurora-agent");

@@ -20,7 +20,6 @@ export function applyAppConfig(cfg: AppConfig) {
 
   // Terminal settings use the terminal's own font size; the editor font size is
   // a separate setting applied only to CodeMirror (see FileViewer).
-  settings.setFontFamily(cfg.terminal.font_family);
   settings.setFontSize(cfg.terminal.font_size);
   settings.setEditorFontSize(cfg.editor.font_size);
   settings.setCursorStyle(cfg.terminal.cursor_style as "block" | "underline" | "bar");

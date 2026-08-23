@@ -4,7 +4,6 @@ import { ProviderName, UiState, SavedTab, ModelInfo, SearchResult } from "@auror
 // ─── Config types mirrored from Rust side ────────────────────────────────
 export interface TerminalConfig {
   shell: string;
-  font_family: string;
   font_size: number;
   scrollback: number;
   theme: string;
