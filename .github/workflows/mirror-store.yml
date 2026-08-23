@@ -1,30 +1,65 @@
 name: Mirror release binaries to Supabase Store bucket
 
-# Runs only after a GitHub release is published (i.e. after the build workflow
-# uploaded the installer assets). It waits for the assets to be present, then
-# triggers the aurora-api edge function, which re-hosts the built .exe/.msi
+# Runs automatically when a GitHub release is published (i.e. after the build
+# workflow uploaded the installer assets). It waits for the assets to be present,
+# then triggers the aurora-api edge function, which re-hosts the built .exe/.msi
 # files into the public `aurora` Storage bucket and returns versioned URLs.
+#
+# It can also be triggered manually (Actions -> Run workflow) to re-mirror the
+# latest published release, or a specific tag passed via the `tag` input.
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to mirror (defaults to the latest published release)"
+        required: false
+        default: ""
 
 permissions:
   contents: read
 
 concurrency:
-  group: mirror-store-${{ github.event.release.tag_name }}
+  group: mirror-store-${{ github.event.release.tag_name || github.event.inputs.tag || 'manual' }}
   cancel-in-progress: false
 
 jobs:
   mirror:
-    # Never run for drafts or pre-releases.
-    if: ${{ !github.event.release.draft && !github.event.release.prerelease }}
     runs-on: ubuntu-latest
     steps:
+      - name: Resolve release tag
+        id: resolve
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          # Resolve which release to mirror:
+          #   - release event      -> use the published release's tag
+          #   - manual + tag input -> use that tag
+          #   - manual, no input   -> latest published, non-draft, non-prerelease
+          TAG=""
+          if [ -n "$RELEASE_TAG" ]; then
+            TAG="$RELEASE_TAG"
+          elif [ -n "$INPUT_TAG" ]; then
+            TAG="$INPUT_TAG"
+          else
+            TAG=$(gh release list --limit 50 --json tagName,isDraft,isPrerelease \
+              --jq '.[] | select(.isDraft==false and .isPrerelease==false) | .tagName' \
+              | head -1)
+          fi
+          if [ -z "$TAG" ]; then
+            echo "::error::Could not resolve a release tag to mirror." >&2
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Resolved release tag: $TAG"
+
       - name: Validate app release tag
         id: tag
         env:
-          TAG: ${{ github.event.release.tag_name }}
+          TAG: ${{ steps.resolve.outputs.tag }}
         run: |
           # Only stable app releases (vX.Y.Z); skip LSP / other tags.
           if echo "$TAG" | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+$'; then
@@ -39,7 +74,7 @@ jobs:
         if: steps.tag.outputs.is_app == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.event.release.tag_name }}
+          TAG: ${{ steps.resolve.outputs.tag }}
         run: |
           ready=false
           for i in $(seq 1 30); do
@@ -63,3 +98,26 @@ jobs:
           curl -fS --retry 3 --retry-delay 10 \
             -X POST "${SUPABASE_URL}/functions/v1/aurora-api/v1/update/store" \
             -H "Authorization: Bearer ${SUPABASE_FUNCTION_TOKEN}"
+
+      # Confirm the edge function re-hosted the installers into the `aurora`
+      # bucket and wrote the new row (with the bucket `download_url`) into
+      # `release_cache`. Poll because the function may still be mirroring.
+      - name: Verify release_cache updated
+        if: steps.assets.outputs.ready == 'true'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          TAG: ${{ steps.resolve.outputs.tag }}
+        run: |
+          expected="${TAG#v}"
+          for i in $(seq 1 12); do
+            body=$(curl -fsS "${SUPABASE_URL}/functions/v1/aurora-api/v1/update/latest" || true)
+            ver=$(printf '%s' "$body" | grep -o '"version":"[^"]*"' | head -1 | sed 's/"version":"//;s/"//')
+            echo "Cached version: '${ver}' (expected '${expected}')"
+            if [ "$ver" = "$expected" ]; then
+              echo "release_cache updated successfully (bucket download_url shown below):"
+              printf '%s\n' "$body"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::warning::release_cache was not updated to ${expected} within timeout"

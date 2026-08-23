@@ -71,7 +71,6 @@ pub struct AppConfig {
 #[serde(rename_all = "snake_case")]
 pub struct TerminalConfig {
     pub shell: String,
-    pub font_family: String,
     pub font_size: u32,
     pub scrollback: u32,
     pub theme: String,
@@ -200,7 +199,6 @@ impl Default for AppConfig {
                 } else {
                     "bash".to_string()
                 },
-                font_family: "JetBrains Mono".to_string(),
                 font_size: 14,
                 scrollback: 10000,
                 theme: "dark".to_string(),

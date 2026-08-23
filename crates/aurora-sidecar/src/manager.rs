@@ -74,7 +74,7 @@ impl SidecarManager {
                 let mut c = tokio::process::Command::new("cmd");
                 c.args(["/c", "pnpm", "--dir", "packages/aurora-agent", "dev", "--port", &port.to_string()]);
                 c.current_dir(root);
-                c.as_std_mut().creation_flags(0x08000000); // CREATE_NO_WINDOW
+                c.as_std_mut().creation_flags(0x08000000 | 0x00000008); // CREATE_NO_WINDOW | DETACHED_PROCESS
                 c
             }
             #[cfg(not(target_os = "windows"))]
@@ -113,7 +113,7 @@ impl SidecarManager {
             let mut c = tokio::process::Command::new(sidecar_path);
             c.args(["--port", &port.to_string()]);
             #[cfg(target_os = "windows")]
-            c.as_std_mut().creation_flags(0x08000000); // CREATE_NO_WINDOW
+            c.as_std_mut().creation_flags(0x08000000 | 0x00000008); // CREATE_NO_WINDOW | DETACHED_PROCESS
             c
         };
 

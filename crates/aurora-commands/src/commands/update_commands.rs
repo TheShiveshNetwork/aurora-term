@@ -23,6 +23,7 @@ pub async fn update_check(
             current_version: current.clone(),
             latest_version: current,
             url: None,
+            download_url: None,
             notes: None,
             published_at: None,
             dismissed: false,
@@ -80,7 +81,10 @@ pub async fn update_install(
     if !info.available {
         return Err(AppError::Update("No update available".to_string()));
     }
-    let Some(url) = info.url.clone() else {
+    // Prefer the re-hosted bucket asset (`download_url`); fall back to the
+    // GitHub release page URL if mirroring didn't populate it.
+    let url = info.download_url.clone().or_else(|| info.url.clone());
+    let Some(url) = url else {
         return Err(AppError::Update("Update has no download URL".to_string()));
     };
 
