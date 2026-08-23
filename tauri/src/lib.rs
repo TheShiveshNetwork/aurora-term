@@ -9,6 +9,39 @@ use tauri::{Manager, Emitter};
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_prevent_default::Flags;
 
+/// Tear down the shared aurora-agent sidecar (and any orphaned agent processes)
+/// once the UI that uses it goes away. The whole app — every window — shares a
+/// single agent binary, so this runs exactly once when the last window closes
+/// (or the app exits), never per-window.
+fn shutdown_sidecar(app_handle: &tauri::AppHandle) {
+    if let Some(state) = app_handle.try_state::<AppState>() {
+        let sidecar = state.sidecar.clone();
+        let lsp_manager = state.lsp_manager.clone();
+        tauri::async_runtime::block_on(async move {
+            {
+                let mut lock = sidecar.lock().await;
+                let _ = lock.kill().await;
+            }
+            lsp_manager.stop_all().await;
+        });
+    }
+    // Belt-and-suspenders: nuke any remaining agent processes by image name so
+    // the installed binary is never left locked (which blocks an NSIS reinstall
+    // with "error opening file for writing").
+    #[cfg(target_os = "windows")]
+    {
+        for name in ["aurora-agent.exe", "aurora-agent-real-x86_64-pc-windows-msvc.exe"] {
+            let mut cmd = std::process::Command::new("taskkill");
+            cmd.args(["/F", "/IM", name])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null());
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x08000000 | 0x00000008); // CREATE_NO_WINDOW | DETACHED_PROCESS
+            let _ = cmd.status();
+        }
+    }
+}
+
 fn start_pty_event_bridge(
     app_handle: tauri::AppHandle,
     mut receiver: tokio::sync::mpsc::UnboundedReceiver<PtyEvent>,
@@ -330,18 +363,23 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
-            if let tauri::RunEvent::Exit = event {
-                if let Some(state) = app_handle.try_state::<AppState>() {
-                    let sidecar = state.sidecar.clone();
-                    let lsp_manager = state.lsp_manager.clone();
-                    tauri::async_runtime::block_on(async move {
-                        {
-                            let mut lock = sidecar.lock().await;
-                            let _ = lock.kill().await;
-                        }
-                        lsp_manager.stop_all().await;
-                    });
+            match event {
+                // The last window was just destroyed (e.g. the user closed the
+                // app's window). Shut the shared agent down immediately so it
+                // doesn't keep consuming OS memory in the background. We only act
+                // once no windows remain — the agent is shared across all windows.
+                tauri::RunEvent::WindowEvent {
+                    event: tauri::WindowEvent::Destroyed,
+                    ..
+                } if app_handle.webview_windows().is_empty() => {
+                    shutdown_sidecar(app_handle);
                 }
+                // App is fully exiting — same cleanup (covers processes that may
+                // linger without a window, e.g. a background/tray scenario).
+                tauri::RunEvent::Exit => {
+                    shutdown_sidecar(app_handle);
+                }
+                _ => {}
             }
         });
 }

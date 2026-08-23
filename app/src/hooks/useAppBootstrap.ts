@@ -12,6 +12,7 @@ import { useSessionStore } from "../stores/useSessionStore";
 import { useSettingsStore } from "../stores/useSettingsStore";
 import { KEYBINDING_IDS } from "../lib/keybindings";
 import { useAIStore } from "../stores/useAIStore";
+import { useAgentStatusStore } from "../stores/useAgentStatusStore";
 import { ProviderName, Tab, TabType } from "@aurora/types";
 
 export function applyAppConfig(cfg: AppConfig) {
@@ -281,9 +282,20 @@ export function useAppBootstrap() {
       unlistenUiState = u;
     });
 
+    // Aurora-agent sidecar availability: Rust emits `agent_crashed` on a runtime
+    // crash (or a startup spawn failure). Reflect it in the status store so the
+    // status bar can show the network icon as red.
+    let unlistenAgent: (() => void) | null = null;
+    listen<void>("agent_crashed", () => {
+      useAgentStatusStore.getState().setAgentRunning(false);
+    }).then((u) => {
+      unlistenAgent = u;
+    });
+
     return () => {
       if (unlistenConfig) unlistenConfig();
       if (unlistenUiState) unlistenUiState();
+      if (unlistenAgent) unlistenAgent();
       window.removeEventListener("toggle-command-palette", handleToggleCommandPalette);
       window.removeEventListener("toggle-ai-bar", handleToggleAiBar);
     };

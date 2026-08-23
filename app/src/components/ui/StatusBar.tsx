@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Cpu, GitBranch, Wifi, WifiOff, Copy, Folder, Loader2 } from "lucide-react";
 import { useAIStore } from "../../stores/useAIStore";
+import { useAgentStatusStore } from "../../stores/useAgentStatusStore";
 import { useAppShellStore } from "../../stores/useAppShellStore";
 import { useLoaderStore } from "../../stores/useLoaderStore";
 import { useShallow } from "zustand/react/shallow";
@@ -123,6 +124,9 @@ function CollapsibleFilePath({ filePath, cwd }: { filePath: string; cwd: string 
 
 export function StatusBar({ noFolder }: { noFolder?: boolean }) {
   const activeProvider = useAIStore(s => s.activeProvider);
+  const providers = useAIStore(s => s.providers);
+  const isAgentRunning = useAgentStatusStore(s => s.isAgentRunning);
+  const [isOnline, setIsOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
   const tabs = useSessionStore(s => s.tabs);
   const activeTabId = useSessionStore(s => s.activeTabId);
   const { sessionCwds, projectDir, cwdAbsolute, viewMode } = useAppShellStore(
@@ -161,6 +165,16 @@ export function StatusBar({ noFolder }: { noFolder?: boolean }) {
 
   const cwdRef = useRef(cwd);
   cwdRef.current = cwd;
+
+  useEffect(() => {
+    const update = () => setIsOnline(navigator.onLine);
+    window.addEventListener("online", update);
+    window.addEventListener("offline", update);
+    return () => {
+      window.removeEventListener("online", update);
+      window.removeEventListener("offline", update);
+    };
+  }, []);
 
   useEffect(() => {
     async function fetchRam() {
@@ -394,33 +408,53 @@ export function StatusBar({ noFolder }: { noFolder?: boolean }) {
           </Tooltip>
         </div>
 
-        {/* AI connectivity */}
+        {/* AI connectivity — turns red when any of: no network, no provider
+            connected, or the aurora-agent sidecar isn't running. */}
         <div
           className="relative flex items-center gap-1.5"
           onMouseEnter={() => setShowAiTooltip(true)}
           onMouseLeave={() => setShowAiTooltip(false)}
         >
-          {activeProvider
-            ? <Wifi size={11} style={{ color: "rgba(61,220,132,0.7)" }} />
-            : <WifiOff size={11} style={{ color: "rgba(232,234,240,0.25)" }} />
-          }
-          <Tooltip show={showAiTooltip}>
-            {activeProvider ? (
+          {(() => {
+            // The aurora-agent sidecar is the real connector to the active provider.
+            // Base connectivity on the agent being up + the active provider being
+            // configured, so the icon stays in sync with what actually works
+            // (e.g. local ollama, which needs no API key and is implicitly enabled
+            // whenever it is the active provider).
+            const providerCfg = activeProvider ? providers[activeProvider] : undefined;
+            const providerConnected =
+              !!providerCfg &&
+              isAgentRunning &&
+              (activeProvider === "ollama" || providerCfg.hasApiKey === true);
+            const hasError = !isOnline || !isAgentRunning || !providerConnected;
+
+            let label: string;
+            if (!isOnline) label = "No network connection";
+            else if (!isAgentRunning) label = "Aurora agent is not running";
+            else if (!providerConnected) label = activeProvider ? `Provider "${activeProvider}" is not connected` : "No AI provider connected";
+            else label = `Connected to ${activeProvider}`;
+
+            return (
               <>
-                <Wifi size={11} style={{ color: "rgba(61,220,132,0.7)" }} />
-                <span className="text-[10px]" style={{ color: "rgba(232,234,240,0.7)" }}>
-                  Connected to {activeProvider}
-                </span>
+                {hasError
+                  ? <WifiOff size={11} style={{ color: "rgba(255,76,76,0.9)" }} />
+                  : <Wifi size={11} style={{ color: "rgba(61,220,132,0.7)" }} />
+                }
+                <Tooltip show={showAiTooltip}>
+                  {hasError
+                    ? <>
+                        <WifiOff size={11} style={{ color: "rgba(255,76,76,0.9)" }} />
+                        <span className="text-[10px]" style={{ color: "rgba(255,76,76,0.85)" }}>{label}</span>
+                      </>
+                    : <>
+                        <Wifi size={11} style={{ color: "rgba(61,220,132,0.7)" }} />
+                        <span className="text-[10px]" style={{ color: "rgba(232,234,240,0.7)" }}>{label}</span>
+                      </>
+                  }
+                </Tooltip>
               </>
-            ) : (
-              <>
-                <WifiOff size={11} style={{ color: "rgba(232,234,240,0.35)" }} />
-                <span className="text-[10px]" style={{ color: "rgba(232,234,240,0.5)" }}>
-                  No provider configured
-                </span>
-              </>
-            )}
-          </Tooltip>
+            );
+          })()}
         </div>
       </div>
     </footer>

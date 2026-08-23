@@ -36,6 +36,13 @@ impl SidecarManager {
         self.port
     }
 
+    /// Whether a sidecar child process is currently tracked as running.
+    /// Used to guarantee a single shared agent per app (no duplicate sessions
+    /// spawned for separate windows, which would waste memory).
+    pub fn is_running(&self) -> bool {
+        self.child_pid.is_some()
+    }
+
     /// Spawn the aurora-agent sidecar process.
     pub async fn spawn(
         &mut self,
@@ -199,6 +206,11 @@ impl SidecarManager {
                 kill_cmd.args(["/F", "/T", "/PID", &pid.to_string()]);
                 kill_cmd.stdout(std::process::Stdio::null());
                 kill_cmd.stderr(std::process::Stdio::null());
+                #[cfg(target_os = "windows")]
+                {
+                    use std::os::windows::process::CommandExt;
+                    kill_cmd.creation_flags(0x08000000 | 0x00000008); // CREATE_NO_WINDOW | DETACHED_PROCESS
+                }
                 let _ = kill_cmd.status();
             }
         }

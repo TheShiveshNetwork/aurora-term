@@ -23,6 +23,10 @@ fn main() {
     let agent_dir = manifest_dir.parent().unwrap().join("packages").join("aurora-agent");
     
     println!("cargo:rerun-if-changed={}", agent_dir.join("src").to_string_lossy());
+    // The sidecar wrapper must be recompiled whenever its source changes — without
+    // this, edits to agent_wrapper.rs are ignored and the stale (bundled) wrapper
+    // is reused, so fixes to binary/NODE_PATH resolution never reach the build.
+    println!("cargo:rerun-if-changed={}", manifest_dir.join("src").join("agent_wrapper.rs").to_string_lossy());
     
     // Check if bun is installed and runs successfully
     let bun_available = if cfg!(target_os = "windows") {

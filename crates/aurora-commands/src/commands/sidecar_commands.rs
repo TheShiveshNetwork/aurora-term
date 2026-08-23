@@ -661,11 +661,36 @@ pub async fn ai_inline_complete(
     Ok(response_data)
 }
 
+/// Kill any orphaned aurora-agent processes (wrapper + real bun binary) by image
+/// name. This cleans up processes left behind by previous sessions — e.g. when the
+/// app was force-closed before its exit handler ran — which would otherwise keep
+/// `binaries/aurora-agent-real-*.exe` locked and make an NSIS reinstall fail with
+/// "error opening file for writing". Safe to call even when none are running.
+#[cfg(target_os = "windows")]
+fn kill_orphan_agents() {
+    for name in ["aurora-agent.exe", "aurora-agent-real-x86_64-pc-windows-msvc.exe"] {
+        let mut cmd = std::process::Command::new("taskkill");
+        cmd.args(["/F", "/IM", name])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000 | 0x00000008); // CREATE_NO_WINDOW | DETACHED_PROCESS
+        let _ = cmd.status();
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn kill_orphan_agents() {}
+
 pub async fn spawn_sidecar_internal(
     app_handle: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), AppError> {
     let app_handle_clone = app_handle.clone();
+    // Clear any orphaned agent processes from previous sessions so they don't keep
+    // the installed binary locked (which would block an NSIS reinstall).
+    #[cfg(target_os = "windows")]
+    kill_orphan_agents();
     let (crashed_sender, mut crashed_receiver) = tokio::sync::mpsc::unbounded_channel::<()>();
 
     tokio::spawn(async move {
@@ -744,9 +769,21 @@ pub async fn spawn_sidecar_internal(
     envs.push(("LOG_FILE_PATH".to_string(), log_file.to_string_lossy().to_string()));
 
     let mut sidecar = state.sidecar.lock().await;
-    sidecar.spawn(crashed_sender, envs).await?;
-
-    Ok(())
+    // Singleton guard: the whole app (all windows) shares a single aurora-agent
+    // binary. Never spawn a second one — duplicate sessions would needlessly
+    // multiply memory/CPU usage and fight over the port.
+    if sidecar.is_running() {
+        return Ok(());
+    }
+    match sidecar.spawn(crashed_sender, envs).await {
+        Ok(_port) => Ok(()),
+        Err(e) => {
+            // Surface the failure to the frontend so the status bar's network
+            // icon can turn red ("aurora-agent is not running").
+            let _ = app_handle.emit("agent_crashed", ());
+            Err(e)
+        }
+    }
 }
 
 /// Remove log files older than `max_days` in the given directory.
