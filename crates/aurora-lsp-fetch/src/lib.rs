@@ -909,8 +909,17 @@ fn extract_zip_system(archive: &Path, dest: &Path) -> Result<(), AppError> {
             archive.display(),
             dest.display()
         );
-        let status = std::process::Command::new("powershell")
-            .args(["-NoProfile", "-Command", &ps])
+        let mut cmd = std::process::Command::new("powershell");
+        cmd.args(["-NoProfile", "-Command", &ps])
+            // Keep the extraction fully backgrounded — never pop a console window.
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        }
+        let status = cmd
             .status()
             .map_err(|e| AppError::Lsp(format!("Expand-Archive failed: {}", e)))?;
         if !status.success() {

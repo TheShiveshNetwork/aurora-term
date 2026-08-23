@@ -1,3 +1,8 @@
+// On Windows the wrapper is launched by the GUI host. Compile it as a
+// windows-subsystem binary so it can never spawn a console window of its own,
+// independent of how the host spawns it. On other platforms this is a no-op.
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
+
 use std::process::Command;
 use std::path::PathBuf;
 
