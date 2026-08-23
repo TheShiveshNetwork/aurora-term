@@ -36,6 +36,13 @@ impl SidecarManager {
         self.port
     }
 
+    /// Whether a sidecar child process is currently tracked as running.
+    /// Used to guarantee a single shared agent per app (no duplicate sessions
+    /// spawned for separate windows, which would waste memory).
+    pub fn is_running(&self) -> bool {
+        self.child_pid.is_some()
+    }
+
     /// Spawn the aurora-agent sidecar process.
     pub async fn spawn(
         &mut self,
@@ -146,14 +153,18 @@ impl SidecarManager {
             *lock = Some(kill_sender);
         }
 
-        // Perform health check loop (up to 3 seconds)
+        // Perform health check loop. Give the agent generous time to come up:
+        // `tsx` in dev (cold compile) and first-run startup in prod can both
+        // exceed a few seconds. A too-short window here used to kill a still-booting
+        // agent and surface "aurora-agent is not running" even though it would have
+        // been fine. Cap at ~15s so a genuinely dead agent still fails fast.
         let client = reqwest::Client::new();
         let health_url = format!("http://127.0.0.1:{}/global/health", port);
         let mut healthy = false;
 
-        for _ in 0..30 {
-            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-            let req = client.get(&health_url).timeout(tokio::time::Duration::from_secs(1));
+        for _ in 0..60 {
+            tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
+            let req = client.get(&health_url).timeout(tokio::time::Duration::from_secs(2));
             if let Ok(resp) = req.send().await {
                 if resp.status().is_success() {
                     healthy = true;
@@ -195,6 +206,11 @@ impl SidecarManager {
                 kill_cmd.args(["/F", "/T", "/PID", &pid.to_string()]);
                 kill_cmd.stdout(std::process::Stdio::null());
                 kill_cmd.stderr(std::process::Stdio::null());
+                #[cfg(target_os = "windows")]
+                {
+                    use std::os::windows::process::CommandExt;
+                    kill_cmd.creation_flags(0x08000000 | 0x00000008); // CREATE_NO_WINDOW | DETACHED_PROCESS
+                }
                 let _ = kill_cmd.status();
             }
         }

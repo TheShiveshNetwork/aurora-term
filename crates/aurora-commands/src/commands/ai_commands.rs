@@ -1,4 +1,4 @@
-use tauri::{command, State, Window, AppHandle, Manager};
+use tauri::{command, State, Window, AppHandle};
 use std::collections::HashMap;
 use crate::state::AppState;
 use aurora_core::AppError;
@@ -86,21 +86,12 @@ fn build_provider(
 
 #[command]
 pub async fn ai_save_api_key(
-    app: AppHandle,
+    _app: AppHandle,
     _state: State<'_, AppState>,
     provider: String,
     key: String,
 ) -> Result<(), AppError> {
     KeychainManager::save_api_key(&provider, &key)?;
-
-    // Restart sidecar asynchronously to pick up new API key in env vars
-    let app_clone = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let state_ref = app_clone.state::<AppState>();
-        if let Err(e) = crate::sidecar_commands::spawn_sidecar_internal(app_clone.clone(), state_ref).await {
-            tracing::error!("Failed to restart sidecar on API key save: {:?}", e);
-        }
-    });
 
     Ok(())
 }
@@ -114,20 +105,11 @@ pub async fn ai_get_api_key(
 
 #[command]
 pub async fn ai_delete_api_key(
-    app: AppHandle,
+    _app: AppHandle,
     _state: State<'_, AppState>,
     provider: String,
 ) -> Result<(), AppError> {
     KeychainManager::delete_api_key(&provider)?;
-
-    // Restart sidecar asynchronously to pick up API key removal
-    let app_clone = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let state_ref = app_clone.state::<AppState>();
-        if let Err(e) = crate::sidecar_commands::spawn_sidecar_internal(app_clone.clone(), state_ref).await {
-            tracing::error!("Failed to restart sidecar on API key delete: {:?}", e);
-        }
-    });
 
     Ok(())
 }

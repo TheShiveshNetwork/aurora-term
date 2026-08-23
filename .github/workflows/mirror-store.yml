@@ -27,6 +27,11 @@ concurrency:
 jobs:
   mirror:
     runs-on: ubuntu-latest
+    # `gh` needs the repo explicitly here because the workflow does not check out
+    # the code (no git tree) — otherwise it fails with
+    # "fatal: not a git repository".
+    env:
+      REPO: ${{ github.repository }}
     steps:
       - name: Resolve release tag
         id: resolve
@@ -45,7 +50,7 @@ jobs:
           elif [ -n "$INPUT_TAG" ]; then
             TAG="$INPUT_TAG"
           else
-            TAG=$(gh release list --limit 50 --json tagName,isDraft,isPrerelease \
+            TAG=$(gh release list -R "$REPO" --limit 50 --json tagName,isDraft,isPrerelease \
               --jq '.[] | select(.isDraft==false and .isPrerelease==false) | .tagName' \
               | head -1)
           fi
@@ -78,7 +83,7 @@ jobs:
         run: |
           ready=false
           for i in $(seq 1 30); do
-            count=$(gh release view "$TAG" --json assets \
+            count=$(gh release view "$TAG" -R "$REPO" --json assets \
               -q '.assets | map(select(.name | test("\\.(exe|msi)$"))) | length')
             echo "Attempt $i: $count installer asset(s) found"
             if [ "$count" -gt 0 ]; then ready=true; break; fi

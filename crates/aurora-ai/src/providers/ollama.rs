@@ -84,8 +84,16 @@ impl OllamaProvider {
             }
         }
 
-        // 2. Also run `ollama list` command if available to include all CLI-listed local and cloud models
-        if let Ok(output) = std::process::Command::new("ollama").arg("list").output() {
+        // 2. Also run `ollama list` command if available to include all CLI-listed local and cloud models.
+        // Hide the console window on Windows (CREATE_NO_WINDOW | DETACHED_PROCESS) so it doesn't flash.
+        let mut ollama_cmd = std::process::Command::new("ollama");
+        ollama_cmd.arg("list");
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            ollama_cmd.creation_flags(0x08000000 | 0x00000008);
+        }
+        if let Ok(output) = ollama_cmd.output() {
             if output.status.success() {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 for line in stdout.lines().skip(1) {

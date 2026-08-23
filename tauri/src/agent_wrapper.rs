@@ -55,13 +55,19 @@ fn main() {
         if p_dev.exists() {
             real_agent_path = Some(p_dev);
         } else {
-            // Check relative path for Linux/Unix installation
-            let usr_dir = exe_path.parent().unwrap_or(&exe_path);
-            for name in &["aurora-term", "aurora-app"] {
-                let p = usr_dir.join("lib").join(name).join("resources").join("binaries").join(&real_binary_name);
-                if p.exists() {
-                    real_agent_path = Some(p);
-                    break;
+            // Windows NSIS release layout: the real binary ships in `<exe_dir>/binaries/`
+            let p_bins = exe_path.join("binaries").join(&real_binary_name);
+            if p_bins.exists() {
+                real_agent_path = Some(p_bins);
+            } else {
+                // Check relative path for Linux/Unix installation
+                let usr_dir = exe_path.parent().unwrap_or(&exe_path);
+                for name in &["aurora-term", "aurora-app"] {
+                    let p = usr_dir.join("lib").join(name).join("resources").join("binaries").join(&real_binary_name);
+                    if p.exists() {
+                        real_agent_path = Some(p);
+                        break;
+                    }
                 }
             }
         }
@@ -112,7 +118,40 @@ fn main() {
             }
         }
     }
-    
+
+    // 4. Bundled release layout: the real binary ships in `<resources>/binaries/`,
+    //    so the resources root is its grandparent. `@libsql`'s native module is
+    //    copied there at `<resources>/packages/aurora-agent/node_modules`. Without
+    //    this, the compiled agent cannot resolve its native dependency and exits
+    //    immediately on startup — the sidecar then fails its health check and
+    //    reports "aurora-agent is not running".
+    if node_modules_path.is_none() {
+        if let Some(bin_parent) = real_agent.parent() {
+            if let Some(resources_root) = bin_parent.parent() {
+                let p = resources_root
+                    .join("packages")
+                    .join("aurora-agent")
+                    .join("node_modules");
+                if p.exists() {
+                    node_modules_path = Some(p);
+                }
+            }
+        }
+    }
+
+    // 5. Windows NSIS release layout: resources live in `<exe_dir>/_up_/`, so
+    //    `@libsql` is at `<exe_dir>/_up_/packages/aurora-agent/node_modules`.
+    if node_modules_path.is_none() {
+        let p = exe_path
+            .join("_up_")
+            .join("packages")
+            .join("aurora-agent")
+            .join("node_modules");
+        if p.exists() {
+            node_modules_path = Some(p);
+        }
+    }
+
     // Spawn and inherit everything
     let mut cmd = Command::new(real_agent);
     cmd.args(&args);

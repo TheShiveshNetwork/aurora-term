@@ -40,6 +40,10 @@ pub fn start_monitor(
                         kill_cmd.args(["/F", "/T", "/PID", &pid.to_string()]);
                         kill_cmd.stdout(std::process::Stdio::null());
                         kill_cmd.stderr(std::process::Stdio::null());
+                        #[cfg(target_os = "windows")]
+                        {
+                            kill_cmd.creation_flags(0x08000000 | 0x00000008); // CREATE_NO_WINDOW | DETACHED_PROCESS
+                        }
                         let _ = kill_cmd.status().await;
                     }
                 }

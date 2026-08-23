@@ -1,9 +1,12 @@
 use tauri::command;
+use tauri::AppHandle;
+use tauri::Emitter;
 use std::process::Command;
 use sysinfo::System;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use aurora_core::AppError;
+use serde_json::json;
 
 #[derive(serde::Serialize)]
 pub struct SystemInfo {
@@ -550,14 +553,24 @@ pub async fn git_push(cwd: String, remote: String, branch: String) -> Result<Str
     }).await.map_err(|e| AppError::Io(e.to_string()))?
 }
 
+/// Emits a `git-changed` event of type `refs` so the UI (status bar branch,
+/// Git panel branch list, status) refreshes immediately after a branch-changing
+/// git operation, without relying on the flaky filesystem watcher.
+fn emit_git_refs_changed(app: &AppHandle, cwd: &str) {
+    let _ = app.emit("git-changed", json!({ "cwd": cwd, "type": "refs" }));
+}
+
 #[command]
-pub async fn git_pull(cwd: String, remote: String, branch: String) -> Result<String, AppError> {
-    tokio::task::spawn_blocking(move || {
+pub async fn git_pull(app: AppHandle, cwd: String, remote: String, branch: String) -> Result<String, AppError> {
+    let cwd_for_emit = cwd.clone();
+    let result = tokio::task::spawn_blocking(move || {
         let output = run_git_strict(&[
             "pull", &remote, &branch,
         ], Some(&cwd))?;
         Ok(output.trim().to_string())
-    }).await.map_err(|e| AppError::Io(e.to_string()))?
+    }).await.map_err(|e| AppError::Io(e.to_string()))?;
+    emit_git_refs_changed(&app, &cwd_for_emit);
+    result
 }
 
 #[command]
@@ -571,8 +584,9 @@ pub async fn git_fetch(cwd: String, remote: String) -> Result<String, AppError> 
 }
 
 #[command]
-pub async fn git_checkout(cwd: String, branch: String, create_new: Option<bool>) -> Result<(), AppError> {
-    tokio::task::spawn_blocking(move || {
+pub async fn git_checkout(app: AppHandle, cwd: String, branch: String, create_new: Option<bool>) -> Result<(), AppError> {
+    let cwd_for_emit = cwd.clone();
+    let result = tokio::task::spawn_blocking(move || {
         let mut args = vec!["checkout"];
         if create_new.unwrap_or(false) {
             args.push("-b");
@@ -580,12 +594,15 @@ pub async fn git_checkout(cwd: String, branch: String, create_new: Option<bool>)
         args.push(&branch);
         run_git_strict(&args, Some(&cwd))?;
         Ok(())
-    }).await.map_err(|e| AppError::Io(e.to_string()))?
+    }).await.map_err(|e| AppError::Io(e.to_string()))?;
+    emit_git_refs_changed(&app, &cwd_for_emit);
+    result
 }
 
 #[command]
-pub async fn git_branch_create(cwd: String, name: String, start_point: Option<String>) -> Result<(), AppError> {
-    tokio::task::spawn_blocking(move || {
+pub async fn git_branch_create(app: AppHandle, cwd: String, name: String, start_point: Option<String>) -> Result<(), AppError> {
+    let cwd_for_emit = cwd.clone();
+    let result = tokio::task::spawn_blocking(move || {
         let mut args: Vec<String> = vec!["branch".into(), name.clone()];
         if let Some(sp) = start_point {
             args.push(sp);
@@ -593,12 +610,15 @@ pub async fn git_branch_create(cwd: String, name: String, start_point: Option<St
         let arg_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
         run_git_strict(&arg_refs, Some(&cwd))?;
         Ok(())
-    }).await.map_err(|e| AppError::Io(e.to_string()))?
+    }).await.map_err(|e| AppError::Io(e.to_string()))?;
+    emit_git_refs_changed(&app, &cwd_for_emit);
+    result
 }
 
 #[command]
-pub async fn git_branch_delete(cwd: String, branch: String, force: Option<bool>) -> Result<(), AppError> {
-    tokio::task::spawn_blocking(move || {
+pub async fn git_branch_delete(app: AppHandle, cwd: String, branch: String, force: Option<bool>) -> Result<(), AppError> {
+    let cwd_for_emit = cwd.clone();
+    let result = tokio::task::spawn_blocking(move || {
         let mut args = vec!["branch"];
         if force.unwrap_or(false) {
             args.push("-D");
@@ -608,7 +628,9 @@ pub async fn git_branch_delete(cwd: String, branch: String, force: Option<bool>)
         args.push(&branch);
         run_git_strict(&args, Some(&cwd))?;
         Ok(())
-    }).await.map_err(|e| AppError::Io(e.to_string()))?
+    }).await.map_err(|e| AppError::Io(e.to_string()))?;
+    emit_git_refs_changed(&app, &cwd_for_emit);
+    result
 }
 
 #[derive(serde::Serialize)]
@@ -916,7 +938,7 @@ pub struct CwdInfo {
 
 #[command]
 pub fn get_cwd_info(cwd: String) -> CwdInfo {
-    let git_branch = get_git_branch_cached(Some(&cwd), false);
+    let git_branch = get_git_branch_cached(Some(&cwd), true);
     CwdInfo { git_branch }
 }
 

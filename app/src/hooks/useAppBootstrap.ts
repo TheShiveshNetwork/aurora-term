@@ -12,6 +12,7 @@ import { useSessionStore } from "../stores/useSessionStore";
 import { useSettingsStore } from "../stores/useSettingsStore";
 import { KEYBINDING_IDS } from "../lib/keybindings";
 import { useAIStore } from "../stores/useAIStore";
+import { useAgentStatusStore } from "../stores/useAgentStatusStore";
 import { ProviderName, Tab, TabType } from "@aurora/types";
 
 export function applyAppConfig(cfg: AppConfig) {
@@ -183,18 +184,13 @@ export function useAppBootstrap() {
             useAppShellStore.getState().setProjectDir(uiState.last_project_dir);
           }
 
-          // Restore workspace cwd
+          // Restore workspace cwd. On a fresh install (or after the user has
+          // closed their project) there is no previously opened folder, so we
+          // intentionally leave the cwd empty. This makes the app show the
+          // New Window / welcome view instead of opening the app's own
+          // installation directory.
           const initialCwd = (isMainWindow && uiState.last_workspace_cwd) || "";
-          if (initialCwd) {
-            useAppShellStore.getState().setWorkspaceCwd(initialCwd);
-          } else {
-            try {
-              const cwd = await system.getCwd();
-              useAppShellStore.getState().setWorkspaceCwd(cwd);
-            } catch {
-              useAppShellStore.getState().setWorkspaceCwd("");
-            }
-          }
+          useAppShellStore.getState().setWorkspaceCwd(initialCwd);
 
           // Restore open tabs from state
           const store = useSessionStore.getState();
@@ -230,36 +226,21 @@ export function useAppBootstrap() {
             } else {
               store.setActiveTabId(restoredTabs[0].id);
             }
-          } else {
-            // Spawn a default terminal tab instead of restoring (fire-and-forget)
-            if (isMainWindow) {
-              const { shell, args } = getDefaultShellLaunch();
-              const initialCwd = uiState.last_workspace_cwd || useAppShellStore.getState().cwdAbsolute || "";
-              spawnSession(shell, args, {}, initialCwd).catch(console.error);
-            }
+          } else if (isMainWindow && uiState.last_workspace_cwd) {
+            // Spawn a default terminal tab in the previously opened folder
+            // (fire-and-forget). On a fresh install (no stored folder) we skip
+            // this so the New Window / welcome view is shown instead.
+            const { shell, args } = getDefaultShellLaunch();
+            const initialCwd = uiState.last_workspace_cwd || useAppShellStore.getState().cwdAbsolute || "";
+            spawnSession(shell, args, {}, initialCwd).catch(console.error);
           }
         }
         useAppShellStore.getState().setBootstrapReady(true);
-        // Fetch CWD in the background after marking ready so it can't block UI
-        if (!uiState?.last_workspace_cwd) {
-          system.getCwd()
-            .then((cwd) => useAppShellStore.getState().setWorkspaceCwd(cwd))
-            .catch(() => {});
-        }
       })
       .catch(() => {
-        // Fallback: try to get CWD at least (fire-and-forget)
-        system.getCwd()
-          .then((cwd) => useAppShellStore.getState().setWorkspaceCwd(cwd))
-          .catch(() => useAppShellStore.getState().setWorkspaceCwd(""));
-
-        // Spawn a default terminal tab as fallback (fire-and-forget)
-        const isMainWindow = getCurrentWindow().label === "main";
-        if (isMainWindow) {
-          const { shell, args } = getDefaultShellLaunch();
-          spawnSession(shell, args, {}, "").catch(console.error);
-        }
-
+        // Fallback: on a fresh install (no stored folder) keep the cwd empty so
+        // the New Window / welcome view is shown rather than the install dir.
+        useAppShellStore.getState().setWorkspaceCwd("");
         useAppShellStore.getState().setBootstrapReady(true);
       });
 
@@ -301,9 +282,20 @@ export function useAppBootstrap() {
       unlistenUiState = u;
     });
 
+    // Aurora-agent sidecar availability: Rust emits `agent_crashed` on a runtime
+    // crash (or a startup spawn failure). Reflect it in the status store so the
+    // status bar can show the network icon as red.
+    let unlistenAgent: (() => void) | null = null;
+    listen<void>("agent_crashed", () => {
+      useAgentStatusStore.getState().setAgentRunning(false);
+    }).then((u) => {
+      unlistenAgent = u;
+    });
+
     return () => {
       if (unlistenConfig) unlistenConfig();
       if (unlistenUiState) unlistenUiState();
+      if (unlistenAgent) unlistenAgent();
       window.removeEventListener("toggle-command-palette", handleToggleCommandPalette);
       window.removeEventListener("toggle-ai-bar", handleToggleAiBar);
     };

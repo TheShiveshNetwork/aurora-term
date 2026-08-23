@@ -35,6 +35,7 @@ import {
   lspFormatDocument,
   lspCodeAction,
   lspOrganizeImports,
+  isLspActive,
   type PeekResult,
 } from "../../extensions/lsp/client";
 import { centerFindNext, centerFindPrevious } from "../../lib/editorScroll";
@@ -592,10 +593,16 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
         // surfaced via the shared loader state (status-bar spinner), not a toast.
         if (useLsp && languageId) {
           const root = useAppShellStore.getState().projectDir || null;
-          // Drive the shared loader so the status bar spins until the server is
-          // ready. The editor reconfigure may be deferred to a live view, but
-          // that doesn't keep the spinner alive — finish() is called once here.
-          useLoaderStore.getState().start();
+          // Only spin the status-bar loader when we are actually (re)acquiring a
+          // server for this language. An already-connected server must not
+          // re-trigger the spinner on every file open — otherwise each subsequent
+          // Rust file keeps the loader alive (and, if the Rust command ever
+          // stalls, spins forever). `finish()` is still always called exactly
+          // once, so `stop()` is safe even when `start()` was skipped.
+          const lspAlreadyActive = isLspActive(languageId);
+          if (!lspAlreadyActive) {
+            useLoaderStore.getState().start();
+          }
           const finish = () => useLoaderStore.getState().stop();
           connectLanguage(languageId, filePath, root)
             .then((ext) => {
