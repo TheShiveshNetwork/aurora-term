@@ -192,6 +192,7 @@ export interface UpdateInfo {
   current_version: string;
   latest_version: string;
   url: string | null;
+  download_url: string | null;
   notes: string | null;
   published_at: string | null;
   dismissed: boolean;
