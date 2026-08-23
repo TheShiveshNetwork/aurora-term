@@ -112,7 +112,27 @@ fn main() {
             }
         }
     }
-    
+
+    // 4. Bundled release layout: the real binary ships in `<resources>/binaries/`,
+    //    so the resources root is its grandparent. `@libsql`'s native module is
+    //    copied there at `<resources>/packages/aurora-agent/node_modules`. Without
+    //    this, the compiled agent cannot resolve its native dependency and exits
+    //    immediately on startup — the sidecar then fails its health check and
+    //    reports "aurora-agent is not running".
+    if node_modules_path.is_none() {
+        if let Some(bin_parent) = real_agent.parent() {
+            if let Some(resources_root) = bin_parent.parent() {
+                let p = resources_root
+                    .join("packages")
+                    .join("aurora-agent")
+                    .join("node_modules");
+                if p.exists() {
+                    node_modules_path = Some(p);
+                }
+            }
+        }
+    }
+
     // Spawn and inherit everything
     let mut cmd = Command::new(real_agent);
     cmd.args(&args);

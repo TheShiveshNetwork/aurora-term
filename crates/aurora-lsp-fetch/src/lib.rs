@@ -23,6 +23,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
+use std::time::Duration;
 
 use aurora_core::{AppError, ServerRuntime, ServerWeight};
 use sha2::Digest;
@@ -201,6 +202,13 @@ async fn fetch_lsp_manifest_url(api_base_url: &str) -> Result<Option<String>, Ap
 fn reqwest_client() -> Result<reqwest::Client, AppError> {
     reqwest::Client::builder()
         .user_agent("aurora-term")
+        // Bound every network call so a stalled connection (firewall drop, dead
+        // mirror, unreachable Supabase backend) fails fast instead of hanging the
+        // `lsp_ensure_and_start` command forever. Without this, the frontend's
+        // `invoke` never settles, so the status-bar loader is never stopped and
+        // the spinner spins indefinitely (and re-triggers on every file open).
+        .connect_timeout(Duration::from_secs(15))
+        .timeout(Duration::from_secs(120))
         .build()
         .map_err(|e| AppError::Lsp(e.to_string()))
 }
