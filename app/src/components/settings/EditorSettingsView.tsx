@@ -14,7 +14,6 @@ export default function EditorSettingsView() {
   if (!context) return null;
   const { draft, updateDraft } = context;
 
-  const fontFamily = draft.config.terminal.font_family;
   const fontSize = draft.config.terminal.font_size;
   const cursorStyle = draft.config.terminal.cursor_style;
   const cursorBlink = draft.config.terminal.cursor_blink;

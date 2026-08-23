@@ -34,6 +34,8 @@ pub struct SyncDoc {
 pub struct UpdateDoc {
     pub version: String,
     pub url: Option<String>,
+    #[serde(rename = "download_url")]
+    pub download_url: Option<String>,
     pub notes: Option<String>,
     pub published_at: Option<String>,
 }

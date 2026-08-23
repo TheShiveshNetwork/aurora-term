@@ -65,6 +65,7 @@ pub struct UpdateInfo {
     pub current_version: String,
     pub latest_version: String,
     pub url: Option<String>,
+    pub download_url: Option<String>,
     pub notes: Option<String>,
     pub published_at: Option<String>,
     pub dismissed: bool,
