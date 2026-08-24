@@ -26,6 +26,7 @@ import {
 } from './thinking';
 import { isValidAuraEnvelope } from './processors/auraResponseValidator';
 import { auraResponseSchema, AURA_FORMAT_CONTRACT } from './schemas/auraEnvelope';
+import { isWorkingMemoryEnabled } from './working-memory-policy';
 
 const server = fastify({ logger: false });
 const log = rootLogger.child({ service: 'server' });
@@ -108,6 +109,17 @@ const AURA_STRUCTURED_OUTPUT = {
   schema: auraResponseSchema,
   instructions: AURA_FORMAT_CONTRACT,
 } as const;
+
+/**
+ * Per-request memory reference. Working memory (standard Mastra implementation)
+ * is enabled by default, but disabled for model families that break on its
+ * XML-wrapped system-message injection — see working-memory-policy.ts (#55).
+ */
+function memoryRef(threadId: string, modelOverride?: string) {
+  const base = { thread: threadId, resource: RESOURCE_ID };
+  if (isWorkingMemoryEnabled(modelOverride)) return base;
+  return { ...base, options: { workingMemory: { enabled: false } } };
+}
 
 async function runAgentStreamValidated(
   threadId: string,
@@ -476,10 +488,7 @@ server.post('/api/step', async (request, _reply) => {
       }
 
       const generateOptions: any = {
-        memory: {
-          thread: threadId,
-          resource: RESOURCE_ID,
-        },
+        memory: memoryRef(threadId, model),
         requireToolApproval: true,
         maxSteps: 25,
         abortSignal: runAbort.signal,
@@ -946,7 +955,7 @@ server.post('/api/chat', async (request, _reply) => {
     const response = await runStreaming(threadId, () => agent.stream(
       `Chat message (respond conversationally, NOT as a command): ${message}`,
       {
-        memory: { thread: threadId, resource: RESOURCE_ID },
+        memory: memoryRef(threadId),
       }
     ));
     const elapsed = Date.now() - startTime;

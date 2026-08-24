@@ -192,14 +192,23 @@ export const auraMemory = new Memory({
   storage: memoryStorage,
   options: {
     lastMessages: 20,
-    // Working memory is DISABLED intentionally.
-    // Mastra wraps its content in <working_memory>...</working_memory> XML tags
-    // which are injected into the system prompt. Llama models interpret XML in
-    // the context as a signal to use XML-style function call syntax
-    // (<function=name{...}>) instead of the standard JSON tool-calling protocol,
-    // causing tool_use_failed errors on every tool call.
+    // Standard Mastra working memory, ENABLED by default (#55).
+    //
+    // History: it used to be blanket-disabled because Groq-hosted Llama models
+    // misinterpret the <working_memory>…</working_memory> XML tags that Mastra
+    // hardcodes into the system message as function-call syntax
+    // (<function=name{...}>), breaking every tool call. That punished every
+    // provider for a model-specific bug.
+    //
+    // Now the fragile families are enumerated in
+    // src/working-memory-policy.ts (WORKING_MEMORY_XML_FRAGILE_MODELS) and the
+    // feature is disabled per-request via memory.options for those models only.
+    // Thread scope is deliberate: InMemoryStore doesn't provide the resources
+    // table required for resource-scoped working memory, and per-thread
+    // scratchpads match terminal-session semantics anyway.
     workingMemory: {
-      enabled: false,
+      enabled: true,
+      scope: 'thread',
     },
   },
 });
