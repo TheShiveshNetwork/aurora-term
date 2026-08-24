@@ -2,7 +2,13 @@ import fastify from 'fastify';
 import { mastra, memoryLogs } from './mastra';
 import { auraMemory, getModelProvider } from './agents';
 import { getRuntimeSettings, updateRuntimeSettingsFromEnv } from './runtime-settings';
-import { listSkills, listMcps, parseFileContext, formatFileContexts, formatSelectionContext, FileContext } from './slash';
+import { listSkills, listMcps } from './slash-resources';
+import {
+  parseFileContext,
+  formatFileContexts,
+  formatSelectionContext,
+  type FileContext,
+} from './agents/shared/file-context';
 import { reviewSettings } from './tools';
 import {
   readFileTool,

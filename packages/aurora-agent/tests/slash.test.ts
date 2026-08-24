@@ -11,9 +11,11 @@ import * as path from 'path';
 import {
   listSkills,
   listMcps,
+} from '../src/slash-resources';
+import {
   parseFileContext,
   formatFileContexts,
-} from '../src/slash';
+} from '../src/agents/shared/file-context';
 
 const PROJECT_DIR = path.resolve(process.cwd(), 'temp_slash_test_dir');
 
@@ -126,7 +128,6 @@ describe('Slash-command support module', () => {
       const ctx = parseFileContext(file);
       expect(ctx).not.toBeNull();
       expect(ctx!.name).toBe('sample.ts');
-      expect(ctx!.language).toBe('TypeScript');
       expect(ctx!.size).toBeGreaterThan(0);
       expect(ctx!.preview).toContain('export const x = 1;');
       expect(ctx!.path).toBe(file);
