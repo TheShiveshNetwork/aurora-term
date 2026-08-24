@@ -284,6 +284,13 @@ SELECTED LINES:
     ask_user: askUserTool,
     history_search: historySearchTool,
   },
+  // Hard ceilings for a shell-capable agent (#53): an unbounded tool loop on
+  // something that executes side-effecting commands is dangerous. Low
+  // temperature keeps command generation deterministic.
+  defaultOptions: {
+    maxSteps: 20,
+    modelSettings: { temperature: 0.2 },
+  },
   outputProcessors: [auraResponseValidator],
 });
 
@@ -344,6 +351,13 @@ rendered as your response. Never put the plan inside \`planning\` or
     ask_user: askUserTool,
     // ⚠️ No shell tool — intentional. Shell execution is blocked by omission.
     // ⚠️ No write_file, no patch_file — read-only contract enforced here.
+  },
+  // Read-only exploration can legitimately take more steps than build mode
+  // needs per turn (#53). Slightly higher temperature is acceptable here —
+  // nothing this agent runs has side effects.
+  defaultOptions: {
+    maxSteps: 40,
+    modelSettings: { temperature: 0.3 },
   },
   outputProcessors: [auraResponseValidator],
 });
@@ -428,6 +442,13 @@ ${AURA_FORMAT_CONTRACT}
     web_fetch: webFetchTool,
     ask_user: askUserTool,
   },
+  // Hard ceilings for a write-capable agent (#53): patch_file/write_file/shell
+  // all have side effects, so the tool loop gets a tight budget and a low
+  // temperature for deterministic edits and commands.
+  defaultOptions: {
+    maxSteps: 20,
+    modelSettings: { temperature: 0.2 },
+  },
   outputProcessors: [auraResponseValidator],
 });
 
@@ -453,6 +474,12 @@ inspecting files or running commands, briefly explain that you can only answer
 conversationally and suggest they submit it as a task.`),
   model: async () => getModelProvider(undefined, undefined, 'balanced'),
   memory: auraMemory,
+  // No tools bound — one shot, conversationally warm (#53). The maxSteps=1
+  // default also bounds /api/chat, which passes no explicit maxSteps.
+  defaultOptions: {
+    maxSteps: 1,
+    modelSettings: { temperature: 0.7 },
+  },
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -466,6 +493,8 @@ export const coderAgent = new Agent({
   instructions: `You are a code specialist. Given a task, output the exact shell command needed.
 Always respond ONLY with valid JSON: {"command": "<shell command>", "explanation": "<why>"}`,
   model: async () => getModelProvider(undefined, undefined, 'fast'),
+  // One-shot command generation -- deterministic, single step (#53).
+  defaultOptions: { maxSteps: 1, modelSettings: { temperature: 0.2 } },
 });
 
 export const researcherAgent = new Agent({
@@ -475,6 +504,7 @@ export const researcherAgent = new Agent({
   instructions: `You are a research specialist. Given a task, identify what information needs to be gathered.
 Always respond ONLY with valid JSON: {"command": "<shell command to research>", "explanation": "<why>"}`,
   model: async () => getModelProvider(undefined, undefined, 'balanced'),
+  defaultOptions: { maxSteps: 5, modelSettings: { temperature: 0.3 } },
 });
 
 export const validatorAgent = new Agent({
@@ -484,6 +514,8 @@ export const validatorAgent = new Agent({
   instructions: `You are a validation specialist. Given command output, determine if the task succeeded.
 Always respond ONLY with valid JSON: {"status": "success"|"failure", "reason": "<explanation>"}`,
   model: async () => getModelProvider(undefined, undefined, 'fast'),
+  // Classification task -- near-greedy sampling (#53).
+  defaultOptions: { maxSteps: 1, modelSettings: { temperature: 0.1 } },
 });
 
 export const aura = new Agent({
@@ -494,6 +526,7 @@ You help users accomplish tasks by executing shell commands step by step on Wind
 Respond ONLY with a single valid JSON object containing status and command.`,
   model: async () => getModelProvider(undefined, undefined, 'balanced'),
   memory: auraMemory,
+  defaultOptions: { maxSteps: 10, modelSettings: { temperature: 0.2 } },
 });
 
 export const codeCompletionAgent = new Agent({
@@ -505,6 +538,9 @@ Provide clean, direct code completions or code edits without any explanation, co
 For code completion, return only the completion text to append.
 For code editing, return only the final completed/modified code block.`,
   model: async () => getModelProvider(undefined, undefined, 'fast'),
+  // Inline completions must be deterministic and instant (#53).
+  defaultOptions: { maxSteps: 1, modelSettings: { temperature: 0.2 } },
 });
+
 
 
