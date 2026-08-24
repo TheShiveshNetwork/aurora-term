@@ -1,6 +1,7 @@
 import fastify from 'fastify';
 import { mastra, memoryLogs } from './mastra';
 import { auraMemory, getModelProvider } from './agents/aura';
+import { getRuntimeSettings, updateRuntimeSettingsFromEnv } from './runtime-settings';
 import { listSkills, listMcps, parseFileContext, formatFileContexts, formatSelectionContext, FileContext } from './slash';
 import { reviewSettings } from './tools';
 import {
@@ -322,6 +323,26 @@ server.addHook('onRequest', async (request) => {
 // ── Health routes ─────────────────────────────────────────────────────────
 server.get('/health', async () => ({ status: 'ok' }));
 server.get('/global/health', async () => ({ status: 'ok' }));
+
+// ── /api/settings — live AI settings push ───────────────────────────────────
+// Receives the same env-like keys the sidecar is spawned with and swaps the
+// agent's in-memory runtime settings, so changes made in Settings → AI (active
+// provider, per-tier models, API keys, base URLs) take effect on the next
+// generation without restarting the agent process. See issue #50.
+server.post('/api/settings', async (request, _reply) => {
+  const env = (request.body as any)?.env;
+  if (!env || typeof env !== 'object') {
+    return _reply.code(400).send({ status: 'error', message: 'Expected { env: { ... } }' });
+  }
+  updateRuntimeSettingsFromEnv(env as Record<string, string | undefined>);
+  const s = getRuntimeSettings();
+  log.info('Runtime AI settings updated', {
+    activeProvider: s.activeProvider,
+    balanced: s.models.balanced,
+  });
+  return { status: 'ok' };
+});
+
 server.get('/api/logs', async () => {
   return { status: 'ok', logs: memoryLogs };
 });
@@ -437,9 +458,10 @@ server.post('/api/step', async (request, _reply) => {
       };
 
       if (model) {
-        const activeProvider = process.env.ACTIVE_AI_PROVIDER || 'groq';
-        generateOptions.model = getModelProvider(activeProvider, model);
-        stepLog.info('Using model override', { provider: activeProvider, model });
+        // Resolve via the live runtime settings store so provider/model switches
+        // from Settings → AI take effect immediately (no agent restart needed).
+        generateOptions.model = getModelProvider(undefined, model);
+        stepLog.info('Using model override', { model });
       }
 
       if (threadId) {
@@ -946,8 +968,7 @@ server.post('/api/btw', async (request, _reply) => {
       abortSignal: AbortSignal.timeout(45_000),
     };
     if (model) {
-      const activeProvider = process.env.ACTIVE_AI_PROVIDER || 'groq';
-      generateOptions.model = getModelProvider(activeProvider, model);
+      generateOptions.model = getModelProvider(undefined, model);
     }
     const response = await agent.generate(message, generateOptions);
     const elapsed = Date.now() - startTime;

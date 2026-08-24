@@ -19,6 +19,7 @@ import { terminalShellTool, developerShellTool } from '../tools/shell';
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
+import { getRuntimeSettings } from '../runtime-settings';
 
 function getDynamicInstructions(baseInstructions: string): string {
   try {
@@ -98,23 +99,22 @@ function getInstalledOllamaModelsCached(baseUrl: string): string[] {
 }
 
 export function getModelProvider(
-  providerName: string,
+  providerName?: string,
   modelName?: string,
   tier: 'fast' | 'balanced' | 'powerful' = 'balanced',
 ): { id: `${string}/${string}`; url?: string; apiKey?: string } {
-  // Read dynamic settings from environment variables if passed
-  const activeProvider = process.env.ACTIVE_AI_PROVIDER || providerName;
-  let activeModel = modelName;
+  // Resolve from the live runtime settings store (initialized from the env that
+  // the sidecar was spawned with, but updatable at runtime via POST /api/settings).
+  // This is what lets Settings → AI changes apply without an agent restart.
+  const settings = getRuntimeSettings();
+  const hasActiveProvider = !!settings.activeProvider;
+  const activeProvider = settings.activeProvider || providerName;
 
-  if (process.env.ACTIVE_AI_PROVIDER) {
-    if (tier === 'fast') {
-      activeModel = process.env.ACTIVE_AI_MODEL_FAST || activeModel;
-    } else if (tier === 'powerful') {
-      activeModel = process.env.ACTIVE_AI_MODEL_POWERFUL || activeModel;
-    } else {
-      activeModel = process.env.ACTIVE_AI_MODEL_BALANCED || activeModel;
-    }
-  }
+  // When an active provider is configured, its per-tier model (from Settings →
+  // AI) wins over the per-agent default `modelName`. This mirrors the previous
+  // ACTIVE_AI_MODEL_* env-var override behavior, but now it is live.
+  let activeModel = hasActiveProvider ? settings.models[tier] : modelName;
+  if (!activeModel) activeModel = modelName;
 
   if (!activeProvider || activeProvider.trim() === '') {
     throw new Error('No AI provider selected. Please select a provider in Settings → AI.');
@@ -127,52 +127,40 @@ export function getModelProvider(
     throw new Error(`No model selected for provider '${activeProvider}'. Please select a model in Settings → AI.`);
   }
 
+  const apiKey = settings.apiKeys[normalized];
+  const baseUrl = settings.baseUrls[normalized];
+
   if (normalized === 'groq') {
-    return {
-      id: `groq/${selectedModel}`,
-      apiKey: process.env.GROQ_API_KEY,
-    };
+    return { id: `groq/${selectedModel}`, apiKey };
   }
   if (normalized === 'gpt-oss') {
     return {
       id: `openai/${selectedModel}`,
-      url: process.env.GPT_OSS_BASE_URL ?? 'http://localhost:11434/v1',
-      apiKey: process.env.GPT_OSS_API_KEY ?? 'empty',
+      url: baseUrl ?? 'http://localhost:11434/v1',
+      apiKey: apiKey ?? 'empty',
     };
   }
   if (normalized === 'kimi') {
     return {
       id: `openai/${selectedModel}`,
       url: 'https://api.moonshot.cn/v1',
-      apiKey: process.env.KIMI_API_KEY ?? 'empty',
+      apiKey: apiKey ?? 'empty',
     };
   }
   if (normalized === 'anthropic') {
-    return {
-      id: `anthropic/${selectedModel}`,
-      apiKey: process.env.ANTHROPIC_API_KEY,
-    };
+    return { id: `anthropic/${selectedModel}`, apiKey };
   }
   if (normalized === 'gemini' || normalized === 'google') {
-    return {
-      id: `google/${selectedModel}`,
-      apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
-    };
+    return { id: `google/${selectedModel}`, apiKey };
   }
   if (normalized === 'openai') {
-    return {
-      id: `openai/${selectedModel}`,
-      apiKey: process.env.OPENAI_API_KEY,
-    };
+    return { id: `openai/${selectedModel}`, apiKey };
   }
   if (normalized === 'nvidia') {
-    return {
-      id: `nvidia/${selectedModel}`,
-      apiKey: process.env.NVIDIA_API_KEY,
-    };
+    return { id: `nvidia/${selectedModel}`, apiKey };
   }
   if (normalized === 'ollama') {
-    const rawUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+    const rawUrl = baseUrl || 'http://localhost:11434';
     const cleanUrl = rawUrl.endsWith('/v1') ? rawUrl : `${rawUrl.replace(/\/$/, '')}/v1`;
 
     // Fall back to an installed model if the configured one isn't available,
@@ -194,10 +182,7 @@ export function getModelProvider(
     };
   }
 
-  return {
-    id: `openai/${selectedModel}`,
-    apiKey: process.env.GROQ_API_KEY,
-  };
+  return { id: `openai/${selectedModel}`, apiKey };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -302,7 +287,7 @@ SELECTED LINES:
   request — inspect those lines first, and target edits to those specific lines
   only unless the user's goal clearly requires changing adjacent code.
 `),
-  model: getModelProvider('groq', 'llama-3.3-70b-versatile', 'balanced'),
+  model: () => getModelProvider('groq', 'llama-3.3-70b-versatile', 'balanced'),
   memory: auraMemory,
   tools: {
     // Shell is primary — uses the terminal-role description (no "avoid shell" language)
@@ -362,7 +347,7 @@ RESPONSE FORMAT:
   rendered as your response. Never put the plan inside \`planning\` or
   \`conclusion\`.
 `),
-  model: getModelProvider('groq', 'llama-3.3-70b-versatile', 'powerful'),
+  model: () => getModelProvider('groq', 'llama-3.3-70b-versatile', 'powerful'),
   memory: auraMemory,
   tools: {
     // Filesystem exploration — read only, no writes, no shell
@@ -446,7 +431,7 @@ RESPONSE FORMAT:
   Never put the answer inside \`conclusion\`, and never put the reflection inside
   \`message\`.
 `),
-  model: getModelProvider('groq', 'llama-3.3-70b-versatile', 'powerful'),
+  model: () => getModelProvider('groq', 'llama-3.3-70b-versatile', 'powerful'),
   memory: auraMemory,
   tools: {
     // Reading and search — highest priority, always try these first
@@ -488,7 +473,7 @@ interrupt it; just answer the question that was asked.
 Keep answers concise and helpful. If the user asks for something that requires
 inspecting files or running commands, briefly explain that you can only answer
 conversationally and suggest they submit it as a task.`),
-  model: getModelProvider('groq', 'llama-3.3-70b-versatile', 'balanced'),
+  model: () => getModelProvider('groq', 'llama-3.3-70b-versatile', 'balanced'),
   memory: auraMemory,
 });
 
@@ -502,7 +487,7 @@ export const coderAgent = new Agent({
   description: 'Writes and refactors shell commands and code snippets based on specification.',
   instructions: `You are a code specialist. Given a task, output the exact shell command needed.
 Always respond ONLY with valid JSON: {"command": "<shell command>", "explanation": "<why>"}`,
-  model: getModelProvider('groq', 'gemma2-9b-it', 'fast'),
+  model: () => getModelProvider('groq', 'gemma2-9b-it', 'fast'),
 });
 
 export const researcherAgent = new Agent({
@@ -511,7 +496,7 @@ export const researcherAgent = new Agent({
   description: 'Analyzes file structures, finds files, and reads documentation.',
   instructions: `You are a research specialist. Given a task, identify what information needs to be gathered.
 Always respond ONLY with valid JSON: {"command": "<shell command to research>", "explanation": "<why>"}`,
-  model: getModelProvider('groq', 'gemma2-9b-it', 'balanced'),
+  model: () => getModelProvider('groq', 'gemma2-9b-it', 'balanced'),
 });
 
 export const validatorAgent = new Agent({
@@ -520,7 +505,7 @@ export const validatorAgent = new Agent({
   description: 'Validates outputs, runs diagnostics, checks build/test results.',
   instructions: `You are a validation specialist. Given command output, determine if the task succeeded.
 Always respond ONLY with valid JSON: {"status": "success"|"failure", "reason": "<explanation>"}`,
-  model: getModelProvider('groq', 'gemma2-9b-it', 'fast'),
+  model: () => getModelProvider('groq', 'gemma2-9b-it', 'fast'),
 });
 
 export const aura = new Agent({
@@ -529,7 +514,7 @@ export const aura = new Agent({
   instructions: `You are Aura, an intelligent AI terminal agent for Aurora Terminal.
 You help users accomplish tasks by executing shell commands step by step on Windows (PowerShell).
 Respond ONLY with a single valid JSON object containing status and command.`,
-  model: getModelProvider('groq', 'llama-3.3-70b-versatile', 'balanced'),
+  model: () => getModelProvider('groq', 'llama-3.3-70b-versatile', 'balanced'),
   memory: auraMemory,
 });
 
@@ -541,5 +526,5 @@ export const codeCompletionAgent = new Agent({
 Provide clean, direct code completions or code edits without any explanation, conversational filler, markdown formatting, or JSON wrapping.
 For code completion, return only the completion text to append.
 For code editing, return only the final completed/modified code block.`,
-  model: getModelProvider('groq', 'llama-3.3-70b-versatile', 'fast'),
+  model: () => getModelProvider('groq', 'llama-3.3-70b-versatile', 'fast'),
 });

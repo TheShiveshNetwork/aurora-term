@@ -332,6 +332,7 @@ pub fn run() {
             aurora_commands::git_fetch_prune,
             aurora_commands::git_is_repo,
             aurora_commands::agent_plan_step,
+            aurora_commands::agent_update_settings,
             aurora_commands::agent_approve_tool,
             aurora_commands::agent_decline_tool,
             aurora_commands::agent_stop_run,

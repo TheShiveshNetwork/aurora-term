@@ -418,6 +418,8 @@ export const system = {
       requireReviewForWrites,
       model,
     }),
+  agentUpdateSettings: (config: AppConfig) =>
+    invoke<void>("agent_update_settings", { config }),
   agentApproveTool: (
     agentType: string | undefined,
     mode: string | undefined,
