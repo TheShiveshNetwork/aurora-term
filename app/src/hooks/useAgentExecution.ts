@@ -758,7 +758,10 @@ export function useAgentExecution(sessionId: string | null) {
       const isTerminalTab = tab?.type === "terminal";
       type = isTerminalTab ? "terminal" : "developer";
     }
-    const mode = type === "terminal" ? "build" : (state.sessions[targetSessionId]?.agentMode || "build");
+    // No plan/build toggle exists outside the dedicated agent view, so every
+    // derived task runs in build mode — file-viewer edits must reach
+    // developerBuildAgent (which owns the write tools), never plan mode.
+    const mode = "build";
 
     state.addChatMessage(targetSessionId, { role: "user", content: goal, agentType: type });
     state.startTask(targetSessionId, taskId, goal);

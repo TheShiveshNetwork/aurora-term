@@ -1,6 +1,6 @@
 import fastify from 'fastify';
 import { mastra, memoryLogs } from './mastra';
-import { auraMemory, getModelProvider } from './agents/aura';
+import { auraMemory, getModelProvider } from './agents';
 import { getRuntimeSettings, updateRuntimeSettingsFromEnv } from './runtime-settings';
 import { listSkills, listMcps, parseFileContext, formatFileContexts, formatSelectionContext, FileContext } from './slash';
 import { reviewSettings } from './tools';
@@ -108,6 +108,10 @@ const FORMAT_REMINDER =
 const AURA_STRUCTURED_OUTPUT = {
   schema: auraResponseSchema,
   instructions: AURA_FORMAT_CONTRACT,
+  // Prompt-injection strategy instead of native response_format: provider-level
+  // JSON-schema mode suppresses tool calling on several providers, which made
+  // tool-capable agents answer in text instead of calling patch_file/shell.
+  jsonPromptInjection: true,
 } as const;
 
 /**
@@ -190,10 +194,9 @@ function clearRunAbort(threadId: string): void {
 
 function selectAgent(agentType?: string, mode?: string) {
   const agentId =
-    agentType === 'terminal' ? 'terminalAgent'
-    : agentType === 'developer' && mode === 'plan' ? 'developerPlanAgent'
+    agentType === 'developer' && mode === 'plan' ? 'developerPlanAgent'
     : agentType === 'developer' ? 'developerBuildAgent'
-    : 'aura' as const;
+    : 'terminalAgent' as const;
   log.info(`Selected agent: ${agentId}`, { agentType, mode });
   return mastra.getAgent(agentId);
 }

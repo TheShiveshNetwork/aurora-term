@@ -291,6 +291,9 @@ export function formatFileContexts(contexts: FileContext[]): string {
     '[FILE CONTEXT]',
     'The following files are open in the editor and relevant to this task. Only metadata',
     'and a short preview are provided here — use read_file to inspect full contents.',
+    'If the task asks you to modify these files, you are expected to actually make the',
+    'change: use patch_file for targeted edits or write_file for new/rewritten files,',
+    'targeting the exact paths listed above.',
     parts.join('\n'),
     '[/FILE CONTEXT]',
   ].join('\n');
