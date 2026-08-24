@@ -20,6 +20,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
 import { getRuntimeSettings } from '../runtime-settings';
+import { AURA_FORMAT_CONTRACT } from '../schemas/auraEnvelope';
 
 function getDynamicInstructions(baseInstructions: string): string {
   try {
@@ -249,17 +250,7 @@ CONVERSATION:
   running any commands.
 
 RESPONSE FORMAT:
-- Respond with EXACTLY one JSON object and nothing else (no surrounding prose,
-  no markdown code fences).
-- While working, respond with:
-  {"status":"executing","command":"<shell command>","explanation":"<brief why>","planning":"<1 sentence on how you are approaching the query before this command>"}
-- When the goal is fully accomplished, respond with:
-  {"status":"completed","planning":"<1-2 sentence thinking about how you approached the query>","conclusion":"<1-2 sentence reflection such as 'I now have everything and will write the response'>","message":"<the complete answer for the user, formatted in markdown>"}
-- \`planning\` is your thinking about the query — it is streamed live into the UI's
-  planning step of the chain of thought. \`conclusion\` is your closing reflection —
-  streamed live into the UI's conclusion step. \`message\` holds the actual answer
-  and is the ONLY text rendered as your response. Never put the answer inside
-  \`planning\` or \`conclusion\`, and never put your thinking inside \`message\`.
+${AURA_FORMAT_CONTRACT}
 
 TOOL CALLING:
 - Always use the structured tool-calling interface provided by the system.
@@ -337,15 +328,12 @@ RESEARCH APPROACH:
 - Prefer deep understanding over fast answers.
 
 RESPONSE FORMAT:
-- Respond with EXACTLY one JSON object and nothing else (no surrounding prose,
-  no markdown code fences).
-- When the plan is ready, respond with:
-  {"status":"completed","planning":"<1-2 sentence thinking about how you explored the codebase and the approach you formed>","conclusion":"<1-2 sentence reflection such as 'I now have a complete approach and will write the plan'>","message":"<the full plan, formatted in markdown>"}
-- \`planning\` is your thinking about the exploration — streamed live into the UI's
-  planning step. \`conclusion\` is your closing reflection — streamed live into the
-  UI's conclusion step. \`message\` holds the actual plan and is the ONLY text
-  rendered as your response. Never put the plan inside \`planning\` or
-  \`conclusion\`.
+${AURA_FORMAT_CONTRACT}
+\`planning\` is your thinking about the exploration — streamed live into the
+UI's planning step. \`conclusion\` is your closing reflection — streamed live into
+the UI's conclusion step. \`message\` holds the actual plan and is the ONLY text
+rendered as your response. Never put the plan inside \`planning\` or
+\`conclusion\`.
 `),
   model: () => getModelProvider(undefined, undefined, 'powerful'),
   memory: auraMemory,
@@ -420,16 +408,12 @@ SELECTED LINES:
   only unless the user's goal clearly requires changing adjacent code.
 
 RESPONSE FORMAT:
-- Always respond with EXACTLY one JSON object and nothing outside it.
-  - While working, respond with:
-    {"status":"executing","command":"<shell command>","explanation":"<brief why>","planning":"<1 sentence on how you are approaching the task before this command>"}
-  - When the goal is fully accomplished, respond with:
-    {"status":"completed","planning":"<1-2 sentence thinking about how you approached the task>","conclusion":"<1-2 sentence reflection such as 'I now have everything I need and will write the response'>","message":"<the complete answer for the user, formatted in markdown>"}
-  - \`planning\` is your thinking about the task - streamed live into the UI's
-    planning step of the chain of thought. \`conclusion\` is a short transitional thought that is streamed live into the UI's
-  conclusion step of the chain of thought. \`message\` holds the actual answer.
-  Never put the answer inside \`conclusion\`, and never put the reflection inside
-  \`message\`.
+${AURA_FORMAT_CONTRACT}
+- \`planning\` is your thinking about the task — streamed live into the UI's
+  planning step of the chain of thought. \`conclusion\` is a short transitional
+  thought that is streamed live into the UI's conclusion step of the chain of
+  thought. \`message\` holds the actual answer. Never put the answer inside
+  \`conclusion\`, and never put the reflection inside \`message\`.
 `),
   model: () => getModelProvider(undefined, undefined, 'powerful'),
   memory: auraMemory,

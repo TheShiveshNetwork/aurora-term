@@ -25,6 +25,7 @@ import {
   appendThinking,
 } from './thinking';
 import { isValidAuraEnvelope } from './processors/auraResponseValidator';
+import { auraResponseSchema, AURA_FORMAT_CONTRACT } from './schemas/auraEnvelope';
 
 const server = fastify({ logger: false });
 const log = rootLogger.child({ service: 'server' });
@@ -50,16 +51,32 @@ async function runStreaming(threadId: string, start: () => Promise<any>): Promis
   // fields (text, toolCalls, finishReason, ...) are Promise getters. Resolve
   // the ones the agent loop consumes into a plain object shaped like the
   // generate() result so downstream code can read `response.text` as a string.
-  const [textR, toolCallsR, finishR, toolResultsR, suspendR, usageR] = await Promise.allSettled([
+  const [textR, toolCallsR, finishR, toolResultsR, suspendR, usageR, objectR] = await Promise.allSettled([
     gen.text,
     gen.toolCalls,
     gen.finishReason,
     gen.toolResults,
     gen.suspendPayload,
     gen.usage,
+    // Schema-validated structured output — only present when the call passed
+    // `structuredOutput`. The framework guarantees this object matches
+    // auraResponseSchema (#52).
+    gen.object,
   ]);
+  const rawText = textR.status === "fulfilled" ? ((textR.value as string) ?? "") : "";
+  let text = rawText;
+  let object: unknown = undefined;
+  if (objectR.status === "fulfilled" && objectR.value && typeof objectR.value === "object") {
+    object = objectR.value;
+    // Canonicalize: downstream handlers all parse `text` through
+    // parseAuraResponse. Serializing the framework-validated object into text
+    // means every consumer receives a guaranteed-well-formed envelope without
+    // any per-handler changes.
+    text = JSON.stringify(object);
+  }
   return {
-    text: textR.status === "fulfilled" ? (textR.value as string) : "",
+    text,
+    object,
     toolCalls: toolCallsR.status === "fulfilled" ? (toolCallsR.value as any[]) : [],
     finishReason: finishR.status === "fulfilled" ? (finishR.value as string | undefined) : undefined,
     toolResults: toolResultsR.status === "fulfilled" ? (toolResultsR.value as any[]) : [],
@@ -72,16 +89,25 @@ async function runStreaming(threadId: string, start: () => Promise<any>): Promis
 }
 
 // ── Envelope-validated agent streaming with bounded retry ──────────────────
-// If the model emits malformed/truncated JSON (so the output is not a valid
-// Aura envelope), re-run the generation with a corrective format reminder —
-// up to MAX_FORMAT_RETRIES attempts. This guarantees the user reliably
-// receives a structured response instead of a raw "FORMAT ERROR" string.
+// Layer 1 (primary): Mastra structured output enforces the Aura envelope
+// schema at the framework level — `response.object` is guaranteed to match
+// `auraResponseSchema`, and runStreaming canonicalizes it into `text`.
+//
+// Layer 2 (fallback): if structuring did not yield an object (e.g. the
+// provider rejected native mode AND the repair pass failed), the emitted text
+// is checked with the strict envelope validator and the generation is re-run
+// with a corrective reminder — up to MAX_FORMAT_RETRIES attempts. This
+// guarantees the user reliably receives a structured response instead of a
+// raw "FORMAT ERROR" string.
 const MAX_FORMAT_RETRIES = 3;
 
 const FORMAT_REMINDER =
-  '\n\n[Reminder] Your previous reply was not valid JSON. Reply with exactly one JSON object: ' +
-  '{"status":"completed","planning":"<your reasoning>","conclusion":"<short summary>","message":"<user-facing answer in Markdown>"}. ' +
-  "Keep the answer in the message field only.";
+  `\n\n[Reminder] Your previous reply did not match the required response contract. ${AURA_FORMAT_CONTRACT}`;
+
+const AURA_STRUCTURED_OUTPUT = {
+  schema: auraResponseSchema,
+  instructions: AURA_FORMAT_CONTRACT,
+} as const;
 
 async function runAgentStreamValidated(
   threadId: string,
@@ -93,7 +119,9 @@ async function runAgentStreamValidated(
     const text = (response.text ?? "").trim();
     const terminal =
       response.finishReason === "error" || response.error || response.tripwire;
-    if (terminal || isValidAuraEnvelope(text)) {
+    // Schema-validated object from the framework → done. Otherwise fall back
+    // to the strict text-envelope check before spending another attempt.
+    if (terminal || response.object || isValidAuraEnvelope(text)) {
       break;
     }
     log.warn(
@@ -455,6 +483,9 @@ server.post('/api/step', async (request, _reply) => {
         requireToolApproval: true,
         maxSteps: 25,
         abortSignal: runAbort.signal,
+        // Enforce the Aura response contract at the framework level instead of
+        // relying on instruction-following (#52).
+        structuredOutput: AURA_STRUCTURED_OUTPUT,
       };
 
       if (model) {
@@ -668,6 +699,7 @@ server.post('/api/tool/approve', async (request, _reply) => {
             toolCallId,
             maxSteps: 25,
             abortSignal: runAbort.signal,
+            structuredOutput: AURA_STRUCTURED_OUTPUT,
           }
         )
       )
@@ -773,6 +805,7 @@ server.post('/api/tool/decline', async (request, _reply) => {
                 toolCallId,
                 maxSteps: 25,
                 abortSignal: runAbort.signal,
+                structuredOutput: AURA_STRUCTURED_OUTPUT,
               }
             ),
           toolLog,
