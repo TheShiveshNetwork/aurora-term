@@ -491,7 +491,7 @@ server.post('/api/step', async (request, _reply) => {
       if (model) {
         // Resolve via the live runtime settings store so provider/model switches
         // from Settings → AI take effect immediately (no agent restart needed).
-        generateOptions.model = getModelProvider(undefined, model);
+        generateOptions.model = await getModelProvider(undefined, model);
         stepLog.info('Using model override', { model });
       }
 
@@ -1001,7 +1001,7 @@ server.post('/api/btw', async (request, _reply) => {
       abortSignal: AbortSignal.timeout(45_000),
     };
     if (model) {
-      generateOptions.model = getModelProvider(undefined, model);
+      generateOptions.model = await getModelProvider(undefined, model);
     }
     const response = await agent.generate(message, generateOptions);
     const elapsed = Date.now() - startTime;

@@ -18,7 +18,6 @@ import {
 import { terminalShellTool, developerShellTool } from '../tools/shell';
 import * as fs from 'fs';
 import * as path from 'path';
-import { execSync } from 'child_process';
 import { getRuntimeSettings } from '../runtime-settings';
 import { AURA_FORMAT_CONTRACT } from '../schemas/auraEnvelope';
 
@@ -38,48 +37,43 @@ function getDynamicInstructions(baseInstructions: string): string {
 // Model Provider Helper
 // ─────────────────────────────────────────────────────────────────────────────
 
-function getInstalledOllamaModels(baseUrl: string): string[] {
+/**
+ * Fetch Ollama's installed models via its HTTP API (`/api/tags`) using the
+ * runtime's native fetch. This replaces an earlier implementation that
+ * spawned a second Node process (`execSync('node -e ...')`, with an
+ * `ollama list` CLI fallback) just to make one HTTP GET (#54) — spawning
+ * added ~50–200ms of latency per resolution, depended on `node` being on
+ * PATH, and relied on a string-escaped inline script staying quote-safe.
+ *
+ * Resolves to an empty list if the server is unreachable or slow (2.5s cap);
+ * the caller caches the result so a downed Ollama doesn't re-probe on every
+ * generation within the TTL window.
+ */
+async function getInstalledOllamaModels(baseUrl: string): Promise<string[]> {
   try {
     const url = baseUrl.replace(/\/v1\/?$/, '').replace(/\/$/, '');
-    const nodeScript = `
-      const http = require('http');
-      const req = http.get('${url}/api/tags', (res) => {
-        let data = '';
-        res.on('data', c => data += c);
-        res.on('end', () => { process.stdout.write(data); process.exit(0); });
-      });
-      req.on('error', () => process.exit(1));
-      req.setTimeout(2500, () => { req.destroy(); process.exit(1); });
-    `;
-    const response = execSync(`node -e "${nodeScript.replace(/\n/g, ' ')}"`, {
-      timeout: 3000,
-      windowsHide: true,
-    }).toString();
-    const data = JSON.parse(response);
-    if (data && Array.isArray(data.models)) {
-      return data.models.map((m: any) => m.name);
-    }
-  } catch (err) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2500);
+    let data: any;
     try {
-      const output = execSync('ollama list', { timeout: 3000, windowsHide: true }).toString();
-      const lines = output.split('\n').slice(1);
-      const models: string[] = [];
-      for (const line of lines) {
-        const parts = line.trim().split(/\s+/);
-        if (parts[0]) {
-          models.push(parts[0]);
-        }
-      }
-      return models;
-    } catch (e) {
-      // Ignored
+      const res = await fetch(`${url}/api/tags`, { signal: controller.signal });
+      if (!res.ok) return [];
+      data = await res.json();
+    } finally {
+      clearTimeout(timer);
     }
+    return Array.isArray(data?.models)
+      ? data.models.map((m: any) => m.name).filter((n: unknown): n is string => typeof n === 'string')
+      : [];
+  } catch {
+    // Server down / timeout / non-JSON body — treated as "no installed models".
+    return [];
   }
-  return [];
 }
 
-// Cache installed Ollama models per base URL so we don't spawn a node
-// subprocess on every request (getInstalledOllamaModels uses execSync).
+// Cache installed Ollama models per base URL so we don't re-probe the server
+// on every generation (getInstalledOllamaModels hits /api/tags). Failures are
+// cached too — an unreachable Ollama must not add probe latency to every call.
 const installedOllamaModelsCache: { baseUrl: string; models: string[]; fetchedAt: number } = {
   baseUrl: '',
   models: [],
@@ -87,23 +81,23 @@ const installedOllamaModelsCache: { baseUrl: string; models: string[]; fetchedAt
 };
 const OLLAMA_CACHE_TTL_MS = 10_000;
 
-function getInstalledOllamaModelsCached(baseUrl: string): string[] {
+async function getInstalledOllamaModelsCached(baseUrl: string): Promise<string[]> {
   const now = Date.now();
   if (installedOllamaModelsCache.baseUrl === baseUrl && now - installedOllamaModelsCache.fetchedAt < OLLAMA_CACHE_TTL_MS) {
     return installedOllamaModelsCache.models;
   }
-  const models = getInstalledOllamaModels(baseUrl);
+  const models = await getInstalledOllamaModels(baseUrl);
   installedOllamaModelsCache.baseUrl = baseUrl;
   installedOllamaModelsCache.models = models;
   installedOllamaModelsCache.fetchedAt = now;
   return models;
 }
 
-export function getModelProvider(
+export async function getModelProvider(
   providerName?: string,
   modelName?: string,
   tier: 'fast' | 'balanced' | 'powerful' = 'balanced',
-): { id: `${string}/${string}`; url?: string; apiKey?: string } {
+): Promise<{ id: `${string}/${string}`; url?: string; apiKey?: string }> {
   // Resolve from the live runtime settings store (initialized from the env that
   // the sidecar was spawned with, but updatable at runtime via POST /api/settings).
   // This is what lets Settings → AI changes apply without an agent restart.
@@ -167,7 +161,7 @@ export function getModelProvider(
     // Fall back to an installed model if the configured one isn't available,
     // mirroring the Rust OllamaProvider. Prevents "model not found" errors.
     let resolvedModel = selectedModel;
-    const installed = getInstalledOllamaModelsCached(rawUrl);
+    const installed = await getInstalledOllamaModelsCached(rawUrl);
     if (installed.length > 0 && !installed.includes(resolvedModel)) {
       const cleanModel = resolvedModel.split(':')[0];
       const matched = installed.find(
@@ -278,7 +272,7 @@ SELECTED LINES:
   request — inspect those lines first, and target edits to those specific lines
   only unless the user's goal clearly requires changing adjacent code.
 `),
-  model: () => getModelProvider(undefined, undefined, 'balanced'),
+  model: async () => getModelProvider(undefined, undefined, 'balanced'),
   memory: auraMemory,
   tools: {
     // Shell is primary — uses the terminal-role description (no "avoid shell" language)
@@ -335,7 +329,7 @@ the UI's conclusion step. \`message\` holds the actual plan and is the ONLY text
 rendered as your response. Never put the plan inside \`planning\` or
 \`conclusion\`.
 `),
-  model: () => getModelProvider(undefined, undefined, 'powerful'),
+  model: async () => getModelProvider(undefined, undefined, 'powerful'),
   memory: auraMemory,
   tools: {
     // Filesystem exploration — read only, no writes, no shell
@@ -415,7 +409,7 @@ ${AURA_FORMAT_CONTRACT}
   thought. \`message\` holds the actual answer. Never put the answer inside
   \`conclusion\`, and never put the reflection inside \`message\`.
 `),
-  model: () => getModelProvider(undefined, undefined, 'powerful'),
+  model: async () => getModelProvider(undefined, undefined, 'powerful'),
   memory: auraMemory,
   tools: {
     // Reading and search — highest priority, always try these first
@@ -457,7 +451,7 @@ interrupt it; just answer the question that was asked.
 Keep answers concise and helpful. If the user asks for something that requires
 inspecting files or running commands, briefly explain that you can only answer
 conversationally and suggest they submit it as a task.`),
-  model: () => getModelProvider(undefined, undefined, 'balanced'),
+  model: async () => getModelProvider(undefined, undefined, 'balanced'),
   memory: auraMemory,
 });
 
@@ -471,7 +465,7 @@ export const coderAgent = new Agent({
   description: 'Writes and refactors shell commands and code snippets based on specification.',
   instructions: `You are a code specialist. Given a task, output the exact shell command needed.
 Always respond ONLY with valid JSON: {"command": "<shell command>", "explanation": "<why>"}`,
-  model: () => getModelProvider(undefined, undefined, 'fast'),
+  model: async () => getModelProvider(undefined, undefined, 'fast'),
 });
 
 export const researcherAgent = new Agent({
@@ -480,7 +474,7 @@ export const researcherAgent = new Agent({
   description: 'Analyzes file structures, finds files, and reads documentation.',
   instructions: `You are a research specialist. Given a task, identify what information needs to be gathered.
 Always respond ONLY with valid JSON: {"command": "<shell command to research>", "explanation": "<why>"}`,
-  model: () => getModelProvider(undefined, undefined, 'balanced'),
+  model: async () => getModelProvider(undefined, undefined, 'balanced'),
 });
 
 export const validatorAgent = new Agent({
@@ -489,7 +483,7 @@ export const validatorAgent = new Agent({
   description: 'Validates outputs, runs diagnostics, checks build/test results.',
   instructions: `You are a validation specialist. Given command output, determine if the task succeeded.
 Always respond ONLY with valid JSON: {"status": "success"|"failure", "reason": "<explanation>"}`,
-  model: () => getModelProvider(undefined, undefined, 'fast'),
+  model: async () => getModelProvider(undefined, undefined, 'fast'),
 });
 
 export const aura = new Agent({
@@ -498,7 +492,7 @@ export const aura = new Agent({
   instructions: `You are Aura, an intelligent AI terminal agent for Aurora Terminal.
 You help users accomplish tasks by executing shell commands step by step on Windows (PowerShell).
 Respond ONLY with a single valid JSON object containing status and command.`,
-  model: () => getModelProvider(undefined, undefined, 'balanced'),
+  model: async () => getModelProvider(undefined, undefined, 'balanced'),
   memory: auraMemory,
 });
 
@@ -510,6 +504,7 @@ export const codeCompletionAgent = new Agent({
 Provide clean, direct code completions or code edits without any explanation, conversational filler, markdown formatting, or JSON wrapping.
 For code completion, return only the completion text to append.
 For code editing, return only the final completed/modified code block.`,
-  model: () => getModelProvider(undefined, undefined, 'fast'),
+  model: async () => getModelProvider(undefined, undefined, 'fast'),
 });
+
 
