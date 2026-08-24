@@ -12,7 +12,7 @@ const fn default_synced() -> bool {
 
 /// Default for EditorConfig.theme
 fn default_editor_theme() -> String {
-    "dracula".to_string()
+    "github".to_string()
 }
 
 fn default_git_gui_mode() -> String {
@@ -188,7 +188,7 @@ pub struct EditorConfig {
 impl Default for EditorConfig {
     fn default() -> Self {
         Self {
-            theme: "dracula".to_string(),
+            theme: "github".to_string(),
             show_minimap: true,
             git_gui_mode: "tab".to_string(),
             word_wrap: true,
@@ -287,7 +287,7 @@ impl Default for AppConfig {
                 blur_sidebar: false,
             },
             editor: EditorConfig {
-                theme: "dracula".to_string(),
+                theme: "github".to_string(),
                 show_minimap: true,
                 git_gui_mode: "tab".to_string(),
                 word_wrap: true,
