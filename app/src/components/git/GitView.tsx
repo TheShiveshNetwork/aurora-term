@@ -235,11 +235,16 @@ export function GitView({ cwd, tabId }: GitViewProps) {
     branches.find(b => b.current)?.name || "main",
     [branches]
   );
+  const currentBranchInfo = useMemo(() => branches.find(b => b.current), [branches]);
   const aheadBehind = useMemo(() => {
-    const cur = branches.find(b => b.current);
-    if (!cur) return { ahead: 0, behind: 0 };
-    return { ahead: cur.ahead, behind: cur.behind };
-  }, [branches]);
+    if (!currentBranchInfo) return { ahead: 0, behind: 0 };
+    return { ahead: currentBranchInfo.ahead, behind: currentBranchInfo.behind };
+  }, [currentBranchInfo]);
+  // The local ref and its origin counterpart point at the same commit
+  // (tracked branch, ahead=0 and behind=0) → nothing to pull or push (#52 UX).
+  const refsInSync = !!currentBranchInfo?.remote
+    && aheadBehind.ahead === 0
+    && aheadBehind.behind === 0;
 
   // Local-only branches (for merge / rebase selectors)
   const localBranchOptions = useMemo(
@@ -407,6 +412,12 @@ export function GitView({ cwd, tabId }: GitViewProps) {
   }, [cwd, pruneStaleRemotes]);
 
   const [gitLoading, setGitLoading] = useState<Record<string, boolean>>({});
+
+  // Without an upstream the origin can't be "matching" — pushing publishes the
+  // branch, so keep the button available in that case.
+  const pushDisabled = gitLoading.push || refsInSync
+    || (!!currentBranchInfo?.remote && aheadBehind.ahead === 0);
+  const pullDisabled = gitLoading.pull || refsInSync;
   const addNotification = useNotificationStore((s) => s.addNotification);
 
   const withLoading = useCallback(async (key: string, fn: () => Promise<void>) => {
@@ -791,8 +802,8 @@ export function GitView({ cwd, tabId }: GitViewProps) {
 
         <div className="w-px h-4 bg-white/6" />
 
-        <button onClick={handlePull} disabled={gitLoading.pull} className="flex items-center gap-1 px-1.5 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer hover:bg-white/6 disabled:opacity-40 disabled:cursor-not-allowed" style={{ color: "rgba(232,234,240,0.5)" }}>{gitLoading.pull ? <Loader size={13} className="animate-spin" /> : <Download size={13} />} Pull</button>
-        <button onClick={handlePush} disabled={gitLoading.push || aheadBehind.ahead === 0} className="flex items-center gap-1 px-1.5 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer hover:bg-white/6 disabled:opacity-40 disabled:cursor-not-allowed" style={{ color: "rgba(232,234,240,0.5)" }}>{gitLoading.push ? <Loader size={13} className="animate-spin" /> : <Upload size={13} />} Push</button>
+        <button onClick={handlePull} disabled={pullDisabled} title={refsInSync ? "Already in sync with origin" : undefined} className="flex items-center gap-1 px-1.5 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer hover:bg-white/6 disabled:opacity-40 disabled:cursor-not-allowed" style={{ color: "rgba(232,234,240,0.5)" }}>{gitLoading.pull ? <Loader size={13} className="animate-spin" /> : <Download size={13} />} Pull</button>
+        <button onClick={handlePush} disabled={pushDisabled} title={refsInSync ? "Already in sync with origin" : undefined} className="flex items-center gap-1 px-1.5 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer hover:bg-white/6 disabled:opacity-40 disabled:cursor-not-allowed" style={{ color: "rgba(232,234,240,0.5)" }}>{gitLoading.push ? <Loader size={13} className="animate-spin" /> : <Upload size={13} />} Push</button>
         <button onClick={handleFetch} disabled={gitLoading.fetch} className="flex items-center gap-1 px-1.5 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer hover:bg-white/6 disabled:opacity-40 disabled:cursor-not-allowed" style={{ color: "rgba(232,234,240,0.5)" }}>{gitLoading.fetch ? <Loader size={13} className="animate-spin" /> : <RefreshCw size={13} />} Fetch</button>
 
         <div className="flex-1" />
