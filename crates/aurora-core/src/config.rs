@@ -182,6 +182,8 @@ pub struct EditorConfig {
     #[serde(default = "default_enabled")]
     pub lsp_enabled: bool,
     #[serde(default)]
+    pub sticky_scroll: bool,
+    #[serde(default)]
     pub font_size: u32,
 }
 
@@ -195,6 +197,7 @@ impl Default for EditorConfig {
             ai_live_suggestions: true,
             indent_markers: true,
             lsp_enabled: true,
+            sticky_scroll: false,
             font_size: 14,
         }
     }
@@ -294,6 +297,7 @@ impl Default for AppConfig {
                 ai_live_suggestions: true,
                 indent_markers: true,
                 lsp_enabled: true,
+                sticky_scroll: false,
                 font_size: 14,
             },
             cloud: CloudConfig {

@@ -46,6 +46,7 @@ interface SettingsStore {
   aiLiveSuggestions: boolean;
   indentMarkers: boolean;
   lspEnabled: boolean;
+  stickyScroll: boolean;
   cloudAutoSync: boolean;
   cloudSynced: boolean;
   updatesEnabled: boolean;
@@ -70,6 +71,7 @@ interface SettingsStore {
   setAiLiveSuggestions: (enabled: boolean) => void;
   setIndentMarkers: (enabled: boolean) => void;
   setLspEnabled: (enabled: boolean) => void;
+  setStickyScroll: (enabled: boolean) => void;
   setCloudAutoSync: (enabled: boolean) => void;
   setCloudSynced: (synced: boolean) => void;
   setUpdatesEnabled: (enabled: boolean) => void;
@@ -99,6 +101,7 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
   setAiLiveSuggestions: (aiLiveSuggestions) => set({ aiLiveSuggestions }),
   setIndentMarkers: (indentMarkers) => set({ indentMarkers }),
   setLspEnabled: (lspEnabled) => set({ lspEnabled }),
+  setStickyScroll: (stickyScroll) => set({ stickyScroll }),
   setCloudAutoSync: (cloudAutoSync) => set({ cloudAutoSync }),
   setCloudSynced: (cloudSynced) => set({ cloudSynced }),
   setUpdatesEnabled: (updatesEnabled) => set({ updatesEnabled }),

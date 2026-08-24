@@ -16,6 +16,7 @@ import { useSettingsStore } from "../../stores/useSettingsStore";
 import { closeAllPopups } from "../../lib/popups";
 import { getEditorTheme, createThemeCompartment } from "./editorThemes";
 import { createMinimapExtension, toggleMinimap } from "./minimapExtension";
+import { createStickyScrollExtension, toggleStickyScroll } from "./stickyScrollExtension";
 import { getLinterSource } from "./linterSources";
 import { inlineCompletion } from "./aiExtensions";
 import { mergeConflictResolver } from "./mergeConflictExtension";
@@ -172,11 +173,13 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
   const aiLiveSuggestions = useSettingsStore((s) => s.aiLiveSuggestions);
   const indentMarkers = useSettingsStore((s) => s.indentMarkers);
   const lspEnabled = useSettingsStore((s) => s.lspEnabled);
+  const stickyScroll = useSettingsStore((s) => s.stickyScroll);
   const editorFontSize = useSettingsStore((s) => s.editorFontSize);
   const [editorZoom, setEditorZoom] = useState(editorFontSize);
   const wordWrapCompartmentRef = useRef<Compartment | null>(null);
   const zoomCompartmentRef = useRef<Compartment | null>(null);
   const indentMarkersCompartmentRef = useRef<Compartment | null>(null);
+  const stickyScrollCompartmentRef = useRef<Compartment | null>(null);
   const searchPanelCompartmentRef = useRef<Compartment | null>(null);
   const lspCompartmentRef = useRef<Compartment | null>(null);
   // Holds the resolved LSP extension set so a view (re)created while the server
@@ -407,6 +410,10 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
           indentMarkersCompartmentRef.current = new Compartment();
         }
 
+        if (!stickyScrollCompartmentRef.current) {
+          stickyScrollCompartmentRef.current = new Compartment();
+        }
+
         if (!searchPanelCompartmentRef.current) {
           searchPanelCompartmentRef.current = new Compartment();
         }
@@ -486,10 +493,14 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
           zoomCompartmentRef.current!.of(EditorView.theme({
             ".cm-content": { fontSize: `${editorZoom}px` },
             ".cm-gutters": { fontSize: `${editorZoom}px` },
-            ".cm-scroller": { fontSize: `${editorZoom}px` }
+            ".cm-scroller": { fontSize: `${editorZoom}px` },
+            // Sticky scroll bar lives outside .cm-scroller, so it must opt into
+            // the same font size to stay visually aligned with editor lines.
+            ".cm-stickyscroll-container": { fontSize: `${editorZoom}px` }
           })),
           createMinimapExtension(showMinimap),
           indentMarkersCompartmentRef.current.of(indentMarkers ? indentMarkersExtension() : []),
+          stickyScrollCompartmentRef.current.of(createStickyScrollExtension(stickyScroll)),
           searchPanelCompartmentRef.current.of([]),
           lspCompartmentRef.current.of(lspExtRef.current ?? []),
           EditorView.updateListener.of((update) => {
@@ -1048,6 +1059,13 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
       )
     });
   }, [indentMarkers]);
+
+  // React to stickyScroll toggle
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view || !stickyScrollCompartmentRef.current) return;
+    view.dispatch(toggleStickyScroll(stickyScroll));
+  }, [stickyScroll]);
 
   // Keep the LSP/lint UI font size in sync with the editor's actual displayed
   // text size (editorZoom), so the hover/diagnostics/completion UI matches the

@@ -35,6 +35,7 @@ export interface DefaultSettings {
   aiLiveSuggestions: boolean;
   indentMarkers: boolean;
   lspEnabled: boolean;
+  stickyScroll: boolean;
   cloudAutoSync: boolean;
   cloudSynced: boolean;
   updatesEnabled: boolean;
@@ -61,6 +62,7 @@ export const DEFAULT_SETTINGS: DefaultSettings = {
   aiLiveSuggestions: true,
   indentMarkers: true,
   lspEnabled: true,
+  stickyScroll: false,
   cloudAutoSync: false,
   cloudSynced: true,
   updatesEnabled: true,
