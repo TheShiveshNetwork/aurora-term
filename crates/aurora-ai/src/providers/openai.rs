@@ -76,6 +76,13 @@ impl OpenAiCompatProvider {
                 if id.is_empty() {
                     continue;
                 }
+
+                // Skip anything explicitly marked inactive so deprecated models never reach the picker.
+                // Absent field (OpenAI/NVIDIA) means active.
+                if item["active"].as_bool() == Some(false) {
+                    continue;
+                }
+
                 let owned_by = item["owned_by"].as_str().unwrap_or("");
                 let supports_tools = tool_prefixes.is_empty()
                     || tool_prefixes.iter().any(|p| id.starts_with(p));

@@ -14,6 +14,7 @@ import { Breadcrumbs, SettingsContext, DraftSettings } from "./SettingsShared";
 import { ProviderName } from "@aurora/types";
 import { ProviderRegistry } from "../../lib/providers";
 import { ai, AppConfig, config, state, system } from "../../lib/ipc";
+import { syncProviderModelDefaults } from "../../lib/modelDefaults";
 import { WindowControls } from "../ui/WindowControls";
 import { emit, listen } from "@tauri-apps/api/event";
 import { Button } from "../ui/Button";
@@ -236,7 +237,7 @@ export default function SettingsPage() {
   };
 
   // Push AI provider/model settings to the live aurora-agent process so changes
-  // made here take effect on the next message without an app restart (#50).
+  // made here take effect on the next message without an app restart.
   // Best-effort: if the agent isn't running it will pick these up at spawn.
   const pushAgentAiSettings = async () => {
     if (!draft) return;
@@ -414,7 +415,12 @@ export default function SettingsPage() {
                     setProviderPage(null);
                   }}
                   onClose={() => setProviderPage(null)}
-                  onApiKeyChange={refreshKeyringStatus}
+                  onApiKeyChange={() => {
+                    refreshKeyringStatus();
+                    // Key state changed → reconcile model defaults against the
+                    // provider's live list so tiers populate without a restart.
+                    void syncProviderModelDefaults();
+                  }}
                 />
               ) : (
                 activePage.view

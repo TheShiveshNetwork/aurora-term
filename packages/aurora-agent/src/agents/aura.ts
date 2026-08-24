@@ -287,7 +287,7 @@ SELECTED LINES:
   request — inspect those lines first, and target edits to those specific lines
   only unless the user's goal clearly requires changing adjacent code.
 `),
-  model: () => getModelProvider('groq', 'llama-3.3-70b-versatile', 'balanced'),
+  model: () => getModelProvider(undefined, undefined, 'balanced'),
   memory: auraMemory,
   tools: {
     // Shell is primary — uses the terminal-role description (no "avoid shell" language)
@@ -347,7 +347,7 @@ RESPONSE FORMAT:
   rendered as your response. Never put the plan inside \`planning\` or
   \`conclusion\`.
 `),
-  model: () => getModelProvider('groq', 'llama-3.3-70b-versatile', 'powerful'),
+  model: () => getModelProvider(undefined, undefined, 'powerful'),
   memory: auraMemory,
   tools: {
     // Filesystem exploration — read only, no writes, no shell
@@ -431,7 +431,7 @@ RESPONSE FORMAT:
   Never put the answer inside \`conclusion\`, and never put the reflection inside
   \`message\`.
 `),
-  model: () => getModelProvider('groq', 'llama-3.3-70b-versatile', 'powerful'),
+  model: () => getModelProvider(undefined, undefined, 'powerful'),
   memory: auraMemory,
   tools: {
     // Reading and search — highest priority, always try these first
@@ -473,7 +473,7 @@ interrupt it; just answer the question that was asked.
 Keep answers concise and helpful. If the user asks for something that requires
 inspecting files or running commands, briefly explain that you can only answer
 conversationally and suggest they submit it as a task.`),
-  model: () => getModelProvider('groq', 'llama-3.3-70b-versatile', 'balanced'),
+  model: () => getModelProvider(undefined, undefined, 'balanced'),
   memory: auraMemory,
 });
 
@@ -487,7 +487,7 @@ export const coderAgent = new Agent({
   description: 'Writes and refactors shell commands and code snippets based on specification.',
   instructions: `You are a code specialist. Given a task, output the exact shell command needed.
 Always respond ONLY with valid JSON: {"command": "<shell command>", "explanation": "<why>"}`,
-  model: () => getModelProvider('groq', 'gemma2-9b-it', 'fast'),
+  model: () => getModelProvider(undefined, undefined, 'fast'),
 });
 
 export const researcherAgent = new Agent({
@@ -496,7 +496,7 @@ export const researcherAgent = new Agent({
   description: 'Analyzes file structures, finds files, and reads documentation.',
   instructions: `You are a research specialist. Given a task, identify what information needs to be gathered.
 Always respond ONLY with valid JSON: {"command": "<shell command to research>", "explanation": "<why>"}`,
-  model: () => getModelProvider('groq', 'gemma2-9b-it', 'balanced'),
+  model: () => getModelProvider(undefined, undefined, 'balanced'),
 });
 
 export const validatorAgent = new Agent({
@@ -505,7 +505,7 @@ export const validatorAgent = new Agent({
   description: 'Validates outputs, runs diagnostics, checks build/test results.',
   instructions: `You are a validation specialist. Given command output, determine if the task succeeded.
 Always respond ONLY with valid JSON: {"status": "success"|"failure", "reason": "<explanation>"}`,
-  model: () => getModelProvider('groq', 'gemma2-9b-it', 'fast'),
+  model: () => getModelProvider(undefined, undefined, 'fast'),
 });
 
 export const aura = new Agent({
@@ -514,7 +514,7 @@ export const aura = new Agent({
   instructions: `You are Aura, an intelligent AI terminal agent for Aurora Terminal.
 You help users accomplish tasks by executing shell commands step by step on Windows (PowerShell).
 Respond ONLY with a single valid JSON object containing status and command.`,
-  model: () => getModelProvider('groq', 'llama-3.3-70b-versatile', 'balanced'),
+  model: () => getModelProvider(undefined, undefined, 'balanced'),
   memory: auraMemory,
 });
 
@@ -526,5 +526,6 @@ export const codeCompletionAgent = new Agent({
 Provide clean, direct code completions or code edits without any explanation, conversational filler, markdown formatting, or JSON wrapping.
 For code completion, return only the completion text to append.
 For code editing, return only the final completed/modified code block.`,
-  model: () => getModelProvider('groq', 'llama-3.3-70b-versatile', 'fast'),
+  model: () => getModelProvider(undefined, undefined, 'fast'),
 });
+

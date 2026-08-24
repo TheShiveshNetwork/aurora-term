@@ -6,6 +6,11 @@ interface PendingRequest {
   abortable: boolean;
 }
 
+// Model defaults are intentionally NOT hardcoded here. They are hydrated from
+// the persisted config at bootstrap (applyAppConfig) and then healed against
+// each provider's live model list — see lib/modelDefaults.ts
+const emptyModels = { fastModel: "", balancedModel: "", powerfulModel: "", selectedModel: "" };
+
 interface AIStore {
   activeProvider: ProviderName;
   providers: Record<ProviderName, ProviderConfig>;
@@ -28,57 +33,43 @@ export const useAIStore = create<AIStore>((set) => ({
       name: "groq",
       enabled: true,
       hasApiKey: false,
-      fastModel: "llama-3.2-3b-preview",
-      balancedModel: "llama-3.3-70b-versatile",
-      powerfulModel: "deepseek-r1-distill-llama-70b",
-      selectedModel: "",
+      baseUrl: undefined,
+      ...emptyModels,
     },
     anthropic: {
       name: "anthropic",
       enabled: true,
       hasApiKey: false,
-      fastModel: "claude-haiku-4-5-20251015",
-      balancedModel: "claude-sonnet-4-6-20260217",
-      powerfulModel: "claude-opus-4-7-20260416",
-      selectedModel: "",
+      baseUrl: undefined,
+      ...emptyModels,
     },
     openai: {
       name: "openai",
       enabled: false,
       hasApiKey: false,
-      fastModel: "gpt-5-mini",
-      balancedModel: "gpt-5.4-mini",
-      powerfulModel: "gpt-5.5",
-      selectedModel: "",
+      baseUrl: "https://api.openai.com/v1",
+      ...emptyModels,
     },
     gemini: {
       name: "gemini",
       enabled: false,
       hasApiKey: false,
-      fastModel: "gemini-3.1-flash-lite",
-      balancedModel: "gemini-3.5-flash",
-      powerfulModel: "gemini-3.1-pro",
-      selectedModel: "",
+      baseUrl: undefined,
+      ...emptyModels,
     },
     nvidia: {
       name: "nvidia",
       enabled: false,
       hasApiKey: false,
-      fastModel: "meta/llama-3.1-8b-instruct",
-      balancedModel: "meta/llama-3.1-8b-instruct",
-      powerfulModel: "meta/llama-3.1-8b-instruct",
-      selectedModel: "",
       baseUrl: "https://integrate.api.nvidia.com/v1",
+      ...emptyModels,
     },
     ollama: {
       name: "ollama",
       enabled: false,
       hasApiKey: true, // Local doesn't need key
-      fastModel: "llama3.2:3b",
-      balancedModel: "llama3.2:3b",
-      powerfulModel: "llama3.2:3b",
-      selectedModel: "",
       baseUrl: "http://localhost:11434",
+      ...emptyModels,
     },
   },
   pendingRequests: {},

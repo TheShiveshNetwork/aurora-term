@@ -13,6 +13,7 @@ import { useSettingsStore } from "../stores/useSettingsStore";
 import { KEYBINDING_IDS } from "../lib/keybindings";
 import { useAIStore } from "../stores/useAIStore";
 import { useAgentStatusStore } from "../stores/useAgentStatusStore";
+import { syncProviderModelDefaults } from "../lib/modelDefaults";
 import { ProviderName, Tab, TabType } from "@aurora/types";
 
 export function applyAppConfig(cfg: AppConfig) {
@@ -100,6 +101,16 @@ export function applyAppConfig(cfg: AppConfig) {
     for (const [provider, hasKey] of Object.entries(status)) {
       useAIStore.getState().updateProviderConfig(provider as ProviderName, { hasApiKey: hasKey });
     }
+
+    // Fresh install / no provider connected yet → surface the connect-provider
+    // prompt by opening the agent overlay right panel, which renders
+    // ProviderSetupPrompt while no key exists. Ollama doesn't count as
+    // configured (it needs a running local server, not a key). Main window
+    // only — never yank open panels in auxiliary windows.
+    const anyProviderConfigured = Object.entries(status).some(([p, hasKey]) => hasKey && p !== "ollama");
+    if (!anyProviderConfigured && getCurrentWindow().label === "main") {
+      useAppShellStore.getState().setShowAiBar(true);
+    }
   }).catch(() => {});
 }
 
@@ -165,6 +176,10 @@ export function useAppBootstrap() {
     ])
       .then(async ([cfg, uiState]) => {
         applyAppConfig(cfg);
+
+        // Fire-and-forget: reconcile provider model defaults against the
+        // providers' live model lists and self-heal stale/deprecated picks.
+        void syncProviderModelDefaults();
 
         // ── Hydrate UI state from state.json ──
         if (uiState) {

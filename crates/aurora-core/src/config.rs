@@ -103,20 +103,30 @@ pub struct AiConfig {
 pub struct ProviderConfig {
     #[serde(default = "default_enabled")]
     pub enabled: bool,
+    /// Model IDs are intentionally NOT defaulted: they are discovered
+    /// from the provider's live /models list once credentials exist (see the
+    /// frontend model-defaults sync) or picked manually in Settings → AI.
+    /// An empty value means "unset".
+    #[serde(default)]
     pub fast_model: String,
+    #[serde(default)]
     pub balanced_model: String,
+    #[serde(default)]
     pub powerful_model: String,
     /// When set, this single model overrides all three tiers so the app uses
     /// exactly one model for every AI feature. Falls back to the per-tier
     /// fields when empty.
     #[serde(default)]
     pub selected_model: Option<String>,
+    #[serde(default)]
     pub base_url: Option<String>,
 }
 
 impl ProviderConfig {
     /// Resolve the effective (fast, balanced, powerful) model triplet.
     /// If `selected_model` is configured, it replaces all three tiers.
+    /// Any tier may be empty (= unset); callers must surface a clear
+    /// "configure a model" error instead of guessing a default.
     pub fn effective_models(&self) -> (String, String, String) {
         if let Some(m) = &self.selected_model {
             let trimmed = m.trim();
@@ -125,9 +135,9 @@ impl ProviderConfig {
             }
         }
         (
-            self.fast_model.clone(),
-            self.balanced_model.clone(),
-            self.powerful_model.clone(),
+            self.fast_model.trim().to_string(),
+            self.balanced_model.trim().to_string(),
+            self.powerful_model.trim().to_string(),
         )
     }
 }
@@ -214,49 +224,49 @@ impl Default for AppConfig {
                 require_review_for_writes: true,
                 groq: ProviderConfig {
                     enabled: true,
-                    fast_model: "llama-3.2-3b-preview".to_string(),
-                    balanced_model: "llama-3.3-70b-versatile".to_string(),
-                    powerful_model: "deepseek-r1-distill-llama-70b".to_string(),
+                    fast_model: String::new(),
+                    balanced_model: String::new(),
+                    powerful_model: String::new(),
                     selected_model: None,
                     base_url: Some("https://api.groq.com/openai/v1".to_string()),
                 },
                 anthropic: ProviderConfig {
                     enabled: true,
-                    fast_model: "claude-haiku-4-5-20251015".to_string(),
-                    balanced_model: "claude-sonnet-4-6-20260217".to_string(),
-                    powerful_model: "claude-opus-4-7-20260416".to_string(),
+                    fast_model: String::new(),
+                    balanced_model: String::new(),
+                    powerful_model: String::new(),
                     selected_model: None,
                     base_url: None,
                 },
                 openai: ProviderConfig {
                     enabled: false,
-                    fast_model: "gpt-5-mini".to_string(),
-                    balanced_model: "gpt-5.4-mini".to_string(),
-                    powerful_model: "gpt-5.5".to_string(),
+                    fast_model: String::new(),
+                    balanced_model: String::new(),
+                    powerful_model: String::new(),
                     selected_model: None,
                     base_url: None,
                 },
                 gemini: ProviderConfig {
                     enabled: false,
-                    fast_model: "gemini-3.1-flash-lite".to_string(),
-                    balanced_model: "gemini-3.5-flash".to_string(),
-                    powerful_model: "gemini-3.1-pro".to_string(),
+                    fast_model: String::new(),
+                    balanced_model: String::new(),
+                    powerful_model: String::new(),
                     selected_model: None,
                     base_url: None,
                 },
                 nvidia: ProviderConfig {
                     enabled: false,
-                    fast_model: "meta/llama-3.1-8b-instruct".to_string(),
-                    balanced_model: "meta/llama-3.1-8b-instruct".to_string(),
-                    powerful_model: "meta/llama-3.1-8b-instruct".to_string(),
+                    fast_model: String::new(),
+                    balanced_model: String::new(),
+                    powerful_model: String::new(),
                     selected_model: None,
                     base_url: Some("https://integrate.api.nvidia.com/v1".to_string()),
                 },
                 ollama: ProviderConfig {
                     enabled: false,
-                    fast_model: "llama3.2:3b".to_string(),
-                    balanced_model: "llama3.2:3b".to_string(),
-                    powerful_model: "llama3.2:3b".to_string(),
+                    fast_model: String::new(),
+                    balanced_model: String::new(),
+                    powerful_model: String::new(),
                     selected_model: None,
                     base_url: Some("http://localhost:11434".to_string()),
                 },
@@ -300,3 +310,4 @@ impl Default for AppConfig {
         }
     }
 }
+
