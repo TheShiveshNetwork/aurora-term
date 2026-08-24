@@ -49,14 +49,17 @@ function getInstalledOllamaModels(baseUrl: string): string[] {
       req.on('error', () => process.exit(1));
       req.setTimeout(2500, () => { req.destroy(); process.exit(1); });
     `;
-    const response = execSync(`node -e "${nodeScript.replace(/\n/g, ' ')}"`, { timeout: 3000 }).toString();
+    const response = execSync(`node -e "${nodeScript.replace(/\n/g, ' ')}"`, {
+      timeout: 3000,
+      windowsHide: true,
+    }).toString();
     const data = JSON.parse(response);
     if (data && Array.isArray(data.models)) {
       return data.models.map((m: any) => m.name);
     }
   } catch (err) {
     try {
-      const output = execSync('ollama list', { timeout: 3000 }).toString();
+      const output = execSync('ollama list', { timeout: 3000, windowsHide: true }).toString();
       const lines = output.split('\n').slice(1);
       const models: string[] = [];
       for (const line of lines) {
