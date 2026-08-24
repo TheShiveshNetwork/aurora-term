@@ -636,9 +636,14 @@ export function useAgentExecution(sessionId: string | null) {
     }
 
     if (ptySessionId === targetSessionId && !hasOwnPty) {
-      console.warn("No terminal session available for PTY command");
-      useAgentStore.getState().addLog(targetSessionId, "Cannot run shell command: no terminal session open.");
-      return { exitCode: -1, output: "No terminal session available. Open a terminal tab first." };
+    console.warn("No terminal session available for PTY command");
+    useAgentStore.getState().addLog(targetSessionId, "Cannot run shell command: no terminal session open.");
+    return {
+      exitCode: -1,
+      output:
+        "No terminal session is available in this context (file view). " +
+        "Do not retry shell commands — use the read_file / write_file / patch_file tools instead.",
+    };
     }
 
     // Remember which PTY session this tool call runs in so a stop can interrupt

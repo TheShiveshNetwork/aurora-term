@@ -38,6 +38,7 @@ interface GhostInputProps {
   className?: string;
   inputClassName?: string;
   inputMode?: InputMode;
+  onSlashOpenChange?: (open: boolean) => void;
 }
 
 export function GhostInput({
@@ -50,11 +51,24 @@ export function GhostInput({
   className = "",
   inputClassName = "",
   inputMode = "unknown",
+  onSlashOpenChange,
 }: GhostInputProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const mirrorRef = useRef<HTMLSpanElement>(null);
   const slashMenuRef = useRef<SlashMenuHandle>(null);
+  const slashEscapedRef = useRef<string | null>(null);
   const textMetricsClass = "font-code-base text-sm font-normal leading-[22px]";
+
+  // Bare "/" command being typed; Escape dismisses until the value changes.
+  // Trigger only on a slash token that begins the input or is preceded by
+  // whitespace (e.g. "hi, can you /"), so mid-word slashes ("http://") don't
+  // open the menu. The captured group is the text typed after the slash.
+  const slashMatch = value.match(/(?:^|\s)\/(\w*)$/);
+  const slashOpen = !!slashMatch && slashEscapedRef.current !== value;
+
+  useEffect(() => {
+    onSlashOpenChange?.(slashOpen);
+  }, [slashOpen, onSlashOpenChange]);
 
   useEffect(() => {
     const handleFocus = (e: Event) => {
@@ -97,19 +111,24 @@ export function GhostInput({
 
   const handleInsertSlash = useCallback(
     (text: string) => {
-      onChange(text);
+      const current = value;
+      // Replace only the slash token (which may have text before it, e.g.
+      // "hi, can you /"), not the entire input.
+      const m = current.match(/(?:^|\s)\/(\w*)$/);
+      const next = m ? current.slice(0, m.index) + m[0].replace(/\/\w*$/, text) : text;
+      onChange(next);
       reset();
       requestAnimationFrame(() => {
-        inputRef.current?.setSelectionRange(text.length, text.length);
+        inputRef.current?.setSelectionRange(next.length, next.length);
       });
     },
-    [onChange, reset]
+    [onChange, reset, value]
   );
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
       // Slash-command menu takes priority while it is open
-      const slashOpen = slashMenuRef.current?.isOpen();
+      const slashCount = slashOpen ? slashMenuRef.current?.count() ?? 0 : 0;
       if (slashOpen) {
         if (e.key === "ArrowDown") {
           e.preventDefault();
@@ -123,15 +142,13 @@ export function GhostInput({
         }
         if (e.key === "Escape") {
           e.preventDefault();
-          slashMenuRef.current?.close();
+          slashEscapedRef.current = value;
           return;
         }
-        if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
-          if ((slashMenuRef.current?.count() ?? 0) > 0) {
-            e.preventDefault();
-            slashMenuRef.current?.selectHighlighted();
-            return;
-          }
+        if ((e.key === "Tab" || e.key === "Enter") && !e.shiftKey && slashCount > 0) {
+          e.preventDefault();
+          slashMenuRef.current?.selectHighlighted();
+          return;
         }
       }
 
@@ -197,7 +214,7 @@ export function GhostInput({
         reset();
       }
     },
-    [acceptGhostCompletion, navigateUp, navigateDown, reset, onChange, value, sessionId]
+    [acceptGhostCompletion, navigateUp, navigateDown, reset, onChange, value, sessionId, slashOpen]
   );
 
   const handlePaste = useCallback(
@@ -276,7 +293,6 @@ export function GhostInput({
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          onBlur={() => slashMenuRef.current?.close()}
           placeholder={placeholder}
           autoComplete="off"
           autoCorrect="off"
@@ -298,7 +314,13 @@ export function GhostInput({
           </span>
         )}
 
-        <SlashMenu ref={slashMenuRef} value={value} inputRef={inputRef} onInsert={handleInsertSlash} />
+        <SlashMenu
+          ref={slashMenuRef}
+          open={slashOpen}
+          value={value}
+          inputRef={inputRef}
+          onInsert={handleInsertSlash}
+        />
       </div>
     </form>
   );

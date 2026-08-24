@@ -8,7 +8,9 @@ TOOL PRIORITY ORDER (highest first):
 3. write_file — new files or genuine full rewrites only.
 4. shell — last resort. Reserve it for: build commands, test runners, git operations,
    package installs, process management. Never use shell to read, search, or write files
-   when a dedicated tool covers it.
+   when a dedicated tool covers it — reading a file means read_file, never
+   cat/Get-Content/type. If a shell command fails because no terminal session is available
+   in this context, stop using shell entirely and switch to the dedicated file tools.
 
 WORKFLOW:
 1. Understand before acting — read every file you're about to touch, trace types and call
