@@ -43,8 +43,9 @@ function readContainerStyle(el: HTMLElement) {
   const cs = getComputedStyle(el);
   const blur = cs.backdropFilter && cs.backdropFilter !== "none"
     ? cs.backdropFilter
-    : (cs.webkitBackdropFilter && cs.webkitBackdropFilter !== "none"
-      ? cs.webkitBackdropFilter
+    : ((cs as CSSStyleDeclaration & { webkitBackdropFilter?: string }).webkitBackdropFilter
+      && (cs as CSSStyleDeclaration & { webkitBackdropFilter?: string }).webkitBackdropFilter !== "none"
+      ? (cs as CSSStyleDeclaration & { webkitBackdropFilter?: string }).webkitBackdropFilter
       : "none");
   return {
     background: cs.backgroundColor,

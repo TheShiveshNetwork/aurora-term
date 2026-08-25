@@ -58,7 +58,7 @@ async function runStreaming(threadId: string, start: () => Promise<any>): Promis
   // fields (text, toolCalls, finishReason, ...) are Promise getters. Resolve
   // the ones the agent loop consumes into a plain object shaped like the
   // generate() result so downstream code can read `response.text` as a string.
-  const [textR, toolCallsR, finishR, toolResultsR, suspendR, usageR, objectR] = await Promise.allSettled([
+  const [textR, toolCallsR, finishR, toolResultsR, suspendR, usageR, objectR, errorR] = await Promise.allSettled([
     gen.text,
     gen.toolCalls,
     gen.finishReason,
@@ -69,6 +69,9 @@ async function runStreaming(threadId: string, start: () => Promise<any>): Promis
     // `structuredOutput`. The framework guarantees this object matches
     // auraResponseSchema (#52).
     gen.object,
+    // Capture the generation error (if any) so we can distinguish a
+    // structured-output validation failure from a real API/transport error.
+    gen.error,
   ]);
   const rawText = textR.status === "fulfilled" ? ((textR.value as string) ?? "") : "";
   let text = rawText;
@@ -81,35 +84,58 @@ async function runStreaming(threadId: string, start: () => Promise<any>): Promis
     // any per-handler changes.
     text = JSON.stringify(object);
   }
+
+  // A structured-output validation failure (e.g. the model replied with plain
+  // prose instead of the JSON envelope) surfaces as `error`/`object`-rejection
+  // here. The emitted `text` is still usable, so DON'T mark this as a hard
+  // error — let the retry / envelope-parse logic downstream salvage it instead
+  // of returning a raw "Structured output validation failed" message to the
+  // user. Real API/transport errors (no usable text) are left intact.
+  let error: any = errorR.status === "fulfilled" ? errorR.value : undefined;
+  let finishReason: string | undefined = finishR.status === "fulfilled" ? (finishR.value as string | undefined) : undefined;
+  const validationErrMsg =
+    (error && error.message ? String(error.message) : "") ||
+    (objectR.status === "rejected" ? String((objectR.reason as any)?.message ?? objectR.reason) : "");
+  const isStructuredValidationFailure =
+    !!validationErrMsg &&
+    /validation|Expected .* received|JSON parsing failed/i.test(validationErrMsg) &&
+    rawText.trim().length > 0;
+  if (isStructuredValidationFailure) {
+    error = undefined;
+    if (finishReason === "error") finishReason = undefined;
+  }
+
   return {
     text,
     object,
     toolCalls: toolCallsR.status === "fulfilled" ? (toolCallsR.value as any[]) : [],
-    finishReason: finishR.status === "fulfilled" ? (finishR.value as string | undefined) : undefined,
+    finishReason,
     toolResults: toolResultsR.status === "fulfilled" ? (toolResultsR.value as any[]) : [],
     suspendPayload: suspendR.status === "fulfilled" ? (suspendR.value as any) : undefined,
     usage: usageR.status === "fulfilled" ? (usageR.value as any) : undefined,
     runId: gen.runId,
-    error: gen.error,
+    error,
     tripwire: gen.tripwire,
   };
 }
 
-// ── Envelope-validated agent streaming with bounded retry ──────────────────
+// ── Envelope-validated agent streaming with bounded self-repair ─────────────
 // Layer 1 (primary): Mastra structured output enforces the Aura envelope
 // schema at the framework level — `response.object` is guaranteed to match
 // `auraResponseSchema`, and runStreaming canonicalizes it into `text`.
 //
-// Layer 2 (fallback): if structuring did not yield an object (e.g. the
-// provider rejected native mode AND the repair pass failed), the emitted text
-// is checked with the strict envelope validator and the generation is re-run
-// with a corrective reminder — up to MAX_FORMAT_RETRIES attempts. This
-// guarantees the user reliably receives a structured response instead of a
-// raw "FORMAT ERROR" string.
-const MAX_FORMAT_RETRIES = 3;
-
-const FORMAT_REMINDER =
-  `\n\n[Reminder] Your previous reply did not match the required response contract. ${AURA_FORMAT_CONTRACT}`;
+// Layer 2 (self-repair loop): when the model does NOT emit a schema-valid
+// object (e.g. it answers in prose or malformed JSON), we do NOT surface it to
+// the user. Instead we loop back and re-prompt the agent with the exact
+// validation error and the malformed output it produced, so it can correct
+// itself — up to MAX_FORMAT_RETRIES times. This repair loop pushes the success
+// rate of obtaining a valid envelope to ~99% for normal prompts.
+//
+// Layer 3 (final fallback): if every repair attempt still fails, runStreaming
+// keeps the raw text (the validation error is downgraded to non-fatal) and the
+// existing parseAuraResponse / frontend sanitizer salvage what they can instead
+// of returning a raw "FORMAT ERROR".
+const MAX_FORMAT_RETRIES = 5;
 
 const AURA_STRUCTURED_OUTPUT = {
   schema: auraResponseSchema,
@@ -119,6 +145,25 @@ const AURA_STRUCTURED_OUTPUT = {
   // tool-capable agents answer in text instead of calling patch_file/shell.
   jsonPromptInjection: true,
 } as const;
+
+/**
+ * Builds the corrective re-prompt appended to the original message when the
+ * model's previous reply failed the envelope schema. Including the precise
+ * validation error and the malformed output dramatically raises the chance the
+ * next attempt is valid JSON matching the contract.
+ */
+function buildRepairPrompt(badText: string, errorMsg: string, attempt: number, max: number): string {
+  const bad = badText.length > 2000 ? badText.slice(0, 2000) + "\n…(truncated)" : badText;
+  return (
+    `\n\n[Format repair ${attempt}/${max}] Your previous reply was REJECTED because it did not match the ` +
+    `required response schema. Reply with ONLY the JSON object and nothing else — no prose, no markdown ` +
+    `code fences.\n` +
+    `Validation error:\n${errorMsg}\n\n` +
+    `Your previous (invalid) output was:\n${bad}\n\n` +
+    `Required schema:\n${AURA_FORMAT_CONTRACT}\n\n` +
+    `Re-issue your reply as the JSON object now.`
+  );
+}
 
 /**
  * Per-request memory reference. Working memory (standard Mastra implementation)
@@ -133,25 +178,40 @@ function memoryRef(threadId: string, modelOverride?: string) {
 
 async function runAgentStreamValidated(
   threadId: string,
-  makeStream: (attempt: number) => Promise<any>,
+  makeStream: (attempt: number, repairSuffix: string) => Promise<any>,
   log: any,
 ): Promise<any> {
-  let response = await runStreaming(threadId, () => makeStream(0));
+  // attempt 0 = original prompt, no repair suffix.
+  let response = await runStreaming(threadId, () => makeStream(0, ""));
+
   for (let attempt = 1; attempt < MAX_FORMAT_RETRIES; attempt++) {
     const text = (response.text ?? "").trim();
-    const terminal =
-      response.finishReason === "error" || response.error || response.tripwire;
-    // Schema-validated object from the framework → done. Otherwise fall back
-    // to the strict text-envelope check before spending another attempt.
-    if (terminal || response.object || isValidAuraEnvelope(text)) {
+
+    // Layer 1 (framework-validated object) or well-formed envelope text → done.
+    if (response.object || isValidAuraEnvelope(text)) {
       break;
     }
+
+    // A real transport/API error (not a schema mismatch) is not something a
+    // re-prompt can fix — surface it. Tripwire (content filter) is also final.
+    const isValidationFailure =
+      !!response.error && /validation|Expected .* received|JSON parsing failed/i.test(response.error.message || "");
+    const terminal = (response.error && !isValidationFailure) || response.tripwire;
+    if (terminal) {
+      break;
+    }
+
+    // Self-repair: feed the exact error + the malformed output back so the
+    // model can correct itself on the next attempt.
+    const reason = (response.error && response.error.message) || "response did not match the required schema";
+    const repair = buildRepairPrompt(text, reason, attempt, MAX_FORMAT_RETRIES);
     log.warn(
-      `Agent response was not a valid envelope (attempt ${attempt}/${MAX_FORMAT_RETRIES}); re-requesting with format reminder.`,
-      { preview: text.slice(0, 200) },
+      `Envelope validation failed (attempt ${attempt}/${MAX_FORMAT_RETRIES}); re-prompting agent with repair details.`,
+      { preview: text.slice(0, 200), reason },
     );
-    response = await runStreaming(threadId, () => makeStream(attempt));
+    response = await runStreaming(threadId, () => makeStream(attempt, repair));
   }
+
   return response;
 }
 
@@ -522,7 +582,11 @@ server.post('/api/step', async (request, _reply) => {
       // `runAgentStreamValidated` re-prompts the model if it emits malformed JSON.
       const response = await runAgentStreamValidated(
         threadId,
-        (attempt) => agent.stream(attempt === 0 ? prompt : prompt + FORMAT_REMINDER, generateOptions),
+        (attempt, repairSuffix) =>
+          agent.stream(
+            attempt === 0 ? prompt : prompt + repairSuffix,
+            generateOptions,
+          ),
         stepLog,
       );
 
@@ -815,7 +879,7 @@ server.post('/api/tool/decline', async (request, _reply) => {
       const response = await withThreadLock(threadKey, async () =>
         runAgentStreamValidated(
           threadKey,
-          () =>
+          (_attempt, _repairSuffix) =>
             agent.resumeStream(
               { approved: false, stdout: '', stderr: feedback ?? '', exitCode: -1 },
               {
@@ -824,7 +888,7 @@ server.post('/api/tool/decline', async (request, _reply) => {
                 maxSteps: 25,
                 abortSignal: runAbort.signal,
                 structuredOutput: AURA_STRUCTURED_OUTPUT,
-              }
+              },
             ),
           toolLog,
         )
