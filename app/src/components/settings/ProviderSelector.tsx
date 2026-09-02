@@ -34,7 +34,7 @@ export function ProviderSelector({ providers, activeProvider, onChange }: Provid
         </div>
         <div className="flex-1 min-w-0">
           <div className="text-sm font-medium text-[#E8EAF0]">{ProviderRegistry.get(activeProvider).displayName}</div>
-          <div className="text-[11px] text-[#E8EAF0]/40">Default provider</div>
+          <div className="text-[11px] text-[#E8EAF0]/40">Selected provider</div>
         </div>
         <svg
           width="16"

@@ -116,9 +116,33 @@ export function AgentView() {
 
   const sessionState = targetSessionId ? sessions[targetSessionId] || CONST_DEFAULT_SESSION_STATE : CONST_DEFAULT_SESSION_STATE;
   const isThinking = status === "planning" || status === "executing";
-  const isThinkingOrPaused = isThinking || status === "paused";
 
   const selectedModel = sessionState.model || "";
+
+  // Duration timer — derived from the store's `startedAt` so it survives
+  // remounting when the window loses focus (otherwise it resets to 0).
+  const [durationSecs, setDurationSecs] = useState<number>(0);
+  const timerRef = useRef<any>(null);
+  const startedAt = useAgentStore((s) => s.sessions[targetSessionId || ""]?.startedAt);
+
+  useEffect(() => {
+    const base = startedAt ?? Date.now();
+    if (status === "planning" || status === "executing") {
+      setDurationSecs(Math.round((Date.now() - base) / 1000));
+      if (timerRef.current) clearInterval(timerRef.current);
+      timerRef.current = setInterval(() => {
+        setDurationSecs(Math.round((Date.now() - (startedAt ?? Date.now())) / 1000));
+      }, 1000);
+    } else if (status === "completed" || status === "error") {
+      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+      const totalMs = queue.reduce((acc, cmd) => acc + (cmd.durationMs || 0), 0);
+      setDurationSecs(totalMs > 0 ? Math.round(totalMs / 1000) : Math.round((Date.now() - base) / 1000));
+    } else if (status === "idle") {
+      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+      setDurationSecs(0);
+    }
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [status, queue, startedAt]);
 
   const handleModelChange = useCallback((model: string) => {
     if (targetSessionId) {
@@ -490,7 +514,7 @@ export function AgentView() {
                           isThinking={isLastTurn && isThinking}
                           isLastTurn={isLastTurn}
                           chainNodes={turn.assistant?.chainNodes || (isLastTurn ? chainNodes : [])}
-                          durationSecs={0}
+                          durationSecs={durationSecs}
                           stepCount={isLastTurn ? stepCount : 0}
                           maxSteps={isLastTurn ? maxSteps : 0}
                           variant="full"
@@ -511,6 +535,7 @@ export function AgentView() {
                             setDislikeStates((p) => ({ ...p, [id]: !p[id] }));
                             setLikeStates((p) => ({ ...p, [id]: false }));
                           }}
+                          onRetry={retryTask}
                         />
                       );
                     })}
