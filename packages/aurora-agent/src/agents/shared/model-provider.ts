@@ -88,16 +88,16 @@ export async function getModelProvider(
     };
   }
   if (normalized === 'anthropic') {
-    return { id: `anthropic/${selectedModel}`, apiKey };
+    return { id: `anthropic/${selectedModel}`, apiKey, url: baseUrl };
   }
   if (normalized === 'gemini' || normalized === 'google') {
-    return { id: `google/${selectedModel}`, apiKey };
+    return { id: `google/${selectedModel}`, apiKey, url: baseUrl };
   }
   if (normalized === 'openai') {
-    return { id: `openai/${selectedModel}`, apiKey };
+    return { id: `openai/${selectedModel}`, apiKey, url: baseUrl };
   }
   if (normalized === 'nvidia') {
-    return { id: `nvidia/${selectedModel}`, apiKey };
+    return { id: `nvidia/${selectedModel}`, apiKey, url: baseUrl };
   }
   if (normalized === 'ollama') {
     const rawUrl = baseUrl || 'http://localhost:11434';

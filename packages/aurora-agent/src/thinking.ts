@@ -131,9 +131,22 @@ export function commitStep(threadId: string): 'planning' | 'execution' {
   return e.phase;
 }
 
+// Drops the current (failed/aborted/derailed) attempt's streamed text entirely
+// so its reasoning, partial JSON, or confused fragments never linger in the
+// thinking/planning panel. Everything committed from prior (good) steps — i.e.
+// the slice *before* this step started — is preserved.
 export function discardStep(threadId: string) {
   const e = entry(threadId);
-  e.stepStart = e.raw.length;
+  e.raw = e.raw.slice(0, e.stepStart);
+  e.reasoning = '';
+}
+
+// Same effect as discardStep but named for the self-repair loop: before the
+// agent is re-prompted after a malformed reply, erase the previous (bad)
+// attempt's streamed text so the panel doesn't keep showing it.
+export function clearCurrentStepRaw(threadId: string) {
+  const e = entry(threadId);
+  e.raw = e.raw.slice(0, e.stepStart);
   e.reasoning = '';
 }
 

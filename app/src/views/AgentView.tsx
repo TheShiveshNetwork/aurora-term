@@ -30,8 +30,7 @@ import { FileUpload, FileUploadContent } from "../components/prompt-kit/file-upl
 
 // Import agent components
 import { AgentTurnMessage } from "../components/agents";
-import { CommandApprovalCard } from "../components/agents/CommandApprovalCard";
-import { QuestionApprovalCard } from "../components/agents/QuestionApprovalCard";
+import { makeApprovalCard } from "../components/agents/ToolApprovalCard";
 import type { ChatMessage } from "../stores/useAgentStore";
 
 export function AgentView() {
@@ -528,30 +527,28 @@ export function AgentView() {
                 {/* Input Area */}
                 <div className="shrink-0 pb-3 px-5 w-full">
                   <div className="max-w-[900px] mx-auto w-full flex flex-col overflow-visible">
-                    {/* Command Approval Card when awaiting approval */}
-                    {status === "paused" && (function () {
-                      const pendingCmd = queue.find((c) => c.status === "requires_action");
-                      if (!pendingCmd) return null;
-                      return (
-                        <CommandApprovalCard
-                          className="mb-3"
-                          command={pendingCmd.command}
-                          explanation={pendingCmd.explanation}
-                          onApprove={approveAndRunPending}
-                          onSkip={skipPending}
-                        />
-                      );
-                    })()}
-
-                    {/* Clarifying Question Card */}
-                    {status === "paused" && pendingToolCall?.name === "ask_user" && (
-                      <QuestionApprovalCard
-                        className="mb-3"
-                        question={pendingToolCall.args?.question || "The agent has a clarifying question."}
-                        onAnswer={submitAnswer}
-                        onSkip={skipPending}
-                      />
-                    )}
+                    {/* Approval cards (command / file write / patch / question) */}
+                    {makeApprovalCard({
+                      isPaused: status === "paused",
+                      pendingToolCall,
+                      pendingApprovalCmd: (function () {
+                        const pendingCmd = queue.find((c) => c.status === "requires_action");
+                        return pendingCmd
+                          ? { command: pendingCmd.command, explanation: pendingCmd.explanation }
+                          : null;
+                      })(),
+                      pendingAsk:
+                        status === "paused" && pendingToolCall?.name === "ask_user"
+                          ? {
+                              question:
+                                pendingToolCall.args?.question || "The agent has a clarifying question.",
+                            }
+                          : null,
+                      onApprove: approveAndRunPending,
+                      onSkip: skipPending,
+                      onSubmit: submitAnswer,
+                      className: "mb-3",
+                    })}
 
                     {/* Status Drawer inside Input container */}
                     {targetSessionId && showStatusDrawer && (

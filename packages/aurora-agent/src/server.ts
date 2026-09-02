@@ -25,6 +25,7 @@ import {
   getPhase,
   commitStep,
   discardStep,
+  clearCurrentStepRaw,
   getThinking,
   getPlanning,
   getConclusion,
@@ -113,10 +114,98 @@ async function runStreaming(threadId: string, start: () => Promise<any>): Promis
     toolResults: toolResultsR.status === "fulfilled" ? (toolResultsR.value as any[]) : [],
     suspendPayload: suspendR.status === "fulfilled" ? (suspendR.value as any) : undefined,
     usage: usageR.status === "fulfilled" ? (usageR.value as any) : undefined,
-    runId: gen.runId,
+    // The workflow snapshot used for resumeStream() is persisted under the
+    // *agentic-loop* run id, which is exposed on the suspend payload's
+    // `__workflow_meta.runId`. `gen.runId` may instead be the inner execution
+    // run id, which would make resumeStream() fail to find the snapshot. Prefer
+    // the suspend-payload run id and fall back to gen.runId.
+    runId: (suspendR.status === "fulfilled" && (suspendR.value as any)?.__workflow_meta?.runId) || gen.runId,
     error,
     tripwire: gen.tripwire,
   };
+}
+
+// ── Transport (connection) error classification + retry ────────────────────
+// A connection/network error from the provider (DNS failure, refused socket,
+// timeout, proxy, 5xx) is transient and has NOTHING to do with the prompt — so
+// it must not be surfaced as "please rephrase your request", and a single blip
+// should not kill the whole turn. `isTransportError` recognizes that class so
+// `runStreamingWithRetry` can transparently resend, and so the user-facing
+// messages can tell the user the real problem (check network / provider URL).
+function isTransportError(err: unknown): boolean {
+  const raw = err && (err as any).message ? String((err as any).message) : String(err || '');
+  const msg = raw.toLowerCase();
+  if (!msg) return false;
+  // Include upstream 429/5xx rate-limit markers that are transient and benefit from retry,
+  // plus common Node/fetch network phrases. Keep this intentionally broad — false
+  // positives only cause an extra retry, while false negatives surface a raw
+  // "rephrase your request" error for a real network blip.
+  return /unable to (connect|reach|access)|econnrefused|econnreset|enotfound|getaddrinfo|fetch failed|failed to fetch|network|timed? ?out|etimedout|socket|aborted|429|502|503|504|529|overloaded|rate.?limit|too many requests|proxy|tunnel|certificate|ssl|tls|dns|could not be reached|no route|connection|upstream|service unavailable|temporarily unavailable/i.test(
+    msg,
+  );
+}
+
+// Resends the generation when the only failure is a transport/connection error,
+// with exponential backoff. Schema/validation/content errors are returned
+// immediately — re-sending them won't help, and the envelope self-repair loop
+// (runAgentStreamValidated) handles those separately. 429/529 rate-limit
+// responses are treated as transport errors and use a longer backoff.
+async function runStreamingWithRetry(
+  threadId: string,
+  start: () => Promise<any>,
+  log: any = rootLogger,
+  op: string = 'stream',
+): Promise<any> {
+  const MAX_TRANSPORT_RETRIES = 4;
+  let lastResponse: any;
+  for (let attempt = 0; attempt <= MAX_TRANSPORT_RETRIES; attempt++) {
+    const response = await runStreaming(threadId, start);
+    lastResponse = response;
+    if (!response.error || !isTransportError(response.error)) {
+      return response;
+    }
+    if (attempt < MAX_TRANSPORT_RETRIES) {
+      const isRateLimit = /429|rate.?limit|overloaded|529/i.test(String((response.error as any)?.message || ''));
+      const base = isRateLimit ? 2500 : 1000;
+      const backoff = base * Math.pow(1.6, attempt) + Math.random() * 400;
+      log.warn(`Transport/connection error during ${op} (retry ${attempt + 1}/${MAX_TRANSPORT_RETRIES})`, {
+        error: response.error?.message,
+        isRateLimit,
+        backoffMs: Math.round(backoff),
+      });
+      await new Promise((r) => setTimeout(r, backoff));
+    }
+  }
+  return lastResponse;
+}
+
+// Builds the user-facing error message. The provider's RAW error text is ALWAYS
+// surfaced verbatim first (matching v1.0.0 behavior, so messages like Ollama's
+// "this model requires a subscription or extra usage, upgrade for access at
+// https://ollama.com/upgrade" render in the chat exactly as the provider sent
+// them). Helpful context (base URL, API-key hint, rate-limit note) is appended
+// as enrichment only — never in place of the original error, so the user never
+// loses the actionable provider message to a generic classification.
+function generationErrorMessage(errMsg: string, isTransport: boolean): string {
+  const s = getRuntimeSettings();
+  const provider = s.activeProvider || 'unknown';
+  const baseUrl = s.baseUrls[provider] || s.baseUrls[provider.toLowerCase()] || '';
+  const hasApiKey = !!(s.apiKeys[provider] || s.apiKeys[provider.toLowerCase()]);
+  const urlHint = baseUrl ? ` (base URL: ${baseUrl})` : '';
+  const apiKeyHint = hasApiKey ? '' : ' — NO API KEY CONFIGURED for this provider';
+  const cleanErr = (errMsg || '').trim() || 'Unknown error';
+
+  // Rate limit / overload: keep the raw provider message and enrich it.
+  const isRateLimit = /429|rate.?limit|overloaded|529|too many requests/i.test(cleanErr);
+  if (isRateLimit) {
+    return `The AI provider (${provider}) is rate-limited or overloaded: ${cleanErr}${urlHint}${apiKeyHint} Wait a moment and try again, or switch provider/model in Settings → AI.`;
+  }
+
+  if (isTransport) {
+    return `Connection error: ${cleanErr}${urlHint}${apiKeyHint} The AI provider (${provider}) could not be reached. Check your network connection and the provider / base-URL settings in Settings → AI, then try again. If the error persists, verify the API key for "${provider}" is valid.`;
+  }
+
+  return `Agent provider error: ${cleanErr}.`;
 }
 
 // ── Envelope-validated agent streaming with bounded self-repair ─────────────
@@ -182,13 +271,37 @@ async function runAgentStreamValidated(
   log: any,
 ): Promise<any> {
   // attempt 0 = original prompt, no repair suffix.
-  let response = await runStreaming(threadId, () => makeStream(0, ""));
+  let response = await runStreamingWithRetry(threadId, () => makeStream(0, ""), log, 'generation');
 
   for (let attempt = 1; attempt < MAX_FORMAT_RETRIES; attempt++) {
     const text = (response.text ?? "").trim();
 
     // Layer 1 (framework-validated object) or well-formed envelope text → done.
     if (response.object || isValidAuraEnvelope(text)) {
+      break;
+    }
+
+    // A suspended tool call IS a valid, successful step outcome — the model
+    // emitted a tool invocation and Mastra paused for approval. The frontend
+    //will surface the approval UI; do NOT treat this as a malformed envelope.
+    // Breaking here prevents the repair loop from re-prompting "reply with ONLY
+    // the JSON object", which strips the tool call and makes the agent answer
+    // in chat instead of editing the file (and wastes up to 5 full re-runs).
+    if (response.finishReason === 'suspended') {
+      break;
+    }
+
+    // A step that requested tool calls (or already carries tool results) is a
+    // valid intermediate agent step — NOT a malformed envelope. Breaking here is
+    // critical: if we let the repair loop run, it re-prompts "reply with ONLY
+    // the JSON object", which strips the model's tool-calling and makes it
+    // narrate ("I'll read the file…") instead of calling the tool. The envelope
+    // contract (auraEnvelope.ts) has no tool_calls field, so valid tool-using
+    // turns legitimately have non-envelope text — they must never be "repaired".
+    if (
+      (response.toolCalls && response.toolCalls.length > 0) ||
+      (response.toolResults && response.toolResults.length > 0)
+    ) {
       break;
     }
 
@@ -209,7 +322,11 @@ async function runAgentStreamValidated(
       `Envelope validation failed (attempt ${attempt}/${MAX_FORMAT_RETRIES}); re-prompting agent with repair details.`,
       { preview: text.slice(0, 200), reason },
     );
-    response = await runStreaming(threadId, () => makeStream(attempt, repair));
+    // Erase the previous (malformed) attempt's streamed text from the thinking
+    // buffer before re-prompting, so the confused fragment never lingers in the
+    // planning panel across repair attempts.
+    clearCurrentStepRaw(threadId);
+    response = await runStreamingWithRetry(threadId, () => makeStream(attempt, repair), log, `repair-${attempt}`);
   }
 
   return response;
@@ -445,10 +562,17 @@ server.post('/api/settings', async (request, _reply) => {
   }
   updateRuntimeSettingsFromEnv(env as Record<string, string | undefined>);
   const s = getRuntimeSettings();
+  const hasKey = !!(s.apiKeys[s.activeProvider] || s.apiKeys[s.activeProvider?.toLowerCase()]);
   log.info('Runtime AI settings updated', {
     activeProvider: s.activeProvider,
+    hasApiKey: hasKey,
     balanced: s.models.balanced,
+    baseUrl: s.baseUrls[s.activeProvider] || s.baseUrls[s.activeProvider?.toLowerCase()] || '(default)',
+    envKeys: Object.keys(env),
   });
+  if (!hasKey) {
+    log.warn('No API key for active provider after settings update', { provider: s.activeProvider });
+  }
   return { status: 'ok' };
 });
 
@@ -609,14 +733,16 @@ server.post('/api/step', async (request, _reply) => {
         // envelope) as the error message — derive a readable message instead.
         const parsed = parseAuraResponse(response.text);
         const errMsg = response.error?.message || parsed.message || 'Generation failed';
+        const isTransport = isTransportError(response.error);
         stepLog.error('LLM generation error', {
           finishReason: response.finishReason,
+          isTransport,
           error: response.error?.message,
           errorStack: response.error?.stack,
         });
         return {
           status: 'error',
-          message: `Agent error: ${errMsg}. Please try rephrasing your request.`,
+          message: generationErrorMessage(errMsg, isTransport),
         };
       }
 
@@ -683,6 +809,24 @@ server.post('/api/step', async (request, _reply) => {
       const result = parseAuraResponse(response.text);
       stepLog.info('Step result parsed', { status: result.status, messageLength: result.message?.length, messagePreview: result.message?.slice(0, 200) });
 
+      // Surface file-operation failures so they appear in the user-facing message
+      if (result.status === 'completed') {
+        const fileToolErrors = response.toolResults
+          ?.filter((tr: any) =>
+            tr.isError &&
+            (tr.toolName === 'patch_file' || tr.toolName === 'write_file')
+          )
+          .map((tr: any) => ({
+            tool: tr.toolName,
+            error: tr.error || (typeof tr.result === 'string' ? tr.result : JSON.stringify(tr.result)),
+          }));
+        if (fileToolErrors && fileToolErrors.length > 0) {
+          const suffix = '\n\n**File operation failed:**\n' +
+            fileToolErrors.map((e: any) => `- \`${e.tool}\`: ${e.error}`).join('\n');
+          result.message = (result.message || '') + suffix;
+        }
+      }
+
       // Commit the streamed text into the planning bucket (goal step) or, when
       // the agent concludes, into the conclusion bucket. commitStep is
       // phase-aware: a completing planning step commits BOTH the planning
@@ -703,9 +847,10 @@ server.post('/api/step', async (request, _reply) => {
       stack: error.stack,
       elapsedMs: elapsed,
     });
+    const isTransport = isTransportError(error);
     return {
       status: 'error',
-      message: `Agent error: ${error.message || 'Unknown error'}`,
+      message: generationErrorMessage(error.message || 'Unknown error', isTransport),
     };
   } finally {
     clearTimeout(runTimeout);
@@ -741,6 +886,59 @@ async function executeSidecarTool(toolName?: string, toolArgs?: any): Promise<an
   }
 }
 
+/**
+ * The run id the client passes back may not match the persisted agentic-loop
+ * workflow snapshot (the model output `runId` can differ from the workflow
+ * run id, e.g. when the agent runs as a sub-agent). Strategy:
+ *   1. If the passed runId's snapshot exists, use it.
+ *   2. Otherwise find a suspended run whose suspended step is the tool-approval
+ *      for the `toolCallId` we're approving (most reliable disambiguation).
+ *   3. Fall back to the single suspended run if there's exactly one.
+ * Returns `runId` unchanged when nothing better is available.
+ */
+async function resolveResumeRunId(runId: string, toolCallId?: string): Promise<string> {
+  try {
+    const storage = mastra.getStorage();
+    const wf = storage ? await storage.getStore('workflows') : undefined;
+    if (!wf) return runId;
+    const existing = await wf.loadWorkflowSnapshot({ workflowName: 'agentic-loop', runId });
+    if (existing) return runId;
+
+    const runs = await wf.listWorkflowRuns({ workflowName: 'agentic-loop' });
+    const all = (runs as any)?.runs ?? [];
+    const suspended = all.filter((r: any) => r.status === 'suspended');
+
+    const matchByTool = async (candidateRunId: string): Promise<boolean> => {
+      try {
+        const full = await wf.getWorkflowRunById({ runId: candidateRunId, workflowName: 'agentic-loop' });
+        const snapshot: any =
+          typeof full?.snapshot === 'string' ? JSON.parse(full.snapshot) : full?.snapshot;
+        const ctx = snapshot?.context ?? {};
+        for (const step of Object.values(ctx)) {
+          const stepAny = step as any;
+          if (stepAny?.status === 'suspended' && stepAny.suspendPayload?.requireToolApproval) {
+            if (!toolCallId || stepAny.suspendPayload.requireToolApproval.toolCallId === toolCallId) {
+              return true;
+            }
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+      return false;
+    };
+
+    // Prefer the suspended run whose approval matches our toolCallId.
+    for (const r of suspended) {
+      if (await matchByTool(r.runId)) return r.runId;
+    }
+    if (suspended.length === 1) return suspended[0].runId;
+  } catch {
+    /* fall through to original runId */
+  }
+  return runId;
+}
+
 server.post('/api/tool/approve', async (request, _reply) => {
   const body = request.body as any;
   const { agent_type, mode, runId, toolCallId, session_id } = body;
@@ -748,9 +946,23 @@ server.post('/api/tool/approve', async (request, _reply) => {
   const toolArgs = body.toolArgs ?? body.args;
   const providedResumeData = body.resumeData ?? body.resume_data;
   const isSidecarTool = !!(toolName && SIDECAR_READONLY_TOOLS[toolName]);
+  // The framework's tool-approval resume REQUIRES `resumeData.approved === true`
+  // (otherwise it treats the call as rejected). For read-only sidecar tools we
+  // still run the tool here so the agent receives real output, but we must ALSO
+  // flag it approved — otherwise the whole suspended batch is rejected.
+  const sidecarResult = isSidecarTool
+    ? await executeSidecarTool(toolName, toolArgs)
+    : undefined;
+  // IMPORTANT: the framework forwards `resumeData` to the *tool* (as
+  // `context.agent.resumeData`) only when it has more than one key (chunk
+  // -HQPHHGZE.js:28068). If it is exactly `{ approved: true }`, the framework
+  // passes `void 0` to the tool instead. Tools like `patch_file`/`write_file`
+  // then see `resumeData === undefined`, re-trigger their own `requireReview`
+  // suspend, and never apply the change. The `_resumePassthrough` key guarantees
+  // the payload is forwarded so the tool receives `approved: true` and applies.
   const resumeData = isSidecarTool
-    ? (await executeSidecarTool(toolName, toolArgs) ?? { success: false, error: 'tool produced no output' })
-    : { approved: true, ...(providedResumeData ?? {}) };
+    ? { approved: true, ...(sidecarResult ?? { success: false, error: 'tool produced no output' }) }
+    : { approved: true, ...(providedResumeData ?? {}), _resumePassthrough: true };
 
   const toolLog = log.child({
     endpoint: 'tool/approve',
@@ -760,12 +972,42 @@ server.post('/api/tool/approve', async (request, _reply) => {
     toolCallId,
     sessionId: session_id,
   });
-
-  toolLog.info('Tool approval request', { resumeDataKeys: resumeData ? Object.keys(resumeData) : undefined, resumeData });
+  toolLog.info('Tool approval request', {
+    toolName,
+    hasToolArgs: !!toolArgs,
+    isSidecarTool,
+    resumeDataKeys: resumeData ? Object.keys(resumeData) : undefined,
+    providedResumeDataKeys: providedResumeData ? Object.keys(providedResumeData) : undefined,
+  });
 
   const agent = selectAgent(agent_type, mode);
   const startTime = Date.now();
   const threadKey = session_id || runId || 'agent-view';
+
+  // Resolve the run id to the persisted agentic-loop snapshot. The client's
+  // runId can diverge from the workflow run id; fall back to the single
+  // suspended run currently in storage if the exact id isn't found.
+  const resolvedRunId = await resolveResumeRunId(runId, toolCallId);
+
+  // Diagnostic: confirm the suspended-run snapshot is reachable before resuming.
+  try {
+    const storage = mastra.getStorage();
+    const wf = storage ? await storage.getStore('workflows') : undefined;
+    if (wf) {
+      const snapshot = await wf.loadWorkflowSnapshot({ workflowName: 'agentic-loop', runId: resolvedRunId });
+      const runs = await wf.listWorkflowRuns({ workflowName: 'agentic-loop' });
+      toolLog.info('Resume snapshot diagnostic', {
+        hasSnapshot: !!snapshot,
+        snapshotStatus: (snapshot as any)?.status,
+        requestedRunId: runId,
+        resolvedRunId,
+        recentRuns: (runs as any)?.runs?.map((r: any) => ({ runId: r.runId, status: r.status })),
+      });
+    }
+  } catch (diagErr: any) {
+    toolLog.warn('Resume snapshot diagnostic failed', { error: diagErr?.message });
+  }
+
   const runAbort = registerRunAbort(threadKey);
   const runTimeout = setTimeout(() => runAbort.abort(), 120_000);
 
@@ -773,14 +1015,15 @@ server.post('/api/tool/approve', async (request, _reply) => {
     // Serialize with other work on the same thread (e.g. /api/btw).
     beginStep(threadKey, 'execution');
     const response = await withThreadLock(threadKey, async () =>
-      runStreaming(threadKey, () =>
+      runStreamingWithRetry(threadKey, () =>
         agent.resumeStream(
           resumeData,
           {
-            runId,
+            runId: resolvedRunId,
             toolCallId,
             maxSteps: 25,
             abortSignal: runAbort.signal,
+            requireToolApproval: true,
             structuredOutput: AURA_STRUCTURED_OUTPUT,
           }
         )
@@ -800,13 +1043,14 @@ server.post('/api/tool/approve', async (request, _reply) => {
     if (response.finishReason === 'error' || response.error) {
       discardStep(threadKey);
       const errMsg = response.error?.message || response.text || 'Generation failed';
+      const isTransport = isTransportError(response.error);
       toolLog.error('Tool approval generation error', {
         error: response.error?.message,
         errorStack: response.error?.stack,
       });
       return {
         status: 'error',
-        message: `Agent error: ${errMsg}. Please try again.`,
+        message: generationErrorMessage(errMsg, isTransport),
       };
     }
 
@@ -835,17 +1079,60 @@ server.post('/api/tool/approve', async (request, _reply) => {
     toolLog.info('Tool approval completed');
     commitStep(threadKey);
     const parsed = parseAuraResponse(response.text);
+
+    // Surface file-operation failures (patch_file / write_file) so the frontend
+    // can display them as visible errors. Without this, soft tool errors are
+    // only passed to the LLM which may narrate the failure without surfacing it
+    // as an actionable user message.
+    const fileToolErrors = response.toolResults
+      ?.filter((tr: any) =>
+        tr.isError &&
+        (tr.toolName === 'patch_file' || tr.toolName === 'write_file')
+      )
+      .map((tr: any) => ({
+        tool: tr.toolName,
+        error: tr.error || (typeof tr.result === 'string' ? tr.result : JSON.stringify(tr.result)),
+      }));
+    const fileErrorSuffix = fileToolErrors && fileToolErrors.length > 0
+      ? '\n\n**File operation failed:**\n' +
+        fileToolErrors.map((e: any) => `- \`${e.tool}\`: ${e.error}`).join('\n')
+      : '';
+
     return {
       status: 'completed',
-      message: parsed.message || response.text,
+      message: (parsed.message || response.text) + fileErrorSuffix,
       conclusion: parsed.conclusion,
       planning: parsed.planning,
+      fileErrors: fileToolErrors && fileToolErrors.length > 0 ? fileToolErrors : undefined,
     };
   } catch (error: any) {
     toolLog.error('Tool approval threw exception', { error: error.message, stack: error.stack });
+    // Surface a diagnostic when resume can't find the suspended run so the
+    // failure is visible in the UI rather than a generic "rephrase" message.
+    if (/could not find a suspended run|AGENT_RESUME_NO_SNAPSHOT_FOUND/i.test(error.message || '')) {
+      try {
+        const wf = await mastra.getStorage()?.getStore('workflows');
+        const runs = wf ? await wf.listWorkflowRuns({ workflowName: 'agentic-loop' }) : undefined;
+        const recentRuns = (runs as any)?.runs?.map((r: any) => ({
+          runId: r.runId,
+          status: r.status,
+        }));
+        return {
+          status: 'error',
+          message:
+            `Resume failed: the suspended run for runId "${runId}" was not found in storage. ` +
+            `Recent agentic-loop runs: ${JSON.stringify(recentRuns ?? [])}. ` +
+            `This usually means the sidecar process restarted between suspend and approve, ` +
+            `or the stored snapshot was lost. The agentic-loop storage is now durable (file-backed), ` +
+            `so restart the sidecar and try the approval flow again.`,
+        };
+      } catch {
+        /* fall through */
+      }
+    }
     return {
       status: 'error',
-      message: `Failed to approve and resume tool call: ${error.message || 'Unknown error'}`,
+      message: generationErrorMessage(error.message || 'Unknown error', isTransportError(error)),
     };
   } finally {
     clearTimeout(runTimeout);
@@ -870,6 +1157,7 @@ server.post('/api/tool/decline', async (request, _reply) => {
   const agent = selectAgent(agent_type, mode);
   const startTime = Date.now();
   const threadKey = session_id || runId || 'agent-view';
+  const resolvedRunId = await resolveResumeRunId(runId, toolCallId);
   const runAbort = registerRunAbort(threadKey);
   const runTimeout = setTimeout(() => runAbort.abort(), 120_000);
 
@@ -883,10 +1171,11 @@ server.post('/api/tool/decline', async (request, _reply) => {
             agent.resumeStream(
               { approved: false, stdout: '', stderr: feedback ?? '', exitCode: -1 },
               {
-                runId,
+                runId: resolvedRunId,
                 toolCallId,
                 maxSteps: 25,
                 abortSignal: runAbort.signal,
+                requireToolApproval: true,
                 structuredOutput: AURA_STRUCTURED_OUTPUT,
               },
             ),
@@ -906,8 +1195,9 @@ server.post('/api/tool/decline', async (request, _reply) => {
     if (response.finishReason === 'error' || response.error) {
       discardStep(threadKey);
       const errMsg = response.error?.message || response.text || 'Generation failed';
+      const isTransport = isTransportError(response.error);
       toolLog.error('Tool decline generation error', { error: response.error?.message });
-      return { status: 'error', message: `Agent error: ${errMsg}.` };
+      return { status: 'error', message: generationErrorMessage(errMsg, isTransport) };
     }
 
     if (response.finishReason === 'suspended') {
@@ -936,7 +1226,7 @@ server.post('/api/tool/decline', async (request, _reply) => {
     toolLog.error('Tool decline threw exception', { error: error.message, stack: error.stack });
     return {
       status: 'error',
-      message: `Failed to decline and resume tool call: ${error.message || 'Unknown error'}`,
+      message: generationErrorMessage(error.message || 'Unknown error', isTransportError(error)),
     };
   } finally {
     clearTimeout(runTimeout);
@@ -1025,7 +1315,7 @@ server.post('/api/chat', async (request, _reply) => {
       await compactThreadIfNeeded(threadId, agent, chatLog);
     }
 
-    const response = await runStreaming(threadId, () => agent.stream(
+    const response = await runStreamingWithRetry(threadId, () => agent.stream(
       `Chat message (respond conversationally, NOT as a command): ${message}`,
       {
         memory: memoryRef(threadId),
@@ -1043,8 +1333,9 @@ server.post('/api/chat', async (request, _reply) => {
 
     if (response.finishReason === 'error' || response.error) {
       const errMsg = response.error?.message || response.text || 'Chat generation failed';
-      chatLog.error('Chat generation error', { error: response.error?.message });
-      return { status: 'error', message: `Chat error: ${errMsg}` };
+      const isTransport = isTransportError(response.error);
+      chatLog.error('Chat generation error', { error: response.error?.message, isTransport });
+      return { status: 'error', message: generationErrorMessage(errMsg, isTransport) };
     }
 
     const parsed = parseAuraResponse(response.text);
@@ -1055,7 +1346,7 @@ server.post('/api/chat', async (request, _reply) => {
     return { status: parsed.status || "completed", message: chatMessage };
   } catch (error: any) {
     chatLog.error('Chat threw exception', { error: error.message, stack: error.stack });
-    return { status: 'error', message: error.message || 'Chat error' };
+    return { status: 'error', message: generationErrorMessage(error.message || 'Chat error', isTransportError(error)) };
   }
 });
 
@@ -1085,7 +1376,24 @@ server.post('/api/btw', async (request, _reply) => {
     if (model) {
       generateOptions.model = await getModelProvider(undefined, model);
     }
-    const response = await agent.generate(message, generateOptions);
+    // Wrap generate in a minimal retry loop for transient transport/rate-limit errors
+    // so a single blip doesn't surface as a raw "btw error" to the user.
+    const runBtwWithRetry = async () => {
+      let last: any;
+      for (let attempt = 0; attempt <= 2; attempt++) {
+        const r = await agent.generate(message, generateOptions);
+        last = r;
+        if (!r.error || !isTransportError(r.error)) return r;
+        const isRateLimit = /429|rate.?limit|overloaded|529/i.test(String((r.error as any)?.message || ''));
+        if (attempt < 2) {
+          const backoff = (isRateLimit ? 2000 : 800) * Math.pow(1.5, attempt) + Math.random() * 300;
+          btwLog.warn(`btw transport error (retry ${attempt + 1}/2)`, { error: (r.error as any)?.message, backoffMs: Math.round(backoff) });
+          await new Promise((res) => setTimeout(res, backoff));
+        }
+      }
+      return last;
+    };
+    const response = await runBtwWithRetry();
     const elapsed = Date.now() - startTime;
 
     btwLog.info('btw response', {
@@ -1096,8 +1404,9 @@ server.post('/api/btw', async (request, _reply) => {
 
     if (response.finishReason === 'error' || response.error) {
       const errMsg = response.error?.message || response.text || 'Generation failed';
-      btwLog.error('btw generation error', { error: response.error?.message });
-      return { status: 'error', message: `btw error: ${errMsg}` };
+      const isTransport = isTransportError(response.error);
+      btwLog.error('btw generation error', { error: response.error?.message, isTransport });
+      return { status: 'error', message: isTransport ? generationErrorMessage(errMsg, true) : `btw error: ${errMsg}` };
     }
 
     const parsed = parseAuraResponse(response.text);
@@ -1108,7 +1417,7 @@ server.post('/api/btw', async (request, _reply) => {
     return { status: parsed.status || "completed", message: btwMessage };
   } catch (error: any) {
     btwLog.error('btw threw exception', { error: error.message, stack: error.stack });
-    return { status: 'error', message: error.message || 'btw error' };
+    return { status: 'error', message: generationErrorMessage(error.message || 'btw error', isTransportError(error)) };
   }
 });
 
@@ -1332,15 +1641,38 @@ function parseAuraResponse(text: string) {
     return clean;
   }
 
+  // 3) No envelope and no extractable fields. This means the model emitted
+  //    something that only *looks* like JSON (or garbage) and never produced a
+  //    usable message. Rather than hand the raw `{...}` back — which the frontend
+  //    would surface as a "malformed response" warning — return a clear,
+  //    non-blaming result. The repair loop upstream already retried several
+  //    times, so this is the rare residual case; a friendly, retryable message
+  //    is the correct end-state (and never leaks raw JSON to the user).
+  if (!src.trim()) {
+    return { status: 'error', message: 'The agent returned an empty response. Please try again.' };
+  }
   return {
-    status: 'completed',
-    message: src || text,
+    status: 'error',
+    message:
+      'The agent reply could not be parsed into the expected format. This is usually transient — please try again.',
   };
 }
 
 // ── Server bootstrap ──────────────────────────────────────────────────────
 export function startServer(port: number) {
   log.info('=== Aurora Agent Server Starting ===', { port, cwd: process.cwd(), nodeVersion: process.version });
+  // Log AI provider configuration for diagnostics
+  const s = getRuntimeSettings();
+  const hasKey = !!(s.apiKeys[s.activeProvider] || s.apiKeys[s.activeProvider?.toLowerCase()]);
+  log.info('AI provider config', {
+    activeProvider: s.activeProvider,
+    hasApiKey: hasKey,
+    baseUrl: s.baseUrls[s.activeProvider] || s.baseUrls[s.activeProvider?.toLowerCase()] || '(default)',
+    models: s.models,
+  });
+  if (!hasKey) {
+    log.warn('No API key configured for active provider', { provider: s.activeProvider });
+  }
   log.info('Registered routes', { routes: server.printRoutes() });
   server.listen({ port, host: '127.0.0.1' }, (err, address) => {
     if (err) {

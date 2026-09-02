@@ -1,6 +1,11 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { fileURLToPath } from 'node:url';
 import { AURA_FORMAT_CONTRACT } from '../../schemas/auraEnvelope';
+
+// ESM module: `__dirname` is not defined, so derive it from the module URL.
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Inlined snapshots for the compiled single-file sidecar, where fs reads of
 // loose .txt assets aren't available. prompts-sync.test.ts keeps these in

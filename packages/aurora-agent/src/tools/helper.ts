@@ -7,7 +7,19 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export function safeResolve(filePath: string): string {
+  // If the caller already gave an absolute path (the FILE CONTEXT block does),
+  // return it verbatim — do not re-resolve against process.cwd() which may be
+  // the aurora-agent package directory in dev (pnpm --dir ...) rather than the
+  // user's workspace root. For relative paths, resolve against the current
+  // working directory; this keeps tests and relative tool calls working while
+  // preserving the correct absolute path when the agent follows the context.
+  if (path.isAbsolute(filePath)) return path.normalize(filePath);
   return path.resolve(process.cwd(), filePath);
+}
+
+/** Normalizes line endings to LF for reliable string comparison across win32/POSIX. */
+export function normalizeLineEndings(s: string): string {
+  return s.replace(/\r\n/g, '\n');
 }
 
 export const reviewSettings = {

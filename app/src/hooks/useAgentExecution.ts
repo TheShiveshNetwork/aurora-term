@@ -232,6 +232,11 @@ export function useAgentExecution(sessionId: string | null) {
 
     // 1. Gated Tool Approval Suspension
     if (step.status === "requires_approval") {
+      // Per-view gating: a "terminal" tab uses the terminal (command) setting, while
+      // file/diff/git/merge/agent views use the file (write) setting.
+      const isTerminalView =
+        useSessionStore.getState().tabs.find((t) => t.id === targetSessionId)?.type === "terminal";
+
       // Secondary safety net: auto-decline the 3rd identical tool call in a row
       // so a stuck model can't loop forever (e.g. re-reading the same file).
       const dupKey = toolCallKey(step.tool_name, step.args);
@@ -279,9 +284,10 @@ export function useAgentExecution(sessionId: string | null) {
 
         const explanation = step.args.explanation || `Executing: ${cmd}`;
 
-        // Auto-approve if require_review_for_commands is disabled
+        // Auto-approve when review is disabled for this view
         const cfg = await config.get();
-        if (!cfg.ai.require_review_for_commands) {
+        const reviewEnabled = isTerminalView ? cfg.ai.require_review_for_commands : cfg.ai.require_review_for_writes;
+        if (!reviewEnabled) {
           const freshSession = useAgentStore.getState().sessions[targetSessionId] || defaultSessionState();
           const newIndex = freshSession.queue.length;
           state.addCommandToQueue(targetSessionId, cmd, explanation, "pending");
@@ -331,9 +337,10 @@ export function useAgentExecution(sessionId: string | null) {
           command: cmd,
         });
       } else if (step.tool_name === "write_file" || step.tool_name === "patch_file") {
-        // Auto-approve if require_review_for_writes is disabled
+        // Auto-approve when review is disabled for this view
         const cfg = await config.get();
-        if (!cfg.ai.require_review_for_writes) {
+        const reviewEnabled = isTerminalView ? cfg.ai.require_review_for_commands : cfg.ai.require_review_for_writes;
+        if (!reviewEnabled) {
           state.resumeTask(targetSessionId);
           const stepResult = await system.agentApproveTool(
             useAgentStore.getState().sessions[targetSessionId]?.agentType || "terminal",
@@ -341,9 +348,19 @@ export function useAgentExecution(sessionId: string | null) {
             step.run_id,
             step.tool_call_id,
             { approved: true },
-            targetSessionId
+            targetSessionId,
+            step.tool_name,
+            step.args
           );
           state.setPendingToolCall(targetSessionId, null);
+          // Trigger file viewer refresh for the patched/written file so the
+          // editor picks up the new content immediately.
+          const writtenPath = step.args.path;
+          if (writtenPath) {
+            window.dispatchEvent(new CustomEvent("aurora-refresh-file", {
+              detail: { path: writtenPath },
+            }));
+          }
           await handleStepResult(targetSessionId, taskId, stepResult);
           return;
         }
@@ -553,7 +570,8 @@ export function useAgentExecution(sessionId: string | null) {
 
     state.incrementStep(targetSessionId);
 
-    // Fetch gating review settings from the config IPC
+    // Review settings passed to the agent planner (server-side record only;
+    // the actual pause / auto-approve gating is decided per-view below).
     const cfg = await config.get();
     const requireReviewForCommands = cfg.ai.require_review_for_commands;
     const requireReviewForWrites = cfg.ai.require_review_for_writes;
@@ -839,16 +857,19 @@ export function useAgentExecution(sessionId: string | null) {
             targetSessionId
           );
         } else {
-          // File write / patch approved
+          // File write / patch approved — include toolName and args so the
+          // sidecar can identify the tool and forward resume data correctly.
           stepResult = await system.agentApproveTool(
             freshSession.agentType,
             freshSession.agentMode,
             runId,
             toolCallId,
             { approved: true },
-            targetSessionId
+            targetSessionId,
+            name,
+            freshSession.pendingToolCall.args
           );
-          
+
           // Approve file changes status and update chain node
           if (freshSession.filesChanged.length > 0) {
             const lastFile = freshSession.filesChanged[freshSession.filesChanged.length - 1];
@@ -863,6 +884,12 @@ export function useAgentExecution(sessionId: string | null) {
             }
             // Close the pending-agent-change diff tab for this file
             window.dispatchEvent(new CustomEvent("aurora-close-agent-diff", {
+              detail: { path: lastFile.path },
+            }));
+            // Trigger file viewer refresh for the patched/written file so the
+            // editor picks up the new content without waiting for the filesystem
+            // watcher's debounce cycle (which can lag by 200ms+).
+            window.dispatchEvent(new CustomEvent("aurora-refresh-file", {
               detail: { path: lastFile.path },
             }));
           }

@@ -62,8 +62,13 @@ export function GhostInput({
   // Bare "/" command being typed; Escape dismisses until the value changes.
   // Trigger only on a slash token that begins the input or is preceded by
   // whitespace (e.g. "hi, can you /"), so mid-word slashes ("http://") don't
-  // open the menu. The captured group is the text typed after the slash.
-  const slashMatch = value.match(/(?:^|\s)\/(\w*)$/);
+  // open the menu. The match is made against the text *before the caret* (not
+  // just the end of the string) so the menu still opens when the caret isn't
+  // parked at the very end of the input.
+  const caret = inputRef.current ? (inputRef.current.selectionStart ?? value.length) : value.length;
+  const textBeforeCaret = value.slice(0, caret);
+  const slashMatch = textBeforeCaret.match(/(?:^|\s)\/(\w*)$/);
+  const slashQuery = slashMatch ? slashMatch[1] : "";
   const slashOpen = !!slashMatch && slashEscapedRef.current !== value;
 
   useEffect(() => {
@@ -111,15 +116,23 @@ export function GhostInput({
 
   const handleInsertSlash = useCallback(
     (text: string) => {
-      const current = value;
-      // Replace only the slash token (which may have text before it, e.g.
-      // "hi, can you /"), not the entire input.
-      const m = current.match(/(?:^|\s)\/(\w*)$/);
-      const next = m ? current.slice(0, m.index) + m[0].replace(/\/\w*$/, text) : text;
+      const el = inputRef.current;
+      const pos = el ? (el.selectionStart ?? value.length) : value.length;
+      const before = value.slice(0, pos);
+      const after = value.slice(pos);
+      // Replace only the slash token at the caret (which may have text before
+      // it, e.g. "hi, can you /"), preserving anything typed after the caret.
+      const m = before.match(/(?:^|\s)\/(\w*)$/);
+      if (!m || m.index === undefined) {
+        onChange(value);
+        return;
+      }
+      const replaced = before.slice(0, m.index) + m[0].replace(/\/\w*$/, text);
+      const next = replaced + after;
       onChange(next);
       reset();
       requestAnimationFrame(() => {
-        inputRef.current?.setSelectionRange(next.length, next.length);
+        inputRef.current?.setSelectionRange(replaced.length, replaced.length);
       });
     },
     [onChange, reset, value]
@@ -242,7 +255,14 @@ export function GhostInput({
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       reset();
-      onChange(e.target.value);
+      const next = e.target.value;
+      const pos = e.target.selectionStart ?? next.length;
+      // Once the slash token at the caret is gone (e.g. deleted after an
+      // Escape), release the "dismissed" lock so the menu can trigger again.
+      if (!next.slice(0, pos).match(/(?:^|\s)\/(\w*)$/)) {
+        slashEscapedRef.current = null;
+      }
+      onChange(next);
     },
     [onChange]
   );
@@ -317,7 +337,7 @@ export function GhostInput({
         <SlashMenu
           ref={slashMenuRef}
           open={slashOpen}
-          value={value}
+          filter={slashQuery}
           inputRef={inputRef}
           onInsert={handleInsertSlash}
         />

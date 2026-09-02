@@ -1,7 +1,10 @@
 import { Memory } from '@mastra/memory';
 import { InMemoryStore } from '@mastra/core/storage';
+import { DurableInMemoryStore } from './durable-storage';
 
-export const memoryStorage = new InMemoryStore({
+// Durable so the agentic-loop workflow snapshot survives a sidecar restart
+// between suspend (tool approval) and resume (#approval-flow).
+export const memoryStorage = new DurableInMemoryStore({
   id: 'aura-memory',
 });
 

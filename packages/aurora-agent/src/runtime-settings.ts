@@ -30,6 +30,9 @@ function parseEnv(env: EnvLike): RuntimeSettings {
   const baseUrls: Record<string, string> = {};
   if (env.GPT_OSS_BASE_URL) baseUrls["gpt-oss"] = env.GPT_OSS_BASE_URL;
   if (env.OLLAMA_BASE_URL) baseUrls["ollama"] = env.OLLAMA_BASE_URL;
+  if (env.ANTHROPIC_BASE_URL) baseUrls["anthropic"] = env.ANTHROPIC_BASE_URL;
+  if (env.GEMINI_BASE_URL) baseUrls["gemini"] = env.GEMINI_BASE_URL;
+  if (env.NVIDIA_BASE_URL) baseUrls["nvidia"] = env.NVIDIA_BASE_URL;
 
   const apiKeys: Record<string, string> = {};
   if (env.GROQ_API_KEY) apiKeys["groq"] = env.GROQ_API_KEY;

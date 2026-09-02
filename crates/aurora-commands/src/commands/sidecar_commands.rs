@@ -168,6 +168,24 @@ pub struct AgentFileContextResponse {
     pub message: Option<String>,
 }
 
+/// Quick pre-flight health check against the running sidecar. Returns Ok(true)
+/// when the sidecar responds within the timeout, Ok(false) on any failure.
+/// Used before longer agent calls so the user gets a clear "sidecar unreachable"
+/// error instead of waiting for a 130-second HTTP timeout.
+async fn sidecar_preflight_health(port: u16) -> bool {
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(3))
+        .build() {
+            Ok(c) => c,
+            Err(_) => return false,
+        };
+    let url = format!("http://127.0.0.1:{}/global/health", port);
+    match client.get(&url).send().await {
+        Ok(resp) => resp.status().is_success(),
+        Err(_) => false,
+    }
+}
+
 /// Calls the local aurora-agent sidecar and returns a structured step response.
 #[command]
 #[allow(clippy::too_many_arguments)]
@@ -188,6 +206,16 @@ pub async fn agent_plan_step(
         let sidecar = state.sidecar.lock().await;
         sidecar.port().ok_or_else(|| AppError::Sidecar("aurora-agent is not running".to_string()))?
     };
+
+    // Pre-flight health check: catch a dead/unreachable sidecar in 3 seconds
+    // instead of letting the 130-second request timeout.
+    if !sidecar_preflight_health(port).await {
+        return Err(AppError::Sidecar(
+            "Unable to connect to the AI agent. The aurora-agent sidecar is not responding. \
+             Please restart the application or check Settings → AI for provider configuration."
+                .to_string(),
+        ));
+    }
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(130))
@@ -273,6 +301,15 @@ pub async fn agent_approve_tool(
         sidecar.port().ok_or_else(|| AppError::Sidecar("aurora-agent is not running".to_string()))?
     };
 
+    // Pre-flight health check before the long-running approval resume.
+    if !sidecar_preflight_health(port).await {
+        return Err(AppError::Sidecar(
+            "Unable to connect to the AI agent. The aurora-agent sidecar is not responding. \
+             Please restart the application or check Settings → AI for provider configuration."
+                .to_string(),
+        ));
+    }
+
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(130))
         .build()
@@ -320,6 +357,15 @@ pub async fn agent_decline_tool(
         let sidecar = state.sidecar.lock().await;
         sidecar.port().ok_or_else(|| AppError::Sidecar("aurora-agent is not running".to_string()))?
     };
+
+    // Pre-flight health check before the long-running decline resume.
+    if !sidecar_preflight_health(port).await {
+        return Err(AppError::Sidecar(
+            "Unable to connect to the AI agent. The aurora-agent sidecar is not responding. \
+             Please restart the application or check Settings → AI for provider configuration."
+                .to_string(),
+        ));
+    }
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(130))
@@ -719,6 +765,15 @@ fn build_ai_env(config: &AppConfig) -> Result<Vec<(String, String)>, AppError> {
     }
     if let Some(ref base_url) = config.ai.ollama.base_url {
         envs.push(("OLLAMA_BASE_URL".to_string(), base_url.clone()));
+    }
+    if let Some(ref base_url) = config.ai.anthropic.base_url {
+        envs.push(("ANTHROPIC_BASE_URL".to_string(), base_url.clone()));
+    }
+    if let Some(ref base_url) = config.ai.gemini.base_url {
+        envs.push(("GEMINI_BASE_URL".to_string(), base_url.clone()));
+    }
+    if let Some(ref base_url) = config.ai.nvidia.base_url {
+        envs.push(("NVIDIA_BASE_URL".to_string(), base_url.clone()));
     }
 
     let active = config.ai.active_provider.to_lowercase();

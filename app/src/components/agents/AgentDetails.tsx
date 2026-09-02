@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { useAgentStore, CONST_DEFAULT_SESSION_STATE } from "../../stores/useAgentStore";
 import { useAgentExecution } from "../../hooks/useAgentExecution";
+import { makeApprovalCard } from "./ToolApprovalCard";
 
 interface AgentDetailsProps {
   sessionId: string | null;
@@ -24,7 +25,27 @@ export function AgentDetails({ sessionId, onClose }: AgentDetailsProps) {
     queue,
     stepCount,
     maxSteps,
+    pendingToolCall,
+    approveAndRunPending,
+    declinePending,
+    submitAnswer,
   } = useAgentExecution(sessionId);
+
+  const isPaused = status === "paused";
+  const pendingApprovalCmd = queue.find((cmd) => cmd.status === "requires_action") || null;
+  const [approvalRunning, setApprovalRunning] = useState(false);
+
+  const handleApprove = async () => {
+    setApprovalRunning(true);
+    try {
+      await approveAndRunPending();
+    } finally {
+      setApprovalRunning(false);
+    }
+  };
+  const handleSkip = async () => {
+    await declinePending();
+  };
 
   // Stats / duration timer
   const [durationSecs, setDurationSecs] = useState<number>(0);
@@ -143,6 +164,31 @@ export function AgentDetails({ sessionId, onClose }: AgentDetailsProps) {
             </div>
           )}
         </div>
+
+        {/* Section: Pending Approvals */}
+        {(isPaused && (pendingToolCall?.name === "ask_user" || pendingToolCall?.name === "write_file" || pendingToolCall?.name === "patch_file" || pendingApprovalCmd)) && (
+          <div className="space-y-2">
+            <div className="text-xs font-bold tracking-wider text-white/40">
+              Pending Approval
+            </div>
+            {makeApprovalCard({
+              isPaused,
+              pendingToolCall,
+              pendingApprovalCmd,
+              pendingAsk:
+                isPaused && pendingToolCall?.name === "ask_user"
+                  ? {
+                      question:
+                        pendingToolCall.args?.question || "The agent has a clarifying question.",
+                    }
+                  : null,
+              onApprove: handleApprove,
+              onSkip: handleSkip,
+              onSubmit: submitAnswer,
+              isRunning: approvalRunning,
+            })}
+          </div>
+        )}
       </div>
     </div>
   );

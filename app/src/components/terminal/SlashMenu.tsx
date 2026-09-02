@@ -30,7 +30,7 @@ export interface SlashMenuHandle {
 
 interface SlashMenuProps {
   open: boolean;
-  value: string;
+  filter: string;
   inputRef: React.RefObject<HTMLTextAreaElement | null>;
   onInsert: (text: string) => void;
 }
@@ -59,11 +59,9 @@ function readContainerStyle(el: HTMLElement) {
 }
 
 export const SlashMenu = forwardRef<SlashMenuHandle, SlashMenuProps>(
-  ({ open, value, inputRef, onInsert }, ref) => {
+  ({ open, filter, inputRef, onInsert }, ref) => {
     const [highlight, setHighlight] = useState(0);
     const listRef = useRef<HTMLDivElement>(null);
-
-    const filter = value.match(/(?:^|\s)\/(\w*)$/)?.[1] ?? "";
     const filtered = useMemo(
       () => SLASH_COMMANDS.filter((c) => c.command.slice(1).startsWith(filter)),
       [filter]
