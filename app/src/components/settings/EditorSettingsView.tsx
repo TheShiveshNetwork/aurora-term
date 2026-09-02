@@ -71,6 +71,12 @@ export default function EditorSettingsView() {
         </FieldRow>
       </div>
 
+      <div id="setting-sticky-scroll">
+        <FieldRow label="Sticky Scroll" description="Pin enclosing scope opening lines (functions, classes, blocks) to the top while scrolling">
+          <ToggleSwitch checked={draft.config.editor.sticky_scroll} onChange={(v) => updateDraft((d) => { d.config.editor.sticky_scroll = v; })} />
+        </FieldRow>
+      </div>
+
       <div id="setting-lsp-enabled">
         <FieldRow label="Language Server (LSP)" description="Download and run language servers on demand for diagnostics, completions, and hover">
           <ToggleSwitch checked={draft.config.editor.lsp_enabled} onChange={(v) => updateDraft((d) => { d.config.editor.lsp_enabled = v; })} />

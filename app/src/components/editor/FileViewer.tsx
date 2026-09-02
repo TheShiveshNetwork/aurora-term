@@ -16,6 +16,7 @@ import { useSettingsStore } from "../../stores/useSettingsStore";
 import { closeAllPopups } from "../../lib/popups";
 import { getEditorTheme, createThemeCompartment } from "./editorThemes";
 import { createMinimapExtension, toggleMinimap } from "./minimapExtension";
+import { createStickyScrollExtension, toggleStickyScroll } from "./stickyScrollExtension";
 import { getLinterSource } from "./linterSources";
 import { inlineCompletion } from "./aiExtensions";
 import { mergeConflictResolver } from "./mergeConflictExtension";
@@ -77,26 +78,55 @@ if (typeof document !== "undefined") {
 
     /* Structural size constraints only (no color/theme overrides) so tooltips
        and panels never overflow the editor viewport, including very long lines
-       in hover docs. */
-    .cm-lsp-hover-tooltip, .cm-lsp-documentation {
+       in hover docs. Fixed width + height with overflow scroll on both axes
+       ensures the hover details view never spills outside the editor. */
+    .cm-lsp-hover-tooltip {
+      width: min(640px, var(--editor-tooltip-maxw, 92vw));
+      height: auto;
       max-width: min(640px, var(--editor-tooltip-maxw, 92vw));
       max-height: var(--editor-tooltip-maxh, 52vh);
-      overflow: auto;
+      overflow-x: auto;
+      overflow-y: auto;
+      box-sizing: border-box;
+    }
+    .cm-lsp-documentation {
+      max-width: 100%;
+      max-height: 100%;
+      overflow-x: auto;
+      overflow-y: auto;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+    }
+    .cm-lsp-documentation pre,
+    .cm-lsp-documentation code {
+      max-width: 100%;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-wrap: break-word;
     }
     .cm-lsp-signature-tooltip {
+      width: min(640px, var(--editor-tooltip-maxw, 92vw));
       max-width: min(640px, var(--editor-tooltip-maxw, 92vw));
       max-height: var(--editor-tooltip-maxh, 40vh);
-      overflow: auto;
+      overflow-x: auto;
+      overflow-y: auto;
+      box-sizing: border-box;
     }
     .cm-lsp-rename-panel, .cm-lsp-reference-panel, .cm-panel-lint {
+      width: min(560px, var(--editor-tooltip-maxw, 92vw));
       max-width: min(560px, var(--editor-tooltip-maxw, 92vw));
       max-height: var(--editor-tooltip-maxh, 52vh);
-      overflow: auto;
+      overflow-x: auto;
+      overflow-y: auto;
+      box-sizing: border-box;
     }
     .cm-tooltip-autocomplete {
+      width: var(--editor-tooltip-maxw, 92vw);
       max-width: var(--editor-tooltip-maxw, 92vw);
       max-height: var(--editor-tooltip-maxh, 50vh);
+      overflow-x: hidden;
       overflow-y: auto;
+      box-sizing: border-box;
     }
     .cm-code-action-menu {
       max-width: min(320px, 92vw);
@@ -172,11 +202,13 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
   const aiLiveSuggestions = useSettingsStore((s) => s.aiLiveSuggestions);
   const indentMarkers = useSettingsStore((s) => s.indentMarkers);
   const lspEnabled = useSettingsStore((s) => s.lspEnabled);
+  const stickyScroll = useSettingsStore((s) => s.stickyScroll);
   const editorFontSize = useSettingsStore((s) => s.editorFontSize);
   const [editorZoom, setEditorZoom] = useState(editorFontSize);
   const wordWrapCompartmentRef = useRef<Compartment | null>(null);
   const zoomCompartmentRef = useRef<Compartment | null>(null);
   const indentMarkersCompartmentRef = useRef<Compartment | null>(null);
+  const stickyScrollCompartmentRef = useRef<Compartment | null>(null);
   const searchPanelCompartmentRef = useRef<Compartment | null>(null);
   const lspCompartmentRef = useRef<Compartment | null>(null);
   // Holds the resolved LSP extension set so a view (re)created while the server
@@ -407,6 +439,10 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
           indentMarkersCompartmentRef.current = new Compartment();
         }
 
+        if (!stickyScrollCompartmentRef.current) {
+          stickyScrollCompartmentRef.current = new Compartment();
+        }
+
         if (!searchPanelCompartmentRef.current) {
           searchPanelCompartmentRef.current = new Compartment();
         }
@@ -486,10 +522,14 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
           zoomCompartmentRef.current!.of(EditorView.theme({
             ".cm-content": { fontSize: `${editorZoom}px` },
             ".cm-gutters": { fontSize: `${editorZoom}px` },
-            ".cm-scroller": { fontSize: `${editorZoom}px` }
+            ".cm-scroller": { fontSize: `${editorZoom}px` },
+            // Sticky scroll bar lives outside .cm-scroller, so it must opt into
+            // the same font size to stay visually aligned with editor lines.
+            ".cm-stickyscroll-container": { fontSize: `${editorZoom}px` }
           })),
           createMinimapExtension(showMinimap),
           indentMarkersCompartmentRef.current.of(indentMarkers ? indentMarkersExtension() : []),
+          stickyScrollCompartmentRef.current.of(createStickyScrollExtension(stickyScroll)),
           searchPanelCompartmentRef.current.of([]),
           lspCompartmentRef.current.of(lspExtRef.current ?? []),
           EditorView.updateListener.of((update) => {
@@ -1048,6 +1088,13 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
       )
     });
   }, [indentMarkers]);
+
+  // React to stickyScroll toggle
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view || !stickyScrollCompartmentRef.current) return;
+    view.dispatch(toggleStickyScroll(stickyScroll));
+  }, [stickyScroll]);
 
   // Keep the LSP/lint UI font size in sync with the editor's actual displayed
   // text size (editorZoom), so the hover/diagnostics/completion UI matches the

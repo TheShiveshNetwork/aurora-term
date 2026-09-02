@@ -46,6 +46,7 @@ export function applyAppConfig(cfg: AppConfig) {
   settings.setAiLiveSuggestions(cfg.editor.ai_live_suggestions !== false);
   settings.setIndentMarkers(cfg.editor.indent_markers !== false);
   settings.setLspEnabled(cfg.editor.lsp_enabled !== false);
+  settings.setStickyScroll(cfg.editor.sticky_scroll !== false);
 
   // Cloud sync + update notifications
   settings.setCloudAutoSync(cfg.cloud?.auto_sync ?? false);

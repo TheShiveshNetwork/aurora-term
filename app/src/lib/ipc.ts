@@ -60,6 +60,7 @@ export interface EditorConfig {
   ai_live_suggestions: boolean;
   indent_markers: boolean;
   lsp_enabled: boolean;
+  sticky_scroll: boolean;
   font_size: number;
 }
 
