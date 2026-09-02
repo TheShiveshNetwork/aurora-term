@@ -2,14 +2,24 @@ import type { OutputProcessor } from "@mastra/core/processors";
 
 /**
  * Validates that the agent's final output is the expected JSON envelope:
- *   {"status":"completed|executing|error","planning":"...","conclusion":"...","message":"..."}
+ *   {"status":"executing|completed|error","planning":"...","conclusion":"...","message":"..."}
  *
- * The actual retry-on-failure loop lives upstream in `server.ts`
- * (`runAgentStreamValidated`), which re-prompts the model (up to a max number
- * of attempts) whenever the emitted text is not a valid envelope. This keeps
- * the user-facing response reliably structured instead of surfacing a raw
- * "FORMAT ERROR" string. The frontend's `sanitizeMessage()` remains the final
- * safety net if every attempt still fails.
+ * ENFORCEMENT LAYERS (see #52):
+ *   1. Framework — Mastra structured output (`structuredOutput: { schema }` on
+ *      the generate/stream calls in server.ts) validates/repairs the model's
+ *      final object against the shared zod schema (schemas/auraEnvelope.ts).
+ *      When this succeeds, server.ts canonicalizes the validated object into
+ *      the response text and no further checking is needed.
+ *   2. Retry — `runAgentStreamValidated` in server.ts. If the structured pass
+ *      produced no object, it checks the emitted text with
+ *      `isValidAuraEnvelope` below and, on failure, re-prompts the model (up
+ *      to MAX_FORMAT_RETRIES attempts) with a corrective reminder instead of
+ *      surfacing a raw "FORMAT ERROR".
+ *   3. Frontend — the UI's `sanitizeMessage()` remains the final safety net if
+ *      every attempt still fails.
+ *
+ * This processor itself is a deliberate PASS-THROUGH: rejecting here would
+ * abort the run with no way to re-prompt, so validation + retry live upstream.
  */
 export function isValidAuraEnvelope(text: string): boolean {
   let src = text.trim();

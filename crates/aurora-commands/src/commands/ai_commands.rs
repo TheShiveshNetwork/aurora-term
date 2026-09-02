@@ -3,11 +3,12 @@ use std::collections::HashMap;
 use crate::state::AppState;
 use aurora_core::AppError;
 use aurora_core::config::AppConfig;
-use aurora_core::types::ai::{TaskTier, ModelInfo};
+use aurora_core::types::ai::ModelInfo;
 use aurora_ai::{AiRouter, AiTask, AiProvider};
 use aurora_ai::providers::anthropic::AnthropicProvider;
 use aurora_ai::providers::openai::OpenAiCompatProvider;
 use aurora_ai::providers::gemini::GeminiProvider;
+use aurora_ai::providers::groq::{GroqProvider, GROQ_DEFAULT_BASE_URL};
 use aurora_ai::providers::ollama::OllamaProvider;
 use aurora_ai::providers::{OPENAI_TOOL_PREFIXES, NIM_TOOL_PREFIXES};
 use aurora_config::KeychainManager;
@@ -72,7 +73,7 @@ fn build_provider(
         "groq" => {
             let key = KeychainManager::get_api_key("groq")?;
             let (fast, balanced, powerful) = config.ai.groq.effective_models();
-            Ok(Box::new(OpenAiCompatProvider::new(
+            Ok(Box::new(GroqProvider::new(
                 key,
                 config.ai.groq.base_url.clone(),
                 fast,
@@ -174,15 +175,15 @@ pub async fn ai_test_provider(
     provider: String,
 ) -> Result<bool, AppError> {
     let config = state.config.lock().await;
-    let built = build_provider(&provider, &config)?;
-    let model = built.model_for_tier(TaskTier::Fast);
-    // A simple status check or quick ping
+    // Build only to validate that this provider is constructible with the
+    // current config; model IDs may legitimately be unset until discovered
+    // from the provider's live list.
+    let _built = build_provider(&provider, &config)?;
     if provider == "ollama" {
         // Handled internally in Ollama constructor
         return Ok(true);
     }
-    let has_key = KeychainManager::has_api_key(&provider);
-    Ok(has_key && !model.is_empty())
+    Ok(KeychainManager::has_api_key(&provider))
 }
 
 #[command]
@@ -221,8 +222,8 @@ pub async fn ai_fetch_models(
         "groq" => {
             let key = KeychainManager::get_api_key("groq")?;
             let base_url = config.ai.groq.base_url.clone()
-                .unwrap_or_else(|| "https://api.groq.com/openai/v1".to_string());
-            OpenAiCompatProvider::list_models(&key, &base_url, OPENAI_TOOL_PREFIXES).await
+                .unwrap_or_else(|| GROQ_DEFAULT_BASE_URL.to_string());
+            GroqProvider::list_models(&key, &base_url).await
         }
         _ => Err(AppError::Ai(format!("Unknown provider: {}", provider))),
     }

@@ -29,7 +29,10 @@ export const writeFileTool = createTool({
   execute: async (input, context) => {
     const { resumeData, suspend } = context?.agent ?? {};
 
-    // Gated by settings check
+    // Gated by settings check — but only suspend on the INITIAL call (no
+    // resumeData). When the tool is resumed after approval, resumeData will
+    // be present and we must NOT re-suspend (which would create an infinite
+    // approval loop).
     if (reviewSettings.requireReviewForWrites && !resumeData) {
       toolLog.info('Suspending — awaiting approval for file write', {
         path: input.path,
@@ -48,7 +51,8 @@ export const writeFileTool = createTool({
       return { success: false, error: 'User rejected the file write operation.' };
     }
 
-    toolLog.info('Writing file', { path: input.path, contentLength: input.content.length });
+    const fullPathForLog = safeResolve(input.path);
+    toolLog.info('Writing file', { path: input.path, fullPath: fullPathForLog, contentLength: input.content.length });
     try {
       const fullPath = safeResolve(input.path);
       const parentDir = path.dirname(fullPath);
@@ -56,10 +60,10 @@ export const writeFileTool = createTool({
         await fs.promises.mkdir(parentDir, { recursive: true });
       }
       await fs.promises.writeFile(fullPath, input.content, 'utf8');
-      toolLog.debug('File written', { path: input.path });
+      toolLog.debug('File written', { path: input.path, fullPath });
       return { success: true };
     } catch (err: any) {
-      toolLog.error('Failed to write file', { path: input.path, error: err.message });
+      toolLog.error('Failed to write file', { path: input.path, fullPath: safeResolve(input.path), error: err.message });
       return { success: false, error: err.message || String(err) };
     }
   },

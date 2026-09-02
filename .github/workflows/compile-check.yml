@@ -23,7 +23,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check:
+  compile-check:
     strategy:
       fail-fast: false
       matrix:

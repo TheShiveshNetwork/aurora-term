@@ -64,6 +64,14 @@ export function ProviderDetailView({
     [models]
   );
 
+  // The provider's live model list is the source of truth. If the configured
+  // model isn't in it (e.g. sunset by the provider since it was picked), warn
+  // here instead of letting every AI request fail with a silent 400.
+  const modelUnavailable = useMemo(() => {
+    if (loadingModels || models.length === 0 || !effectiveModel) return false;
+    return !models.some((m) => m.id === effectiveModel);
+  }, [models, loadingModels, effectiveModel]);
+
   const fetchModels = async () => {
     setLoadingModels(true);
     setModelsError(null);
@@ -78,9 +86,19 @@ export function ProviderDetailView({
     }
   };
 
+  // Models are only listed once the provider is usable: cloud providers need
+  // an API key first; Ollama just needs its server. Until then we show a
+  // "Not configured" hint instead of attempting a doomed request.
+  const canListModels = !providerInfo.requiresApiKey || keyringHasKey;
+
   useEffect(() => {
+    if (!canListModels) {
+      setModels([]);
+      setModelsError(null);
+      return;
+    }
     fetchModels();
-  }, [name]);
+  }, [name, keyringHasKey]);
 
   useEffect(() => {
     if (keyringHasKey) {
@@ -95,6 +113,9 @@ export function ProviderDetailView({
     try {
       await ai.saveApiKey(name, apiKey);
       onApiKeyChange?.();
+      // Key just became available — pull the live model list right away so
+      // the picker populates without leaving the page.
+      fetchModels();
     } catch (err) {
       onApiKeyError?.(`Failed to save API key: ${err instanceof Error ? err.message : "Unknown error"}`);
     }
@@ -262,48 +283,64 @@ export function ProviderDetailView({
             <label className="text-xs font-medium text-[#E8EAF0]/50 tracking-wider">
               Model
             </label>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={fetchModels}
-              disabled={loadingModels}
-            >
-              <RefreshCw size={10} className={loadingModels ? "animate-spin" : ""} />
-              {loadingModels ? "Loading" : "Refresh"}
-            </Button>
+            {canListModels && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={fetchModels}
+                disabled={loadingModels}
+              >
+                <RefreshCw size={10} className={loadingModels ? "animate-spin" : ""} />
+                {loadingModels ? "Loading" : "Refresh"}
+              </Button>
+            )}
           </div>
-          {loadingModels && (
-            <div className="text-xs text-[#E8EAF0]/40 px-3 py-2 rounded-lg bg-white/[0.02] border border-white/[0.04] mb-2">
-              Fetching available models...
+          {!canListModels ? (
+            <div className="text-xs text-[#E8EAF0]/50 py-2 mb-2">
+              Not configured — add an API key above to load the available models.
             </div>
+          ) : (
+            <>
+              {loadingModels && (
+                <div className="text-xs text-[#E8EAF0]/40 py-2 mb-2">
+                  Fetching available models...
+                </div>
+              )}
+              {modelsError && !loadingModels && models.length === 0 && (
+                <div className="text-xs text-red-400/60 py-2mb-2">
+                  Could not fetch models. Enter model ID manually below.
+                </div>
+              )}
+              {!loadingModels && models.length > 0 && (
+                <div className="text-xs text-[#E8EAF0]/40 py-2 mb-2">
+                  {models.length} model{models.length !== 1 ? "s" : ""} available
+                </div>
+              )}
+              {modelUnavailable && (
+                <div className="text-xs text-amber-400/80 py-2 mb-2">
+                  <span className="font-medium">{effectiveModel}</span> isn't in {providerInfo.displayName}'s
+                  available models. Pick a current model below.
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <div className="flex-1">
+                  <Input
+                    variant="select"
+                    value={effectiveModel}
+                    options={modelOptions}
+                    placeholder="Model ID"
+                    onChange={(val) => updateDraft((d) => {
+                      const p = (d.config.ai as any)[name];
+                      if (p) p.selected_model = val;
+                    })}
+                  />
+                </div>
+              </div>
+              <p className="text-[10px] text-[#E8EAF0]/30 mt-1.5">
+                This single model is used for all AI features in both the agent view and terminal view.
+              </p>
+            </>
           )}
-          {modelsError && !loadingModels && models.length === 0 && (
-            <div className="text-xs text-red-400/60 px-3 py-2 rounded-lg bg-red-500/5 border border-red-500/10 mb-2">
-              Could not fetch models. Enter model ID manually below.
-            </div>
-          )}
-          {!loadingModels && models.length > 0 && (
-            <div className="text-xs text-[#E8EAF0]/40 px-3 py-2 rounded-lg bg-white/[0.02] border border-white/[0.04] mb-2">
-              {models.length} model{models.length !== 1 ? "s" : ""} available
-            </div>
-          )}
-          <div className="flex items-center gap-2">
-            <div className="flex-1">
-              <Input
-                variant="select"
-                value={effectiveModel}
-                options={modelOptions}
-                placeholder="Model ID"
-                onChange={(val) => updateDraft((d) => {
-                  const p = (d.config.ai as any)[name];
-                  if (p) p.selected_model = val;
-                })}
-              />
-            </div>
-          </div>
-          <p className="text-[10px] text-[#E8EAF0]/30 mt-1.5">
-            This single model is used for all AI features in both the agent view and terminal view.
-          </p>
         </div>
 
         {/* Actions */}

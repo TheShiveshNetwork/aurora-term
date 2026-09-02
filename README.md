@@ -124,3 +124,14 @@ pnpm dev --port 5000            # custom port
 ```
 
 Requires at least one LLM API key set via environment or keychain.
+
+### Restart required after agent changes
+
+The agent sidecar runs the source directly with `tsx` (`tsx src/index.ts`). **It has no hot-reload**, so any edit to code under `packages/aurora-agent/src` (the server, agents, tools, or thinking/memory logic) is **not** picked up until the agent process is restarted.
+
+When running via `npm run tauri dev` / `pnpm tauri dev`, the sidecar is a long-lived child process managed by `aurora-sidecar`. To apply agent-side changes:
+
+1. Fully **quit the Aurora app** (not just close the window) so the sidecar is terminated, then start it again with `pnpm tauri dev`. A simple Vite/HMR reload of the frontend will *not* restart the agent.
+2. Or, if you launched the agent **manually** with `pnpm dev`, stop that process (`Ctrl+C`) and run `pnpm dev` again.
+
+The frontend (`app/`) does support HMR, so UI/React changes applied there do not require a full restart — only agent-package changes do.

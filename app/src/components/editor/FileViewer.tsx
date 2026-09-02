@@ -735,6 +735,23 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
       if (event.payload !== filePath) return;
       updateTab(tabId, { missing: true });
     }).then((u) => { unlistenDeleted = u; });
+    // Explicit agent-approved file refresh: bypasses the dirty-content guard
+    // so the editor always picks up the patched/written content immediately.
+    // Dispatched from useAgentExecution after the user approves a patch/write.
+    window.addEventListener("aurora-refresh-file", ((e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.path !== filePath) return;
+      const view = viewRef.current;
+      if (!view) return;
+      system.readFileContent(filePath).then((newContent) => {
+        const normalized = newContent.replace(/\r\n/g, "\n");
+        initialContentRef.current = normalized;
+        view.dispatch({
+          changes: { from: 0, to: view.state.doc.length, insert: normalized },
+        });
+        updateTab(tabId, { dirty: false, fileContent: normalized, missing: false });
+      }).catch(() => {});
+    }) as EventListener);
     return () => { unlistenContent?.(); unlistenDeleted?.(); };
   }, [filePath, tabId, updateTab]);
 

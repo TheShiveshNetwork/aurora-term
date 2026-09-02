@@ -30,8 +30,7 @@ import { FileUpload, FileUploadContent } from "../components/prompt-kit/file-upl
 
 // Import agent components
 import { AgentTurnMessage } from "../components/agents";
-import { CommandApprovalCard } from "../components/agents/CommandApprovalCard";
-import { QuestionApprovalCard } from "../components/agents/QuestionApprovalCard";
+import { makeApprovalCard } from "../components/agents/ToolApprovalCard";
 import type { ChatMessage } from "../stores/useAgentStore";
 
 export function AgentView() {
@@ -117,9 +116,33 @@ export function AgentView() {
 
   const sessionState = targetSessionId ? sessions[targetSessionId] || CONST_DEFAULT_SESSION_STATE : CONST_DEFAULT_SESSION_STATE;
   const isThinking = status === "planning" || status === "executing";
-  const isThinkingOrPaused = isThinking || status === "paused";
 
   const selectedModel = sessionState.model || "";
+
+  // Duration timer — derived from the store's `startedAt` so it survives
+  // remounting when the window loses focus (otherwise it resets to 0).
+  const [durationSecs, setDurationSecs] = useState<number>(0);
+  const timerRef = useRef<any>(null);
+  const startedAt = useAgentStore((s) => s.sessions[targetSessionId || ""]?.startedAt);
+
+  useEffect(() => {
+    const base = startedAt ?? Date.now();
+    if (status === "planning" || status === "executing") {
+      setDurationSecs(Math.round((Date.now() - base) / 1000));
+      if (timerRef.current) clearInterval(timerRef.current);
+      timerRef.current = setInterval(() => {
+        setDurationSecs(Math.round((Date.now() - (startedAt ?? Date.now())) / 1000));
+      }, 1000);
+    } else if (status === "completed" || status === "error") {
+      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+      const totalMs = queue.reduce((acc, cmd) => acc + (cmd.durationMs || 0), 0);
+      setDurationSecs(totalMs > 0 ? Math.round(totalMs / 1000) : Math.round((Date.now() - base) / 1000));
+    } else if (status === "idle") {
+      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+      setDurationSecs(0);
+    }
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [status, queue, startedAt]);
 
   const handleModelChange = useCallback((model: string) => {
     if (targetSessionId) {
@@ -491,7 +514,7 @@ export function AgentView() {
                           isThinking={isLastTurn && isThinking}
                           isLastTurn={isLastTurn}
                           chainNodes={turn.assistant?.chainNodes || (isLastTurn ? chainNodes : [])}
-                          durationSecs={0}
+                          durationSecs={durationSecs}
                           stepCount={isLastTurn ? stepCount : 0}
                           maxSteps={isLastTurn ? maxSteps : 0}
                           variant="full"
@@ -512,6 +535,7 @@ export function AgentView() {
                             setDislikeStates((p) => ({ ...p, [id]: !p[id] }));
                             setLikeStates((p) => ({ ...p, [id]: false }));
                           }}
+                          onRetry={retryTask}
                         />
                       );
                     })}
@@ -528,30 +552,28 @@ export function AgentView() {
                 {/* Input Area */}
                 <div className="shrink-0 pb-3 px-5 w-full">
                   <div className="max-w-[900px] mx-auto w-full flex flex-col overflow-visible">
-                    {/* Command Approval Card when awaiting approval */}
-                    {status === "paused" && (function () {
-                      const pendingCmd = queue.find((c) => c.status === "requires_action");
-                      if (!pendingCmd) return null;
-                      return (
-                        <CommandApprovalCard
-                          className="mb-3"
-                          command={pendingCmd.command}
-                          explanation={pendingCmd.explanation}
-                          onApprove={approveAndRunPending}
-                          onSkip={skipPending}
-                        />
-                      );
-                    })()}
-
-                    {/* Clarifying Question Card */}
-                    {status === "paused" && pendingToolCall?.name === "ask_user" && (
-                      <QuestionApprovalCard
-                        className="mb-3"
-                        question={pendingToolCall.args?.question || "The agent has a clarifying question."}
-                        onAnswer={submitAnswer}
-                        onSkip={skipPending}
-                      />
-                    )}
+                    {/* Approval cards (command / file write / patch / question) */}
+                    {makeApprovalCard({
+                      isPaused: status === "paused",
+                      pendingToolCall,
+                      pendingApprovalCmd: (function () {
+                        const pendingCmd = queue.find((c) => c.status === "requires_action");
+                        return pendingCmd
+                          ? { command: pendingCmd.command, explanation: pendingCmd.explanation }
+                          : null;
+                      })(),
+                      pendingAsk:
+                        status === "paused" && pendingToolCall?.name === "ask_user"
+                          ? {
+                              question:
+                                pendingToolCall.args?.question || "The agent has a clarifying question.",
+                            }
+                          : null,
+                      onApprove: approveAndRunPending,
+                      onSkip: skipPending,
+                      onSubmit: submitAnswer,
+                      className: "mb-3",
+                    })}
 
                     {/* Status Drawer inside Input container */}
                     {targetSessionId && showStatusDrawer && (

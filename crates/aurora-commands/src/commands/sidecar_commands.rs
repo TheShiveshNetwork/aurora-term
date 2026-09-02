@@ -1,7 +1,9 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 use tauri::{command, State, AppHandle, Emitter, Manager};
 use crate::state::AppState;
 use aurora_core::AppError;
+use aurora_core::config::AppConfig;
 use aurora_config::KeychainManager;
 use chrono::Local;
 use serde::{Serialize, Deserialize};
@@ -166,6 +168,24 @@ pub struct AgentFileContextResponse {
     pub message: Option<String>,
 }
 
+/// Quick pre-flight health check against the running sidecar. Returns Ok(true)
+/// when the sidecar responds within the timeout, Ok(false) on any failure.
+/// Used before longer agent calls so the user gets a clear "sidecar unreachable"
+/// error instead of waiting for a 130-second HTTP timeout.
+async fn sidecar_preflight_health(port: u16) -> bool {
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(3))
+        .build() {
+            Ok(c) => c,
+            Err(_) => return false,
+        };
+    let url = format!("http://127.0.0.1:{}/global/health", port);
+    match client.get(&url).send().await {
+        Ok(resp) => resp.status().is_success(),
+        Err(_) => false,
+    }
+}
+
 /// Calls the local aurora-agent sidecar and returns a structured step response.
 #[command]
 #[allow(clippy::too_many_arguments)]
@@ -186,6 +206,16 @@ pub async fn agent_plan_step(
         let sidecar = state.sidecar.lock().await;
         sidecar.port().ok_or_else(|| AppError::Sidecar("aurora-agent is not running".to_string()))?
     };
+
+    // Pre-flight health check: catch a dead/unreachable sidecar in 3 seconds
+    // instead of letting the 130-second request timeout.
+    if !sidecar_preflight_health(port).await {
+        return Err(AppError::Sidecar(
+            "Unable to connect to the AI agent. The aurora-agent sidecar is not responding. \
+             Please restart the application or check Settings → AI for provider configuration."
+                .to_string(),
+        ));
+    }
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(130))
@@ -254,6 +284,35 @@ pub async fn agent_stop_run(
     Ok(())
 }
 
+/// Clear a thread's conversation history on the sidecar so the agent starts
+/// fresh on the next task. Called when the user cancels a run to prevent the
+/// LLM from picking up where it left off.
+#[command]
+pub async fn agent_clear_thread(
+    state: State<'_, AppState>,
+    thread_id: String,
+) -> Result<(), AppError> {
+    let port = {
+        let sidecar = state.sidecar.lock().await;
+        sidecar
+            .port()
+            .ok_or_else(|| AppError::Sidecar("aurora-agent is not running".to_string()))?
+    };
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|e| AppError::Sidecar(format!("Failed to create HTTP client: {}", e)))?;
+    let url = format!("http://127.0.0.1:{}/api/memory/thread/{}", port, thread_id);
+
+    let _ = client
+        .delete(&url)
+        .send()
+        .await;
+
+    Ok(())
+}
+
 #[command]
 pub async fn agent_approve_tool(
     state: State<'_, AppState>,
@@ -270,6 +329,15 @@ pub async fn agent_approve_tool(
         let sidecar = state.sidecar.lock().await;
         sidecar.port().ok_or_else(|| AppError::Sidecar("aurora-agent is not running".to_string()))?
     };
+
+    // Pre-flight health check before the long-running approval resume.
+    if !sidecar_preflight_health(port).await {
+        return Err(AppError::Sidecar(
+            "Unable to connect to the AI agent. The aurora-agent sidecar is not responding. \
+             Please restart the application or check Settings → AI for provider configuration."
+                .to_string(),
+        ));
+    }
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(130))
@@ -318,6 +386,15 @@ pub async fn agent_decline_tool(
         let sidecar = state.sidecar.lock().await;
         sidecar.port().ok_or_else(|| AppError::Sidecar("aurora-agent is not running".to_string()))?
     };
+
+    // Pre-flight health check before the long-running decline resume.
+    if !sidecar_preflight_health(port).await {
+        return Err(AppError::Sidecar(
+            "Unable to connect to the AI agent. The aurora-agent sidecar is not responding. \
+             Please restart the application or check Settings → AI for provider configuration."
+                .to_string(),
+        ));
+    }
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(130))
@@ -682,24 +759,16 @@ fn kill_orphan_agents() {
 #[cfg(not(target_os = "windows"))]
 fn kill_orphan_agents() {}
 
-pub async fn spawn_sidecar_internal(
-    app_handle: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<(), AppError> {
-    let app_handle_clone = app_handle.clone();
-    // Clear any orphaned agent processes from previous sessions so they don't keep
-    // the installed binary locked (which would block an NSIS reinstall).
-    #[cfg(target_os = "windows")]
-    kill_orphan_agents();
-    let (crashed_sender, mut crashed_receiver) = tokio::sync::mpsc::unbounded_channel::<()>();
+/// Build the AI-provider environment variables (API keys, active provider,
+/// per-tier models, and custom base URLs) from the current config + OS keychain.
+///
+/// Shared by `spawn_sidecar_internal` (injected into the agent at process start)
+/// and `agent_update_settings` (pushed to a running agent). Keeping both paths in
+/// one place guarantees the live runtime settings can never drift from what the
+/// agent was originally spawned with. See issue #50.
+fn build_ai_env(config: &AppConfig) -> Result<Vec<(String, String)>, AppError> {
+    let mut envs: Vec<(String, String)> = Vec::new();
 
-    tokio::spawn(async move {
-        if crashed_receiver.recv().await.is_some() {
-            let _ = app_handle_clone.emit("agent_crashed", ());
-        }
-    });
-
-    let mut envs = Vec::new();
     if let Ok(key) = KeychainManager::get_api_key("groq") {
         envs.push(("GROQ_API_KEY".to_string(), key));
     }
@@ -720,30 +789,107 @@ pub async fn spawn_sidecar_internal(
         envs.push(("NVIDIA_API_KEY".to_string(), key));
     }
 
+    if let Some(ref base_url) = config.ai.openai.base_url {
+        envs.push(("GPT_OSS_BASE_URL".to_string(), base_url.clone()));
+    }
+    if let Some(ref base_url) = config.ai.ollama.base_url {
+        envs.push(("OLLAMA_BASE_URL".to_string(), base_url.clone()));
+    }
+    if let Some(ref base_url) = config.ai.anthropic.base_url {
+        envs.push(("ANTHROPIC_BASE_URL".to_string(), base_url.clone()));
+    }
+    if let Some(ref base_url) = config.ai.gemini.base_url {
+        envs.push(("GEMINI_BASE_URL".to_string(), base_url.clone()));
+    }
+    if let Some(ref base_url) = config.ai.nvidia.base_url {
+        envs.push(("NVIDIA_BASE_URL".to_string(), base_url.clone()));
+    }
+
+    let active = config.ai.active_provider.to_lowercase();
+    let provider_config = match active.as_str() {
+        "anthropic" => &config.ai.anthropic,
+        "openai" => &config.ai.openai,
+        "gemini" => &config.ai.gemini,
+        "nvidia" => &config.ai.nvidia,
+        "ollama" => &config.ai.ollama,
+        _ => &config.ai.groq,
+    };
+    envs.push(("ACTIVE_AI_PROVIDER".to_string(), config.ai.active_provider.clone()));
+    let (fast, balanced, powerful) = provider_config.effective_models();
+    envs.push(("ACTIVE_AI_MODEL_FAST".to_string(), fast));
+    envs.push(("ACTIVE_AI_MODEL_BALANCED".to_string(), balanced));
+    envs.push(("ACTIVE_AI_MODEL_POWERFUL".to_string(), powerful));
+
+    Ok(envs)
+}
+
+#[derive(Serialize)]
+struct AgentSettingsPush {
+    env: HashMap<String, String>,
+}
+
+/// Push the current AI settings (active provider, per-tier models, API keys, base
+/// URLs) to a running aurora-agent process so that changes made in Settings → AI
+/// apply on the next generation — no agent restart required. See issue #50.
+#[command]
+pub async fn agent_update_settings(
+    state: State<'_, AppState>,
+    config: AppConfig,
+) -> Result<(), AppError> {
+    let port = {
+        let sidecar = state.sidecar.lock().await;
+        sidecar
+            .port()
+            .ok_or_else(|| AppError::Sidecar("aurora-agent is not running".to_string()))?
+    };
+
+    let env = build_ai_env(&config)?;
+    let env_map: HashMap<String, String> = env.into_iter().collect();
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| AppError::Sidecar(format!("Failed to create HTTP client: {}", e)))?;
+    let url = format!("http://127.0.0.1:{}/api/settings", port);
+
+    let response = client
+        .post(&url)
+        .json(&AgentSettingsPush { env: env_map })
+        .send()
+        .await
+        .map_err(|e| AppError::Sidecar(format!("Failed to contact aurora-agent: {}", e)))?;
+
+    if !response.status().is_success() {
+        return Err(AppError::Sidecar(format!(
+            "aurora-agent /api/settings returned error status: {}",
+            response.status()
+        )));
+    }
+
+    Ok(())
+}
+
+pub async fn spawn_sidecar_internal(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), AppError> {
+    let app_handle_clone = app_handle.clone();
+    // Clear any orphaned agent processes from previous sessions so they don't keep
+    // the installed binary locked (which would block an NSIS reinstall).
+    #[cfg(target_os = "windows")]
+    kill_orphan_agents();
+    let (crashed_sender, mut crashed_receiver) = tokio::sync::mpsc::unbounded_channel::<()>();
+
+    tokio::spawn(async move {
+        if crashed_receiver.recv().await.is_some() {
+            let _ = app_handle_clone.emit("agent_crashed", ());
+        }
+    });
+
+    let mut envs = Vec::new();
     {
         let config = state.config.lock().await;
-        if let Some(ref base_url) = config.ai.openai.base_url {
-            envs.push(("GPT_OSS_BASE_URL".to_string(), base_url.clone()));
-        }
-        if let Some(ref base_url) = config.ai.ollama.base_url {
-            envs.push(("OLLAMA_BASE_URL".to_string(), base_url.clone()));
-        }
-
-        // Pass active provider and its resolved models
-        let active = config.ai.active_provider.to_lowercase();
-        let provider_config = match active.as_str() {
-            "anthropic" => &config.ai.anthropic,
-            "openai" => &config.ai.openai,
-            "gemini" => &config.ai.gemini,
-            "nvidia" => &config.ai.nvidia,
-            "ollama" => &config.ai.ollama,
-            _ => &config.ai.groq,
-        };
-        envs.push(("ACTIVE_AI_PROVIDER".to_string(), config.ai.active_provider.clone()));
-        let (fast, balanced, powerful) = provider_config.effective_models();
-        envs.push(("ACTIVE_AI_MODEL_FAST".to_string(), fast));
-        envs.push(("ACTIVE_AI_MODEL_BALANCED".to_string(), balanced));
-        envs.push(("ACTIVE_AI_MODEL_POWERFUL".to_string(), powerful));
+        envs.extend(build_ai_env(&config)?);
     }
 
     // ── Logging configuration for the sidecar process ──────────────────

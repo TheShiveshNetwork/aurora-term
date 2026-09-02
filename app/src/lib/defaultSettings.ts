@@ -51,7 +51,7 @@ export const DEFAULT_SETTINGS: DefaultSettings = {
   compactUi: false,
   showStatusbar: true,
   blurSidebar: false,
-  editorTheme: "dracula",
+  editorTheme: "github",
   showMinimap: true,
   keybindings: DEFAULT_KEYBINDINGS,
   keybindingOverrides: {},

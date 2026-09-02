@@ -53,6 +53,7 @@ export function CommandInputBar({
   const isPrompt = variant === "prompt";
 
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
+  const [slashOpen, setSlashOpen] = useState(false);
 
   const { isListening, toggleListening } = useVoiceInput({
     onTranscript: (text) => onChange(text),
@@ -100,10 +101,12 @@ export function CommandInputBar({
       }}
     >
       <div
-        className={`warp-input-glow flex flex-col overflow-hidden rounded-md ${isPrompt ? "backdrop-blur-xl" : ""}`}
+        className={`warp-input-glow flex flex-col transition-none overflow-hidden rounded-md ${isPrompt ? "backdrop-blur-xl" : ""}`}
         style={{
-          background: isPrompt ? "rgba(10,13,20,0.65)" : "rgba(255,255,255,0.03)",
-          border: "1px solid rgba(255,255,255,0.07)",
+          background: isPrompt ? "rgba(10,13,20,0.65)" : "rgb(23, 26, 33)",
+          border: "1px solid rgba(255,255,255,0.10)",
+          borderTop: slashOpen ? "1px solid rgba(255,255,255,0)" : "1px solid rgba(255,255,255,0.10)",
+          borderRadius: slashOpen ? "0 0 10px 10px" : "10px",
           boxShadow: isPrompt ? "0 8px 12px rgba(0,0,0,0.25)" : "0 4px 24px rgba(0,0,0,0.15)",
         }}
       >
@@ -168,6 +171,7 @@ export function CommandInputBar({
             placeholder="Type a command or describe a goal…"
             className="flex-1"
             inputMode={inputMode}
+            onSlashOpenChange={setSlashOpen}
           />
           <div className="flex items-center gap-1.5 pr-3 py-3 self-end">
             <IconButton onClick={handleAttachFile} title="Attach File">

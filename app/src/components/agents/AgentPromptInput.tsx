@@ -102,7 +102,7 @@ export function AgentPromptInput({
   }, [availableModels, selectedModel, onModelChange]);
 
   return (
-    <div className={`w-full overflow-visible bg-on-surface-variant/10 border border-on-surface/10 rounded-md relative overflow-hidden p-0 cursor-text shadow-none ${className}`}>
+    <div className={`w-full overflow-visible bg-surface-container-low border border-white/[0.08] rounded-md relative p-0 cursor-text shadow-none ${className}`}>
       {/* Attached Files List */}
       {attachedFiles.length > 0 && (
         <div className="flex flex-wrap gap-2 px-4 py-2 bg-white/[0.01] border-b border-white/[0.04] items-center">
@@ -147,7 +147,7 @@ export function AgentPromptInput({
               <button
                 onClick={onAttachClick}
                 disabled={isLoading}
-                className="flex items-center justify-center w-[34px] h-[34px] hover:bg-on-surface-variant/10 border border-transparent hover:border-on-surface-variant/20 rounded-lg text-[rgba(255,255,255,0.55)] cursor-pointer transition-all duration-150 hover:bg-[rgba(255,255,255,0.10)] disabled:opacity-30 disabled:cursor-not-allowed"
+                className="flex items-center justify-center w-[34px] h-[34px] hover:bg-white/[0.06] border border-transparent hover:border-white/[0.10] rounded-lg text-[rgba(255,255,255,0.55)] cursor-pointer transition-all duration-150 disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 <Plus size={18} />
               </button>
@@ -162,13 +162,13 @@ export function AgentPromptInput({
               >
                 <button
                   onClick={() => setIsOpen(!isOpen)}
-                  className="inline-flex items-center gap-1.5 hover:bg-on-surface-variant/10 border border-transparent hover:border-on-surface-variant/20 rounded-lg px-2.5 py-1.5 text-[13px] text-[rgba(255,255,255,0.58)] cursor-pointer font-sans whitespace-nowrap transition-all duration-150"
+                  className="inline-flex items-center gap-1.5 hover:bg-white/[0.06] border border-transparent hover:border-white/[0.10] rounded-lg px-2.5 py-1.5 text-[13px] text-[rgba(255,255,255,0.58)] cursor-pointer font-sans whitespace-nowrap transition-all duration-150"
                 >
                   {selectedModel || availableModels[0]} <ChevronDown size={12} />
                 </button>
 
                 {isOpen && (
-                  <div className="absolute bottom-full left-0 mb-1 w-48 bg-[#2c2c2c] border border-outline-variant/10 rounded-sm shadow-2xl p-1.5 z-50 flex flex-col gap-0.5">
+                  <div className="absolute bottom-full left-0 mb-1 w-48 bg-[#0F131A] border border-white/[0.08] rounded-lg shadow-2xl p-1.5 z-50 flex flex-col gap-0.5">
                     {availableModels.map((model) => (
                       <button
                         key={model}
@@ -176,9 +176,9 @@ export function AgentPromptInput({
                           onModelChange?.(model);
                           setIsOpen(false);
                         }}
-                        className={`w-full text-left px-2.5 py-2 text-[12.5px] rounded-sm cursor-pointer transition-colors ${selectedModel === model
-                          ? "bg-on-surface-variant/15 text-white font-medium border border-on-surface-variant/10"
-                          : "text-white/60 hover:text-white/95 border border-transparent hover:border-on-surface-variant/10 hover:bg-on-surface-variant/10"
+                        className={`w-full text-left px-2.5 py-2 text-[12.5px] rounded-md cursor-pointer transition-colors ${selectedModel === model
+                          ? "bg-[rgba(79,140,255,0.12)] text-[#4F8CFF] border border-[rgba(79,140,255,0.20)]"
+                          : "text-white/60 hover:text-white/95 border border-transparent hover:border-white/[0.08] hover:bg-white/[0.04]"
                           }`}
                       >
                         {model}
@@ -188,7 +188,7 @@ export function AgentPromptInput({
                 )}
               </div>
             ) : (
-              <button className="inline-flex items-center gap-1.5 hover:bg-on-surface-variant/10 border border-transparent hover:border-on-surface-variant/20 rounded-lg px-2.5 py-1.5 text-[13px] text-[rgba(255,255,255,0.58)] cursor-pointer font-sans whitespace-nowrap transition-all duration-150">
+              <button className="inline-flex items-center gap-1.5 hover:bg-white/[0.06] border border-transparent hover:border-white/[0.10] rounded-lg px-2.5 py-1.5 text-[13px] text-[rgba(255,255,255,0.58)] cursor-pointer font-sans whitespace-nowrap transition-all duration-150">
                 No model <ChevronDown size={12} />
               </button>
             )}
@@ -196,7 +196,7 @@ export function AgentPromptInput({
               <PromptInputAction tooltip={showStatusDrawer ? "Hide Status Drawer" : "Show Status Drawer"}>
                 <button
                   onClick={onToggleStatusDrawer}
-                  className={`flex items-center justify-center w-[34px] h-[34px] rounded-lg transition-all duration-150 border border-transparent hover:border-on-surface-variant/20 cursor-pointer hover:bg-on-surface-variant/10`}
+                  className={`flex items-center justify-center w-[34px] h-[34px] rounded-lg transition-all duration-150 border border-transparent hover:border-white/[0.10] cursor-pointer hover:bg-white/[0.06]`}
                 >
                   <Ellipsis size={16} />
                 </button>
@@ -244,7 +244,7 @@ export function AgentPromptInput({
               <button
                 onClick={onSubmit}
                 disabled={!value.trim() || isLoading}
-                className="flex items-center justify-center w-9 h-9 bg-[#4553d4] border-none rounded-lg cursor-pointer shrink-0 transition-all duration-150 hover:bg-[#5f6df0] disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex items-center justify-center w-9 h-9 bg-[#4F8CFF] border-none rounded-lg cursor-pointer shrink-0 transition-all duration-150 hover:bg-[#3A7AEE] disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <ArrowUp size={18} />
               </button>

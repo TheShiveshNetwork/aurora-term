@@ -16,8 +16,8 @@ export default function PermissionsSettingsView() {
 
       <div className="space-y-3 pt-2">
         <FieldRow
-          label="Require review for terminal commands"
-          description="Prompt for approval before executing any command planned by the agent."
+          label="Require review for terminal view"
+          description="In a terminal tab, prompt for approval before the agent runs any tool (commands, or file edits made from the terminal)."
         >
           <ToggleSwitch
             checked={!!draft.config.ai.require_review_for_commands}
@@ -26,8 +26,8 @@ export default function PermissionsSettingsView() {
         </FieldRow>
 
         <FieldRow
-          label="Require review for file changes"
-          description="Prompt for approval before writing or modifying any files in the workspace."
+          label="Require review for file view"
+          description="In a file, diff, git, merge or agent view, prompt for approval before the agent runs any tool (file writes/patches, or commands)."
         >
           <ToggleSwitch
             checked={!!draft.config.ai.require_review_for_writes}

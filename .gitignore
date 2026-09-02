@@ -36,3 +36,5 @@ site/supabase/.temp
 site/supabase/functions/*/.env
 
 *.tsbuildinfo
+# Agent sidecar local DB (LibSQL/InMemory fallback)
+.aura/

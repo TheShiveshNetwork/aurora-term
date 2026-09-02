@@ -10,7 +10,6 @@ import { useSessionStore } from "../stores/useSessionStore";
 import { pty, system, config } from "../lib/ipc";
 import { Block } from "@aurora/types";
 
-// ── Constants ──────────────────────────────────────────────────────────────
 const HEAD_TAIL_CHARS = 200;
 
 function truncateOutput(output: string): string {
@@ -18,8 +17,7 @@ function truncateOutput(output: string): string {
   return `[Output truncated: ${output.length} characters total]\n\nFirst ${HEAD_TAIL_CHARS} characters:\n${output.slice(0, HEAD_TAIL_CHARS)}\n\nLast ${HEAD_TAIL_CHARS} characters:\n${output.slice(-HEAD_TAIL_CHARS)}`;
 }
 
-// Guarantees the chain-of-thought Planning/Conclusion nodes reflect the agent's
-// reasoning even if the live poll missed the tail of a very fast stream.
+// Guarantees the chain-of-thought Planning/Conclusion nodes reflect the agent's reasoning even if the live poll missed the tail of a very fast stream.
 async function syncFinalThinking(sessionId: string) {
   try {
     const res = await system.agentGetThinking(sessionId);
@@ -38,13 +36,7 @@ async function syncFinalThinking(sessionId: string) {
   }
 }
 
-// ── Active file context builder ───────────────────────────────────────────
-// Returns context for the SINGLE file open in the active tab only — never
-// every open file in the window. The sidecar injects a short preview plus a
-// directive to use read_file for full contents, and patch_file/write_file to
-// edit. If the user has lines selected in the editor, the selection is sent
-// too so the agent knows exactly which lines are being referenced. Returns
-// null when the session has no active file tab.
+// Returns context for the SINGLE file open in the active tab only
 async function buildFileContext(sessionId: string | null): Promise<string | null> {
   if (!sessionId) return null;
   const activeTab = useSessionStore.getState().tabs.find((t) => t.id === sessionId);
@@ -76,23 +68,65 @@ async function buildFileContext(sessionId: string | null): Promise<string | null
   return null;
 }
 
-// ── Duplicate tool-call guard (ADR §19.4) ──────────────────────────────────
-// If the model proposes the exact same tool call 3× in a row, auto-decline it so
-// a stuck agent can't loop forever (e.g. re-reading the same file). The resume
-// flow now returns real tool output, so this is only a secondary safety net.
 const recentToolCalls = new Map<string, string[]>();
 function toolCallKey(name?: string, args?: any): string {
-  return `${name}::${JSON.stringify(args ?? {})}`;
+  const normalised = JSON.stringify(args ?? {})
+    .replace(/\s+/g, " ")
+    .trim();
+  return `${name}::${normalised}`;
 }
 function isRepeatedToolCall(sessionId: string, key: string): boolean {
   const arr = recentToolCalls.get(sessionId) ?? [];
-  const repeat = arr.length >= 2 && arr[arr.length - 1] === key && arr[arr.length - 2] === key;
+  const repeat = arr.length >= 1 && arr[arr.length - 1] === key;
   arr.push(key);
   recentToolCalls.set(sessionId, arr.slice(-6));
   return repeat;
 }
 function resetToolCallGuard(sessionId: string) {
   recentToolCalls.delete(sessionId);
+}
+
+async function openPendingDiffTabs(sessionId: string) {
+  const snap = useAgentStore.getState().sessions[sessionId];
+  if (!snap?.filesChanged?.length) return;
+  const sessionStore = useSessionStore.getState();
+  for (const file of snap.filesChanged) {
+    if (!file.path) continue;
+    const existingTab = sessionStore.tabs.find(
+      (t) => t.type === "diff" && t.filePath === file.path && t.diffCommitHash === "pending-agent-change"
+    );
+    if (existingTab) {
+      // Tab already exists (e.g. opened manually via StatusDrawer) — just focus it.
+      sessionStore.setActiveTabId(existingTab.id);
+      continue;
+    }
+    try {
+      let oldContent = "";
+      const exists = await system.pathExists(file.path);
+      if (exists) {
+        oldContent = await system.readFileContent(file.path);
+      }
+      let resolvedNew = file.newContent || "";
+      if (file.type === "patch" && file.search) {
+        resolvedNew = oldContent.replace(file.search, file.replace || "");
+      }
+      const fileName = file.path.split(/[/\\]/).pop() || file.path;
+      const tabId = `diff-agent-${Date.now()}-${fileName}`;
+      sessionStore.addTab({
+        id: tabId,
+        name: `\u2699 Draft: ${fileName}`,
+        type: "diff",
+        filePath: file.path,
+        diffOldContent: oldContent,
+        diffNewContent: resolvedNew,
+        diffCommitHash: "pending-agent-change",
+        created_at: Date.now(),
+      });
+      sessionStore.setActiveTabId(tabId);
+    } catch (err) {
+      console.warn("Failed to open agent diff tab:", err);
+    }
+  }
 }
 
 // ── Sensitive command detection ───────────────────────────────────────────
@@ -232,6 +266,11 @@ export function useAgentExecution(sessionId: string | null) {
 
     // 1. Gated Tool Approval Suspension
     if (step.status === "requires_approval") {
+      // Per-view gating: a "terminal" tab uses the terminal (command) setting, while
+      // file/diff/git/merge/agent views use the file (write) setting.
+      const isTerminalView =
+        useSessionStore.getState().tabs.find((t) => t.id === targetSessionId)?.type === "terminal";
+
       // Secondary safety net: auto-decline the 3rd identical tool call in a row
       // so a stuck model can't loop forever (e.g. re-reading the same file).
       const dupKey = toolCallKey(step.tool_name, step.args);
@@ -279,9 +318,10 @@ export function useAgentExecution(sessionId: string | null) {
 
         const explanation = step.args.explanation || `Executing: ${cmd}`;
 
-        // Auto-approve if require_review_for_commands is disabled
+        // Auto-approve when review is disabled for this view
         const cfg = await config.get();
-        if (!cfg.ai.require_review_for_commands) {
+        const reviewEnabled = isTerminalView ? cfg.ai.require_review_for_commands : cfg.ai.require_review_for_writes;
+        if (!reviewEnabled) {
           const freshSession = useAgentStore.getState().sessions[targetSessionId] || defaultSessionState();
           const newIndex = freshSession.queue.length;
           state.addCommandToQueue(targetSessionId, cmd, explanation, "pending");
@@ -331,9 +371,10 @@ export function useAgentExecution(sessionId: string | null) {
           command: cmd,
         });
       } else if (step.tool_name === "write_file" || step.tool_name === "patch_file") {
-        // Auto-approve if require_review_for_writes is disabled
+        // Auto-approve when review is disabled for this view
         const cfg = await config.get();
-        if (!cfg.ai.require_review_for_writes) {
+        const reviewEnabled = isTerminalView ? cfg.ai.require_review_for_commands : cfg.ai.require_review_for_writes;
+        if (!reviewEnabled) {
           state.resumeTask(targetSessionId);
           const stepResult = await system.agentApproveTool(
             useAgentStore.getState().sessions[targetSessionId]?.agentType || "terminal",
@@ -341,9 +382,19 @@ export function useAgentExecution(sessionId: string | null) {
             step.run_id,
             step.tool_call_id,
             { approved: true },
-            targetSessionId
+            targetSessionId,
+            step.tool_name,
+            step.args
           );
           state.setPendingToolCall(targetSessionId, null);
+          // Trigger file viewer refresh for the patched/written file so the
+          // editor picks up the new content immediately.
+          const writtenPath = step.args.path;
+          if (writtenPath) {
+            window.dispatchEvent(new CustomEvent("aurora-refresh-file", {
+              detail: { path: writtenPath },
+            }));
+          }
           await handleStepResult(targetSessionId, taskId, stepResult);
           return;
         }
@@ -376,16 +427,6 @@ export function useAgentExecution(sessionId: string | null) {
         });
         // Auto-open the Files tab so the user sees the pending change immediately
         state.setActiveDrawerTab(targetSessionId, "files");
-        // Emit event to auto-open diff tab for review
-        window.dispatchEvent(new CustomEvent("aurora-agent-file-change", {
-          detail: {
-            path: step.args.path,
-            type: step.tool_name === "write_file" ? "write" : "patch",
-            newContent: step.args.content || "",
-            search: step.args.search,
-            replace: step.args.replace,
-          },
-        }));
       } else if (step.tool_name === "ask_user") {
         // Add chain node for question
         state.addChainNode(targetSessionId, {
@@ -406,9 +447,6 @@ export function useAgentExecution(sessionId: string | null) {
           content: step.args.question || step.message || "A clarifying question has been asked",
         });
       } else {
-        // Fallback: auto-approve any unrecognized tool suspension
-        // (e.g., read_file, grep_search, list_directory, search_files, glob, web_fetch)
-        // These tools execute directly in the sidecar and don't need frontend PTY approval.
         console.warn(`Auto-approving unrecognized tool suspension: ${step.tool_name}`, step);
         state.resumeTask(targetSessionId);
         const stepResult = await system.agentApproveTool(
@@ -447,6 +485,8 @@ export function useAgentExecution(sessionId: string | null) {
         chainNodes: snap.chainNodes, agentLogs: snap.agentLogs, subagent: snap.activeSubagent,
         agentType: snap.agentType,
       });
+      // Open diff tabs for any file changes the agent proposed while running.
+      await openPendingDiffTabs(targetSessionId);
       return;
     }
 
@@ -462,6 +502,8 @@ export function useAgentExecution(sessionId: string | null) {
         chainNodes: snap.chainNodes, agentLogs: snap.agentLogs, subagent: snap.activeSubagent,
         agentType: snap.agentType,
       });
+      // Show diffs even on error so the user can review what was attempted.
+      await openPendingDiffTabs(targetSessionId);
       return;
     }
 
@@ -553,7 +595,8 @@ export function useAgentExecution(sessionId: string | null) {
 
     state.incrementStep(targetSessionId);
 
-    // Fetch gating review settings from the config IPC
+    // Review settings passed to the agent planner (server-side record only;
+    // the actual pause / auto-approve gating is decided per-view below).
     const cfg = await config.get();
     const requireReviewForCommands = cfg.ai.require_review_for_commands;
     const requireReviewForWrites = cfg.ai.require_review_for_writes;
@@ -636,9 +679,14 @@ export function useAgentExecution(sessionId: string | null) {
     }
 
     if (ptySessionId === targetSessionId && !hasOwnPty) {
-      console.warn("No terminal session available for PTY command");
-      useAgentStore.getState().addLog(targetSessionId, "Cannot run shell command: no terminal session open.");
-      return { exitCode: -1, output: "No terminal session available. Open a terminal tab first." };
+    console.warn("No terminal session available for PTY command");
+    useAgentStore.getState().addLog(targetSessionId, "Cannot run shell command: no terminal session open.");
+    return {
+      exitCode: -1,
+      output:
+        "No terminal session is available in this context (file view). " +
+        "Do not retry shell commands — use the read_file / write_file / patch_file tools instead.",
+    };
     }
 
     // Remember which PTY session this tool call runs in so a stop can interrupt
@@ -758,7 +806,10 @@ export function useAgentExecution(sessionId: string | null) {
       const isTerminalTab = tab?.type === "terminal";
       type = isTerminalTab ? "terminal" : "developer";
     }
-    const mode = type === "terminal" ? "build" : (state.sessions[targetSessionId]?.agentMode || "build");
+    // No plan/build toggle exists outside the dedicated agent view, so every
+    // derived task runs in build mode — file-viewer edits must reach
+    // developerBuildAgent (which owns the write tools), never plan mode.
+    const mode = "build";
 
     state.addChatMessage(targetSessionId, { role: "user", content: goal, agentType: type });
     state.startTask(targetSessionId, taskId, goal);
@@ -831,16 +882,19 @@ export function useAgentExecution(sessionId: string | null) {
             targetSessionId
           );
         } else {
-          // File write / patch approved
+          // File write / patch approved — include toolName and args so the
+          // sidecar can identify the tool and forward resume data correctly.
           stepResult = await system.agentApproveTool(
             freshSession.agentType,
             freshSession.agentMode,
             runId,
             toolCallId,
             { approved: true },
-            targetSessionId
+            targetSessionId,
+            name,
+            freshSession.pendingToolCall.args
           );
-          
+
           // Approve file changes status and update chain node
           if (freshSession.filesChanged.length > 0) {
             const lastFile = freshSession.filesChanged[freshSession.filesChanged.length - 1];
@@ -855,6 +909,12 @@ export function useAgentExecution(sessionId: string | null) {
             }
             // Close the pending-agent-change diff tab for this file
             window.dispatchEvent(new CustomEvent("aurora-close-agent-diff", {
+              detail: { path: lastFile.path },
+            }));
+            // Trigger file viewer refresh for the patched/written file so the
+            // editor picks up the new content without waiting for the filesystem
+            // watcher's debounce cycle (which can lag by 200ms+).
+            window.dispatchEvent(new CustomEvent("aurora-refresh-file", {
               detail: { path: lastFile.path },
             }));
           }
@@ -1109,13 +1169,18 @@ export function useAgentExecution(sessionId: string | null) {
     // 2. Abort the in-flight sidecar generation (LLM step / tool resume).
     system.agentStopRun(targetSessionId).catch(() => {});
 
-    // 3. Mark the run cancelled so the step loop halts. Guards in
+    // 3. Clear the sidecar conversation thread so the LLM starts fresh on the
+    //    next task instead of continuing from where it left off.
+    system.agentClearThread(targetSessionId).catch(() => {});
+
+    // 4. Mark the run cancelled so the step loop halts. Guards in
     //    handleStepResult / executeNextStep make any late result a no-op.
+    //    failTask also resets startedAt so the "Worked for" timer stops.
     const snap = state.sessions[targetSessionId];
     if (snap && snap.status !== "completed" && snap.status !== "error") {
       state.failTask(targetSessionId, "Cancelled by user", "info");
     }
-    // 4. Finalize any in-flight tool calls / queued commands so their loaders
+    // 5. Finalize any in-flight tool calls / queued commands so their loaders
     //    and spinners are removed from the frontend immediately on stop.
     useAgentStore.getState().finalizeInterruptedRun(targetSessionId);
     state.setPendingToolCall(targetSessionId, null);

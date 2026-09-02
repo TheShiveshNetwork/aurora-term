@@ -104,8 +104,7 @@ function NoApiKeysOrEmpty() {
   );
 }
 
-import { CommandApprovalCard } from "./CommandApprovalCard";
-import { QuestionApprovalCard } from "./QuestionApprovalCard";
+import { makeApprovalCard } from "./ToolApprovalCard";
 
 interface AgentOverlayProps {
   sessionId: string | null;
@@ -283,25 +282,23 @@ export function AgentOverlay({ sessionId, onClose }: AgentOverlayProps) {
         <div ref={bottomRef} className="h-2" />
       </div>
 
-      {/* Question Approval Card */}
-      {isPaused && pendingToolCall?.name === "ask_user" && (
-        <QuestionApprovalCard
-          question={pendingToolCall.args?.question || "The agent has a clarifying question."}
-          onAnswer={submitAnswer}
-          onSkip={handleSkip}
-        />
-      )}
-
-      {/* Command Approval Card */}
-      {isPaused && pendingApprovalCmd && (
-        <CommandApprovalCard
-          command={pendingApprovalCmd.command}
-          explanation={pendingApprovalCmd.explanation}
-          onApprove={handleApprove}
-          onSkip={handleSkip}
-          isRunning={approvalRunning}
-        />
-      )}
+      {/* Approval cards (command / file write / patch / question) */}
+      {makeApprovalCard({
+        isPaused,
+        pendingToolCall,
+        pendingApprovalCmd,
+        pendingAsk:
+          isPaused && pendingToolCall?.name === "ask_user"
+            ? {
+                question:
+                  pendingToolCall.args?.question || "The agent has a clarifying question.",
+              }
+            : null,
+        onApprove: handleApprove,
+        onSkip: handleSkip,
+        onSubmit: submitAnswer,
+        isRunning: approvalRunning,
+      })}
 
       {/* Footer */}
       {chatHistory.length > 0 && (

@@ -13,7 +13,8 @@ import { ProviderDetailView } from "./ProviderDetailView";
 import { Breadcrumbs, SettingsContext, DraftSettings } from "./SettingsShared";
 import { ProviderName } from "@aurora/types";
 import { ProviderRegistry } from "../../lib/providers";
-import { ai, AppConfig, config, state } from "../../lib/ipc";
+import { ai, AppConfig, config, state, system } from "../../lib/ipc";
+import { syncProviderModelDefaults } from "../../lib/modelDefaults";
 import { WindowControls } from "../ui/WindowControls";
 import { emit, listen } from "@tauri-apps/api/event";
 import { Button } from "../ui/Button";
@@ -235,11 +236,24 @@ export default function SettingsPage() {
     });
   };
 
+  // Push AI provider/model settings to the live aurora-agent process so changes
+  // made here take effect on the next message without an app restart.
+  // Best-effort: if the agent isn't running it will pick these up at spawn.
+  const pushAgentAiSettings = async () => {
+    if (!draft) return;
+    try {
+      await system.agentUpdateSettings(draft.config);
+    } catch (e) {
+      console.warn("Failed to sync AI settings to aurora-agent", e);
+    }
+  };
+
   const handleApply = async () => {
     if (!draft) return;
     setApplying(true);
     try {
       await emit("config_changed", draft.config);
+      await pushAgentAiSettings();
       await state.updateSidebar(
         draft.sidebarCollapsed,
         draft.tabBarVisible,
@@ -281,6 +295,7 @@ export default function SettingsPage() {
       };
       await config.saveGlobal(configToSave);
       useSettingsStore.getState().setCloudSynced(false);
+      await pushAgentAiSettings();
       await state.updateSidebar(
         draft.sidebarCollapsed,
         draft.tabBarVisible,
@@ -400,7 +415,12 @@ export default function SettingsPage() {
                     setProviderPage(null);
                   }}
                   onClose={() => setProviderPage(null)}
-                  onApiKeyChange={refreshKeyringStatus}
+                  onApiKeyChange={() => {
+                    refreshKeyringStatus();
+                    // Key state changed → reconcile model defaults against the
+                    // provider's live list so tiers populate without a restart.
+                    void syncProviderModelDefaults();
+                  }}
                 />
               ) : (
                 activePage.view

@@ -38,6 +38,7 @@ interface GhostInputProps {
   className?: string;
   inputClassName?: string;
   inputMode?: InputMode;
+  onSlashOpenChange?: (open: boolean) => void;
 }
 
 export function GhostInput({
@@ -50,11 +51,29 @@ export function GhostInput({
   className = "",
   inputClassName = "",
   inputMode = "unknown",
+  onSlashOpenChange,
 }: GhostInputProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const mirrorRef = useRef<HTMLSpanElement>(null);
   const slashMenuRef = useRef<SlashMenuHandle>(null);
+  const slashEscapedRef = useRef<string | null>(null);
   const textMetricsClass = "font-code-base text-sm font-normal leading-[22px]";
+
+  // Bare "/" command being typed; Escape dismisses until the value changes.
+  // Trigger only on a slash token that begins the input or is preceded by
+  // whitespace (e.g. "hi, can you /"), so mid-word slashes ("http://") don't
+  // open the menu. The match is made against the text *before the caret* (not
+  // just the end of the string) so the menu still opens when the caret isn't
+  // parked at the very end of the input.
+  const caret = inputRef.current ? (inputRef.current.selectionStart ?? value.length) : value.length;
+  const textBeforeCaret = value.slice(0, caret);
+  const slashMatch = textBeforeCaret.match(/(?:^|\s)\/(\w*)$/);
+  const slashQuery = slashMatch ? slashMatch[1] : "";
+  const slashOpen = !!slashMatch && slashEscapedRef.current !== value;
+
+  useEffect(() => {
+    onSlashOpenChange?.(slashOpen);
+  }, [slashOpen, onSlashOpenChange]);
 
   useEffect(() => {
     const handleFocus = (e: Event) => {
@@ -97,19 +116,32 @@ export function GhostInput({
 
   const handleInsertSlash = useCallback(
     (text: string) => {
-      onChange(text);
+      const el = inputRef.current;
+      const pos = el ? (el.selectionStart ?? value.length) : value.length;
+      const before = value.slice(0, pos);
+      const after = value.slice(pos);
+      // Replace only the slash token at the caret (which may have text before
+      // it, e.g. "hi, can you /"), preserving anything typed after the caret.
+      const m = before.match(/(?:^|\s)\/(\w*)$/);
+      if (!m || m.index === undefined) {
+        onChange(value);
+        return;
+      }
+      const replaced = before.slice(0, m.index) + m[0].replace(/\/\w*$/, text);
+      const next = replaced + after;
+      onChange(next);
       reset();
       requestAnimationFrame(() => {
-        inputRef.current?.setSelectionRange(text.length, text.length);
+        inputRef.current?.setSelectionRange(replaced.length, replaced.length);
       });
     },
-    [onChange, reset]
+    [onChange, reset, value]
   );
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
       // Slash-command menu takes priority while it is open
-      const slashOpen = slashMenuRef.current?.isOpen();
+      const slashCount = slashOpen ? slashMenuRef.current?.count() ?? 0 : 0;
       if (slashOpen) {
         if (e.key === "ArrowDown") {
           e.preventDefault();
@@ -123,15 +155,13 @@ export function GhostInput({
         }
         if (e.key === "Escape") {
           e.preventDefault();
-          slashMenuRef.current?.close();
+          slashEscapedRef.current = value;
           return;
         }
-        if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
-          if ((slashMenuRef.current?.count() ?? 0) > 0) {
-            e.preventDefault();
-            slashMenuRef.current?.selectHighlighted();
-            return;
-          }
+        if ((e.key === "Tab" || e.key === "Enter") && !e.shiftKey && slashCount > 0) {
+          e.preventDefault();
+          slashMenuRef.current?.selectHighlighted();
+          return;
         }
       }
 
@@ -197,7 +227,7 @@ export function GhostInput({
         reset();
       }
     },
-    [acceptGhostCompletion, navigateUp, navigateDown, reset, onChange, value, sessionId]
+    [acceptGhostCompletion, navigateUp, navigateDown, reset, onChange, value, sessionId, slashOpen]
   );
 
   const handlePaste = useCallback(
@@ -225,7 +255,14 @@ export function GhostInput({
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       reset();
-      onChange(e.target.value);
+      const next = e.target.value;
+      const pos = e.target.selectionStart ?? next.length;
+      // Once the slash token at the caret is gone (e.g. deleted after an
+      // Escape), release the "dismissed" lock so the menu can trigger again.
+      if (!next.slice(0, pos).match(/(?:^|\s)\/(\w*)$/)) {
+        slashEscapedRef.current = null;
+      }
+      onChange(next);
     },
     [onChange]
   );
@@ -276,7 +313,6 @@ export function GhostInput({
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          onBlur={() => slashMenuRef.current?.close()}
           placeholder={placeholder}
           autoComplete="off"
           autoCorrect="off"
@@ -298,7 +334,13 @@ export function GhostInput({
           </span>
         )}
 
-        <SlashMenu ref={slashMenuRef} value={value} inputRef={inputRef} onInsert={handleInsertSlash} />
+        <SlashMenu
+          ref={slashMenuRef}
+          open={slashOpen}
+          filter={slashQuery}
+          inputRef={inputRef}
+          onInsert={handleInsertSlash}
+        />
       </div>
     </form>
   );

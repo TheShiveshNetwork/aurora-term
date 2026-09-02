@@ -1,21 +1,12 @@
 import { Mastra } from '@mastra/core';
 import {
-  aura,
   terminalAgent,
   developerPlanAgent,
   developerBuildAgent,
   codeCompletionAgent,
   chatAgent,
   memoryStorage,
-} from '../agents/aura';
-import { agentTaskWorkflow } from '../workflows/tasks';
-import {
-  greetingTestFlow,
-  simpleCommandTestFlow,
-  multiStepTestFlow,
-  errorRecoveryTestFlow,
-  sensitiveCommandTestFlow,
-} from '../workflows/test-flows';
+} from '../agents';
 import {
   readFileTool,
   listDirTool,
@@ -79,20 +70,11 @@ customLogger.getTransports().set('memory', memoryTransport);
 export const mastra = new Mastra({
   logger: customLogger,
   agents: {
-    aura,
     terminalAgent,
     developerPlanAgent,
     developerBuildAgent,
     codeCompletionAgent,
     chatAgent,
-  },
-  workflows: {
-    agentTaskWorkflow,
-    greetingTestFlow,
-    simpleCommandTestFlow,
-    multiStepTestFlow,
-    errorRecoveryTestFlow,
-    sensitiveCommandTestFlow,
   },
   storage: memoryStorage,
   tools: {
