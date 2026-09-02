@@ -284,6 +284,35 @@ pub async fn agent_stop_run(
     Ok(())
 }
 
+/// Clear a thread's conversation history on the sidecar so the agent starts
+/// fresh on the next task. Called when the user cancels a run to prevent the
+/// LLM from picking up where it left off.
+#[command]
+pub async fn agent_clear_thread(
+    state: State<'_, AppState>,
+    thread_id: String,
+) -> Result<(), AppError> {
+    let port = {
+        let sidecar = state.sidecar.lock().await;
+        sidecar
+            .port()
+            .ok_or_else(|| AppError::Sidecar("aurora-agent is not running".to_string()))?
+    };
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|e| AppError::Sidecar(format!("Failed to create HTTP client: {}", e)))?;
+    let url = format!("http://127.0.0.1:{}/api/memory/thread/{}", port, thread_id);
+
+    let _ = client
+        .delete(&url)
+        .send()
+        .await;
+
+    Ok(())
+}
+
 #[command]
 pub async fn agent_approve_tool(
     state: State<'_, AppState>,

@@ -462,6 +462,8 @@ export const system = {
     invoke<{ status: string; thinking: string; planning: string; conclusion: string }>("agent_get_thinking", { thread }),
   agentStopRun: (threadId: string) =>
     invoke<void>("agent_stop_run", { threadId }),
+  agentClearThread: (threadId: string) =>
+    invoke<void>("agent_clear_thread", { threadId }),
   agentChat: (
     message: string,
     sessionId?: string,

@@ -421,6 +421,7 @@ export const useAgentStore = create<AgentStore>((set) => ({
         status: "error",
         lastMessage: msg,
         activeSubagent: null,
+        startedAt: undefined,
         chainNodes: [
           ...prev.chainNodes.map((n) =>
             n.status === "active" ? { ...n, status: "failed" as const } : n

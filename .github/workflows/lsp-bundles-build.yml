@@ -6,8 +6,8 @@ on:
     paths: ["aurora-lsp-bundles/scripts/**", "aurora-lsp-bundles/manifest.json"]
   workflow_dispatch:
   schedule:
-    # Re-publish nightly so freshly-merged version bumps ship.
-    - cron: "17 3 * * *"
+    # Re-publish weekly so freshly-merged version bumps ship.
+    - cron: "17 3 */7 * *"
 
 permissions:
   contents: write

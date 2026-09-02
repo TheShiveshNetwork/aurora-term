@@ -33,58 +33,94 @@ impl GeminiProvider {
         }
     }
 
+    /// Returns true if a model ID looks like a text/chat generation model
+    /// and should be exposed to the user for agent tasks.
+    fn is_text_model(id: &str) -> bool {
+        let lower = id.to_lowercase();
+        // Exclude image generation, audio, TTS, live/streaming, embedding,
+        // music, robotics, legacy PaLM, and other non-text models.
+        const EXCLUDES: &[&str] = &[
+            "-image", "imagen", "nano-banana",
+            "-tts", "-live", "audio", "music", "lyria",
+            "embedding", "grounding", "aqa",
+            "robotics", "bison", "cursor",
+            "polygem",
+        ];
+        !EXCLUDES.iter().any(|ex| lower.contains(ex))
+    }
+
     /// Fetch available models from Gemini's API.
-    /// Filters to models that support content generation (tool calling compatible).
+    /// Filters to text-capable models that support content generation.
     pub async fn list_models(api_key: &str) -> Result<Vec<ModelInfo>, AppError> {
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(15))
             .build()
             .map_err(|e| AppError::Ai(format!("Failed to build HTTP client: {}", e)))?;
 
-        let endpoint = format!(
-            "https://generativelanguage.googleapis.com/v1beta/models?key={}",
-            api_key
-        );
-
-        let res = client
-            .get(&endpoint)
-            .send()
-            .await
-            .map_err(|e| AppError::Ai(format!("Failed to fetch Gemini models: {}", e)))?;
-
-        if !res.status().is_success() {
-            return Err(AppError::Ai(format!("Gemini API error: {}", res.status())));
-        }
-
-        let body: Value = res.json().await
-            .map_err(|e| AppError::Ai(format!("Failed to parse Gemini models: {}", e)))?;
-
+        let base_url = "https://generativelanguage.googleapis.com/v1beta/models";
         let mut models = Vec::new();
-        if let Some(models_arr) = body["models"].as_array() {
-            for item in models_arr {
-                let name = item["name"].as_str().unwrap_or("");
-                let id = name.strip_prefix("models/").unwrap_or(name).to_string();
-                if id.is_empty() {
-                    continue;
+        let mut page_token: Option<String> = None;
+
+        // Paginate through all results (Gemini returns up to 50 per page by default).
+        loop {
+            let mut url = format!("{}?key={}", base_url, api_key);
+            if let Some(ref token) = page_token {
+                url = format!("{}&pageToken={}", url, token);
+            }
+
+            let res = client
+                .get(&url)
+                .send()
+                .await
+                .map_err(|e| AppError::Ai(format!("Failed to fetch Gemini models: {}", e)))?;
+
+            if !res.status().is_success() {
+                return Err(AppError::Ai(format!("Gemini API error: {}", res.status())));
+            }
+
+            let body: Value = res.json().await
+                .map_err(|e| AppError::Ai(format!("Failed to parse Gemini models: {}", e)))?;
+
+            if let Some(models_arr) = body["models"].as_array() {
+                for item in models_arr {
+                    let name = item["name"].as_str().unwrap_or("");
+                    let id = name.strip_prefix("models/").unwrap_or(name).to_string();
+                    if id.is_empty() || !Self::is_text_model(&id) {
+                        continue;
+                    }
+
+                    let description = item["description"].as_str().unwrap_or("").to_lowercase();
+                    if description.contains("deprecated") || description.contains("shut down") {
+                        continue;
+                    }
+
+                    let methods = item["supportedGenerationMethods"].as_array();
+                    let has_generate = methods
+                        .map(|m| m.iter().any(|v| v.as_str() == Some("generateContent")))
+                        .unwrap_or(false);
+                    if !has_generate {
+                        continue;
+                    }
+
+                    let display_name = item["displayName"].as_str().unwrap_or(&id).to_string();
+                    let context_window = item["inputTokenLimit"].as_u64().map(|v| v as u32);
+                    let max_tokens = item["outputTokenLimit"].as_u64().map(|v| v as u32);
+                    models.push(ModelInfo {
+                        id,
+                        display_name,
+                        supports_tools: has_generate,
+                        max_tokens,
+                        context_window,
+                    });
                 }
-                let display_name = item["displayName"].as_str().unwrap_or(&id).to_string();
-                let description = item["description"].as_str().unwrap_or("").to_lowercase();
-                let methods = item["supportedGenerationMethods"].as_array();
-                let has_generate = methods
-                    .map(|m| m.iter().any(|v| v.as_str() == Some("generateContent")))
-                    .unwrap_or(false);
-                if description.contains("deprecated") || description.contains("shut down") {
-                    continue;
+            }
+
+            // Check for next page.
+            match body["nextPageToken"].as_str() {
+                Some(token) if !token.is_empty() => {
+                    page_token = Some(token.to_string());
                 }
-                let context_window = item["inputTokenLimit"].as_u64().map(|v| v as u32);
-                let max_tokens = item["outputTokenLimit"].as_u64().map(|v| v as u32);
-                models.push(ModelInfo {
-                    id,
-                    display_name,
-                    supports_tools: has_generate,
-                    max_tokens,
-                    context_window,
-                });
+                _ => break,
             }
         }
 
