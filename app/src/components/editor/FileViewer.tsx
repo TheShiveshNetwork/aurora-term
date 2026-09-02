@@ -78,26 +78,55 @@ if (typeof document !== "undefined") {
 
     /* Structural size constraints only (no color/theme overrides) so tooltips
        and panels never overflow the editor viewport, including very long lines
-       in hover docs. */
-    .cm-lsp-hover-tooltip, .cm-lsp-documentation {
+       in hover docs. Fixed width + height with overflow scroll on both axes
+       ensures the hover details view never spills outside the editor. */
+    .cm-lsp-hover-tooltip {
+      width: min(640px, var(--editor-tooltip-maxw, 92vw));
+      height: auto;
       max-width: min(640px, var(--editor-tooltip-maxw, 92vw));
       max-height: var(--editor-tooltip-maxh, 52vh);
-      overflow: auto;
+      overflow-x: auto;
+      overflow-y: auto;
+      box-sizing: border-box;
+    }
+    .cm-lsp-documentation {
+      max-width: 100%;
+      max-height: 100%;
+      overflow-x: auto;
+      overflow-y: auto;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+    }
+    .cm-lsp-documentation pre,
+    .cm-lsp-documentation code {
+      max-width: 100%;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-wrap: break-word;
     }
     .cm-lsp-signature-tooltip {
+      width: min(640px, var(--editor-tooltip-maxw, 92vw));
       max-width: min(640px, var(--editor-tooltip-maxw, 92vw));
       max-height: var(--editor-tooltip-maxh, 40vh);
-      overflow: auto;
+      overflow-x: auto;
+      overflow-y: auto;
+      box-sizing: border-box;
     }
     .cm-lsp-rename-panel, .cm-lsp-reference-panel, .cm-panel-lint {
+      width: min(560px, var(--editor-tooltip-maxw, 92vw));
       max-width: min(560px, var(--editor-tooltip-maxw, 92vw));
       max-height: var(--editor-tooltip-maxh, 52vh);
-      overflow: auto;
+      overflow-x: auto;
+      overflow-y: auto;
+      box-sizing: border-box;
     }
     .cm-tooltip-autocomplete {
+      width: var(--editor-tooltip-maxw, 92vw);
       max-width: var(--editor-tooltip-maxw, 92vw);
       max-height: var(--editor-tooltip-maxh, 50vh);
+      overflow-x: hidden;
       overflow-y: auto;
+      box-sizing: border-box;
     }
     .cm-code-action-menu {
       max-width: min(320px, 92vw);
