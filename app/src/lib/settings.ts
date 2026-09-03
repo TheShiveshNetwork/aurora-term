@@ -24,8 +24,9 @@ export async function openSettingsWindow(target?: SettingsTarget) {
 
     const mainPos = await getCurrentWindow().outerPosition();
     const mainSize = await getCurrentWindow().outerSize();
-    const x = Math.round(mainPos.x + (mainSize.width - 720) / 2);
-    const y = Math.round(mainPos.y + (mainSize.height - 520) / 2);
+    const dpr = window.devicePixelRatio || 1;
+    const logX = Math.round(mainPos.x / dpr + (mainSize.width / dpr - 720) / 2);
+    const logY = Math.round(mainPos.y / dpr + (mainSize.height / dpr - 520) / 2);
 
     const win = new WebviewWindow("settings", {
       title: "Settings - Aurora",
@@ -36,14 +37,14 @@ export async function openSettingsWindow(target?: SettingsTarget) {
       minHeight: 400,
       resizable: true,
       decorations: false,
-      x,
-      y,
+      x: logX,
+      y: logY,
       visible: false,
     });
 
     win.once('tauri://created', async () => {
       try {
-        await win.setPosition(new PhysicalPosition(x, y));
+        await win.setPosition(new PhysicalPosition(Math.round(logX * dpr), Math.round(logY * dpr)));
         await win.show();
         await win.setFocus();
       } catch {}

@@ -232,6 +232,25 @@ pub fn run() {
                 window.set_decorations(false)?;
             }
 
+            // On Linux (especially Wayland/Hyprland), the window-state plugin may
+            // restore physical-pixel dimensions that don't match the current scale
+            // factor, making the window appear too large. Correct by reading the
+            // stored physical size and converting it to logical pixels.
+            #[cfg(target_os = "linux")]
+            {
+                use tauri::PhysicalSize;
+                if let Ok(phys) = window.outer_size() {
+                    let sf = window.scale_factor().unwrap_or(1.0);
+                    if sf != 1.0 {
+                        let corrected = PhysicalSize::new(
+                            (phys.width as f64 / sf).round() as u32,
+                            (phys.height as f64 / sf).round() as u32,
+                        );
+                        let _ = window.set_size(corrected);
+                    }
+                }
+            }
+
             // Spawn aurora-agent sidecar asynchronously on startup
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
