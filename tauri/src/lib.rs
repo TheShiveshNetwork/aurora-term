@@ -107,6 +107,11 @@ fn start_pty_event_bridge(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "linux")]
+    let window_state_denylist = ["settings", "main"];
+    #[cfg(not(target_os = "linux"))]
+    let window_state_denylist = ["settings"];
+
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
@@ -116,8 +121,11 @@ pub fn run() {
                 .with_flags(Flags::keyboard())
                 .build()
         )
+        // Keep window-state persistence for auxiliary windows, but skip restoring
+        // the Linux main window because Wayland compositors can restore it with
+        // inflated scale, making the full UI look oversized.
         .plugin(tauri_plugin_window_state::Builder::default()
-            .with_denylist(&["settings"])
+            .with_denylist(&window_state_denylist)
             .build())
         .plugin(tauri_plugin_deep_link::init());
 
@@ -230,25 +238,6 @@ pub fn run() {
             #[cfg(not(target_os = "macos"))]
             {
                 window.set_decorations(false)?;
-            }
-
-            // On Linux (especially Wayland/Hyprland), the window-state plugin may
-            // restore physical-pixel dimensions that don't match the current scale
-            // factor, making the window appear too large. Correct by reading the
-            // stored physical size and converting it to logical pixels.
-            #[cfg(target_os = "linux")]
-            {
-                use tauri::PhysicalSize;
-                if let Ok(phys) = window.outer_size() {
-                    let sf = window.scale_factor().unwrap_or(1.0);
-                    if sf != 1.0 {
-                        let corrected = PhysicalSize::new(
-                            (phys.width as f64 / sf).round() as u32,
-                            (phys.height as f64 / sf).round() as u32,
-                        );
-                        let _ = window.set_size(corrected);
-                    }
-                }
             }
 
             // Spawn aurora-agent sidecar asynchronously on startup
