@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use aurora_commands::state::AppState;
 use aurora_config::{ConfigManager, UiStateManager};
 use aurora_pty::{PtyManager, PtyEvent};
@@ -14,12 +15,21 @@ use tauri_plugin_prevent_default::Flags;
 /// single agent binary, so this runs exactly once when the last window closes
 /// (or the app exits), never per-window.
 fn shutdown_sidecar(app_handle: &tauri::AppHandle) {
+    static SHUTDOWN_STARTED: AtomicBool = AtomicBool::new(false);
+    if SHUTDOWN_STARTED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+
     if let Some(state) = app_handle.try_state::<AppState>() {
         let sidecar = state.sidecar.clone();
         let lsp_manager = state.lsp_manager.clone();
-        tauri::async_runtime::block_on(async move {
+        tauri::async_runtime::spawn(async move {
+            if let Ok(Ok(mut lock)) = tokio::time::timeout(
+                std::time::Duration::from_secs(2),
+                sidecar.lock(),
+            )
+            .await
             {
-                let mut lock = sidecar.lock().await;
                 let _ = lock.kill().await;
             }
             lsp_manager.stop_all().await;
