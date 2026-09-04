@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use aurora_commands::state::AppState;
 use aurora_config::{ConfigManager, UiStateManager};
 use aurora_pty::{PtyManager, PtyEvent};
@@ -14,12 +15,21 @@ use tauri_plugin_prevent_default::Flags;
 /// single agent binary, so this runs exactly once when the last window closes
 /// (or the app exits), never per-window.
 fn shutdown_sidecar(app_handle: &tauri::AppHandle) {
+    static SHUTDOWN_STARTED: AtomicBool = AtomicBool::new(false);
+    if SHUTDOWN_STARTED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+
     if let Some(state) = app_handle.try_state::<AppState>() {
         let sidecar = state.sidecar.clone();
         let lsp_manager = state.lsp_manager.clone();
-        tauri::async_runtime::block_on(async move {
+        tauri::async_runtime::spawn(async move {
+            if let Ok(Ok(mut lock)) = tokio::time::timeout(
+                std::time::Duration::from_secs(2),
+                sidecar.lock(),
+            )
+            .await
             {
-                let mut lock = sidecar.lock().await;
                 let _ = lock.kill().await;
             }
             lsp_manager.stop_all().await;
@@ -107,6 +117,11 @@ fn start_pty_event_bridge(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "linux")]
+    let window_state_denylist = ["settings", "main"];
+    #[cfg(not(target_os = "linux"))]
+    let window_state_denylist = ["settings"];
+
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
@@ -116,8 +131,11 @@ pub fn run() {
                 .with_flags(Flags::keyboard())
                 .build()
         )
+        // Keep window-state persistence for auxiliary windows, but skip restoring
+        // the Linux main window because Wayland compositors can restore it with
+        // inflated scale, making the full UI look oversized.
         .plugin(tauri_plugin_window_state::Builder::default()
-            .with_denylist(&["settings"])
+            .with_denylist(&window_state_denylist)
             .build())
         .plugin(tauri_plugin_deep_link::init());
 
@@ -230,25 +248,6 @@ pub fn run() {
             #[cfg(not(target_os = "macos"))]
             {
                 window.set_decorations(false)?;
-            }
-
-            // On Linux (especially Wayland/Hyprland), the window-state plugin may
-            // restore physical-pixel dimensions that don't match the current scale
-            // factor, making the window appear too large. Correct by reading the
-            // stored physical size and converting it to logical pixels.
-            #[cfg(target_os = "linux")]
-            {
-                use tauri::PhysicalSize;
-                if let Ok(phys) = window.outer_size() {
-                    let sf = window.scale_factor().unwrap_or(1.0);
-                    if sf != 1.0 {
-                        let corrected = PhysicalSize::new(
-                            (phys.width as f64 / sf).round() as u32,
-                            (phys.height as f64 / sf).round() as u32,
-                        );
-                        let _ = window.set_size(corrected);
-                    }
-                }
             }
 
             // Spawn aurora-agent sidecar asynchronously on startup
