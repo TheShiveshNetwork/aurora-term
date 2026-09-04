@@ -17,6 +17,12 @@ import { pty, system } from "../../lib/ipc";
 import { SquareTerminal } from "lucide-react";
 import { getDefaultShellLaunch } from "../../lib/shell";
 
+function shouldEnableTerminalWebgl(): boolean {
+  if (typeof navigator === "undefined") return true;
+  const platformInfo = `${navigator.userAgent} ${(navigator as any).platform ?? ""}`.toLowerCase();
+  return !platformInfo.includes("linux");
+}
+
 function findTrailingIncompleteEscape(data: string, lastAurora: number): number {
   let splitIndex = -1;
 
@@ -73,6 +79,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
   // Keyboard enhancement protocol negotiated by the TUI (set from a DEC private
   // mode it emits at startup). Drives how modified Enter is encoded.
   const kbModeRef = useRef<KbMode>("legacy");
+  const webglEnabledRef = useRef<boolean>(shouldEnableTerminalWebgl());
 
   const isVisibleRef = useRef(isVisible);
   useEffect(() => {
@@ -92,7 +99,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
     const term = termRef.current;
     if (!term) return;
 
-    if (isVisible) {
+    if (isVisible && webglEnabledRef.current) {
       if (!webglAddonRef.current) {
         try {
           const webgl = new WebglAddon();
@@ -110,6 +117,8 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
           console.warn(`[TerminalPane ${sessionId}] WebGL addon failed to load, falling back to standard canvas renderer:`, err);
         }
       }
+    } else if (isVisible && !webglEnabledRef.current) {
+      console.log(`[TerminalPane ${sessionId}] WebGL disabled on Linux to avoid rendering artifacts`);
     } else {
       if (webglAddonRef.current) {
         try {
@@ -300,7 +309,7 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
     term.open(xtermRef.current);
 
     // Load WebGL addon for GPU hardware-accelerated rendering if visible
-    if (isVisibleRef.current) {
+    if (isVisibleRef.current && webglEnabledRef.current) {
       try {
         const webgl = new WebglAddon();
         webgl.onContextLoss(() => {
@@ -316,6 +325,8 @@ export const TerminalPane: React.FC<TerminalPaneProps> = ({ sessionId, isVisible
       } catch (err) {
         console.warn(`[TerminalPane ${sessionId}] WebGL addon failed to load, falling back to standard canvas renderer:`, err);
       }
+    } else if (isVisibleRef.current && !webglEnabledRef.current) {
+      console.log(`[TerminalPane ${sessionId}] WebGL disabled on Linux to avoid rendering artifacts`);
     }
 
     // Observe the keyboard enhancement protocol the TUI negotiates so modified
