@@ -8,8 +8,31 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create or reuse release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ github.ref_name }}"
+          TITLE="Aurora $TAG"
+          NOTES="See the assets to download this version and install."
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "$TITLE" --notes "$NOTES" --draft=false
+          else
+            gh release create "$TAG" --title "$TITLE" --notes "$NOTES"
+          fi
+
   build-tauri:
+    needs: [create-release]
     env:
       APPIMAGE_EXTRACT_AND_RUN: '1'
       DEPLOY_GTK_VERSION: '3' # ldd fix: skip GTK auto-detection

@@ -233,7 +233,7 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             {
                 use tauri::TitleBarStyle;
-                window.set_title_bar_style(TitleBarStyle::Transparent);
+                window.set_title_bar_style(TitleBarStyle::Transparent).ok();
 
                 use objc2_app_kit::{NSColor, NSWindow};
                 let ns_window_ptr = window.ns_window().unwrap() as *mut NSWindow;
