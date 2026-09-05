@@ -1,5 +1,5 @@
 import { getAllWebviewWindows, WebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { getCurrentWindow, PhysicalPosition } from "@tauri-apps/api/window";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 export interface SettingsTarget {
   section: string;
@@ -44,7 +44,6 @@ export async function openSettingsWindow(target?: SettingsTarget) {
 
     win.once('tauri://created', async () => {
       try {
-        await win.setPosition(new PhysicalPosition(Math.round(logX * dpr), Math.round(logY * dpr)));
         await win.show();
         await win.setFocus();
       } catch {}

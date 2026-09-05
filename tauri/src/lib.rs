@@ -118,9 +118,9 @@ fn start_pty_event_bridge(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(target_os = "linux")]
-    let window_state_denylist = ["settings", "main"];
+    let window_state_denylist = ["main"];
     #[cfg(not(target_os = "linux"))]
-    let window_state_denylist = ["settings"];
+    let window_state_denylist: [&str; 0] = [];
 
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -131,9 +131,11 @@ pub fn run() {
                 .with_flags(Flags::keyboard())
                 .build()
         )
-        // Keep window-state persistence for auxiliary windows, but skip restoring
-        // the Linux main window because Wayland compositors can restore it with
-        // inflated scale, making the full UI look oversized.
+// Keep window-state persistence for all windows, but skip restoring the
+        // Linux main window because Wayland compositors can restore it with an
+        // inflated scale, making the full UI look oversized. Auxiliary windows
+        // (settings, git view) are persisted so their size, position and
+        // maximized state survive restarts.
         .plugin(tauri_plugin_window_state::Builder::default()
             .with_denylist(&window_state_denylist)
             .build())

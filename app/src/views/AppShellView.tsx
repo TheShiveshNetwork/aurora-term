@@ -604,6 +604,7 @@ export function AppShellView() {
         }}
         menuOpen={showMenuDropdown}
         onToggleMenu={() => { closeAllPopups(); toggleShowMenuDropdown(); }}
+        onCloseMenu={() => { closeAllPopups(); setShowMenuDropdown(false); }}
         onOpenFolder={handleOpenFolder}
         onOpenFile={handleOpenFile}
         onOpenRecentFile={handleOpenRecentFile}

@@ -22,6 +22,7 @@ interface MenuViewProps {
   anchorY?: number;
   topBoundarySelector?: string;
   bottomBoundarySelector?: string;
+  triggerSelector?: string;
 }
 
 export function MenuView({
@@ -35,6 +36,7 @@ export function MenuView({
   anchorY = 0,
   topBoundarySelector = "#aurora-tab-bar",
   bottomBoundarySelector = "#aurora-status-bar",
+  triggerSelector,
 }: MenuViewProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const [placement, setPlacement] = useState<MenuPlacement | null>(null);
@@ -43,13 +45,15 @@ export function MenuView({
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
+      const target = e.target as Node | null;
+      if (panelRef.current && !panelRef.current.contains(target)) {
+        if (triggerSelector && target instanceof Element && target.closest(triggerSelector)) return;
         onClose();
       }
     };
     document.addEventListener("mousedown", handler, true);
     return () => document.removeEventListener("mousedown", handler, true);
-  }, [open, onClose]);
+  }, [open, onClose, triggerSelector]);
 
   // Close on Escape
   useEffect(() => {
