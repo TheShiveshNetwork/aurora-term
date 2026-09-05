@@ -24,7 +24,7 @@ fn shutdown_sidecar(app_handle: &tauri::AppHandle) {
         let sidecar = state.sidecar.clone();
         let lsp_manager = state.lsp_manager.clone();
         tauri::async_runtime::spawn(async move {
-            if let Ok(Ok(mut lock)) = tokio::time::timeout(
+            if let Ok(mut lock) = tokio::time::timeout(
                 std::time::Duration::from_secs(2),
                 sidecar.lock(),
             )
