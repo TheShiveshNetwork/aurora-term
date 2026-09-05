@@ -25,6 +25,12 @@ export function SiteFooter() {
           >
             Releases
           </a>
+          <a
+            href="/privacy"
+            className="transition-colors hover:text-on-background"
+          >
+            Privacy
+          </a>
           <span className="font-mono text-[11px]">v0.1.0</span>
         </div>
       </Container>
