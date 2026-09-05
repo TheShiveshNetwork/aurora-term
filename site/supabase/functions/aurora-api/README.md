@@ -24,6 +24,19 @@ Called by `.github/workflows/mirror-store.yml` on `release: published`. The
 mirror re-hosts installers as direct (non-redirecting) URLs for the Microsoft
 Store; it skips any asset over `AURORA_MAX_ASSET_BYTES` (default 50 MB).
 
+## LSP bundle storage
+
+Supabase Storage only holds the LSP bundles that are downloaded most often.
+Mirroring them into the public `aurora` bucket (`lsp-bundles/` path) keeps
+repeated installs off GitHub's rate-limited rolling `lsp-bundles` release,
+while huge, rarely-used bundles stay on GitHub and are fetched on demand.
+
+Which languages are mirrored is configured in `lsp-config.ts`
+(`LSP_EXCLUDED_FROM_STORAGE`) — edit that list to add/remove a language from
+the bucket mirror. Excluded-language bundle URLs in the `lsp_release` row point
+back at GitHub; on a total mirror failure the row falls back to the full
+GitHub package list.
+
 ## Environment
 
 | Variable | Required | Purpose |

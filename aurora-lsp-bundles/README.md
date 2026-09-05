@@ -35,8 +35,8 @@ manifest validation.
 
 | Source | Handled in `build.mjs` |
 |---|---|
-| npm (TS, Python, HTML/CSS/JSON, YAML, Bash, Vue, Svelte, PHP, GraphQL, Dockerfile) | `npm install --prefix` of the pinned package (+ `typescript` alongside `typescript-language-server`); entry read from the installed package's own `bin` field |
-| GitHub release (rust-analyzer, clangd, jdtls, OmniSharp, marksman, lua-language-server, kotlin, taplo, zls, terraform-ls, elixir-ls, haskell-language-server, clojure-lsp, nil) | download the pinned upstream asset per platform, re-host |
+| npm (TS, Python, HTML/CSS/JSON, YAML, Bash, Vue, Svelte, PHP, Dockerfile) | `npm install --prefix` of the pinned package (+ `typescript` alongside `typescript-language-server`); entry read from the installed package's own `bin` field |
+| GitHub release (rust-analyzer, clangd, jdtls, OmniSharp, marksman, lua-language-server, kotlin, taplo, zls, terraform-ls, elixir-ls, haskell-language-server, nil) | download the pinned upstream asset per platform, re-host |
 | `go install` (gopls, sqls) | `GOOS`/`GOARCH` `go install` per platform, package the binary |
 | Host toolchain (swift→sourcekit-lsp, scala→metals, r→R, ruby→ruby-lsp) | **not bundled** — resolved from the user's PATH at runtime because they require their own toolchain/Ruby interpreter |
 
@@ -52,7 +52,7 @@ node scripts/check-updates.mjs                    # open version-bump PRs
 
 - `ruby-lsp` is **RequireOnPath**, not a bundle: it is a Ruby script and needs a
   `ruby` interpreter, which the app's `node`/`native` runtime model can't supply.
-- `java`/`kotlin`/`scala`/`clojure`/`elixir` bundles are `entry_kind: "native"` but
+- `java`/`kotlin`/`scala`/`elixir` bundles are `entry_kind: "native"` but
   still need a JVM/BEAM on PATH at runtime; the app applies `JAVA_TOOL_OPTIONS`
   caps for those.
 - The committed `manifest.json` carries real `sha256` values for the languages
