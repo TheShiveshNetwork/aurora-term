@@ -380,7 +380,11 @@ pub fn path_exists(path: String) -> Result<bool, AppError> {
 
 // ─── Rename / move a file or directory ────────────────────────────────────────
 #[command]
-pub fn rename_path(old_path: String, new_name: String) -> Result<String, AppError> {
+pub fn rename_path(
+    app_handle: tauri::AppHandle,
+    old_path: String,
+    new_name: String,
+) -> Result<String, AppError> {
     let old = PathBuf::from(&old_path);
     if !old.exists() {
         return Err(AppError::Io(format!("Path not found: {}", old_path)));
@@ -393,11 +397,20 @@ pub fn rename_path(old_path: String, new_name: String) -> Result<String, AppErro
     }
     std::fs::rename(&old, &new_path)
         .map_err(|e| AppError::Io(e.to_string()))?;
-    Ok(new_path.to_string_lossy().into_owned())
+    let new_path_str = new_path.to_string_lossy().into_owned();
+    let _ = app_handle.emit("file-renamed", serde_json::json!({
+        "old_path": old_path,
+        "new_path": new_path_str,
+    }));
+    Ok(new_path_str)
 }
 
 #[command]
-pub fn move_path(source: String, target_dir: String) -> Result<String, AppError> {
+pub fn move_path(
+    app_handle: tauri::AppHandle,
+    source: String,
+    target_dir: String,
+) -> Result<String, AppError> {
     let src = PathBuf::from(&source);
     if !src.exists() {
         return Err(AppError::Io(format!("Source not found: {}", source)));
@@ -414,7 +427,12 @@ pub fn move_path(source: String, target_dir: String) -> Result<String, AppError>
     }
     std::fs::rename(&src, &new_path)
         .map_err(|e| AppError::Io(e.to_string()))?;
-    Ok(new_path.to_string_lossy().into_owned())
+    let new_path_str = new_path.to_string_lossy().into_owned();
+    let _ = app_handle.emit("file-renamed", serde_json::json!({
+        "old_path": source,
+        "new_path": new_path_str,
+    }));
+    Ok(new_path_str)
 }
 
 // ─── Native Dialog Selectors using rfd ────────────────────────────────────────

@@ -6,6 +6,7 @@ import { useAICompletion } from "./useAICompletion";
 import { usePTY } from "./usePTY";
 import { pty, config, state, system, ai as aiIpc, preloadFileContent, AppConfig } from "../lib/ipc";
 import { getDefaultShellLaunch } from "../lib/shell";
+import { pathsEqual } from "../lib/fileUtils";
 import { closeAllPopups } from "../lib/popups";
 import { useAppShellStore } from "../stores/useAppShellStore";
 import { useSessionStore } from "../stores/useSessionStore";
@@ -442,17 +443,35 @@ export function useAppBootstrap() {
 
   // Mark file tabs as missing when their file is deleted externally
   useEffect(() => {
-    let unlisten: (() => void) | null = null;
+    let unlistenDeleted: (() => void) | null = null;
+    let unlistenRenamed: (() => void) | null = null;
     listen<string>("file-deleted", (event) => {
       const deletedPath = event.payload;
       const { tabs: currentTabs, updateTab } = useSessionStore.getState();
       for (const tab of currentTabs) {
-        if (tab.type === "file" && tab.filePath === deletedPath && !tab.missing) {
+        if (tab.type === "file" && tab.filePath && pathsEqual(tab.filePath, deletedPath) && !tab.missing) {
           updateTab(tab.id, { missing: true });
         }
       }
-    }).then((u) => { unlisten = u; });
-    return () => { unlisten?.(); };
+    }).then((u) => { unlistenDeleted = u; });
+    listen<{ old_path: string; new_path: string }>("file-renamed", (event) => {
+      const { old_path, new_path } = event.payload;
+      const newName = new_path.split(/[/\\]/).pop() || new_path;
+      const { tabs: currentTabs, updateTab } = useSessionStore.getState();
+      for (const tab of currentTabs) {
+        if (tab.type === "file" && tab.filePath && pathsEqual(tab.filePath, old_path)) {
+          updateTab(tab.id, {
+            filePath: new_path,
+            name: tab.manuallyRenamed ? tab.name : newName,
+            missing: false,
+            dirty: false,
+            fileContent: undefined,
+            everChanged: false,
+          });
+        }
+      }
+    }).then((u) => { unlistenRenamed = u; });
+    return () => { unlistenDeleted?.(); unlistenRenamed?.(); };
   }, []);
 
   useEffect(() => {

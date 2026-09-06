@@ -7,10 +7,11 @@ import { foldGutter, indentOnInput, syntaxHighlighting, defaultHighlightStyle, b
 import { highlightSelectionMatches, selectSelectionMatches } from "@codemirror/search";
 import { lintGutter, linter, lintKeymap } from "@codemirror/lint";
 import { listen } from "@tauri-apps/api/event";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { system, ai } from "../../lib/ipc";
 import { getLanguageExtension } from "../../lib/codeLang";
-import { isImageFile } from "../../lib/fileUtils";
-import { AlertCircle, Loader, Maximize2, Minimize2, Minus, Plus, RotateCw, GitMerge } from "lucide-react";
+import { isImageFile, isVideoFile, pathsEqual } from "../../lib/fileUtils";
+import { AlertCircle, Loader, Maximize2, Minimize2, Minus, Plus, RotateCw, GitMerge, Play, Pause, Volume2, VolumeX, Maximize as EnterFullscreen, Minimize as ExitFullscreen } from "lucide-react";
 import { useSessionStore } from "../../stores/useSessionStore";
 import { useSettingsStore } from "../../stores/useSettingsStore";
 import { closeAllPopups } from "../../lib/popups";
@@ -37,6 +38,7 @@ import {
   lspCodeAction,
   lspOrganizeImports,
   isLspActive,
+  registerLspReconnect,
   type PeekResult,
 } from "../../extensions/lsp/client";
 import { centerFindNext, centerFindPrevious } from "../../lib/editorScroll";
@@ -188,6 +190,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
   const { spawnSession } = usePTY();
 
   const isImage = isImageFile(filePath);
+  const isVideo = isVideoFile(filePath);
   const [showSearch, setShowSearch] = useState(false);
   const [initialFindText, setInitialFindText] = useState("");
   const toggleSearchRef = useRef(() => {
@@ -231,6 +234,99 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
   const dragStart = useRef({ x: 0, y: 0, scrollLeft: 0, scrollTop: 0 });
   const [naturalSize, setNaturalSize] = useState({ w: 0, h: 0 });
   const [containerSize, setContainerSize] = useState({ w: 0, h: 0 });
+
+  // Video player state
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [videoSrc, setVideoSrc] = useState("");
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [videoTime, setVideoTime] = useState(0);
+  const [videoDuration, setVideoDuration] = useState(0);
+  const [videoVolume, setVideoVolume] = useState(1);
+  const [isMuted, setIsMuted] = useState(false);
+  const videoContainerRef = useRef<HTMLDivElement>(null);
+  const [isVideoFullscreen, setIsVideoFullscreen] = useState(false);
+  const [videoControlsVisible, setVideoControlsVisible] = useState(true);
+  const videoControlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Video helpers
+  const formatVideoTime = (s: number) => {
+    if (!isFinite(s)) return "0:00";
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return `${m}:${sec.toString().padStart(2, "0")}`;
+  };
+
+  const togglePlay = useCallback(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    if (v.paused) { v.play(); setIsPlaying(true); } else { v.pause(); setIsPlaying(false); }
+  }, []);
+
+  const toggleMute = useCallback(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.muted = !v.muted;
+    setIsMuted(v.muted);
+  }, []);
+
+  const handleVolumeChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const v = videoRef.current;
+    if (!v) return;
+    const vol = parseFloat(e.target.value);
+    v.volume = vol;
+    setVideoVolume(vol);
+    if (vol === 0) { v.muted = true; setIsMuted(true); }
+    else if (v.muted) { v.muted = false; setIsMuted(false); }
+  }, []);
+
+  const handleSeek = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.currentTime = parseFloat(e.target.value);
+    setVideoTime(parseFloat(e.target.value));
+  }, []);
+
+  const toggleVideoFullscreen = useCallback(() => {
+    const el = videoContainerRef.current;
+    if (!el) return;
+    if (!document.fullscreenElement) {
+      el.requestFullscreen().then(() => setIsVideoFullscreen(true)).catch(() => {});
+    } else {
+      document.exitFullscreen().then(() => setIsVideoFullscreen(false)).catch(() => {});
+    }
+  }, []);
+
+  const showVideoControls = useCallback(() => {
+    setVideoControlsVisible(true);
+    if (videoControlsTimerRef.current) clearTimeout(videoControlsTimerRef.current);
+    videoControlsTimerRef.current = setTimeout(() => {
+      if (videoRef.current && !videoRef.current.paused) setVideoControlsVisible(false);
+    }, 3000);
+  }, []);
+
+  // Click toggles play/pause; double-click toggles fullscreen. Delay the
+  // single-click so it doesn't fire on part of a double-click.
+  const videoClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleVideoClick = useCallback(() => {
+    if (videoClickTimerRef.current) {
+      clearTimeout(videoClickTimerRef.current);
+      videoClickTimerRef.current = null;
+    }
+    videoClickTimerRef.current = setTimeout(() => {
+      togglePlay();
+      videoClickTimerRef.current = null;
+    }, 200);
+  }, [togglePlay]);
+
+  const handleVideoDoubleClick = useCallback(() => {
+    if (videoClickTimerRef.current) {
+      clearTimeout(videoClickTimerRef.current);
+      videoClickTimerRef.current = null;
+    }
+    toggleVideoFullscreen();
+  }, [toggleVideoFullscreen]);
+
+  const [videoError, setVideoError] = useState<string | null>(null);
 
   useLayoutEffect(() => {
     const el = imageScrollRef.current;
@@ -398,16 +494,31 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
   useEffect(() => {
     let cancelled = false;
     let tooltipResizeObserver: ResizeObserver | null = null;
+    let unregisterLspReconnect: (() => void) | null = null;
 
     const loadFile = async () => {
       try {
         setLoading(true);
         setError(null);
+        setVideoError(null);
+        setIsPlaying(false);
+        setVideoTime(0);
+        setVideoDuration(0);
+        setVideoControlsVisible(true);
 
         if (isImage) {
           const b64 = await system.readFileBase64(filePath);
           if (cancelled) return;
           setImageSrc(`data:${imageMimeType};base64,${b64}`);
+          setLoading(false);
+          return;
+        }
+
+        if (isVideo) {
+          // Videos can be large; stream directly from disk via the asset
+          // protocol instead of base64-encoding the whole file into memory.
+          if (cancelled) return;
+          setVideoSrc(convertFileSrc(filePath));
           setLoading(false);
           return;
         }
@@ -644,7 +755,33 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
             useLoaderStore.getState().start();
           }
           const finish = () => useLoaderStore.getState().stop();
-          connectLanguage(languageId, filePath, root)
+          // When the backend relaunches a crashed server under the same
+          // `server_key`, `handleServerClosed` fires this to re-run the connect
+          // and re-apply the fresh extension to this view's compartment — so LSP
+          // restores on the already-open file without the user reopening it.
+          const attemptLspReconnect = async () => {
+            try {
+              const newExt = await connectLanguage(languageId, filePath, root);
+              if (cancelled) return;
+              lspExtRef.current = newExt;
+              if (viewRef.current && lspCompartmentRef.current) {
+                viewRef.current.dispatch({
+                  effects: lspCompartmentRef.current.reconfigure(newExt),
+                });
+              } else if (pendingLspResolveRef.current) {
+                pendingLspResolveRef.current(newExt);
+                pendingLspResolveRef.current = null;
+              }
+            } catch (err) {
+              if (!cancelled) {
+                console.error(`LSP reconnect failed for ${languageId}:`, err);
+              }
+            }
+          };
+          connectLanguage(languageId, filePath, root, (serverKey) => {
+            unregisterLspReconnect?.();
+            unregisterLspReconnect = registerLspReconnect(serverKey, attemptLspReconnect);
+          })
             .then((ext) => {
               if (cancelled) {
                 finish();
@@ -701,14 +838,24 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
       }
       // Release any pending LSP "success" resolver so the toast can't hang if we
       // unmount mid-connect, and clear the cached extension for a clean remount.
+      unregisterLspReconnect?.();
+      unregisterLspReconnect = null;
       if (pendingLspResolveRef.current) {
         pendingLspResolveRef.current(lspExtRef.current ?? []);
         pendingLspResolveRef.current = null;
       }
       lspExtRef.current = null;
+      if (videoControlsTimerRef.current) {
+        clearTimeout(videoControlsTimerRef.current);
+        videoControlsTimerRef.current = null;
+      }
+      if (videoClickTimerRef.current) {
+        clearTimeout(videoClickTimerRef.current);
+        videoClickTimerRef.current = null;
+      }
       updateTab(tabId, { dirty: false });
     };
-  }, [filePath, tabId, updateTab, isImage, imageMimeType, aiLiveSuggestions]);
+  }, [filePath, tabId, updateTab, isImage, isVideo, imageMimeType, aiLiveSuggestions]);
 
   // Separate useEffect to handle scrolling to a line on tab selection/navigation
   useEffect(() => {
@@ -754,7 +901,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
     let unlistenContent: (() => void) | null = null;
     let unlistenDeleted: (() => void) | null = null;
     listen<string>("file-content-changed", async (event) => {
-      if (event.payload !== filePath) return;
+      if (!pathsEqual(event.payload, filePath)) return;
       const view = viewRef.current;
       if (!view) return;
       // Only reload if the file has no unsaved changes
@@ -772,7 +919,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
       } catch { /* file may be temporarily unavailable */ }
     }).then((u) => { unlistenContent = u; });
     listen<string>("file-deleted", (event) => {
-      if (event.payload !== filePath) return;
+      if (!pathsEqual(event.payload, filePath)) return;
       updateTab(tabId, { missing: true });
     }).then((u) => { unlistenDeleted = u; });
     // Explicit agent-approved file refresh: bypasses the dirty-content guard
@@ -780,7 +927,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
     // Dispatched from useAgentExecution after the user approves a patch/write.
     window.addEventListener("aurora-refresh-file", ((e: Event) => {
       const detail = (e as CustomEvent).detail;
-      if (detail?.path !== filePath) return;
+      if (!detail?.path || !pathsEqual(detail.path, filePath)) return;
       const view = viewRef.current;
       if (!view) return;
       system.readFileContent(filePath).then((newContent) => {
@@ -1194,7 +1341,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
           </button>
         </div>
       )}
-      <div className="flex-1 overflow-hidden w-full relative" onContextMenu={isImage ? undefined : handleContextMenu}>
+      <div className="flex-1 overflow-hidden w-full relative" onContextMenu={isImage || isVideo ? undefined : handleContextMenu}>
         {loading && (
           <div className="absolute inset-0 flex items-center justify-center bg-surface-container-low/80 backdrop-blur-sm z-20">
             <div className="flex flex-col items-center gap-2">
@@ -1276,6 +1423,86 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
                 )}
               </div>
             )}
+          </div>
+        ) : isVideo ? (
+          <div
+            ref={videoContainerRef}
+            className="h-full w-full flex flex-col bg-black relative"
+            onMouseMove={showVideoControls}
+            onMouseLeave={() => { if (videoRef.current && !videoRef.current.paused) setVideoControlsVisible(false); }}
+            onDoubleClick={handleVideoDoubleClick}
+          >
+            <div className="flex-1 flex items-center justify-center overflow-hidden">
+              {videoSrc && !videoError && (
+                <video
+                  ref={videoRef}
+                  src={videoSrc}
+                  className="max-h-full max-w-full object-contain"
+                  onClick={handleVideoClick}
+                  onLoadedMetadata={(e) => {
+                    const v = e.currentTarget;
+                    setVideoDuration(v.duration);
+                    setLoading(false);
+                  }}
+                  onTimeUpdate={(e) => setVideoTime(e.currentTarget.currentTime)}
+                  onPlay={() => setIsPlaying(true)}
+                  onPause={() => setIsPlaying(false)}
+                  onEnded={() => { setIsPlaying(false); setVideoControlsVisible(true); }}
+                  onError={() => { setVideoError("Failed to play video"); setLoading(false); setIsPlaying(false); }}
+                  playsInline
+                />
+              )}
+              {videoError && (
+                <div className="flex flex-col items-center gap-3 p-6 text-center">
+                  <AlertCircle size={32} className="text-error" />
+                  <span className="text-sm text-on-surface font-medium">{videoError}</span>
+                  <span className="text-xs text-on-surface-variant">{filePath}</span>
+                </div>
+              )}
+            </div>
+            <div
+              className={`absolute bottom-0 left-0 right-0 transition-opacity duration-300 ${videoControlsVisible ? "opacity-100" : "opacity-0 pointer-events-none"}`}
+            >
+              <div className="bg-gradient-to-t from-black/80 via-black/40 to-transparent px-4 pt-8 pb-3 flex flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="range"
+                    min={0}
+                    max={Math.max(videoDuration || 0, 0.01)}
+                    step={0.1}
+                    value={videoTime}
+                    onChange={handleSeek}
+                    className="flex-1 h-1 appearance-none rounded-full cursor-pointer bg-white/20 accent-primary [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary"
+                  />
+                </div>
+                <div className="flex items-center gap-3 text-white/90">
+                  <button onClick={togglePlay} className="p-1 rounded hover:bg-white/10 transition-colors">
+                    {isPlaying ? <Pause size={16} /> : <Play size={16} />}
+                  </button>
+                  <span className="text-xs tabular-nums font-mono min-w-[80px]">
+                    {formatVideoTime(videoTime)} / {formatVideoTime(videoDuration)}
+                  </span>
+                  <div className="flex items-center gap-1.5 ml-1">
+                    <button onClick={toggleMute} className="p-1 rounded hover:bg-white/10 transition-colors">
+                      {isMuted || videoVolume === 0 ? <VolumeX size={15} /> : <Volume2 size={15} />}
+                    </button>
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      value={isMuted ? 0 : videoVolume}
+                      onChange={handleVolumeChange}
+                      className="w-16 h-1 appearance-none rounded-full cursor-pointer bg-white/20 accent-white [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
+                    />
+                  </div>
+                  <div className="flex-1" />
+                  <button onClick={toggleVideoFullscreen} className="p-1 rounded hover:bg-white/10 transition-colors">
+                    {isVideoFullscreen ? <ExitFullscreen size={15} /> : <EnterFullscreen size={15} />}
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         ) : (
           <>

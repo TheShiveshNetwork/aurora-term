@@ -45,6 +45,31 @@ const messageHandlers = new Map<string, Set<(msg: string) => void>>();
 let globalLspListener: UnlistenFn | null = null;
 let lspListenerPromise: Promise<UnlistenFn> | null = null;
 
+// Views (one per open file tab) that should re-establish LSP when their server
+// drops, keyed by `server_key`. Registered by `connectLanguage` so the backend's
+// crash-relaunch cycle transparently restores a fresh, initialized client on the
+// *already-open* editor without the user having to reopen the file. Throttled
+// per server so a server that keeps dying during its restart window doesn't spin
+// a reconnect loop (the backend bounds restarts to `MAX_RESTARTS`, after which
+// it walks back down to Lezer linting anyway).
+const reconnectHandlers = new Map<string, Set<() => void>>();
+const reconnectLocks = new Map<string, number>();
+const RECONNECT_THROTTLE_MS = 3000;
+
+export function registerLspReconnect(serverKey: string, fn: () => void): () => void {
+  let set = reconnectHandlers.get(serverKey);
+  if (!set) {
+    set = new Set();
+    reconnectHandlers.set(serverKey, set);
+  }
+  set.add(fn);
+  return () => {
+    if (!set) return;
+    set.delete(fn);
+    if (set.size === 0) reconnectHandlers.delete(serverKey);
+  };
+}
+
 export function ensureLspListener(): Promise<void> {
   if (globalLspListener) return Promise.resolve();
   if (!lspListenerPromise) {
@@ -80,13 +105,31 @@ export function unregisterLspHandler(serverKey: string, handler: (msg: string) =
 }
 
 // Drop a client when its server is gone so the editor falls back to the lighter
-// Lezer linter instead of hanging on a dead pipe.
-function handleServerClosed(serverKey: string): void {
+// Lezer linter instead of hanging on a dead pipe. Then give any still-open views
+// a chance to reconnect to the backend's (relaunched) process: the backend keeps
+// the same `server_key` alive across crash restarts, so `connectLanguage` will
+// run a fresh `initialize` handshake against the new process. Throttled so a
+// server that is mid-restart isn't pummeled with reconnect attempts.
+export function handleServerClosed(serverKey: string): void {
   const promise = clients.get(serverKey);
   clients.delete(serverKey);
   activeServers.delete(serverKey);
   messageHandlers.delete(serverKey);
   if (promise) promise.then((c) => c.disconnect()).catch(() => {});
+
+  const handlers = reconnectHandlers.get(serverKey);
+  if (!handlers || handlers.size === 0) return;
+  const now = Date.now();
+  const last = reconnectLocks.get(serverKey) ?? 0;
+  if (now - last < RECONNECT_THROTTLE_MS) return;
+  reconnectLocks.set(serverKey, now);
+  handlers.forEach((fn) => {
+    try {
+      fn();
+    } catch (e) {
+      console.error(`[LSP] reconnect handler failed for ${serverKey}:`, e);
+    }
+  });
 }
 
 export function isLspActive(languageId: string): boolean {
@@ -137,10 +180,15 @@ async function getOrConnectClient(serverKey: string, rootUri: string): Promise<L
 // language and return the plugin extension (plus Ctrl+click and code-action
 // bindings) bound to `filePath`. The server is scoped to `(language, root)`, so
 // unrelated projects of the same language never share state.
+//
+// `onReady(serverKey)` is invoked once the extensions are resolved so the caller
+// can register a reconnect path for the server (see `registerLspReconnect`) that
+// re-establishes LSP in-place when the backend relaunches a crashed process.
 export async function connectLanguage(
   languageId: string,
   filePath: string,
   root: string | null,
+  onReady?: (serverKey: string) => void,
 ): Promise<Extension[]> {
   const rootUri = rootUriFor(root, filePath);
   const uri = pathToUri(filePath);
@@ -183,6 +231,7 @@ export async function connectLanguage(
   const defKeymap = keymap.of([
     { key: "F12", run: (view) => { void gotoDefinitionAt(view); return true; } },
   ]);
+  onReady?.(serverKey);
   return [client.plugin(uri, languageId), ctrlClick, codeActionKeymap, lspClickable(), defKeymap];
 }
 
@@ -408,6 +457,8 @@ if (hot) {
     clients.clear();
     activeServers.clear();
     messageHandlers.clear();
+    reconnectHandlers.clear();
+    reconnectLocks.clear();
     lspMod = null;
   });
 }

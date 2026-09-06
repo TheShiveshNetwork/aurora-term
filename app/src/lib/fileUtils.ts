@@ -1,8 +1,14 @@
 const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "bmp", "webp", "svg", "ico"]);
+const VIDEO_EXTENSIONS = new Set(["mp4", "webm", "ogg", "ogv", "mov", "mkv", "avi", "m4v", "3gp", "ts"]);
 
 export function isImageFile(filePath: string): boolean {
   const ext = filePath.split(".").pop()?.toLowerCase() || "";
   return IMAGE_EXTENSIONS.has(ext);
+}
+
+export function isVideoFile(filePath: string): boolean {
+  const ext = filePath.split(".").pop()?.toLowerCase() || "";
+  return VIDEO_EXTENSIONS.has(ext);
 }
 
 // Normalize a filesystem path or `file://` URI into a canonical form for

@@ -2,6 +2,7 @@ import type { Transport } from "@codemirror/lsp-client";
 import { invoke } from "@tauri-apps/api/core";
 import {
   ensureLspListener,
+  handleServerClosed,
   registerLspHandler,
   unregisterLspHandler,
 } from "./client";
@@ -17,12 +18,22 @@ import {
 // `didChange` is debounced (~250ms) so heavier servers (rust-analyzer,
 // tsserver, clangd) don't redo expensive analysis on every keystroke. Sync is
 // full-document, so coalescing to the latest version is safe.
+//
+// When `lsp_send` fails (the server process is gone — crashed, killed, or
+// restarted mid-session), the frontend is told the server closed immediately
+// instead of silently dropping the message. That tears down the stale client so
+// it can reconnect fresh against the backend's relaunched process; without it a
+// dead lsp_send would leave the client hanging on a broken pipe indefinitely
+// (the reported "LSPs stop working after updating a few files" symptom).
 export function tauriTransport(serverKey: string): Transport {
   let currentHandler: ((value: string) => void) | null = null;
   const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   const flush = (message: string) => {
-    void invoke("lsp_send", { serverKey, message });
+    invoke("lsp_send", { serverKey, message }).catch(() => {
+      console.warn(`[LSP] send failed for ${serverKey}; dropping client`);
+      handleServerClosed(serverKey);
+    });
   };
 
   return {
