@@ -38,6 +38,7 @@ import {
   lspCodeAction,
   lspOrganizeImports,
   isLspActive,
+  registerLspReconnect,
   type PeekResult,
 } from "../../extensions/lsp/client";
 import { centerFindNext, centerFindPrevious } from "../../lib/editorScroll";
@@ -493,6 +494,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
   useEffect(() => {
     let cancelled = false;
     let tooltipResizeObserver: ResizeObserver | null = null;
+    let unregisterLspReconnect: (() => void) | null = null;
 
     const loadFile = async () => {
       try {
@@ -753,7 +755,33 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
             useLoaderStore.getState().start();
           }
           const finish = () => useLoaderStore.getState().stop();
-          connectLanguage(languageId, filePath, root)
+          // When the backend relaunches a crashed server under the same
+          // `server_key`, `handleServerClosed` fires this to re-run the connect
+          // and re-apply the fresh extension to this view's compartment — so LSP
+          // restores on the already-open file without the user reopening it.
+          const attemptLspReconnect = async () => {
+            try {
+              const newExt = await connectLanguage(languageId, filePath, root);
+              if (cancelled) return;
+              lspExtRef.current = newExt;
+              if (viewRef.current && lspCompartmentRef.current) {
+                viewRef.current.dispatch({
+                  effects: lspCompartmentRef.current.reconfigure(newExt),
+                });
+              } else if (pendingLspResolveRef.current) {
+                pendingLspResolveRef.current(newExt);
+                pendingLspResolveRef.current = null;
+              }
+            } catch (err) {
+              if (!cancelled) {
+                console.error(`LSP reconnect failed for ${languageId}:`, err);
+              }
+            }
+          };
+          connectLanguage(languageId, filePath, root, (serverKey) => {
+            unregisterLspReconnect?.();
+            unregisterLspReconnect = registerLspReconnect(serverKey, attemptLspReconnect);
+          })
             .then((ext) => {
               if (cancelled) {
                 finish();
@@ -810,6 +838,8 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
       }
       // Release any pending LSP "success" resolver so the toast can't hang if we
       // unmount mid-connect, and clear the cached extension for a clean remount.
+      unregisterLspReconnect?.();
+      unregisterLspReconnect = null;
       if (pendingLspResolveRef.current) {
         pendingLspResolveRef.current(lspExtRef.current ?? []);
         pendingLspResolveRef.current = null;

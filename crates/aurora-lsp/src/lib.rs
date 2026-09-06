@@ -323,6 +323,12 @@ impl LspManager {
     /// Re-launch a crashed server, applying exponential backoff. On failure the
     /// server is left in place (crashes already incremented) so the next tick
     /// retries, up to `MAX_RESTARTS`.
+    ///
+    /// The new process replaces the old one under the same `server_key`. The old
+    /// `read_loop` has already notified the frontend (`closed: true`) the moment
+    /// the previous process died, so the frontend drops its stale client; the
+    /// next `connectLanguage` for this key runs a fresh `initialize` handshake
+    /// against this new process, restoring LSP on the already-open file.
     async fn relaunch(&self, key: &str) {
         let (program, args, root, weight, runtime, backoff) = {
             let mut servers = self.servers.lock().await;
@@ -462,6 +468,14 @@ async fn write_message(stdin: &mut ChildStdin, message: &str) -> Result<(), AppE
 
 /// Continuously read framed messages from a server's stdout and forward each
 /// decoded JSON string to the channel, tagged with its `server_key`.
+///
+/// When the loop exits — EOF (process died), a read/parse error, or a dropped
+/// receiver — the frontend is notified with `closed: true`. Without this, the
+/// frontend would keep a stale client attached to a dead pipe and all subsequent
+/// requests would hang or time out while the backend silently restarts the
+/// process under the hood. On `closed` the frontend drops the stale client, and
+/// the next `connectLanguage` for this key runs a fresh `initialize` handshake
+/// against the (possibly relaunched) process, restoring LSP.
 async fn read_loop(
     mut stdout: tokio::process::ChildStdout,
     language_id: String,
@@ -469,66 +483,80 @@ async fn read_loop(
     tx: UnboundedSender<LspIncoming>,
 ) {
     let mut reader = BufReader::new(&mut stdout);
-    loop {
-        // Read headers until an empty line.
-        let mut content_length: Option<usize> = None;
-        let mut header_buf = String::new();
+    (async {
         loop {
-            let mut line = Vec::new();
-            match read_until_crlf(&mut reader, &mut line).await {
-                Ok(0) => return, // EOF
-                Ok(_) => {}
-                Err(e) => {
-                    tracing::warn!("LSP read error ({}): {}", server_key, e);
+            // Read headers until an empty line.
+            let mut content_length: Option<usize> = None;
+            let mut header_buf = String::new();
+            loop {
+                let mut line = Vec::new();
+                match read_until_crlf(&mut reader, &mut line).await {
+                    Ok(0) => return, // EOF
+                    Ok(_) => {}
+                    Err(e) => {
+                        tracing::warn!("LSP read error ({}): {}", server_key, e);
+                        return;
+                    }
+                }
+                // Strip trailing \r\n / \n.
+                let trimmed = line
+                    .iter()
+                    .copied()
+                    .take_while(|&b| b != b'\n' && b != b'\r')
+                    .collect::<Vec<_>>();
+                if trimmed.is_empty() {
+                    break; // end of headers
+                }
+                header_buf.push_str(&String::from_utf8_lossy(&trimmed));
+                // Parse `Content-Length: N`.
+                if let Some(rest) = header_buf.to_ascii_lowercase().strip_prefix("content-length:") {
+                    if let Ok(n) = rest.trim().parse::<usize>() {
+                        content_length = Some(n);
+                    }
+                }
+                header_buf.clear();
+            }
+
+            let len = match content_length {
+                Some(n) => n,
+                None => {
+                    tracing::warn!("LSP framed message without Content-Length ({})", server_key);
                     return;
                 }
-            }
-            // Strip trailing \r\n / \n.
-            let trimmed = line
-                .iter()
-                .copied()
-                .take_while(|&b| b != b'\n' && b != b'\r')
-                .collect::<Vec<_>>();
-            if trimmed.is_empty() {
-                break; // end of headers
-            }
-            header_buf.push_str(&String::from_utf8_lossy(&trimmed));
-            // Parse `Content-Length: N`.
-            if let Some(rest) = header_buf.to_ascii_lowercase().strip_prefix("content-length:") {
-                if let Ok(n) = rest.trim().parse::<usize>() {
-                    content_length = Some(n);
-                }
-            }
-            header_buf.clear();
-        }
+            };
 
-        let len = match content_length {
-            Some(n) => n,
-            None => {
-                tracing::warn!("LSP framed message without Content-Length ({})", server_key);
+            let mut body = vec![0u8; len];
+            if let Err(e) = reader.read_exact(&mut body).await {
+                tracing::warn!("LSP body read error ({}): {}", server_key, e);
                 return;
             }
-        };
 
-        let mut body = vec![0u8; len];
-        if let Err(e) = reader.read_exact(&mut body).await {
-            tracing::warn!("LSP body read error ({}): {}", server_key, e);
-            return;
+            let message = String::from_utf8_lossy(&body).to_string();
+            if tx
+                .send(LspIncoming {
+                    language_id: language_id.clone(),
+                    server_key: server_key.clone(),
+                    message,
+                    closed: false,
+                })
+                .is_err()
+            {
+                return; // receiver dropped
+            }
         }
+    })
+    .await;
 
-        let message = String::from_utf8_lossy(&body).to_string();
-        if tx
-            .send(LspIncoming {
-                language_id: language_id.clone(),
-                server_key: server_key.clone(),
-                message,
-                closed: false,
-            })
-            .is_err()
-        {
-            return; // receiver dropped
-        }
-    }
+    // Every exit path above means the server's output stream is gone and the
+    // frontend's client for this key is no longer backed by a live process (it
+    // will be relaunched by the backend under the same key). Notify the frontend
+    // so it drops the stale client; the next `connectLanguage` reconnects fresh.
+    let _ = tx.send(LspIncoming {
+        language_id,
+        server_key,
+        message: String::new(),
+        closed: true,
+    });
 }
 
 /// Read bytes up to and including a `\n`, appending the consumed bytes (including
