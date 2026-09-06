@@ -9,7 +9,7 @@ import { lintGutter, linter, lintKeymap } from "@codemirror/lint";
 import { listen } from "@tauri-apps/api/event";
 import { system, ai } from "../../lib/ipc";
 import { getLanguageExtension } from "../../lib/codeLang";
-import { isImageFile } from "../../lib/fileUtils";
+import { isImageFile, pathsEqual } from "../../lib/fileUtils";
 import { AlertCircle, Loader, Maximize2, Minimize2, Minus, Plus, RotateCw, GitMerge } from "lucide-react";
 import { useSessionStore } from "../../stores/useSessionStore";
 import { useSettingsStore } from "../../stores/useSettingsStore";
@@ -754,7 +754,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
     let unlistenContent: (() => void) | null = null;
     let unlistenDeleted: (() => void) | null = null;
     listen<string>("file-content-changed", async (event) => {
-      if (event.payload !== filePath) return;
+      if (!pathsEqual(event.payload, filePath)) return;
       const view = viewRef.current;
       if (!view) return;
       // Only reload if the file has no unsaved changes
@@ -772,7 +772,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
       } catch { /* file may be temporarily unavailable */ }
     }).then((u) => { unlistenContent = u; });
     listen<string>("file-deleted", (event) => {
-      if (event.payload !== filePath) return;
+      if (!pathsEqual(event.payload, filePath)) return;
       updateTab(tabId, { missing: true });
     }).then((u) => { unlistenDeleted = u; });
     // Explicit agent-approved file refresh: bypasses the dirty-content guard
@@ -780,7 +780,7 @@ export function FileViewer({ tabId, filePath, fileName }: FileViewerProps) {
     // Dispatched from useAgentExecution after the user approves a patch/write.
     window.addEventListener("aurora-refresh-file", ((e: Event) => {
       const detail = (e as CustomEvent).detail;
-      if (detail?.path !== filePath) return;
+      if (!detail?.path || !pathsEqual(detail.path, filePath)) return;
       const view = viewRef.current;
       if (!view) return;
       system.readFileContent(filePath).then((newContent) => {
