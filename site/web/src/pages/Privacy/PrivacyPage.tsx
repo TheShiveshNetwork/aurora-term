@@ -59,7 +59,7 @@ export default function PrivacyPage() {
   return (
     <div className="relative">
       <Container className="relative pt-24 pb-24">
-        <div className="mx-auto max-w-3xl">
+        <div className="mx-auto max-w-6xl">
           <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary-container px-4 py-1.5 text-[12px] font-medium text-primary">
             Privacy
           </div>

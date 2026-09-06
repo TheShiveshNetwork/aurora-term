@@ -11,7 +11,7 @@ export function FeaturesSection() {
             GPU rendering, a local agent, and AI routing that actually respect your context window.
           </p>
         </div>
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid auto-rows-fr grid-flow-dense grid-cols-1 gap-5 md:grid-cols-3">
           {features.map((f) => (
             <FeatureCard key={f.title} {...f} />
           ))}

@@ -79,11 +79,6 @@ function useClientRouter() {
 function App() {
   const pathname = useClientRouter();
 
-  // Scroll to top whenever the route changes.
-  useEffect(() => {
-    window.scrollTo(0, 0);
-  }, [pathname]);
-
   function resolve() {
     const params = new URLSearchParams(location.search);
     if (params.get("error")) return <AuthErrorScreen />;
@@ -94,7 +89,7 @@ function App() {
     return <LandingPage />;
   }
 
-  return <RootLayout>{resolve()}</RootLayout>;
+  return <RootLayout pathname={pathname}>{resolve()}</RootLayout>;
 }
 
 ReactDOM.createRoot(document.getElementById("root")!).render(

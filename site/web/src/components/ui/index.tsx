@@ -64,16 +64,29 @@ interface FeatureCardProps {
   icon: ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
   title: string;
   description: string;
+  className?: string;
 }
 
-export function FeatureCard({ icon: Icon, title, description }: FeatureCardProps) {
+export function FeatureCard({
+  icon: Icon,
+  title,
+  description,
+  className = "",
+}: FeatureCardProps) {
   return (
-    <div className="rounded-2xl border border-outline-variant bg-surface/60 p-6 transition-colors hover:border-primary/40 hover:bg-surface">
-      <div className="mb-4 inline-flex h-10 w-10 items-center justify-center rounded-xl bg-primary-container text-primary">
-        <Icon size={20} strokeWidth={1.75} />
+    <div
+      className={`relative overflow-hidden rounded-2xl border border-outline-variant bg-surface/60 p-6 ${className}`}
+    >
+      <div className="pointer-events-none absolute -bottom-8 -right-8 text-on-background opacity-[0.05]">
+        <Icon size={132} strokeWidth={0.75} />
       </div>
-      <h3 className="mb-2 text-[15px] font-semibold text-on-background">{title}</h3>
-      <p className="text-[13px] leading-relaxed text-on-surface-variant">{description}</p>
+      <div className="relative">
+        <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-xl bg-primary-container text-on-background">
+          <Icon size={24} strokeWidth={1.75} />
+        </div>
+        <h3 className="mb-2 text-[15px] font-semibold text-on-background">{title}</h3>
+        <p className="text-[13px] leading-relaxed text-on-surface-variant">{description}</p>
+      </div>
     </div>
   );
 }

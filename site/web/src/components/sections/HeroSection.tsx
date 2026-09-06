@@ -1,48 +1,59 @@
-import { Container } from "../ui";
-import { AuroraButton } from "../ui/AuroraButton";
-import { ChevronRight, Github, Rocket } from "lucide-react";
+import Strands from "../backgrounds/LightStrands";
+import WarpText from "../ui/WarpText";
+import { VideoPlayer } from "../ui/VideoPlayer";
 
 export function HeroSection() {
   return (
-    <section id="download" className="relative overflow-hidden">
-      <Container className="relative pt-24 pb-20 text-center">
-        <div className="mx-auto mb-6 inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary-container px-4 py-1.5 text-[12px] font-medium text-primary">
-          <Rocket size={13} />
-          AI-native developer terminal
+    <section className="relative min-h-[800px]">
+      <div className="absolute inset-x-0 top-0 h-[800px]">
+        <Strands
+          colors={["#f96e16","#7C3AED","#06B6D4"]}
+          count={3}
+          speed={0.5}
+          amplitude={1}
+          waviness={1}
+          thickness={0.7}
+          glow={2.6}
+          taper={3}
+          spread={5}
+          intensity={1}
+          saturation={2.4}
+          opacity={.8}
+          scale={1.5}
+          glass={false}
+          refraction={1}
+          dispersion={4}
+          glassSize={1}
+          hueShift={0}
+        />
+      </div>
+      <div className="relative z-10">
+        <div className="h-[400px] pt-20">
+          <WarpText
+            text="Aurora"
+            color="#f8f5ff"
+            warpStrength={0.08}
+            warpScale={1.7}
+            speed={0.55}
+            pointerInfluence={0.42}
+            pointerStrength={0.38}
+            refraction={0.018}
+            ripple
+            fontSize={116}
+            fontWeight={800}
+            style={{ height: '320px' }}
+            fontFamily="inherit"
+            letterSpacing={-0.06}
+            lineHeight={0.9}
+          />
         </div>
-        <h1 className="mx-auto max-w-3xl text-balance text-5xl font-semibold tracking-tight md:text-6xl">
-          The terminal that
-          <span className="bg-gradient-to-r from-primary via-secondary to-tertiary bg-clip-text text-transparent">
-            {" "}
-            thinks with you.
-          </span>
-        </h1>
-        <p className="mx-auto mt-6 max-w-2xl text-pretty text-[15px] leading-relaxed text-on-surface-variant">
-          Aurora is a hardware-accelerated developer terminal with a local agent sidecar,
-          GPU-rendered output blocks, and multi-provider AI routing — built on Tauri, Rust,
-          and React. Ask a question, and an agent plans and runs the commands for you.
-        </p>
-        <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
-          <AuroraButton
-            href="https://github.com/TheShiveshNetwork/aurora-term/releases"
-            external
-          >
-            Download for Windows
-            <ChevronRight size={16} className="ml-1" />
-          </AuroraButton>
-          <AuroraButton
-            variant="ghost"
-            href="https://github.com/TheShiveshNetwork/aurora-term"
-            external
-          >
-            <Github size={16} className="mr-1" />
-            View source
-          </AuroraButton>
+        <div className="mx-auto w-full max-w-6xl px-6 pb-16">
+          <VideoPlayer
+            src="/aurora-terminal-demo.mp4"
+            className="w-full shadow-[0_0_80px_rgba(79,140,255,0.08)]"
+          />
         </div>
-        <p className="mt-4 text-[12px] text-on-surface-variant/70">
-          Windows · macOS · Linux — single installer under 15&nbsp;MB
-        </p>
-      </Container>
+      </div>
     </section>
   );
 }
