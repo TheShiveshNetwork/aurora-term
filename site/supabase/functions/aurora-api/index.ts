@@ -1,4 +1,5 @@
 import { Hono } from "npm:hono@4";
+import { LSP_EXCLUDED_FROM_STORAGE } from "./lsp-config.ts";
 
 /**
  * Aurora backend — Supabase Edge Function (Deno).
@@ -13,6 +14,13 @@ import { Hono } from "npm:hono@4";
  *   - lsp_release : newest LSP build (rolling, no version) + mirrored bundles
  * Each row carries version, url, download_url (Supabase bucket link, else
  * GitHub fallback), notes, published_at, packages[], mirrored_at.
+ *
+ * Supabase Storage only holds the LSP bundles that are downloaded most often.
+ * Mirroring them into the public `aurora` bucket keeps repeated installs off
+ * GitHub's rate-limited rolling `lsp-bundles` release while freeing us from
+ * serving huge, rarely-used bundles from Supabase (which would waste quota).
+ * Which languages are mirrored is decided by `lsp-config.ts`; set
+ * `AURORA_MAX_ASSET_BYTES` to raise the per-asset cap on that bucket.
  *
  * Endpoints:
  *   GET /v1/health         -> { ok: true }
@@ -162,6 +170,24 @@ function isLspAsset(name: string): boolean {
     n.endsWith(".sig") || n.endsWith(".asc")
   ) return false;
   return true;
+}
+
+// Bundle assets are named `<language>-<version>-<platform>.<ext>` — the language
+// id is always the first dash-delimited segment (`c`, `cpp`, `rust`, …).
+function lspLanguageOf(name: string): string {
+  return name.toLowerCase().split("-")[0] ?? "";
+}
+
+// LSP assets that go into Supabase Storage: anything that qualifies as an LSP
+// asset except languages configured in `lsp-config.ts` to stay on GitHub.
+function isLspStoredAsset(name: string): boolean {
+  return isLspAsset(name) && !LSP_EXCLUDED_FROM_STORAGE.includes(lspLanguageOf(name));
+}
+
+// LSP assets of the languages kept out of Supabase Storage — they stay on the
+// GitHub rolling release and are fetched on demand.
+function isLspGithubOnlyAsset(name: string): boolean {
+  return isLspAsset(name) && LSP_EXCLUDED_FROM_STORAGE.includes(lspLanguageOf(name));
 }
 
 function contentTypeFor(name: string): string {
@@ -442,9 +468,11 @@ async function cacheRelease(key: string, row: ReleaseRow) {
 
 // Resolves one release family into a single `release_cache` row.
 //  - app: mirrors installers into the Supabase bucket; download_url = bucket link.
-//  - lsp: NOT uploaded to Supabase (size limits). The row just caches the GitHub
-//        release metadata; download_url = GitHub manifest URL. The cache is only
-//        rewritten when the upstream release is newer than what we already hold.
+//  - lsp: mirrors the frequently-downloaded bundles into the `lsp-bundles/`
+//        bucket path (languages in LSP_EXCLUDED_FROM_STORAGE stay on GitHub).
+//        The row caches the release metadata; download_url = GitHub manifest
+//        URL. The cache is only rewritten when the upstream release is newer
+//        than what we already hold.
 async function resolveRelease(kind: "app" | "lsp", force = false): Promise<ReleaseRow | null> {
   const key = kind === "app" ? APP_CACHE_KEY : LSP_CACHE_KEY;
   if (!force) {
@@ -459,7 +487,7 @@ async function resolveRelease(kind: "app" | "lsp", force = false): Promise<Relea
   const release = kind === "app" ? findAppRelease(releases) : findLspRelease(releases);
   const tag = String(release?.tag_name ?? "");
 
-  // ---- LSP: GitHub-only, refresh only when upstream is newer ----
+  // ---- LSP: mirror frequently-downloaded bundles, refresh only when upstream is newer ----
   if (kind === "lsp") {
     const stored = await getStoredRow(key);
     const ghPub = doc.publishedAt;
@@ -472,14 +500,32 @@ async function resolveRelease(kind: "app" | "lsp", force = false): Promise<Relea
       await touchRow(key);
       return stored;
     }
+    // Mirror into `lsp-bundles/` so frequently-used servers are served from
+    // Supabase instead of GitHub. Languages excluded from storage stay on the
+    // GitHub release; their package entries point at GitHub URLs below.
+    const mirrored = await mirrorPackages(
+      "lsp-bundles",
+      release?.assets ?? [],
+      isLspStoredAsset,
+    ).catch(() => ({
+      packages: [] as Package[],
+      mirroredAt: "",
+      skipped: [] as string[],
+    }));
+    // Mirrored bundles are served from Supabase; excluded-language bundles keep
+    // their GitHub URLs. If mirroring failed outright, fall back to the full
+    // GitHub listing so the cached row still points at every asset.
+    const packages = mirrored.packages.length > 0
+      ? [...mirrored.packages, ...githubPackages(release, isLspGithubOnlyAsset)]
+      : githubPackages(release, isLspAsset);
     const row: ReleaseRow = {
       version: null,
       url: doc.url,
       download_url: doc.download_url,
       notes: doc.notes,
       published_at: doc.publishedAt,
-      packages: githubPackages(release, isLspAsset),
-      mirrored_at: null,
+      packages,
+      mirrored_at: mirrored.mirroredAt || null,
     };
     await cacheRelease(key, row);
     return row;
