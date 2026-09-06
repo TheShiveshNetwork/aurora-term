@@ -24,6 +24,7 @@ interface AppHeaderProps {
   onToggleChatInput: () => void;
   menuOpen: boolean;
   onToggleMenu: () => void;
+  onCloseMenu: () => void;
   onOpenFolder: () => void;
   onOpenFile: () => void;
   onOpenRecentFile: (path: string) => void;
@@ -60,6 +61,7 @@ export function AppHeader({
   onToggleChatInput,
   menuOpen,
   onToggleMenu,
+  onCloseMenu,
   onOpenFolder,
   onOpenFile,
   onOpenRecentFile,
@@ -118,6 +120,9 @@ export function AppHeader({
       id="aurora-app-header"
       ref={headerRef}
       data-tauri-drag-region
+      onClick={() => {
+        if (menuOpen) onCloseMenu();
+      }}
       className="grid grid-cols-[1fr_minmax(0,400px)_1fr] w-full h-auto z-50 select-none gap-3 shrink-0 pl-3"
       style={{
         background: "#0A0D14",
@@ -146,7 +151,8 @@ export function AppHeader({
             <MenuView
               variant="primary"
               open={menuOpen}
-              onClose={() => onToggleMenu()}
+              onClose={() => onCloseMenu()}
+              triggerSelector='button[title="Aurora Menu"]'
               className="absolute left-0 mt-1.5 w-60 z-[999]"
               style={{ pointerEvents: "auto" }}
             >
@@ -192,7 +198,8 @@ export function AppHeader({
               <MenuView
                 variant="primary"
                 open={menuOpen}
-                onClose={() => onToggleMenu()}
+                onClose={() => onCloseMenu()}
+                triggerSelector='button[title="Aurora Menu"]'
                 className="absolute left-0 mt-1.5 w-60 z-[999]"
                 style={{ pointerEvents: "auto" }}
               >

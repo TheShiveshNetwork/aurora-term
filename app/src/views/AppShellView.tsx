@@ -242,7 +242,14 @@ export function AppShellView() {
     }
 
     const input = activeCommandInput.trim();
-    if (!input && attachedFiles.length === 0) return;
+    // Terminal view command bar: an empty submit (plain Enter) is legitimate.
+    // It is always routed straight to the shell — never through the NL
+    // classifier — mirroring Enter in a real terminal. The file prompt bar
+    // keeps blocking empty submissions.
+    if (!input && attachedFiles.length === 0) {
+      if (!isFilePrompt) defaultSubmit(event, "");
+      return;
+    }
 
     // Slash-command dispatch (/skills /mcp /btw /file) takes priority over
     // NL/command classification.
@@ -604,6 +611,7 @@ export function AppShellView() {
         }}
         menuOpen={showMenuDropdown}
         onToggleMenu={() => { closeAllPopups(); toggleShowMenuDropdown(); }}
+        onCloseMenu={() => { closeAllPopups(); setShowMenuDropdown(false); }}
         onOpenFolder={handleOpenFolder}
         onOpenFile={handleOpenFile}
         onOpenRecentFile={handleOpenRecentFile}

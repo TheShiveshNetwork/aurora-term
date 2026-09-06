@@ -610,6 +610,7 @@ server.post('/api/step', async (request, _reply) => {
     require_review_for_commands,
     require_review_for_writes,
     model,
+    file_context,
   } = request.body as any;
 
   const stepLog = log.child({
@@ -654,9 +655,16 @@ server.post('/api/step', async (request, _reply) => {
   // the new run is queued behind the per-thread lock.
   if (goal) resetThinking(threadId);
   const cleanOutput = (last_output ?? '(no output)');
+  // The open-file context (absolute path + preview + selected lines) is attached
+  // on EVERY step — not just the first — so the agent always knows the exact file
+  // path to edit, instead of rediscovering it through tool calls on later turns.
+  const fileContextBlock =
+    file_context && String(file_context).trim()
+      ? `\n\n[OPEN FILE CONTEXT]\n${String(file_context).trim()}`
+      : '';
   const prompt = goal
-    ? `Goal: ${goal}`
-    : `Previous command exit code: ${exit_code ?? 0}\nOutput:\n${cleanOutput}`;
+    ? `Goal: ${goal}${fileContextBlock}`
+    : `Previous command exit code: ${exit_code ?? 0}\nOutput:\n${cleanOutput}${fileContextBlock}`;
 
   stepLog.info('Calling LLM', {
     threadId,
