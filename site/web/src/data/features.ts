@@ -3,7 +3,9 @@ import {
   Blocks,
   Bot,
   Cloud,
-  Cpu,
+  FolderOpen,
+  GitGraph,
+  ShieldCheck,
   Sparkles,
   TerminalSquare,
 } from "lucide-react";
@@ -12,20 +14,35 @@ export interface Feature {
   icon: ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
   title: string;
   description: string;
+  className?: string;
 }
 
 export const features: Feature[] = [
   {
-    icon: Cpu,
-    title: "Hardware-accelerated terminal",
+    icon: ShieldCheck,
+    title: "An Agent That Asks First",
     description:
-      "Output blocks render through the GPU with the WebGL xterm renderer. Scrolling thousands of lines stays at 60fps, even on huge recursive listings.",
+      "Give it the goal. Keep the final say. Ask Aurora to handle a task in plain English. It plans the work, executes it step by step, and pauses when something needs your approval. Nothing important happens behind your back.",
+    className: "md:row-span-2",
   },
   {
     icon: Bot,
-    title: "Local agent sidecar",
+    title: "Local AI agent",
     description:
-      "A native, single-file agent binary runs next to Aurora. It plans multi-step tasks, runs commands in your terminals, and self-corrects when output is truncated.",
+      "A native, single-file agent binary runs entirely on your machine — no cloud round-trip for the decisions that matter. It plans multi-step tasks, runs commands in your terminals, and self-corrects when output is truncated.",
+  },
+  {
+    icon: GitGraph,
+    title: "Visual Git Studio",
+    description:
+      "Your repository, without the archaeology. Browse commits, branches, staged changes, unstaged changes, and the full commit graph in a visual interface built into Aurora.",
+    className: "md:col-span-2",
+  },
+  {
+    icon: FolderOpen,
+    title: "Files, Right Inside the Terminal",
+    description:
+      "See what your commands created. New files and folders appear in the terminal the moment they happen — no file manager needed.",
   },
   {
     icon: Sparkles,
@@ -44,11 +61,5 @@ export const features: Feature[] = [
     title: "Cloud settings sync",
     description:
       "Sign in with GitHub, Google, or email and your aurora.json settings follow you across machines. Last-write-wins with a 3-way merge dialog when conflicts occur.",
-  },
-  {
-    icon: TerminalSquare,
-    title: "AI-native editor",
-    description:
-      "CodeMirror with inline AI edits and ghost-text completion. Select code, hit Ctrl+L, and let the agent rewrite it inline with accept/reject.",
   },
 ];

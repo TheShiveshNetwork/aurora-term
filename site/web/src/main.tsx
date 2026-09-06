@@ -5,6 +5,7 @@ import LandingPage from "./pages/Landing/LandingPage";
 import SignInPage from "./pages/SignIn/SignInPage";
 import AuthCallbackPage from "./pages/AuthCallback/AuthCallbackPage";
 import DownloadPage from "./pages/Download/DownloadPage";
+import PrivacyPage from "./pages/Privacy/PrivacyPage";
 import "./styles/globals.css";
 
 function AuthErrorScreen() {
@@ -78,21 +79,17 @@ function useClientRouter() {
 function App() {
   const pathname = useClientRouter();
 
-  // Scroll to top whenever the route changes.
-  useEffect(() => {
-    window.scrollTo(0, 0);
-  }, [pathname]);
-
   function resolve() {
     const params = new URLSearchParams(location.search);
     if (params.get("error")) return <AuthErrorScreen />;
     if (pathname.startsWith("/signin")) return <SignInPage />;
     if (pathname.startsWith("/auth/callback")) return <AuthCallbackPage />;
     if (pathname.startsWith("/download")) return <DownloadPage />;
+    if (pathname.startsWith("/privacy")) return <PrivacyPage />;
     return <LandingPage />;
   }
 
-  return <RootLayout>{resolve()}</RootLayout>;
+  return <RootLayout pathname={pathname}>{resolve()}</RootLayout>;
 }
 
 ReactDOM.createRoot(document.getElementById("root")!).render(

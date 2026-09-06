@@ -1,5 +1,5 @@
 import { HeroSection } from "../../components/sections/HeroSection";
-import { TerminalPreviewSection } from "../../components/sections/TerminalPreviewSection";
+import { AboutSection } from "../../components/sections/AboutSection";
 import { FeaturesSection } from "../../components/sections/FeaturesSection";
 import { CtaSection } from "../../components/sections/CtaSection";
 
@@ -7,7 +7,7 @@ export default function LandingPage() {
   return (
     <>
       <HeroSection />
-      <TerminalPreviewSection />
+      <AboutSection />
       <FeaturesSection />
       <CtaSection />
     </>
