@@ -115,8 +115,23 @@ fn start_pty_event_bridge(
     });
 }
 
+#[cfg(target_os = "linux")]
+fn apply_wayland_fixes() {
+    let is_wayland = std::env::var("XDG_SESSION_TYPE")
+        .map(|v| v == "wayland")
+        .unwrap_or_else(|_| std::env::var("WAYLAND_DISPLAY").is_ok());
+
+    if is_wayland {
+        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+        std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "linux")]
+    apply_wayland_fixes();
+
     #[cfg(target_os = "linux")]
     let window_state_denylist = ["main"];
     #[cfg(not(target_os = "linux"))]
