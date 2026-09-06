@@ -84,7 +84,7 @@ export function useCommandExecution(tabs: Tab[], activeTabId: string | null) {
   const handleExecuteCommand = useCallback(async (event: SubmitEvent<HTMLFormElement>, commandOverride?: string) => {
     event.preventDefault();
     const cmd = commandOverride !== undefined ? commandOverride : activeCommandInput;
-    if (!cmd.trim() || !activeTabId) return;
+    if (!activeTabId) return;
 
     const currentTab = tabs.find((tab) => tab.id === activeTabId);
     const targetId = currentTab?.type === "file"
@@ -92,6 +92,13 @@ export function useCommandExecution(tabs: Tab[], activeTabId: string | null) {
       : activeTabId;
 
     if (!targetId) return;
+
+    // Blank Enter: just push a newline to the shell like a normal terminal.
+    // No command block is created for it.
+    if (!cmd.trim()) {
+      await pty.write(targetId, "\r");
+      return;
+    }
 
     clearCommandInput(activeTabId);
 

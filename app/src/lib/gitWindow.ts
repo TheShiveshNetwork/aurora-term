@@ -1,5 +1,5 @@
 import { getAllWebviewWindows, WebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { getCurrentWindow, PhysicalPosition } from "@tauri-apps/api/window";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 export async function openGitViewWindow(projectDir: string) {
   const all = await getAllWebviewWindows();
@@ -35,7 +35,6 @@ export async function openGitViewWindow(projectDir: string) {
 
     win.once("tauri://created", async () => {
       try {
-        await win.setPosition(new PhysicalPosition(Math.round(logX * dpr), Math.round(logY * dpr)));
         await win.show();
         await win.setFocus();
       } catch {}

@@ -27,9 +27,24 @@ function registerPtyListeners() {
       const state = useBlockStore.getState();
       const blockId = state.runningBlockId[session_id];
       state.setCommandOutputReceived(session_id, true);
+      const { cleanData, cwdValue, exitCode } = cleanPtyData(data);
       if (blockId) {
-        const { cleanData } = cleanPtyData(data);
         state.appendBlockOutput(session_id, blockId, stripAnsi(cleanData));
+      }
+
+      // A hidden background PTY (owned by a non-terminal agent/file session) has
+      // no mounted TerminalPane to finalize its running block. Detect the prompt
+      // sentinel that follows every command and finalize the block here so the
+      // agent's waitForBlockCompletion resolves promptly instead of hitting the
+      // 30s timeout. Visible terminals finalize the same block idempotently via
+      // their own TerminalPane — guarded to non-terminal sessions so we never
+      // race that handler.
+      if (cwdValue && blockId) {
+        const sessionTab = useSessionStore.getState().tabs.find((t) => t.id === session_id);
+        if (sessionTab?.type !== "terminal") {
+          useBlockStore.getState().finalizeBlock(session_id, blockId, exitCode ?? 0);
+          useBlockStore.getState().setCommandOutputReceived(session_id, false);
+        }
       }
 
       window.dispatchEvent(

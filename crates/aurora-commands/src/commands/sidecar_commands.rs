@@ -20,6 +20,7 @@ pub struct AgentStepRequest {
     pub require_review_for_commands: Option<bool>,
     pub require_review_for_writes: Option<bool>,
     pub model: Option<String>,
+    pub file_context: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -201,6 +202,7 @@ pub async fn agent_plan_step(
     require_review_for_commands: Option<bool>,
     require_review_for_writes: Option<bool>,
     model: Option<String>,
+    file_context: Option<String>,
 ) -> Result<AgentStepResponse, AppError> {
     let port = {
         let sidecar = state.sidecar.lock().await;
@@ -234,6 +236,7 @@ pub async fn agent_plan_step(
         require_review_for_commands,
         require_review_for_writes,
         model,
+        file_context,
     };
 
     let response = client.post(&url)
@@ -757,6 +760,7 @@ fn kill_orphan_agents() {
 }
 
 #[cfg(not(target_os = "windows"))]
+#[allow(dead_code)]
 fn kill_orphan_agents() {}
 
 /// Build the AI-provider environment variables (API keys, active provider,

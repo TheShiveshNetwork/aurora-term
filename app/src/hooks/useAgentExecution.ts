@@ -8,7 +8,55 @@ import { useBlockStore } from "../stores/useBlockStore";
 import { useSettingsStore } from "../stores/useSettingsStore";
 import { useSessionStore } from "../stores/useSessionStore";
 import { pty, system, config } from "../lib/ipc";
+import { getDefaultShellLaunch } from "../lib/shell";
 import { Block } from "@aurora/types";
+
+// Hidden background PTY sessions owned by non-terminal agent sessions (AgentView
+// and file/diff views). Commands approved in those overlays run here so they
+// never surface inside a visible terminal tab. Keyed by the agent session id;
+// a background PTY is lazily spawned on first use and reused until cleared.
+const backgroundPtySessions = new Set<string>();
+
+// Spawn (or reuse) a hidden PTY session for a non-terminal agent session. Unlike
+// `usePTY.spawnSession`, this never creates a tab, so the shell is not visible
+// anywhere in the UI — only its output (captured via pty_data/pty_exit) is fed
+// back to the agent.
+async function ensureBackgroundPty(agentSessionId: string): Promise<void> {
+  if (backgroundPtySessions.has(agentSessionId)) return;
+
+  const shellState = useAppShellStore.getState();
+  const cwd = shellState.projectDir || shellState.cwdAbsolute || undefined;
+  const { shell, args } = getDefaultShellLaunch();
+
+  // A persistent interactive shell, exactly like a visible terminal. For bash,
+  // install the prompt sentinel so the background PTY prints `__AURORA_CWD__`
+  // (and the exit code) after every command — the global pty_data handler uses
+  // it to finalize the running block, since no TerminalPane is mounted here.
+  const env: Record<string, string> = {};
+  const isWin = window.navigator.userAgent.includes("Windows");
+  if (!isWin && shell.includes("bash")) {
+    env["PROMPT_COMMAND"] = 'echo "__AURORA_CWD__=$(pwd);EXIT_CODE=$?"';
+  }
+
+  try {
+    await pty.spawn(shell, args, env, cwd, agentSessionId);
+  } catch (err) {
+    console.warn("Failed to spawn hidden background PTY:", err);
+    throw err;
+  }
+  backgroundPtySessions.add(agentSessionId);
+}
+
+// Kill the hidden background PTY owned by a non-terminal agent session (if any).
+async function killBackgroundPty(agentSessionId: string): Promise<void> {
+  if (!backgroundPtySessions.has(agentSessionId)) return;
+  backgroundPtySessions.delete(agentSessionId);
+  try {
+    await pty.kill(agentSessionId);
+  } catch {
+    /* already gone */
+  }
+}
 
 const HEAD_TAIL_CHARS = 200;
 
@@ -602,11 +650,17 @@ export function useAgentExecution(sessionId: string | null) {
     const requireReviewForWrites = cfg.ai.require_review_for_writes;
 
     try {
-      let goal: string | null = lastOutput === undefined ? originalGoal : null;
+      const isFirstStep = lastOutput === undefined;
+      let goal: string | null = isFirstStep ? originalGoal : null;
+
+      // Build the open-file context on EVERY step (not just the first) so the
+      // agent always has the complete absolute file path + selected lines when it
+      // goes to act. Without this, later steps only received the previous command
+      // output and the agent had to rediscover the file via tool calls.
+      const fileCtx = await buildFileContext(targetSessionId);
+
       if (goal) {
         resetToolCallGuard(targetSessionId);
-        const fileCtx = await buildFileContext(targetSessionId);
-        if (fileCtx) goal = `${goal}\n\n[FILE CONTEXT]\n${fileCtx}`;
         // If the agent's own terminal is occupied by a TUI (alternate screen
         // buffer active), tell the agent up front so it explains the situation
         // to the user instead of silently completing or attempting a command
@@ -626,7 +680,8 @@ export function useAgentExecution(sessionId: string | null) {
         agentMode,
         requireReviewForCommands,
         requireReviewForWrites,
-        model
+        model,
+        fileCtx || undefined
       );
 
       await handleStepResult(targetSessionId, taskId, step);
@@ -663,30 +718,33 @@ export function useAgentExecution(sessionId: string | null) {
     const targetSessionId = sessionRef.current;
     if (!targetSessionId) return;
 
-    // Resolve a real PTY session for command execution. AgentView sessions and
-    // non-terminal tabs (file/diff/merge) have no PTY of their own — their
-    // commands run in the BACKGROUND on the last-active (or first) terminal tab
-    // so output never interrupts the current view.
+    // Resolve the real PTY session for command execution.
+    //
+    // Terminal tabs own a PTY with the same id, so commands run in place and show
+    // up in that terminal. AgentView sessions and non-terminal tabs (file/diff/
+    // merge) have no visible terminal — their commands run in a DEDICATED hidden
+    // background PTY keyed to this agent session, so they never surface inside an
+    // open terminal tab (this was the bug: they used to be injected into whichever
+    // terminal happened to be last-active).
     const activeTab = useSessionStore.getState().tabs.find((t) => t.id === targetSessionId);
     const hasOwnPty = activeTab?.type === "terminal";
-    let ptySessionId = targetSessionId;
+    const ptySessionId = targetSessionId;
 
     if (!hasOwnPty) {
-      ptySessionId =
-        useAppShellStore.getState().lastActiveTerminalId ||
-        useSessionStore.getState().tabs.find((t) => t.type === "terminal")?.id ||
-        targetSessionId;
-    }
-
-    if (ptySessionId === targetSessionId && !hasOwnPty) {
-    console.warn("No terminal session available for PTY command");
-    useAgentStore.getState().addLog(targetSessionId, "Cannot run shell command: no terminal session open.");
-    return {
-      exitCode: -1,
-      output:
-        "No terminal session is available in this context (file view). " +
-        "Do not retry shell commands — use the read_file / write_file / patch_file tools instead.",
-    };
+      try {
+        await ensureBackgroundPty(targetSessionId);
+      } catch (err) {
+        useAgentStore.getState().addLog(
+          targetSessionId,
+          "Cannot run shell command: failed to start a hidden background terminal for this session."
+        );
+        return {
+          exitCode: -1,
+          output:
+            "Shell commands are not available in this context (file / agent view). " +
+            "Do not retry shell commands — use the read_file / write_file / patch_file tools instead.",
+        };
+      }
     }
 
     // Remember which PTY session this tool call runs in so a stop can interrupt
@@ -1138,6 +1196,8 @@ export function useAgentExecution(sessionId: string | null) {
     const targetSessionId = sessionRef.current;
     if (!targetSessionId) return;
     useAgentStore.getState().clearTask(targetSessionId);
+    // Drop the hidden background PTY so the next task starts with a clean shell.
+    killBackgroundPty(targetSessionId);
   }, []);
 
   // ── stopAgentRun ─────────────────────────────────────────────────────────

@@ -405,7 +405,8 @@ export const system = {
     mode?: string,
     requireReviewForCommands?: boolean,
     requireReviewForWrites?: boolean,
-    model?: string
+    model?: string,
+    fileContext?: string
   ) =>
     invoke<AgentStepResult>("agent_plan_step", {
       taskId,
@@ -418,6 +419,7 @@ export const system = {
       requireReviewForCommands,
       requireReviewForWrites,
       model,
+      fileContext,
     }),
   agentUpdateSettings: (config: AppConfig) =>
     invoke<void>("agent_update_settings", { config }),
