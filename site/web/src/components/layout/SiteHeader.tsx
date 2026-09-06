@@ -3,15 +3,14 @@ import { Github } from "lucide-react";
 
 export function SiteHeader() {
   return (
-    <header className="sticky top-0 z-20 border-b border-outline-variant bg-background/30 backdrop-blur-xl">
+    <header className="sticky top-0 z-20 bg-background/30 backdrop-blur-xl">
       <Container className="flex items-center justify-between py-4">
-        <div className="flex items-center gap-2.5">
-          <img src="/aurora-icon.png" alt="Aurora" className="h-7 w-7 rounded-md object-contain" />
-          <span className="text-[15px] font-semibold tracking-tight">Aurora</span>
-        </div>
+        <a href="/" className="flex items-center">
+          <img src="/aurora-icon.png" alt="Aurora" className="h-12 w-12 rounded-md object-contain" />
+        </a>
         <nav className="hidden items-center gap-8 text-[13px] text-on-surface-variant md:flex">
-          <a href="#features" className="transition-colors hover:text-on-background">Features</a>
-          <a href="#terminal" className="transition-colors hover:text-on-background">Terminal</a>
+          <a href="/#about" className="transition-colors hover:text-on-background">About</a>
+          <a href="/#features" className="transition-colors hover:text-on-background">Features</a>
           <a href="/download" className="transition-colors hover:text-on-background">Download</a>
         </nav>
         <div className="flex items-center gap-3">

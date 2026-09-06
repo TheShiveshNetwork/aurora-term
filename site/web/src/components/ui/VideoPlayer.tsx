@@ -100,13 +100,13 @@ export function VideoPlayer({ src, poster, className, frameless = false }: Video
           aria-label="Play video"
           className="absolute inset-0 flex items-center justify-center bg-background/30 transition-colors hover:bg-background/40"
         >
-          <span className="flex h-16 w-16 items-center justify-center rounded-full bg-primary text-on-primary shadow-[0_0_40px_rgba(79,140,255,0.5)] transition-transform hover:scale-105">
+          <span className="flex h-16 w-16 items-center justify-center rounded-full bg-white text-on-primary shadow-[0_0_40px_rgba(79,140,255,0.5)] transition-transform hover:scale-105">
             <Play size={28} className="ml-1" fill="currentColor" />
           </span>
         </button>
       )}
 
-      <div className="absolute inset-x-0 bottom-0 flex items-center gap-3 bg-gradient-to-t from-black/70 to-transparent px-4 py-3 text-white opacity-0 transition-opacity group-hover:opacity-100">
+      <div className="absolute inset-x-0 bottom-0 flex items-center gap-3 px-4 py-3 text-white opacity-0 transition-opacity group-hover:opacity-100">
         <button onClick={togglePlay} aria-label={isPlaying ? "Pause" : "Play"}>
           {isPlaying ? (
             <Pause size={18} fill="currentColor" />
@@ -120,7 +120,7 @@ export function VideoPlayer({ src, poster, className, frameless = false }: Video
           className="relative h-1.5 flex-1 cursor-pointer rounded-full bg-white/20"
         >
           <div
-            className="absolute inset-y-0 left-0 rounded-full bg-primary"
+            className="absolute inset-y-0 left-0 rounded-full bg-white"
             style={{ width: `${pct}%` }}
           />
         </div>
