@@ -1,6 +1,7 @@
 import Strands from "../backgrounds/LightStrands";
 import WarpText from "../ui/WarpText";
 import { VideoPlayer } from "../ui/VideoPlayer";
+import { markBackgroundReady, markVideoReady } from "../../lib/pageLoad";
 
 export function HeroSection() {
   return (
@@ -25,6 +26,7 @@ export function HeroSection() {
           dispersion={4}
           glassSize={1}
           hueShift={0}
+          onReady={markBackgroundReady}
         />
       </div>
       <div className="relative z-10">
@@ -51,6 +53,7 @@ export function HeroSection() {
           <VideoPlayer
             src="/aurora-terminal-demo.mp4"
             className="w-full shadow-[0_0_80px_rgba(79,140,255,0.08)]"
+            onReady={markVideoReady}
           />
         </div>
       </div>
