@@ -34,7 +34,7 @@ export function SiteHeader() {
   }, [open]);
 
   return (
-    <header ref={headerRef} className="fixed w-full top-0 z-20 bg-background/30 backdrop-blur-xl">
+    <header ref={headerRef} className="site-header fixed w-full top-0 z-20">
       <Container className="flex items-center justify-between py-4">
         <a href="/" className="flex items-center">
           <img src="/aurora-icon.png" alt="Aurora" className="h-12 w-12 rounded-md object-contain" />
@@ -68,8 +68,8 @@ export function SiteHeader() {
         </div>
       </Container>
       {open && (
-        <div className="absolute max-w-xs inset-x-0 top-full right-0 px-6 pt-2 md:hidden">
-          <nav className="animate-menu-in flex flex-col overflow-hidden rounded-2xl border border-outline bg-surface/60 backdrop-blur-xl">
+        <div className="absolute right-6 top-full w-72 max-w-[calc(100vw-3rem)] pt-2 md:hidden">
+          <nav className="animate-menu-in flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-surface/85 backdrop-blur-2xl">
             {links.map((link) => (
               <a
                 key={link.href}
