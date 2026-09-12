@@ -190,6 +190,7 @@ export interface StrandsProps {
   glassSize?: number;
   className?: string;
   style?: CSSProperties;
+  onReady?: () => void;
 }
 
 const buildPalette = (colors: string[]): number[][] => {
@@ -223,9 +224,10 @@ export default function Strands({
   dispersion = 1,
   glassSize = 1,
   className = '',
-  style
+  style,
+  onReady
 }: StrandsProps) {
-  const propsRef = useRef<Required<Omit<StrandsProps, 'className' | 'style'>>>({
+  const propsRef = useRef<Required<Omit<StrandsProps, 'className' | 'style' | 'onReady'>>>({
     colors,
     count,
     speed,
@@ -267,16 +269,25 @@ export default function Strands({
   };
 
   const ctnDom = useRef<HTMLDivElement>(null);
+  const onReadyRef = useRef(onReady);
+  onReadyRef.current = onReady;
 
   useEffect(() => {
     const ctn = ctnDom.current;
     if (!ctn) return;
 
-    const renderer = new Renderer({
-      alpha: true,
-      premultipliedAlpha: true,
-      antialias: true
-    });
+    let renderer: Renderer;
+    try {
+      renderer = new Renderer({
+        alpha: true,
+        premultipliedAlpha: true,
+        antialias: true
+      });
+    } catch (error) {
+      console.warn('Strands: WebGL could not be initialized.', error);
+      onReadyRef.current?.();
+      return;
+    }
     const gl = renderer.gl;
     gl.clearColor(0, 0, 0, 0);
     gl.enable(gl.BLEND);
@@ -347,6 +358,7 @@ export default function Strands({
     resize();
 
     let animateId = 0;
+    let didDrawOnce = false;
     const update = (t: number) => {
       animateId = requestAnimationFrame(update);
       const current = propsRef.current;
@@ -376,6 +388,11 @@ export default function Strands({
         renderer.render({ scene: glassMesh });
       } else {
         renderer.render({ scene: mesh });
+      }
+
+      if (!didDrawOnce) {
+        didDrawOnce = true;
+        onReadyRef.current?.();
       }
     };
     animateId = requestAnimationFrame(update);

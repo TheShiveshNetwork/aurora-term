@@ -3,6 +3,8 @@ import { Container } from "../../components/ui";
 import { AuroraButton } from "../../components/ui/AuroraButton";
 import GradientWaves from "../../components/backgrounds/GradientWaves";
 import { ChevronRight, Download } from "lucide-react";
+import { markBackgroundReady } from "../../lib/pageLoad";
+import { useExpectBackground } from "../../hooks/usePageAssets";
 
 type PlatformKey = "windows" | "macos" | "linux";
 type PlatformFilter = PlatformKey | "all";
@@ -79,6 +81,8 @@ const releaseUrl = (fileName: string) =>
   `https://github.com/TheShiveshNetwork/aurora-term/releases/latest/download/${encodeURIComponent(fileName)}`;
 
 export default function DownloadPage() {
+  useExpectBackground();
+
   const [filter, setFilter] = useState<PlatformFilter>("all");
   const [detected, setDetected] = useState<PlatformKey>("linux");
 
@@ -93,58 +97,59 @@ export default function DownloadPage() {
 
   return (
     <div className="relative">
-      <Container className="relative pt-4 pb-24">
-        <div className="relative flex min-h-[600px] flex-col items-center justify-center overflow-hidden rounded-3xl border border-outline text-center glow">
-          <div className="absolute h-full w-full z-[-1] overflow-hidden">
-            <GradientWaves
-              horizonColor="#5227FF"
-              waveColor="#FF9FFC"
-              crestColor="#FFFFFF"
-              speed={0.4}
-              amplitude={2.5}
-              waveScale={0.6}
-              waveRatio={0.9}
-              swell={35}
-              turbulence={20}
-              tilt={1.11}
-              zoom={1}
-              height={5.5}
-              fogDepth={15}
-              detail="medium"
-              brightness={1}
-              opacity={1}
-              mouseInteraction
-              parallaxStrength={0.5}
-              grain
-              grainIntensity={0.05}
-            />
-          </div>
-
-          <div className="relative z-10 px-6">
-            <h1 className="text-balance text-5xl font-semibold tracking-tight md:text-6xl">
-              Download Aurora
-            </h1>
-            <p className="mx-auto mt-6 max-w-xl text-pretty text-[15px] leading-relaxed text-on-surface-variant">
-              A single, hardware-accelerated installer for every platform. Open a folder, ask a
-              question, and let the local agent plan and run your commands.
-            </p>
-            {detectedPlatform && (() => {
-              const DetectedIcon = detectedPlatform.icon;
-              return (
-                <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
-                  <AuroraButton
-                    href="https://github.com/TheShiveshNetwork/aurora-term/releases"
-                    external
-                  >
-                    <DetectedIcon size={16} className="text-white mr-2" />
-                    Download for {detectedPlatform.name}
-                  </AuroraButton>
-                </div>
-              );
-            })()}
-          </div>
+      <div className="relative flex min-h-[600px] flex-col items-center justify-center overflow-hidden rounded-b-3xl border border-outline border-t-0 text-center glow">
+        <div className="absolute inset-0 z-[-1] overflow-hidden">
+          <GradientWaves
+            horizonColor="#5227FF"
+            waveColor="#FF9FFC"
+            crestColor="#FFFFFF"
+            speed={0.4}
+            amplitude={2.5}
+            waveScale={0.6}
+            waveRatio={0.9}
+            swell={35}
+            turbulence={20}
+            tilt={1.11}
+            zoom={1}
+            height={5.5}
+            fogDepth={15}
+            detail="medium"
+            brightness={1}
+            opacity={1}
+            mouseInteraction
+            parallaxStrength={0.5}
+            grain
+            grainIntensity={0.05}
+            onReady={markBackgroundReady}
+          />
         </div>
 
+        <div className="relative z-10 mx-auto w-full max-w-6xl px-6 py-12 pointer-events-auto">
+          <h1 className="text-balance text-5xl font-semibold tracking-tight md:text-6xl">
+            Download Aurora
+          </h1>
+          <p className="mx-auto mt-6 max-w-xl text-pretty text-[15px] leading-relaxed text-on-surface-variant">
+            A single, hardware-accelerated installer for every platform. Open a folder, ask a
+            question, and let the local agent plan and run your commands.
+          </p>
+          {detectedPlatform && (() => {
+            const DetectedIcon = detectedPlatform.icon;
+            return (
+              <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
+                <AuroraButton
+                  href="https://github.com/TheShiveshNetwork/aurora-term/releases"
+                  external
+                >
+                  <DetectedIcon size={16} className="text-white mr-2" />
+                  Download for {detectedPlatform.name}
+                </AuroraButton>
+              </div>
+            );
+          })()}
+        </div>
+      </div>
+
+      <Container className="relative pb-24">
         <div className="mt-16 flex flex-wrap items-center justify-between gap-4">
           <div>
             <h2 className="text-xl font-semibold tracking-tight">

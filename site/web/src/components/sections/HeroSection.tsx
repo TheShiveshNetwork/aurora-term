@@ -1,11 +1,16 @@
 import Strands from "../backgrounds/LightStrands";
 import WarpText from "../ui/WarpText";
 import { VideoPlayer } from "../ui/VideoPlayer";
+import { markBackgroundReady, markVideoReady } from "../../lib/pageLoad";
+import { useExpectBackground, useExpectVideo } from "../../hooks/usePageAssets";
 
 export function HeroSection() {
+  useExpectBackground();
+  useExpectVideo();
+
   return (
-    <section className="relative min-h-[800px]">
-      <div className="absolute inset-x-0 top-0 h-[800px]">
+    <section className="relative min-h-svh md:min-h-[800px]">
+      <div className="absolute inset-x-0 top-0 h-full">
         <Strands
           colors={["#f96e16","#7C3AED","#06B6D4"]}
           count={3}
@@ -25,6 +30,7 @@ export function HeroSection() {
           dispersion={4}
           glassSize={1}
           hueShift={0}
+          onReady={markBackgroundReady}
         />
       </div>
       <div className="relative z-10">
@@ -51,6 +57,7 @@ export function HeroSection() {
           <VideoPlayer
             src="/aurora-terminal-demo.mp4"
             className="w-full shadow-[0_0_80px_rgba(79,140,255,0.08)]"
+            onReady={markVideoReady}
           />
         </div>
       </div>
