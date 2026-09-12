@@ -323,7 +323,6 @@ pub fn run() {
             aurora_commands::get_cwd_info,
             aurora_commands::get_current_pwd,
             aurora_commands::read_shell_history,
-            aurora_commands::reveal_in_explorer,
             aurora_commands::delete_path,
             aurora_commands::rename_path,
             aurora_commands::copy_path,
