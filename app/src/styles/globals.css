@@ -332,10 +332,10 @@ body {
   color: rgba(232, 234, 240, 0.75);
 }
 
-.safari-tab.drag-over {
-  background: rgba(79, 140, 255, 0.10);
-  border: 1px solid rgba(79, 140, 255, 0.30);
-  box-shadow: 0 0 12px rgba(79, 140, 255, 0.08);
+.safari-tab.is-dragging {
+  opacity: 0.85;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transition: none;
 }
 
 .safari-tab.active {
