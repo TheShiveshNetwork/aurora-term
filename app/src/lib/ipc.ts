@@ -508,7 +508,7 @@ export const system = {
       selection,
     }),
   revealInExplorer: (path: string) =>
-    invoke<void>("reveal_in_explorer", { path }),
+    invoke<void>("plugin:opener|reveal_item_in_dir", { paths: [path] }),
   openExternalUrl: (url: string) =>
     invoke<void>("plugin:opener|open_url", { url }),
   getCwdInfo: (cwd: string) =>

@@ -12,7 +12,7 @@ export function useHasApiKeyConfigured() {
 
 export function ProviderSetupPrompt({ compact }: { compact?: boolean }) {
   const handleOpenSettings = () => {
-    openSettingsWindow({ section: "ai", sub: "providers" });
+    openSettingsWindow({ section: "agent", sub: "ai" }).catch(console.error);
   };
 
   return (

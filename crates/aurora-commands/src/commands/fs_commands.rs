@@ -244,50 +244,6 @@ pub fn write_file_content(path: String, content: String) -> Result<(), AppError>
     Ok(())
 }
 
-// ─── Reveal file/folder in system file manager ─────────────────────────────────
-#[command]
-pub fn reveal_in_explorer(path: String) -> Result<(), AppError> {
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        // `/select,<path>` highlights the item inside Explorer
-        std::process::Command::new("explorer")
-            .arg(format!("/select,{}", path))
-            .creation_flags(0x08000000) // CREATE_NO_WINDOW
-            .spawn()
-            .map_err(|e: std::io::Error| AppError::Io(e.to_string()))?;
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open")
-            .args(["-R", &path])
-            .spawn()
-            .map_err(|e: std::io::Error| AppError::Io(e.to_string()))?;
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        let ok = std::process::Command::new("nautilus")
-            .arg("--select")
-            .arg(&path)
-            .spawn()
-            .is_ok();
-        if !ok {
-            let parent = std::path::Path::new(&path)
-                .parent()
-                .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or(path);
-            std::process::Command::new("xdg-open")
-                .arg(parent)
-                .spawn()
-                .map_err(|e: std::io::Error| AppError::Io(e.to_string()))?;
-        }
-    }
-
-    Ok(())
-}
-
 // ─── Delete a file or directory ────────────────────────────────────────────────
 #[command]
 pub fn delete_path(path: String) -> Result<(), AppError> {
