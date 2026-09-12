@@ -25,6 +25,7 @@ export interface GradientWavesProps {
   grain?: boolean;
   grainIntensity?: number;
   className?: string;
+  onReady?: () => void;
 }
 
 const hexToRgb = (hex: string): [number, number, number] => {
@@ -179,22 +180,32 @@ const GradientWaves: React.FC<GradientWavesProps> = ({
   parallaxStrength = 0.5,
   grain = true,
   grainIntensity = 0.05,
-  className = ''
+  className = '',
+  onReady
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const enableMouseRef = useRef<boolean>(mouseInteraction);
+  const onReadyRef = useRef(onReady);
+  onReadyRef.current = onReady;
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
-    const renderer = new Renderer({
-      webgl: 2,
-      alpha: true,
-      premultipliedAlpha: true,
-      antialias: false,
-      dpr: Math.min(window.devicePixelRatio || 1, 2)
-    });
+    let renderer: Renderer;
+    try {
+      renderer = new Renderer({
+        webgl: 2,
+        alpha: true,
+        premultipliedAlpha: true,
+        antialias: false,
+        dpr: Math.min(window.devicePixelRatio || 1, 2)
+      });
+    } catch (error) {
+      console.warn('GradientWaves: WebGL could not be initialized.', error);
+      onReadyRef.current?.();
+      return;
+    }
 
     const gl = renderer.gl;
     gl.clearColor(0, 0, 0, 0);
@@ -238,6 +249,13 @@ const GradientWaves: React.FC<GradientWavesProps> = ({
     const mesh = new Mesh(gl, { geometry, program });
     ctxMap.set(container, { renderer, program, mesh });
 
+    let reported = false;
+    const reportReady = () => {
+      if (reported) return;
+      reported = true;
+      onReadyRef.current?.();
+    };
+
     const setSize = () => {
       const rect = container.getBoundingClientRect();
       const w = Math.max(1, Math.floor(rect.width));
@@ -247,6 +265,7 @@ const GradientWaves: React.FC<GradientWavesProps> = ({
       res[0] = gl.drawingBufferWidth;
       res[1] = gl.drawingBufferHeight;
       renderer.render({ scene: mesh });
+      reportReady();
     };
 
     const ro = new ResizeObserver(setSize);

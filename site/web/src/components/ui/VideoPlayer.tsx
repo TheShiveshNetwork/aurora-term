@@ -6,6 +6,7 @@ interface VideoPlayerProps {
   poster?: string;
   className?: string;
   frameless?: boolean;
+  onReady?: () => void;
 }
 
 function formatTime(t: number): string {
@@ -15,9 +16,17 @@ function formatTime(t: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-export function VideoPlayer({ src, poster, className, frameless = false }: VideoPlayerProps) {
+export function VideoPlayer({ src, poster, className, frameless = false, onReady }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const onReadyRef = useRef(onReady);
+  onReadyRef.current = onReady;
+  const didReadyRef = useRef(false);
+  const notifyReady = () => {
+    if (didReadyRef.current) return;
+    didReadyRef.current = true;
+    onReadyRef.current?.();
+  };
   const [isPlaying, setIsPlaying] = useState(false);
   const [current, setCurrent] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -31,16 +40,24 @@ export function VideoPlayer({ src, poster, className, frameless = false }: Video
     const onMeta = () => setDuration(v.duration);
     const onPlay = () => setIsPlaying(true);
     const onPause = () => setIsPlaying(false);
+    const onLoaded = () => notifyReady();
     v.addEventListener("timeupdate", onTime);
     v.addEventListener("loadedmetadata", onMeta);
+    v.addEventListener("loadeddata", onLoaded);
+    v.addEventListener("canplay", onLoaded);
+    v.addEventListener("error", onLoaded);
     v.addEventListener("play", onPlay);
     v.addEventListener("pause", onPause);
     return () => {
       v.removeEventListener("timeupdate", onTime);
       v.removeEventListener("loadedmetadata", onMeta);
+      v.removeEventListener("loadeddata", onLoaded);
+      v.removeEventListener("canplay", onLoaded);
+      v.removeEventListener("error", onLoaded);
       v.removeEventListener("play", onPlay);
       v.removeEventListener("pause", onPause);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
