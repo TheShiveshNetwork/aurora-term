@@ -474,7 +474,10 @@ name = "aurora-lsp"
 version = "0.1.0"
 dependencies = [
  "aurora-core",
+ "aurora-lsp-fetch",
  "serde",
+ "serde_json",
+ "sysinfo",
  "tokio",
  "tracing",
 ]

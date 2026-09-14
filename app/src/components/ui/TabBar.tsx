@@ -1,6 +1,8 @@
 import React, { useRef, useState, useCallback, useEffect } from "react";
+import { flushSync } from "react-dom";
 import { Terminal, FileText, Plus, X, Copy, Pin, Edit3, XCircle, Trash2, ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, ExternalLink, GitBranch, GitBranchPlus, GitMerge } from "lucide-react";
 import { useOpenTabs, EDITOR_LIKE_TYPES } from "../../hooks/useOpenTabs";
+import { useSessionStore } from "../../stores/useSessionStore";
 import { Tab } from "@aurora/types";
 import { MenuView, MenuViewItem, MenuViewSeparator } from "./MenuView";
 import { Button } from "./Button";
@@ -17,13 +19,32 @@ interface TabBarProps {
 }
 
 export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplicateTab }: TabBarProps) {
-  const { tabs: sortedTabs, rawTabs, activeTabId, setActiveTabId, reorderTabs, updateTab } = useOpenTabs();
-  const [dragIdx, setDragIdx] = useState<number | null>(null);
-  const [overIdx, setOverIdx] = useState<number | null>(null);
-  const [dropIndicator, setDropIndicator] = useState<{ left: number } | null>(null);
-  const dragIdxRef = useRef<number | null>(null);
+  const { tabs: sortedTabs, rawTabs, activeTabId, setActiveTabId, updateTab } = useOpenTabs();
+  const [dragId, setDragId] = useState<string | null>(null);
+  const dragIdRef = useRef<string | null>(null);
+  const startXRef = useRef(0);
+  const startIdxRef = useRef(0);
+  // Elements of every tab captured at drag start (stable — no re-renders
+  // happen while dragging). Position changes are driven purely by CSS
+  // transforms so the drag stays flicker-free and elastic.
+  const elsRef = useRef<{ id: string; el: HTMLElement; index: number }[]>([]);
+  // Current translateX (px) applied to each non-dragged tab while dragging.
+  const shiftsRef = useRef<Map<string, number>>(new Map());
+  const targetIdxRef = useRef(0);
+  const gapRef = useRef(4);
+  const dragDxRef = useRef(0);
+  const draggedBaseLeftRef = useRef(0);
+  const draggedWidthRef = useRef(0);
+  const settleTimerRef = useRef<number | null>(null);
+  const didDragRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const tabRectsRef = useRef<DOMRect[]>([]);
+
+  // Clear any pending drop-settle transition timer on unmount.
+  useEffect(() => {
+    return () => {
+      if (settleTimerRef.current) window.clearTimeout(settleTimerRef.current);
+    };
+  }, []);
 
   const [contextTab, setContextTab] = useState<{ x: number; y: number; tab: Tab } | null>(null);
 
@@ -185,24 +206,6 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
     return () => clearTimeout(t);
   }, [activeTabId]);
 
-  const getTabIndexFromX = useCallback((clientX: number): number | null => {
-    const rects = tabRectsRef.current;
-    if (rects.length === 0) return null;
-    for (let i = 0; i < rects.length; i++) {
-      if (clientX >= rects[i].left && clientX <= rects[i].right) {
-        return i;
-      }
-    }
-    let best = 0;
-    let bestDist = Infinity;
-    for (let i = 0; i < rects.length; i++) {
-      const cx = rects[i].left + rects[i].width / 2;
-      const d = Math.abs(clientX - cx);
-      if (d < bestDist) { bestDist = d; best = i; }
-    }
-    return best;
-  }, []);
-
   const handleMouseDown = useCallback((e: React.MouseEvent, index: number) => {
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
@@ -210,41 +213,135 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
 
     // Pinned tabs are locked in place
     const tab = sortedTabs[index];
-    if (tab?.pinned) return;
+    if (!tab || tab.pinned) return;
 
     const container = containerRef.current;
     if (!container) return;
 
-    dragIdxRef.current = index;
-    setDragIdx(index);
+    const tabId = tab.id;
+    const els = Array.from(container.querySelectorAll<HTMLElement>("[data-tab-id]"))
+      .map((el, i) => ({ id: el.dataset.tabId!, el, index: i }));
+    if (els.length === 0) return;
 
-    const elements = container.querySelectorAll<HTMLElement>("[data-tab-id]");
-    tabRectsRef.current = Array.from(elements).map(el => el.getBoundingClientRect());
+    // Measure the inter-tab gap once (flex gap-1).
+    let measuredGap = 4;
+    if (els.length > 1) {
+      const a = els[0].el.getBoundingClientRect();
+      const b = els[1].el.getBoundingClientRect();
+      measuredGap = b.left - (a.left + a.width);
+      if (!Number.isFinite(measuredGap) || measuredGap < 0) measuredGap = 4;
+    }
+
+    dragIdRef.current = tabId;
+    elsRef.current = els;
+    gapRef.current = measuredGap;
+    startXRef.current = e.clientX;
+    startIdxRef.current = index;
+    targetIdxRef.current = index;
+    const draggedEl = els[index].el;
+    const draggedRect = draggedEl.getBoundingClientRect();
+    draggedBaseLeftRef.current = draggedRect.left;
+    draggedWidthRef.current = draggedEl.offsetWidth;
+    dragDxRef.current = 0;
+
+    // Freeze transitions for the whole drag: shifts apply instantly so the
+    // slot math is deterministic (no animating mid-states to flicker or feed
+    // back), and the dragged tab tracks the cursor rock-solid. Elasticity is
+    // reserved for the release settle, not the drag itself.
+    if (settleTimerRef.current) {
+      window.clearTimeout(settleTimerRef.current);
+      settleTimerRef.current = null;
+    }
+    els.forEach(({ el }) => (el.style.transition = "none"));
+
+    const applyDragTransform = (clientX: number) => {
+      const el = container.querySelector<HTMLElement>(`[data-tab-id="${tabId}"]`);
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      // Remove our own current translate (the rect includes it) to get the
+      // true base slot — otherwise the tab would lag/drift behind the cursor.
+      const baseCenter = rect.left + rect.width / 2 - dragDxRef.current;
+      const w = draggedWidthRef.current;
+      // Clamp the dragged tab's center to the span actually occupied by the
+      // tab row, so it can't be dragged into empty space toward a side that
+      // has no other tabs (and boundary tabs can't escape their slot).
+      let minBound = draggedBaseLeftRef.current + w / 2;
+      let maxBound = minBound;
+      for (const { id, el: other } of els) {
+        if (id === tabId) continue;
+        const r = other.getBoundingClientRect();
+        const baseLeft = r.left - (shiftsRef.current.get(id) ?? 0);
+        minBound = Math.min(minBound, baseLeft + w / 2);
+        maxBound = Math.max(maxBound, baseLeft + r.width - w / 2);
+      }
+      const targetCenter = Math.max(minBound, Math.min(clientX, maxBound));
+      const dx = targetCenter - baseCenter;
+      dragDxRef.current = dx;
+      el.style.transform = `translateX(${dx.toFixed(2)}px) scale(0.95)`;
+      el.style.zIndex = "50";
+      el.style.boxShadow = "0 8px 24px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.06)";
+      el.style.willChange = "transform";
+    };
+
+    // Reorder once the pointer crosses ~25% of the next tab's width — a light
+    // drag already snaps the tab to the nearer side (left or right).
+    const SENSITIVITY = 0.25;
     const containerRect = container.getBoundingClientRect();
 
     const onMouseMove = (ev: MouseEvent) => {
-      const idx = getTabIndexFromX(ev.clientX);
-      setOverIdx(idx);
+      // A plain click must never enter drag state: the lift styling and the
+      // `dragId` render only begin once the pointer actually moves past the
+      // slip threshold.
+      if (!didDragRef.current) {
+        if (Math.abs(ev.clientX - startXRef.current) <= 4) return;
+        didDragRef.current = true;
+        setDragId(tabId);
+      }
+      applyDragTransform(ev.clientX);
 
-      if (idx !== null) {
-        const rects = tabRectsRef.current;
-        const tabRect = rects[idx];
-        const tabCenterX = tabRect.left + tabRect.width / 2;
-        const side = ev.clientX < tabCenterX ? "left" : "right";
-        const gapCenter = side === "left"
-          ? tabRect.left - 2
-          : tabRect.right + 2;
-        const indicatorLeft = gapCenter - containerRect.left + container.scrollLeft;
-        setDropIndicator({ left: indicatorLeft });
-      } else {
-        setDropIndicator(null);
+      // Transform-only drag: no React renders happen here, so nothing can
+      // flicker. Slot targets are computed from BASE positions (current rect
+      // minus the applied shift) so in-flight shifts can't feed back.
+      const pinnedCount = sortedTabs.filter((t) => t.pinned).length;
+      const startIdx = startIdxRef.current;
+      let passed = 0;
+      for (const { id, el, index } of els) {
+        if (id === tabId) continue;
+        const r = el.getBoundingClientRect();
+        const shift = shiftsRef.current.get(id) ?? 0;
+        const baseLeft = r.left - shift;
+        if (baseLeft + r.width * SENSITIVITY < ev.clientX) passed++;
+      }
+      const target = Math.max(pinnedCount, Math.min(passed, els.length - 1));
+      targetIdxRef.current = target;
+
+      // Shift the tabs between the dragged tab and its target out of the way
+      // by exactly one slot (width + gap). Each change animates through the
+      // tab's CSS transition (0.18s), producing the elastic "make room" glide.
+      const shifts = shiftsRef.current;
+      for (const { id, el, index } of els) {
+        if (id === tabId) continue;
+        let shift = 0;
+        if (target < startIdx && index >= target && index < startIdx) {
+          shift = el.offsetWidth + gapRef.current;
+        } else if (target > startIdx && index > startIdx && index <= target) {
+          shift = -(el.offsetWidth + gapRef.current);
+        }
+        if (shifts.get(id) !== shift) {
+          shifts.set(id, shift);
+          el.style.transform = shift ? `translateX(${shift}px)` : "";
+        }
       }
 
+      // Auto-scroll while dragging, only toward a direction that actually has
+      // more tabs to reveal (scrollLeft bounds) — never into empty space.
       const edgeThreshold = 40;
       if (ev.clientX < containerRect.left + edgeThreshold) {
-        container.scrollLeft -= 8;
+        if (container.scrollLeft > 0) container.scrollLeft -= 8;
       } else if (ev.clientX > containerRect.right - edgeThreshold) {
-        container.scrollLeft += 8;
+        if (container.scrollLeft < container.scrollWidth - container.clientWidth - 1) {
+          container.scrollLeft += 8;
+        }
       }
     };
 
@@ -252,35 +349,95 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
 
-      const fromIdx = dragIdxRef.current;
-      const toIdx = getTabIndexFromX(ev.clientX);
+      // Snapshot where each tab is right now (transforms applied) so the
+      // release can settle everything from the drop point to the final slots.
+      const fromMap = new Map<string, DOMRect>();
+      els.forEach(({ id, el }) => fromMap.set(id, el.getBoundingClientRect()));
 
-      if (fromIdx !== null && toIdx !== null && fromIdx !== toIdx) {
-        const fromTab = sortedTabs[fromIdx];
-        const toTab = sortedTabs[toIdx];
-
-        if (fromTab && toTab && !fromTab.pinned && !toTab.pinned) {
-          const originalFrom = rawTabs.findIndex(t => t.id === fromTab.id);
-          const originalTo = rawTabs.findIndex(t => t.id === toTab.id);
-
-          if (originalFrom !== -1 && originalTo !== -1) {
-            reorderTabs(originalFrom, originalTo);
-          }
+      const finalIndex = Math.max(0, Math.min(targetIdxRef.current, els.length - 1));
+      let finalTabs: Tab[] | null = null;
+      if (finalIndex !== startIdxRef.current) {
+        const pinned = sortedTabs.filter((t) => t.pinned);
+        const free = sortedTabs.filter((t) => !t.pinned);
+        const dragged = free.find((t) => t.id === tabId);
+        const rest = free.filter((t) => t.id !== tabId);
+        const k = finalIndex - pinned.length;
+        if (dragged) {
+          finalTabs = [...pinned, ...rest.slice(0, k), dragged, ...rest.slice(k)];
         }
       }
-      dragIdxRef.current = null;
-      setDragIdx(null);
-      setOverIdx(null);
-      setDropIndicator(null);
+
+      dragIdRef.current = null;
+      shiftsRef.current.clear();
+
+      // Commit the new order and drop the drag class synchronously so the DOM
+      // is in its final layout before we measure it for the settle animation.
+      flushSync(() => {
+        setDragId(null);
+        if (finalTabs) useSessionStore.getState().setTabs(finalTabs);
+      });
+
+      // Clear leftover imperative styling.
+      dragDxRef.current = 0;
+      els.forEach(({ el }) => {
+        el.style.transform = "";
+        el.style.zIndex = "";
+        el.style.boxShadow = "";
+        el.style.willChange = "";
+      });
+
+      if (didDragRef.current) {
+        // FLIP every tab from its pre-commit position to its final slot, so
+        // the dragged tab elastically glides to wherever the drag pointed it
+        // (left or right) and shifted tabs ease back into place.
+        const toMap = new Map<string, DOMRect>();
+        els.forEach(({ id, el }) => toMap.set(id, el.getBoundingClientRect()));
+        els.forEach(({ id, el }) => {
+          const f = fromMap.get(id);
+          const t = toMap.get(id);
+          if (!f || !t) return;
+          const fc = f.left + f.width / 2;
+          const tc = t.left + t.width / 2;
+          const isDragged = id === tabId;
+          el.style.transition = "none";
+          el.style.transform = `translate(${(fc - tc).toFixed(2)}px, ${(f.top - t.top).toFixed(2)}px)${isDragged ? " scale(0.95)" : ""}`;
+        });
+        void container.offsetWidth; // force reflow so the inverse transforms register as the animation start
+        els.forEach(({ el }) => {
+          el.style.transition = "transform 0.28s cubic-bezier(0.34, 1.35, 0.64, 1)";
+          el.style.transform = "";
+        });
+        settleTimerRef.current = window.setTimeout(() => {
+          els.forEach(({ el }) => (el.style.transition = ""));
+          settleTimerRef.current = null;
+        }, 320);
+      } else {
+        // Plain click — just restore the stylesheet transitions.
+        els.forEach(({ el }) => (el.style.transition = ""));
+      }
+
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
+
+      // Swallow the synthetic click that follows a real drag so it can't
+      // activate a tab or accidentally trigger the "add tab" button.
+      if (didDragRef.current) {
+        const suppressNextClick = (ce: MouseEvent) => {
+          ce.preventDefault();
+          ce.stopPropagation();
+          window.removeEventListener("click", suppressNextClick, true);
+        };
+        window.addEventListener("click", suppressNextClick, true);
+      }
+      didDragRef.current = false;
+      ev.preventDefault();
     };
 
     document.body.style.cursor = "grabbing";
     document.body.style.userSelect = "none";
     window.addEventListener("mousemove", onMouseMove);
     window.addEventListener("mouseup", onMouseUp);
-  }, [getTabIndexFromX, reorderTabs, sortedTabs, rawTabs]);
+  }, [sortedTabs]);
 
   return (
     <div
@@ -315,8 +472,7 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
       >
         {sortedTabs.map((tab, index) => {
           const isActive = tab.id === activeTabId;
-          const isDragging = dragIdx === index;
-          const isOver = overIdx === index && !isDragging;
+          const isDragging = tab.id === dragId;
           const isExpanded = viewMode === "file" ? EDITOR_LIKE_TYPES.includes(tab.type) : tab.type === "terminal";
           const isPinned = tab.pinned;
           // Separator renders in between two adjacent tabs ONLY when both are
@@ -332,6 +488,10 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
               data-tab-id={tab.id}
               onMouseDown={(e) => handleMouseDown(e, index)}
               onClick={() => {
+                if (didDragRef.current) {
+                  didDragRef.current = false;
+                  return;
+                }
                 setActiveTabId(tab.id);
                 const mode = EDITOR_LIKE_TYPES.includes(tab.type) ? "file" : "terminal";
                 if (mode !== viewMode) {
@@ -344,7 +504,7 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
                 closeAllPopups();
                 setContextTab({ x: e.clientX, y: e.clientY, tab });
               }}
-              className={`safari-tab select-none group ${isActive ? "active" : ""} ${isOver ? "drag-over" : ""} ${isDragging ? "opacity-40" : ""} ${isExpanded ? "" : "!justify-center !p-0 !gap-0"
+              className={`safari-tab select-none group ${isActive ? "active" : ""} ${isDragging ? "is-dragging" : ""} ${isExpanded ? "" : "!justify-center !p-0 !gap-0"
                 }`}
               style={{
                 flex: isExpanded ? "1 1 150px" : "0 0 40px",
@@ -352,8 +512,8 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
                 height: "36px",
                 padding: "0 12px",
                 order: index,
-                transform: isDragging ? "scale(0.95)" : "none",
                 position: "relative",
+                zIndex: isDragging ? 50 : undefined,
               }}
               title={isPinned ? `${tab.name} (Pinned)` : tab.name}
             >
@@ -396,26 +556,19 @@ export function TabBar({ viewMode, onSetViewMode, onAddTab, onKillTab, onDuplica
             {hasSeparator && (
               <div
                 className="shrink-0 w-px"
-                style={{ height: "25px", marginTop: "5px", background: "rgba(255,255,255,0.06)", order: index }}
+                style={{
+                  height: "25px",
+                  marginTop: "5px",
+                  background: "rgba(255,255,255,0.06)",
+                  order: index,
+                  opacity: dragId ? 0 : undefined,
+                  transition: "opacity .18s ease",
+                }}
               />
             )}
             </React.Fragment>
           );
         })}
-
-        {/* Drop indicator square */}
-        {dropIndicator && (
-          <div
-            className="absolute top-0 w-[3px] h-full rounded-[2px] pointer-events-none z-10"
-            style={{
-              left: dropIndicator.left - 1.5,
-              background: "#4F8CFF",
-              boxShadow: "0 0 8px rgba(79,140,255,0.5), 0 0 2px rgba(79,140,255,0.3)",
-              animation: "tab-drop-pop-in 150ms ease-out forwards",
-              transition: "left 80ms ease-out",
-            }}
-          />
-        )}
       </div>
 
       {isOverflowing && canScrollRight && (

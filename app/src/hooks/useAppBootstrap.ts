@@ -434,10 +434,25 @@ export function useAppBootstrap() {
     return () => window.removeEventListener("cwd-change", handleCwdChange);
   }, [activeTabId]);
 
+  // Re-register the OS file watcher only when the SET of open file paths
+  // actually changes (open / close / rename / path swap). Reordering tabs or
+  // updating tab metadata re-creates the `tabs` array without changing the
+  // paths, so we diff against the last watched list and skip the rebuild —
+  // rebuilding `notify` watchers per drag step churned the filesystem and
+  // could emit spurious change events for no reason.
+  const watchedFilePathsRef = useRef<string[]>([]);
   useEffect(() => {
     const filePaths = tabs
       .filter((t) => t.type === "file" && t.filePath)
-      .map((t) => t.filePath!);
+      .map((t) => t.filePath!)
+      .filter((p, i, arr) => arr.indexOf(p) === i)
+      .sort();
+
+    const prev = watchedFilePathsRef.current;
+    if (prev.length === filePaths.length && prev.every((p, i) => p === filePaths[i])) {
+      return;
+    }
+    watchedFilePathsRef.current = filePaths;
     system.watchFiles(filePaths).catch(() => {});
   }, [tabs]);
 
