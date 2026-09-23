@@ -68,7 +68,7 @@ export function AccountMenu() {
     }
   }, []);
 
-  const signInOAuth = async (provider: "github" | "google") => {
+  const signInOAuth = async (provider: "github") => {
     setBusy(true);
     setError(null);
     try {

@@ -1,35 +1,73 @@
-import { createClient } from "@supabase/supabase-js";
 import { listen } from "@tauri-apps/api/event";
-import { system, AuthStatus } from "./ipc";
+import { AuthStatus } from "./ipc";
 import { WEB_AUTH_URL } from "../../configs/appConfig";
 
-// The desktop talks to Supabase directly with the publishable key (public by
-// design). All reads/writes go through Row Level Security, so a user can only
-// ever touch their own `configs` / `users` rows — never another account's, and
-// the service-role key is never present in the app.
-const SUPABASE_URL =
-  (import.meta.env.VITE_SUPABASE_URL as string | undefined) ??
-  "https://yybxsggbvuzjzlwlwbtv.supabase.co";
-const SUPABASE_PUBLISHABLE_KEY =
-  (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined) ??
-  "sb_publishable_RLefJueP40i_3FjO_D_7zw_fBYcAoDb";
+// The desktop talks to the Aurora backend (Cloudflare Worker) with its own
+// opaque session token. All reads/writes on `/v1/sync` are scoped to the bearer
+// token's user server-side — the app never holds any shared secret.
+
+const API_URL =
+  (import.meta.env.VITE_AURORA_API_URL as string | undefined) ??
+  "https://api.aurora.shitworks.co";
 
 const DEEP_LINK_SCHEME = "aurora://auth/callback";
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
-  auth: {
-    // The WebView persists the session locally; the deep link hands a fresh
-    // session to us when the user signs in through the web companion.
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: false,
-  },
-});
+// Local session store (rendered unusable by any uuid that isn't ours).
+const SESSION_KEY = "aurora_session";
+
+type StoredSession = { token: string; email: string; username: string };
+
+function loadSession(): StoredSession | null {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as StoredSession;
+    return parsed.token ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveSession(session: StoredSession): void {
+  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+}
+
+function clearSession(): void {
+  localStorage.removeItem(SESSION_KEY);
+}
 
 const AUTH_CHANGED = "aurora-auth-changed";
 
+class ApiError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
+
+async function api<T>(path: string, init?: RequestInit & { token?: string }): Promise<T> {
+  const token = init?.token ?? loadSession()?.token;
+  const headers = new Headers(init?.headers);
+  if (init?.body !== undefined) headers.set("Content-Type", "application/json");
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const res = await fetch(`${API_URL}${path}`, { ...init, headers });
+  if (res.status === 401) {
+    clearSession();
+    window.dispatchEvent(new CustomEvent(AUTH_CHANGED));
+    throw new ApiError("Unauthorized", 401);
+  }
+  const text = await res.text();
+  if (res.status === 204) return undefined as T;
+  const data = text ? JSON.parse(text) : {};
+  if (!res.ok) {
+    throw new ApiError((data as { error?: string }).error ?? `Request failed (${res.status})`, res.status);
+  }
+  return data as T;
+}
+
 // ── Content hashing (last-writer-wins) ───────────────────────────────────
-// Mirrors the function/Rust algorithm: SHA-256 over canonical JSON with
+// Mirrors the Worker/Rust algorithm: SHA-256 over canonical JSON with
 // recursively sorted object keys, so the hash is stable across clients.
 
 function sha256Hex(input: string): Promise<string> {
@@ -61,17 +99,27 @@ function contentHash(payload: unknown): Promise<string> {
 // ── Auth status ─────────────────────────────────────────────────────────
 
 export async function authStatus(): Promise<AuthStatus> {
-  const { data } = await supabase.auth.getSession();
-  const session = data.session;
-  if (!session) return { signed_in: false, email: null, username: null };
-  const u = session.user;
-  const meta = (u.user_metadata ?? {}) as Record<string, any>;
-  const username = meta.user_name ?? meta.name ?? u.email ?? null;
-  return { signed_in: true, email: u.email ?? null, username: username ?? null };
+  const stored = loadSession();
+  if (!stored) return { signed_in: false, email: null, username: null };
+  try {
+    const me = await api<{ email: string; username: string }>("/v1/auth/me");
+    saveSession({ ...stored, email: me.email, username: me.username });
+    return { signed_in: true, email: me.email, username: me.username };
+  } catch {
+    return { signed_in: false, email: null, username: null };
+  }
 }
 
 export async function signOut(): Promise<void> {
-  await supabase.auth.signOut();
+  const token = loadSession()?.token;
+  if (token) {
+    try {
+      await api("/v1/auth/logout", { method: "POST", token, body: "{}" });
+    } catch {
+      /* best-effort: revoke locally regardless */
+    }
+  }
+  clearSession();
   window.dispatchEvent(new CustomEvent(AUTH_CHANGED));
 }
 
@@ -81,48 +129,53 @@ export function onAuthChange(cb: () => void): () => void {
   return () => window.removeEventListener(AUTH_CHANGED, handler);
 }
 
-// Open the web companion in the system browser; it performs the OAuth and
-// deep-links the resulting Supabase session back to this app.
-export async function signInOAuth(provider: "github" | "google"): Promise<AuthStatus> {
+// Open the web companion in the system browser; it performs the GitHub OAuth
+// and deep-links the resulting backend token back to this app.
+export async function signInOAuth(provider: "github"): Promise<AuthStatus> {
   const url = `${WEB_AUTH_URL}?scheme=${encodeURIComponent(DEEP_LINK_SCHEME)}`;
+  const { system } = await import("./ipc");
   await system.openExternalUrl(url);
-  // The real sign-in completes via the deep-link handler below.
   return authStatus();
 }
 
-// ── Sync (manual upload / download under RLS) ────────────────────────────
+// ── Sync (manual upload / download) ─────────────────────────────────────
 // The app never auto-syncs. The user explicitly uploads the current config to
 // the cloud, or downloads (and applies) the cloud config, via the UI buttons.
-// Each operation is a plain upsert / read of the user's `configs` row, so there
-// is no conflict resolution or merge step.
-
-export async function uploadSettings(cfg: any): Promise<void> {
-  const { data: userData, error: userErr } = await supabase.auth.getUser();
-  if (userErr || !userData.user) throw new Error("Not signed in");
-  const userId = userData.user.id;
-
-  const version = await contentHash(cfg);
-  const now = new Date().toISOString();
-  const { error } = await supabase
-    .from("configs")
-    .upsert({ user_id: userId, version, payload: cfg, updated_at: now }, { onConflict: "user_id" });
-  if (error) throw new Error(error.message);
-}
+// Writes are compare-and-swap on `version` (SHA-256 content hash); a changed
+// remote version surfaces as a conflict instead of silently clobbering.
 
 export type RemoteConfig = { payload: any; version: string | null; updated_at: string | null };
 
-export async function downloadSettings(): Promise<RemoteConfig | null> {
-  const { data: userData, error: userErr } = await supabase.auth.getUser();
-  if (userErr || !userData.user) throw new Error("Not signed in");
-  const userId = userData.user.id;
+export async function uploadSettings(cfg: any): Promise<void> {
+  const version = await contentHash(cfg);
+  const remote = await downloadSettings();
+  const base = remote?.version ?? null;
 
-  const { data, error } = await supabase
-    .from("configs")
-    .select("payload, version, updated_at")
-    .eq("user_id", userId)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  return data;
+  const result = await api<{ status?: number }>("/v1/sync", {
+    method: "POST",
+    body: JSON.stringify({ payload: cfg, version, base_version: base }),
+  }).catch(async (e) => {
+    if (isConflict(e)) {
+      // Overwrite path: retry against the version we just learned about.
+      const fresh = await downloadSettings();
+      return api("/v1/sync", {
+        method: "POST",
+        body: JSON.stringify({ payload: cfg, version, base_version: fresh?.version ?? null }),
+      });
+    }
+    throw e;
+  });
+  void result;
+}
+
+export async function downloadSettings(): Promise<RemoteConfig | null> {
+  try {
+    const doc = await api<{ version: string; updated_at: string; payload: any }>("/v1/sync");
+    return { payload: doc.payload, version: doc.version, updated_at: doc.updated_at };
+  } catch (e) {
+    if ((e as Error).message === "not found") return null;
+    throw e;
+  }
 }
 
 export type SyncState = { exists: boolean; inSync: boolean };
@@ -140,25 +193,21 @@ export async function settingsSyncState(cfg: any): Promise<SyncState> {
 // ── Deep-link receipt (web → desktop handoff) ───────────────────────────
 
 export async function importSessionFromUrl(url: string): Promise<void> {
-  const hash = url.includes("#") ? url.split("#")[1] : "";
+  const hash = url.includes("#") ? url.split("#")[1] : url.includes("?") ? url.split("?")[1] : "";
   const params = new URLSearchParams(hash);
-  const access = params.get("access_token");
-  const refresh = params.get("refresh_token");
-  if (!access || !refresh) return;
-  const { error } = await supabase.auth.setSession({ access_token: access, refresh_token: refresh });
-  if (error) throw new Error(error.message);
+  const token = params.get("token");
+  const email = params.get("email") ?? "";
+  const username = params.get("username") ?? "";
+  if (!token) return;
+  saveSession({ token, email, username });
   window.dispatchEvent(new CustomEvent(AUTH_CHANGED));
 }
 
-export function initCloud(): void {
-  // Reflect any Supabase auth-state change (including the deep-link handoff's
-  // setSession, and sign-out) into our UI event, so the account menu always
-  // shows the current sign-in state without depending solely on the deep-link
-  // callback firing first.
-  supabase.auth.onAuthStateChange(() => {
-    window.dispatchEvent(new CustomEvent(AUTH_CHANGED));
-  });
+function isConflict(e: unknown): boolean {
+  return (e as ApiError)?.status === 409;
+}
 
+export function initCloud(): void {
   // Deep links forwarded by the single-instance plugin (Windows/Linux) when the
   // app is already running and the OS spawns a second instance to deliver the
   // `aurora://` URL. The live instance receives it here and imports the session.

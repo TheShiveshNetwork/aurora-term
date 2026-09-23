@@ -31,9 +31,12 @@ packages/aurora-agent/.env
 packages/aurora-agent/aura-memory.db*
 tauri/binaries/aurora-agent-*
 
-# site companion (web + supabase) — build/runtime artifacts only
-site/supabase/.temp
-site/supabase/functions/*/.env
+# Cloudflare Worker — local runtime/build artifacts only
+site/cloudflare/.wrangler
+site/cloudflare/.dev.vars
+site/cloudflare/aurora-api/.wrangler
+
+# site companion (web) — build/runtime artifacts only
 
 *.tsbuildinfo
 # Agent sidecar local DB (LibSQL/InMemory fallback)

@@ -3,7 +3,8 @@ use aurora_core::AppError;
 use aurora_core::types::sync::AuthStatus;
 
 /// Opaque session token + email stored in the OS keychain.
-/// The token is meaningless outside our backend — it is NOT a Supabase key.
+/// The token is meaningless outside our backend — it is a scoped bearer token,
+/// never a shared credential.
 const ACCOUNT_TOKEN: &str = "aurora_cloud_session";
 const ACCOUNT_EMAIL: &str = "aurora_cloud_email";
 

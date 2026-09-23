@@ -1,9 +1,9 @@
-name: Mirror release binaries to Supabase Store bucket
+name: Mirror release binaries to Cloudflare R2 store bucket
 
 # Runs automatically when a GitHub release is published (i.e. after the build
 # workflow uploaded the installer assets). It waits for the assets to be present,
-# then triggers the aurora-api edge function, which re-hosts the built .exe/.msi
-# files into the public `aurora` Storage bucket and returns versioned URLs.
+# then triggers the aurora-api Worker, which re-hosts the built .exe/.msi
+# files into the public `aurora` R2 bucket and returns versioned URLs.
 #
 # It can also be triggered manually (Actions -> Run workflow) to re-mirror the
 # latest published release, or a specific tag passed via the `tag` input.
@@ -94,28 +94,28 @@ jobs:
             echo "No installer assets found after waiting; leaving the bucket untouched."
           fi
 
-      - name: Trigger Supabase mirror
+      - name: Trigger Cloudflare R2 mirror
         if: steps.assets.outputs.ready == 'true'
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_FUNCTION_TOKEN: ${{ secrets.SUPABASE_FUNCTION_TOKEN }}
+          AURORA_API_URL: ${{ secrets.AURORA_API_URL }}
+          AURORA_DEPLOY_TOKEN: ${{ secrets.AURORA_DEPLOY_TOKEN }}
         run: |
           curl -fS --retry 3 --retry-delay 10 \
-            -X POST "${SUPABASE_URL}/functions/v1/aurora-api/v1/update/store" \
-            -H "Authorization: Bearer ${SUPABASE_FUNCTION_TOKEN}"
+            -X POST "${AURORA_API_URL}/v1/update/store" \
+            -H "Authorization: Bearer ${AURORA_DEPLOY_TOKEN}"
 
-      # Confirm the edge function re-hosted the installers into the `aurora`
-      # bucket and wrote the new row (with the bucket `download_url`) into
-      # `release_cache`. Poll because the function may still be mirroring.
+      # Confirm the Worker re-hosted the installers into the `aurora` R2 bucket
+      # and wrote the new row (with the bucket `download_url`) into
+      # `release_cache`. Poll because the Worker may still be mirroring.
       - name: Verify release_cache updated
         if: steps.assets.outputs.ready == 'true'
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          AURORA_API_URL: ${{ secrets.AURORA_API_URL }}
           TAG: ${{ steps.resolve.outputs.tag }}
         run: |
           expected="${TAG#v}"
           for i in $(seq 1 12); do
-            body=$(curl -fsS "${SUPABASE_URL}/functions/v1/aurora-api/v1/update/latest" || true)
+            body=$(curl -fsS "${AURORA_API_URL}/v1/update/latest" || true)
             ver=$(printf '%s' "$body" | grep -o '"version":"[^"]*"' | head -1 | sed 's/"version":"//;s/"//')
             echo "Cached version: '${ver}' (expected '${expected}')"
             if [ "$ver" = "$expected" ]; then

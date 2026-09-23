@@ -1,7 +1,7 @@
 use aurora_core::AppError;
 use serde::de::DeserializeOwned;
 
-/// HTTP client for the Aurora backend (a Supabase Edge Function). All
+/// HTTP client for the Aurora backend (a Cloudflare Worker). All
 /// endpoints are relative to a configurable `api_base_url`.
 pub struct CloudClient {
     base_url: String,

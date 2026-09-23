@@ -227,7 +227,7 @@ pub fn run() {
             app.manage(app_state);
 
             // Register the deep-link scheme the web companion uses to hand off
-            // a Supabase session after GitHub sign-in. Until this runs at least
+            // a session after GitHub sign-in. Until this runs at least
             // once (i.e. the desktop app has launched), the OS/browser has no
             // handler for `aurora://` and web handoffs fail.
             #[cfg(all(desktop, not(debug_assertions)))]
