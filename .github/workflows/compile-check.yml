@@ -13,7 +13,6 @@ on:
         - 'aurora-lsp-bundles'
         - 'site/'
         - 'static/'
-        - 'supabase/'
         - '.gitignore'
         
   workflow_dispatch:

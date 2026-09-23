@@ -168,7 +168,7 @@ fn manifest_url() -> String {
     })
 }
 
-/// Ask the Supabase-cached backend for the latest LSP bundle's manifest URL.
+/// Ask the backend for the latest LSP bundle's manifest URL.
 /// Returns `None` if the backend is unreachable or has no LSP release cached
 /// yet (so the caller falls back to the direct GitHub URL).
 async fn fetch_lsp_manifest_url(api_base_url: &str) -> Result<Option<String>, AppError> {
@@ -203,7 +203,7 @@ fn reqwest_client() -> Result<reqwest::Client, AppError> {
     reqwest::Client::builder()
         .user_agent("aurora-term")
         // Bound every network call so a stalled connection (firewall drop, dead
-        // mirror, unreachable Supabase backend) fails fast instead of hanging the
+        // mirror, unreachable backend) fails fast instead of hanging the
         // `lsp_ensure_and_start` command forever. Without this, the frontend's
         // `invoke` never settles, so the status-bar loader is never stopped and
         // the spinner spins indefinitely (and re-triggers on every file open).
@@ -302,7 +302,7 @@ pub async fn get_manifest(
     let manifest_path = cache_dir.join("manifest.json");
     let etag_path = cache_dir.join("manifest.etag");
 
-    // Prefer the Supabase-cached LSP bundle discovery; fall back to the
+    // Prefer the backend-cached LSP bundle discovery; fall back to the
     // hardcoded/env manifest URL if the backend is unreachable or has no
     // LSP release cached yet.
     let manifest_src = if !api_base_url.is_empty() {

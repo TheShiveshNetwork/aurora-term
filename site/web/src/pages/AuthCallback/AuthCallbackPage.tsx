@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { AuthResult } from "../../lib/aurora";
 import { handleCallback, handoffToApp } from "../../lib/aurora";
-import { supabase } from "../../lib/supabaseClient";
 
 function readError(): string | null {
   const merged = new URLSearchParams(location.search);
@@ -15,6 +15,7 @@ function readError(): string | null {
 export default function AuthCallbackPage() {
   const [status, setStatus] = useState("Completing sign in…");
   const [done, setDone] = useState(false);
+  const authRef = useRef<AuthResult | null>(null);
   // After a moment, if the browser blocked the automatic (non-gesture) handoff,
   // gently surface the manual button instead of showing a scary failure.
   const [showManualHint, setShowManualHint] = useState(false);
@@ -30,18 +31,15 @@ export default function AuthCallbackPage() {
       }
 
       try {
-        const session = await handleCallback();
+        const result = await handleCallback();
         if (cancelled) return;
-        if (!session) {
-          setStatus("Sign-in failed: no session established.");
-          return;
-        }
+        authRef.current = result;
         setStatus("Opening the Aurora app…");
         setDone(true);
         // Best-effort automatic handoff. Browsers block external-protocol
         // navigations that aren't triggered by a user gesture, so this may be
         // silently ignored — the button below covers that case.
-        handoffToApp(session);
+        handoffToApp(result);
         hintTimer = window.setTimeout(() => {
           if (!cancelled) setShowManualHint(true);
         }, 1500);
@@ -71,9 +69,8 @@ export default function AuthCallbackPage() {
               Returning you to the Aurora app…
             </p>
             <button
-              onClick={async () => {
-                const { data } = await supabase.auth.getSession();
-                if (data.session) handoffToApp(data.session);
+              onClick={() => {
+                if (authRef.current) handoffToApp(authRef.current);
               }}
               className="mt-5 rounded-full border border-outline bg-surface px-5 py-2.5 text-[13px] font-medium transition-colors hover:border-primary/50"
             >

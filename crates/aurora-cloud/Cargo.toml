@@ -1,8 +1,9 @@
 # ══════════════════════════════════════════════════════════
 # crates/aurora-cloud/Cargo.toml
-# Supabase-backed cloud sync + auth client.
-# The app never holds Supabase secrets — a backend Edge Function
-# (holding the service-role key) is the only Supabase client.
+# Cloud-sync + auth client talking to the Aurora backend
+# (a Cloudflare Worker holding the session/user state).
+# The app never holds shared secrets — it only carries its own
+# scoped bearer token.
 # No Tauri types — takes plain values (base URL, config structs).
 # ══════════════════════════════════════════════════════════
 [package]

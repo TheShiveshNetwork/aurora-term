@@ -1,0 +1,23 @@
+name = "aurora-api"
+main = "src/index.ts"
+compatibility_date = "2026-08-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "aurora-db"
+database_id = "d6fecbcf-2df7-4ec5-936e-81c42588b3ab"
+migrations_dir = "migrations"
+
+[[r2_buckets]]
+binding = "MIRROR_BUCKET"
+bucket_name = "aurora"
+
+# Public vars 
+[vars]
+AURORA_MAX_ASSET_BYTES = "52428800"
+CACHE_TTL_MS = "10800000"
+
+# Public R2 custom-domain base for mirrored installers
+R2_PUBLIC_URL = "https://aurora.shitworks.co/download"
+
+ALLOWED_ORIGINS = "https://aurora.shitworks.co,http://localhost:5175"

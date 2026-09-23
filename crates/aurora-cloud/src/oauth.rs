@@ -11,8 +11,9 @@ use crate::session::SessionStore;
 /// PKCE OAuth flow with a localhost loopback redirect.
 ///
 /// 1. Start a `tiny_http` server on a random `127.0.0.1` port.
-/// 2. Ask the backend for a Supabase authorize URL (it builds the PKCE URL
-///    server-side; the app generates the verifier/challenge pair).
+/// 2. Ask the backend for a GitHub authorize URL (it builds the URL
+///    server-side and forwards the PKCE challenge; the app generates the
+///    verifier/challenge pair).
 /// 3. Open the browser, wait for the `{port}/oauth/callback?code=...`.
 /// 4. Exchange the code with the backend, store the opaque session token.
 ///

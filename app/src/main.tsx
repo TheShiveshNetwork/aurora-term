@@ -14,7 +14,7 @@ import { useSessionStore } from "./stores/useSessionStore";
 import { useBlockStore } from "./stores/useBlockStore";
 
 // Listen for the `aurora://auth/callback` deep link the web companion uses to
-// hand off a Supabase session after GitHub sign-in.
+// hand off a backend session after GitHub sign-in.
 initCloud();
 
 (window as any).invoke = invoke;

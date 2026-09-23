@@ -14,7 +14,7 @@
 
 !macro NSIS_HOOK_POSTINSTALL
   ; Register the `aurora://` URI scheme so the web companion can hand off a
-  ; Supabase session to the desktop app even on a fresh install, before the app
+  ; session to the desktop app even on a fresh install, before the app
   ; has ever been launched (the Rust side also re-registers it at runtime via
   ; `tauri_plugin_deep_link`, so this is idempotent).
   WriteRegStr HKCU "Software\Classes\aurora" "" "URL:Aurora Protocol"

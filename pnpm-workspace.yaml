@@ -3,10 +3,10 @@ packages:
   - "site/web"
   - "packages/*"
 
-# NOTE: site/supabase is intentionally NOT a pnpm workspace package. It is a
-# Deno project (Edge Function) with its own deno.json and is deployed to
-# Supabase — its dependencies (e.g. hono) live in the Deno runtime, never in
-# node_modules and never in the Tauri build.
+# NOTE: site/cloudflare is intentionally NOT a pnpm workspace package. It is a
+# Cloudflare Worker project with its own wrangler.toml/package.json (wrangler +
+# TypeScript only) and is deployed to Cloudflare — its dependencies live in the
+# worker runtime, never in node_modules and never in the Tauri build.
 
 allowBuilds:
   esbuild: true

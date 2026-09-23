@@ -24,8 +24,8 @@ fn default_update_interval_hours() -> u32 {
 }
 
 /// Cloud sync preferences. `api_base_url` points at the Aurora backend
-/// (a Supabase Edge Function) that holds the service-role key — the app
-/// itself never bundles any Supabase secrets. An empty URL disables cloud
+/// (a Cloudflare Worker) — the app only ever carries its own scoped bearer
+/// token; it never bundles shared credentials. An empty URL disables cloud
 /// features.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -302,9 +302,7 @@ impl Default for AppConfig {
             },
             cloud: CloudConfig {
                 auto_sync: false,
-                api_base_url:
-                    "https://yybxsggbvuzjzlwlwbtv.supabase.co/functions/v1/aurora-api"
-                        .to_string(),
+                api_base_url: "https://api.aurora.shitworks.co".to_string(),
                 synced: true,
             },
             updates: UpdatesConfig {
