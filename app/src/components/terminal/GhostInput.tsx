@@ -140,28 +140,29 @@ export function GhostInput({
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
-      // Slash-command menu takes priority while it is open
       const slashCount = slashOpen ? slashMenuRef.current?.count() ?? 0 : 0;
       if (slashOpen) {
-        if (e.key === "ArrowDown") {
-          e.preventDefault();
-          slashMenuRef.current?.move(1);
-          return;
-        }
-        if (e.key === "ArrowUp") {
-          e.preventDefault();
-          slashMenuRef.current?.move(-1);
-          return;
-        }
         if (e.key === "Escape") {
           e.preventDefault();
           slashEscapedRef.current = value;
           return;
         }
-        if ((e.key === "Tab" || e.key === "Enter") && !e.shiftKey && slashCount > 0) {
-          e.preventDefault();
-          slashMenuRef.current?.selectHighlighted();
-          return;
+        if (!e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            slashMenuRef.current?.move(1);
+            return;
+          }
+          if (e.key === "ArrowUp") {
+            e.preventDefault();
+            slashMenuRef.current?.move(-1);
+            return;
+          }
+          if ((e.key === "Tab" || e.key === "Enter") && !e.shiftKey && slashCount > 0) {
+            e.preventDefault();
+            slashMenuRef.current?.selectHighlighted();
+            return;
+          }
         }
       }
 
@@ -187,14 +188,17 @@ export function GhostInput({
         return;
       }
 
-      if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+      if ((e.key === "ArrowRight" || e.key === "ArrowLeft") && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
         if (acceptGhostCompletion()) {
           e.preventDefault();
         }
         return;
       }
 
-      // History navigation
+      if (e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) {
+        return;
+      }
+
       if (e.key === "ArrowUp") {
         e.preventDefault();
         const newValue = navigateUp(value);
