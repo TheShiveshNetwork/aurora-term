@@ -27,7 +27,7 @@ jobs:
           - platform: 'ubuntu-22.04-arm'
             args: '--verbose --bundles deb' # ldd fix: skip AppImage/linuxdeploy
           - platform: 'windows-latest'
-            args: ''
+            args: '--bundles nsis' # only exe, not msi
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v7
