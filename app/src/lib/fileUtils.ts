@@ -1,5 +1,5 @@
 const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "bmp", "webp", "svg", "ico"]);
-const VIDEO_EXTENSIONS = new Set(["mp4", "webm", "ogg", "ogv", "mov", "mkv", "avi", "m4v", "3gp", "ts"]);
+const VIDEO_EXTENSIONS = new Set(["mp4", "webm", "ogg", "ogv", "mov", "mkv", "avi", "m4v", "3gp"]);
 
 export function isImageFile(filePath: string): boolean {
   const ext = filePath.split(".").pop()?.toLowerCase() || "";
