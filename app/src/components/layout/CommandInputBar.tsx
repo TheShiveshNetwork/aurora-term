@@ -171,6 +171,7 @@ export function CommandInputBar({
             placeholder="Type a command or describe a goal…"
             className="flex-1"
             inputMode={inputMode}
+            variant={variant}
             onSlashOpenChange={setSlashOpen}
           />
           <div className="flex items-center gap-1.5 pr-3 py-3 self-end">
