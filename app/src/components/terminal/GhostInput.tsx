@@ -9,7 +9,8 @@ import React, {
 } from "react";
 import { useBlockStore } from "../../stores/useBlockStore";
 import { useSessionStore } from "../../stores/useSessionStore";
-import { pty } from "../../lib/ipc";
+import { useAppShellStore } from "../../stores/useAppShellStore";
+import { pty, system } from "../../lib/ipc";
 import type { InputMode } from "../../lib/nlClassifier";
 import { useHistoryNavigation } from "../../hooks/useHistoryNavigation";
 import { SlashMenu, SlashMenuHandle } from "./SlashMenu";
@@ -28,6 +29,55 @@ function computeGhost(input: string, history: string[]): string {
   return "";
 }
 
+function getTokenBeforeCaret(textBeforeCaret: string): string {
+  if (!textBeforeCaret) return "";
+  if (/\s$/.test(textBeforeCaret)) return "";
+  const m = textBeforeCaret.match(/[^\s]+$/);
+  return m ? m[0] : "";
+}
+
+function getTokenIndex(textBeforeCaret: string): number {
+  const trimmed = textBeforeCaret.trim();
+  if (!trimmed) return 0;
+  const tokens = trimmed.split(/\s+/);
+  if (/\s$/.test(textBeforeCaret)) return tokens.length;
+  return tokens.length - 1;
+}
+
+function splitPathToken(token: string): { dirPart: string; prefix: string } {
+  const idxSlash = token.lastIndexOf("/");
+  const idxBack = token.lastIndexOf("\\");
+  const idx = Math.max(idxSlash, idxBack);
+  if (idx >= 0) return { dirPart: token.slice(0, idx + 1), prefix: token.slice(idx + 1) };
+  return { dirPart: "", prefix: token };
+}
+
+function resolveDirPart(cwd: string, dirPart: string): string {
+  if (!dirPart) return cwd;
+  const normCwd = cwd.replace(/\\/g, "/");
+  let normDir = dirPart.replace(/\\/g, "/");
+  if (normDir.startsWith("~/")) return cwd;
+  if (/^[A-Za-z]:\//.test(normDir) || normDir.startsWith("/")) {
+    return normDir.replace(/\/+$/, "") || "/";
+  }
+  let combined = normCwd.replace(/\/+$/, "") + "/" + normDir;
+  const isAbsolute = combined.startsWith("/");
+  const parts = combined.split("/").filter((p) => p !== "");
+  const stack: string[] = [];
+  const hasDrive = /^[A-Za-z]:$/.test(parts[0] ?? "");
+  for (const p of parts) {
+    if (p === ".") continue;
+    if (p === "..") {
+      if (stack.length && stack[stack.length - 1] !== "..") stack.pop();
+      else if (!isAbsolute && !hasDrive) stack.push("..");
+    } else stack.push(p);
+  }
+  let resolved = (isAbsolute ? "/" : "") + stack.join("/");
+  if (hasDrive) resolved = stack.join("/");
+  if (cwd.includes("\\") && !cwd.includes("/")) resolved = resolved.replace(/\//g, "\\");
+  return resolved.replace(/\/+$/, "") || (isAbsolute ? "/" : ".");
+}
+
 interface GhostInputProps {
   sessionId?: string | null;
   value: string;
@@ -38,6 +88,7 @@ interface GhostInputProps {
   className?: string;
   inputClassName?: string;
   inputMode?: InputMode;
+  variant?: "command" | "prompt";
   onSlashOpenChange?: (open: boolean) => void;
 }
 
@@ -51,6 +102,7 @@ export function GhostInput({
   className = "",
   inputClassName = "",
   inputMode = "unknown",
+  variant = "command",
   onSlashOpenChange,
 }: GhostInputProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -59,12 +111,6 @@ export function GhostInput({
   const slashEscapedRef = useRef<string | null>(null);
   const textMetricsClass = "font-code-base text-sm font-normal leading-[22px]";
 
-  // Bare "/" command being typed; Escape dismisses until the value changes.
-  // Trigger only on a slash token that begins the input or is preceded by
-  // whitespace (e.g. "hi, can you /"), so mid-word slashes ("http://") don't
-  // open the menu. The match is made against the text *before the caret* (not
-  // just the end of the string) so the menu still opens when the caret isn't
-  // parked at the very end of the input.
   const caret = inputRef.current ? (inputRef.current.selectionStart ?? value.length) : value.length;
   const textBeforeCaret = value.slice(0, caret);
   const slashMatch = textBeforeCaret.match(/(?:^|\s)\/(\w*)$/);
@@ -90,7 +136,85 @@ export function GhostInput({
 
   const uniqueHistory = [...new Set(history.filter(Boolean).map(cmd => cmd.replace(/[`\\]+$/, '').trim()))];
 
-  const ghost = computeGhost(value, uniqueHistory);
+  const sessionCwds = useAppShellStore((s) => s.sessionCwds);
+  const cwdAbsolute = useAppShellStore((s) => s.cwdAbsolute);
+  const projectDir = useAppShellStore((s) => s.projectDir);
+  const effectiveCwd = sessionId ? (sessionCwds[sessionId] || projectDir || cwdAbsolute) : (projectDir || cwdAbsolute);
+
+  const [pathGhost, setPathGhost] = useState("");
+
+  useEffect(() => {
+    if (variant === "prompt") {
+      setPathGhost("");
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      const el = inputRef.current;
+      const c = el ? (el.selectionStart ?? value.length) : value.length;
+      const ce = el ? (el.selectionEnd ?? value.length) : value.length;
+      if (c !== ce || c !== value.length) {
+        if (!cancelled) setPathGhost("");
+        return;
+      }
+      const tbc = value.slice(0, c);
+      const token = getTokenBeforeCaret(tbc);
+      const tokenIdx = getTokenIndex(tbc);
+      const isTrailingSpace = /\s$/.test(tbc);
+      const effectiveToken = isTrailingSpace ? "" : token;
+      const shouldTryPath = (() => {
+        if (tokenIdx > 0) return true;
+        if (effectiveToken.includes("/") || effectiveToken.includes("\\") || effectiveToken.startsWith("./") || effectiveToken.startsWith("../") || effectiveToken.startsWith("~/") || effectiveToken.startsWith(".")) return true;
+        return false;
+      })();
+      if (!shouldTryPath || !effectiveCwd) {
+        if (!cancelled) setPathGhost("");
+        return;
+      }
+      const { dirPart, prefix } = splitPathToken(effectiveToken);
+      const targetDir = resolveDirPart(effectiveCwd, dirPart);
+      try {
+        const entries = await system.readDir(targetDir);
+        const prefixLower = prefix.toLowerCase();
+        const showDotfiles = prefix.startsWith(".");
+        let filtered = entries.filter((e) => {
+          if (!showDotfiles && e.name.startsWith(".")) return false;
+          return e.name.toLowerCase().startsWith(prefixLower);
+        });
+        filtered.sort((a, b) => {
+          if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
+          return a.name.localeCompare(b.name);
+        });
+        if (filtered.length === 0 || cancelled) {
+          if (!cancelled) setPathGhost("");
+          return;
+        }
+        const best = filtered[0];
+        const remainder = best.name.slice(prefix.length) + (best.is_dir ? "/" : "");
+        if (!remainder || cancelled) {
+          if (!cancelled) setPathGhost("");
+          return;
+        }
+        setPathGhost(remainder);
+      } catch {
+        if (!cancelled) setPathGhost("");
+      }
+    }, 90);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [value, effectiveCwd, variant]);
+
+  const historyGhost = variant === "prompt" ? "" : computeGhost(value, uniqueHistory);
+  const caretAtEnd = (() => {
+    const el = inputRef.current;
+    if (!el) return true;
+    const s = el.selectionStart ?? value.length;
+    const e = el.selectionEnd ?? value.length;
+    return s === e && s === value.length;
+  })();
+  const ghost = variant === "prompt" ? "" : caretAtEnd ? (pathGhost || historyGhost) : "";
 
   const acceptGhostCompletion = useCallback(() => {
     if (!ghost) return false;
@@ -112,7 +236,7 @@ export function GhostInput({
     });
 
     return true;
-  }, [ghost, onChange, value]);
+  }, [ghost, onChange, value, reset]);
 
   const handleInsertSlash = useCallback(
     (text: string) => {
@@ -120,8 +244,6 @@ export function GhostInput({
       const pos = el ? (el.selectionStart ?? value.length) : value.length;
       const before = value.slice(0, pos);
       const after = value.slice(pos);
-      // Replace only the slash token at the caret (which may have text before
-      // it, e.g. "hi, can you /"), preserving anything typed after the caret.
       const m = before.match(/(?:^|\s)\/(\w*)$/);
       if (!m || m.index === undefined) {
         onChange(value);
@@ -183,6 +305,7 @@ export function GhostInput({
       }
 
       if (e.key === "Tab") {
+        if (variant === "prompt") return;
         e.preventDefault();
         acceptGhostCompletion();
         return;
@@ -196,6 +319,10 @@ export function GhostInput({
       }
 
       if (e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) {
+        return;
+      }
+
+      if (variant === "prompt") {
         return;
       }
 
@@ -261,20 +388,17 @@ export function GhostInput({
       reset();
       const next = e.target.value;
       const pos = e.target.selectionStart ?? next.length;
-      // Once the slash token at the caret is gone (e.g. deleted after an
-      // Escape), release the "dismissed" lock so the menu can trigger again.
       if (!next.slice(0, pos).match(/(?:^|\s)\/(\w*)$/)) {
         slashEscapedRef.current = null;
       }
       onChange(next);
     },
-    [onChange]
+    [onChange, reset]
   );
 
   const [ghostLeft, setGhostLeft] = useState(0);
   const TA_MAX_HEIGHT = 350;
 
-  // Auto-resize textarea height based on content
   useEffect(() => {
     const el = inputRef.current;
     if (!el) return;
