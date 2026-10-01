@@ -176,16 +176,12 @@ function TreeNode({
   const handleClick = async (e: React.MouseEvent) => {
     e.stopPropagation();
     onClickNode(node, e);
-    if (e.shiftKey && !node.is_dir) {
-      onDeleteNode([node]);
-      return;
-    }
     if (node.is_dir) {
       const next = !isOpen;
       setIsOpen(next);
       if (next) await loadChildren();
     } else {
-      if (!e.ctrlKey && !e.metaKey) {
+      if (!e.ctrlKey && !e.metaKey && !e.shiftKey) {
         window.dispatchEvent(new CustomEvent("sidebar-open-file", { detail: { path: node.path } }));
       }
     }

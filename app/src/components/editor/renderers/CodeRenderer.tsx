@@ -70,6 +70,19 @@ if (typeof document !== "undefined") {
     .cm-code-action-menu {
       font-size: var(--editor-font-size, 13px) !important;
     }
+    .cm-tooltip,
+    .cm-tooltip *,
+    .cm-lsp-hover-tooltip,
+    .cm-lsp-hover-tooltip *,
+    .cm-lsp-documentation,
+    .cm-lsp-documentation *,
+    .cm-lsp-signature-tooltip,
+    .cm-lsp-signature-tooltip * {
+      user-select: text !important;
+      -webkit-user-select: text !important;
+      cursor: text;
+    }
+    .cm-tooltip { pointer-events: auto !important; }
     .cm-lsp-hover-tooltip {
       width: min(640px, var(--editor-tooltip-maxw, 92vw));
       height: auto;
