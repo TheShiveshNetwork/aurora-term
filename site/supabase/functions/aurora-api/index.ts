@@ -1,4 +1,5 @@
 import { Hono } from "npm:hono@4";
+import { LSP_EXCLUDED_FROM_STORAGE } from "./lsp-config.ts";
 
 /**
  * Aurora backend — Supabase Edge Function (Deno).
@@ -13,6 +14,13 @@ import { Hono } from "npm:hono@4";
  *   - lsp_release : newest LSP build (rolling, no version) + mirrored bundles
  * Each row carries version, url, download_url (Supabase bucket link, else
  * GitHub fallback), notes, published_at, packages[], mirrored_at.
+ *
+ * Supabase Storage only holds the LSP bundles that are downloaded most often.
+ * Mirroring them into the public `aurora` bucket keeps repeated installs off
+ * GitHub's rate-limited rolling `lsp-bundles` release while freeing us from
+ * serving huge, rarely-used bundles from Supabase (which would waste quota).
+ * Which languages are mirrored is decided by `lsp-config.ts`; set
+ * `AURORA_MAX_ASSET_BYTES` to raise the per-asset cap on that bucket.
  *
  * Endpoints:
  *   GET /v1/health         -> { ok: true }
@@ -36,7 +44,8 @@ const GITHUB_TOKEN = Deno.env.get("AURORA_GITHUB_TOKEN") ?? "";
 // Optional shared secret required to call POST /v1/update/store. If set, the
 // endpoint rejects any request without `Authorization: Bearer <token>`.
 const DEPLOY_TOKEN = Deno.env.get("AURORA_DEPLOY_TOKEN") ?? "";
-const CACHE_TTL_MS = 3 * 60 * 60 * 1000;
+const APP_CACHE_TTL_MS = 3 * 60 * 60 * 1000;
+const LSP_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 const app = new Hono().basePath("/aurora-api");
 
@@ -114,18 +123,19 @@ function isLspTag(tag: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Microsoft Store binary mirror
+// Binary mirror (Supabase Storage `aurora` bucket)
 //
-// GitHub release asset URLs 302-redirect to objects.githubusercontent.com, which
-// the Microsoft Store submission fetcher rejects. To get a stable, direct,
-// versioned Package URL we download each built .exe/.msi and re-host it in the
-// public Supabase Storage bucket `aurora`:
+// GitHub release asset URLs 302-redirect to objects.githubusercontent.com,
+// which some fetchers reject. We download the built artifacts and re-host
+// them in the public bucket:
 //
-//   https://<project>/storage/v1/object/public/aurora/<version>/<asset>
+//   https://<project>/storage/v1/object/public/aurora/<version>/<asset>  (app)
+//   https://<project>/storage/v1/object/public/aurora/lsp-bundles/<asset> (lsp)
 //
-// Each version gets its own path, so the URL is a permanent permalink and we
-// never overwrite an older release. Use these URLs as the Package URL(s) in the
-// Store submission (one per architecture).
+// Only the latest version is kept: after a new app release is mirrored the
+// previous version folder(s) are deleted. LSP `lsp-bundles/` is pruned to
+// the current asset set (orphans deleted). This keeps the free-tier bucket
+// (~1 GiB) from accumulating every historic release.
 // ---------------------------------------------------------------------------
 
 const STORE_BUCKET = "aurora";
@@ -146,9 +156,9 @@ type ReleaseRow = {
   mirrored_at: string | null;
 };
 
-// App (Microsoft Store) mirrors only installers.
+// App mirrors only Windows exe installers (per release policy: windows=exe only).
 function isAppAsset(name: string): boolean {
-  return name.endsWith(".exe") || name.endsWith(".msi");
+  return name.endsWith(".exe");
 }
 
 // LSP bundles: mirror the binary assets, skip GitHub's auto-generated source
@@ -162,6 +172,24 @@ function isLspAsset(name: string): boolean {
     n.endsWith(".sig") || n.endsWith(".asc")
   ) return false;
   return true;
+}
+
+// Bundle assets are named `<language>-<version>-<platform>.<ext>` — the language
+// id is always the first dash-delimited segment (`c`, `cpp`, `rust`, …).
+function lspLanguageOf(name: string): string {
+  return name.toLowerCase().split("-")[0] ?? "";
+}
+
+// LSP assets that go into Supabase Storage: anything that qualifies as an LSP
+// asset except languages configured in `lsp-config.ts` to stay on GitHub.
+function isLspStoredAsset(name: string): boolean {
+  return isLspAsset(name) && !LSP_EXCLUDED_FROM_STORAGE.includes(lspLanguageOf(name));
+}
+
+// LSP assets of the languages kept out of Supabase Storage — they stay on the
+// GitHub rolling release and are fetched on demand.
+function isLspGithubOnlyAsset(name: string): boolean {
+  return isLspAsset(name) && LSP_EXCLUDED_FROM_STORAGE.includes(lspLanguageOf(name));
 }
 
 function contentTypeFor(name: string): string {
@@ -236,6 +264,91 @@ async function uploadBinary(
     throw new Error(`storage upload failed (${res.status}): ${t}`);
   }
   return `${SUPABASE_URL}/storage/v1/object/public/${STORE_BUCKET}/${path}`;
+}
+
+async function listStorageObjects(prefix: string, limit = 1000): Promise<string[]> {
+  try {
+    const res = await fetch(`${SUPABASE_URL}/storage/v1/object/list/${STORE_BUCKET}`, {
+      method: "POST",
+      headers: {
+        apikey: SERVICE_KEY,
+        Authorization: `Bearer ${SERVICE_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ prefix, limit, sortBy: { column: "name", order: "asc" } }),
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    if (!Array.isArray(data)) return [];
+    return data.map((o: any) => String(o.name ?? "")).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+async function deleteStorageObjects(paths: string[]): Promise<void> {
+  if (!paths.length) return;
+  // Try bulk delete first (supabase-js uses DELETE /object/<bucket> with JSON array)
+  try {
+    const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${STORE_BUCKET}`, {
+      method: "DELETE",
+      headers: {
+        apikey: SERVICE_KEY,
+        Authorization: `Bearer ${SERVICE_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(paths),
+    });
+    if (res.ok) return;
+  } catch { /* fallback to single deletes */ }
+  for (const p of paths) {
+    try {
+      await fetch(`${SUPABASE_URL}/storage/v1/object/${STORE_BUCKET}/${p}`, {
+        method: "DELETE",
+        headers: {
+          apikey: SERVICE_KEY,
+          Authorization: `Bearer ${SERVICE_KEY}`,
+        },
+      });
+    } catch { /* ignore per-file failures */ }
+  }
+}
+
+// Delete every app version folder except `keepFolder`.
+// Version folders are `X.Y.Z` (e.g. `0.1.0`); `lsp-bundles` and stray files are never deleted here.
+async function pruneOldAppVersions(keepFolder: string): Promise<void> {
+  const all = await listStorageObjects("", 1000);
+  const folders = new Set<string>();
+  for (const name of all) {
+    const seg = name.split("/")[0] ?? "";
+    if (!seg || seg === "lsp-bundles" || seg === keepFolder) continue;
+    if (/^\d+\.\d+\.\d+$/.test(seg)) folders.add(seg);
+  }
+  for (const folder of folders) {
+    const objs = await listStorageObjects(`${folder}/`, 1000);
+    // Storage list returns names relative to the prefix; reconstruct full paths
+    const fullPaths = objs.map((n) => (n.includes("/") ? n : `${folder}/${n}`));
+    // Fallback: if list returned full paths already, use as-is; if empty try prefix-less scan
+    const toDelete = fullPaths.length ? fullPaths : all.filter((n) => n.startsWith(`${folder}/`));
+    if (toDelete.length) {
+      await deleteStorageObjects(toDelete);
+      console.log(`aurora-api: pruned old app version ${folder} (${toDelete.length} objects)`);
+    }
+  }
+}
+
+// Delete orphaned files in `lsp-bundles/` that are not part of the current release.
+async function pruneOrphanedLspBundles(keepNames: Set<string>): Promise<void> {
+  const objs = await listStorageObjects("lsp-bundles/", 1000);
+  const fullPaths = objs.map((n) => (n.includes("/") ? n : `lsp-bundles/${n}`));
+  const toDelete = fullPaths.filter((p) => {
+    const base = p.split("/").pop() ?? "";
+    return base && !keepNames.has(base);
+  });
+  if (toDelete.length) {
+    await deleteStorageObjects(toDelete);
+    console.log(`aurora-api: pruned ${toDelete.length} orphaned lsp-bundles`);
+  }
 }
 
 // Downloads the matching release assets and re-hosts them in the `aurora`
@@ -408,12 +521,14 @@ async function getStoredRow(key: string): Promise<ReleaseRow | null> {
   return data[0];
 }
 
-// Same as getStoredRow but enforces the TTL: returns null once the row is older
-// than CACHE_TTL_MS, so callers know they must re-check upstream.
+// Same as getStoredRow but enforces a per-family TTL: returns null once the row
+// is older than the family window, so callers know they must re-check upstream.
+// App checks every 3h, LSP only once per week (mirrored only on new release).
 async function getCached(key: string): Promise<ReleaseRow | null> {
   const row = await getStoredRow(key);
   if (!row) return null;
-  if (Date.now() - new Date(row.fetched_at).getTime() > CACHE_TTL_MS) return null;
+  const ttl = key === LSP_CACHE_KEY ? LSP_CACHE_TTL_MS : APP_CACHE_TTL_MS;
+  if (Date.now() - new Date((row as any).fetched_at).getTime() > ttl) return null;
   return row;
 }
 
@@ -442,9 +557,11 @@ async function cacheRelease(key: string, row: ReleaseRow) {
 
 // Resolves one release family into a single `release_cache` row.
 //  - app: mirrors installers into the Supabase bucket; download_url = bucket link.
-//  - lsp: NOT uploaded to Supabase (size limits). The row just caches the GitHub
-//        release metadata; download_url = GitHub manifest URL. The cache is only
-//        rewritten when the upstream release is newer than what we already hold.
+//  - lsp: mirrors the frequently-downloaded bundles into the `lsp-bundles/`
+//        bucket path (languages in LSP_EXCLUDED_FROM_STORAGE stay on GitHub).
+//        The row caches the release metadata; download_url = GitHub manifest
+//        URL. The cache is only rewritten when the upstream release is newer
+//        than what we already hold.
 async function resolveRelease(kind: "app" | "lsp", force = false): Promise<ReleaseRow | null> {
   const key = kind === "app" ? APP_CACHE_KEY : LSP_CACHE_KEY;
   if (!force) {
@@ -459,7 +576,7 @@ async function resolveRelease(kind: "app" | "lsp", force = false): Promise<Relea
   const release = kind === "app" ? findAppRelease(releases) : findLspRelease(releases);
   const tag = String(release?.tag_name ?? "");
 
-  // ---- LSP: GitHub-only, refresh only when upstream is newer ----
+  // ---- LSP: mirror frequently-downloaded bundles, refresh only when upstream is newer ----
   if (kind === "lsp") {
     const stored = await getStoredRow(key);
     const ghPub = doc.publishedAt;
@@ -468,24 +585,52 @@ async function resolveRelease(kind: "app" | "lsp", force = false): Promise<Relea
       !force && storedPub && ghPub &&
       new Date(ghPub).getTime() <= new Date(storedPub).getTime()
     ) {
-      // Upstream unchanged within the TTL window — just reset the 3h window.
+      // Upstream unchanged within the TTL window — just reset the weekly window.
       await touchRow(key);
       return stored;
     }
+    // Mirror into `lsp-bundles/` so frequently-used servers are served from
+    // Supabase instead of GitHub. Languages excluded from storage stay on the
+    // GitHub release; their package entries point at GitHub URLs below.
+    // Throttled to weekly via LSP_CACHE_TTL_MS; mirroring only runs when
+    // `published_at` is newer than the cached row (or `force=true`).
+    const mirrored = await mirrorPackages(
+      "lsp-bundles",
+      release?.assets ?? [],
+      isLspStoredAsset,
+    ).catch(() => ({
+      packages: [] as Package[],
+      mirroredAt: "",
+      skipped: [] as string[],
+    }));
+    // Prune orphaned bundles from previous lsp-bundles releases so only the
+    // latest asset set remains in the bucket (keeps free-tier usage bounded).
+    if (mirrored.packages.length > 0) {
+      const keepNames = new Set(mirrored.packages.map((p) => p.name));
+      await pruneOrphanedLspBundles(keepNames).catch(() => {});
+    }
+    // Mirrored bundles are served from Supabase; excluded-language bundles keep
+    // their GitHub URLs. If mirroring failed outright, fall back to the full
+    // GitHub listing so the cached row still points at every asset.
+    const packages = mirrored.packages.length > 0
+      ? [...mirrored.packages, ...githubPackages(release, isLspGithubOnlyAsset)]
+      : githubPackages(release, isLspAsset);
     const row: ReleaseRow = {
       version: null,
       url: doc.url,
       download_url: doc.download_url,
       notes: doc.notes,
       published_at: doc.publishedAt,
-      packages: githubPackages(release, isLspAsset),
-      mirrored_at: null,
+      packages,
+      mirrored_at: mirrored.mirroredAt || null,
     };
     await cacheRelease(key, row);
     return row;
   }
 
   // ---- App: mirror installers to the Supabase bucket ----
+  // Only the latest version is retained: after a successful mirror we delete
+  // every other `X.Y.Z` folder in the bucket.
   const folder = sanitizeSegment(doc.version ?? tag);
   const mirrored = force
     ? await mirrorPackages(folder, release?.assets ?? [], isAppAsset).catch(() => ({
@@ -499,6 +644,12 @@ async function resolveRelease(kind: "app" | "lsp", force = false): Promise<Relea
         mirroredAt: "",
         skipped: [] as string[],
       }));
+
+  // Prune previous version folders so only `folder` remains. Only prune after
+  // a successful mirror (prevents deleting the current version on failure).
+  if (mirrored.packages.length > 0) {
+    await pruneOldAppVersions(folder).catch(() => {});
+  }
 
   // download_url is ALWAYS the Supabase bucket link — never the GitHub URL.
   // Use the mirrored installer when available; if mirroring produced no package

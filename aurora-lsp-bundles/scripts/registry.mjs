@@ -40,7 +40,6 @@ export const REGISTRY = [
   { id: "php", eco: "npm", package: "intelephense", bin: "intelephense", entry_relative: "node_modules/intelephense/lib/intelephense.js", args: ["--stdio"] },
   { id: "vue", eco: "npm", package: "@vue/language-server", bin: "vue-language-server", entry_relative: "node_modules/@vue/language-server/bin/vue-language-server.js", args: ["--stdio"] },
   { id: "svelte", eco: "npm", package: "svelte-language-server", bin: "svelteserver", entry_relative: "node_modules/svelte-language-server/bin/server.js", args: ["--stdio"] },
-  { id: "graphql", eco: "npm", package: "graphql-language-service-cli", bin: "graphql-lsp", entry_relative: "node_modules/graphql-language-service-cli/bin/graphql.js", args: ["server", "--method", "stream"] },
 
   // ---- github (native) ----
   { id: "rust", eco: "github", repo: "rust-lang/rust-analyzer", asset: "rust-analyzer-{target}", entry_relative: "rust-analyzer", args: [] },
@@ -54,9 +53,6 @@ export const REGISTRY = [
   { id: "csharp", eco: "github", repo: "OmniSharp/omnisharp-roslyn", asset: "omnisharp-{target}.zip",
     assets: { "win-x64": "omnisharp-win-x64-net6.0.zip", "linux-x64": "omnisharp-linux-x64-net6.0.zip", "darwin-x64": "omnisharp-osx-x64-net6.0.zip", "darwin-arm64": "omnisharp-osx-arm64-net6.0.zip" },
     entry_relative: "OmniSharp", args: ["-lsp"] },
-  { id: "markdown", eco: "github", repo: "artempyanykh/marksman", asset: "marksman-{os}",
-    assets: { "win-x64": "marksman.exe", "linux-x64": "marksman-linux-x64", "darwin-x64": "marksman-macos", "darwin-arm64": "marksman-macos" },
-    entry_relative: "marksman", args: ["server"] },
   { id: "lua", eco: "github", repo: "LuaLS/lua-language-server", asset: "lua-language-server-{version}-{target}.tar.gz",
     assets: { "win-x64": "lua-language-server-{version}-win32-x64.zip", "linux-x64": "lua-language-server-{version}-linux-x64.tar.gz", "darwin-x64": "lua-language-server-{version}-darwin-x64.tar.gz", "darwin-arm64": "lua-language-server-{version}-darwin-arm64.tar.gz" },
     entry_relative: "bin/lua-language-server", args: [] },
@@ -78,9 +74,6 @@ export const REGISTRY = [
   { id: "haskell", eco: "github", repo: "haskell/haskell-language-server", asset: "haskell-language-server-{target}.tar.gz",
     assets: { "win-x64": "haskell-language-server-{version}-x86_64-mingw64.zip", "linux-x64": "haskell-language-server-{version}-x86_64-linux-unknown.tar.xz", "darwin-x64": "haskell-language-server-{version}-x86_64-apple-darwin.tar.xz", "darwin-arm64": "haskell-language-server-{version}-aarch64-apple-darwin.tar.xz" },
     entry_relative: "haskell-language-server-wrapper", args: ["--lsp"] },
-  { id: "clojure", eco: "github", repo: "clojure-lsp/clojure-lsp", asset: "clojure-lsp-native-{target}.zip",
-    assets: { "win-x64": "clojure-lsp-native-windows-amd64.zip", "linux-x64": "clojure-lsp-native-linux-amd64.zip", "darwin-x64": "clojure-lsp-native-macos-amd64.zip", "darwin-arm64": "clojure-lsp-native-macos-aarch64.zip" },
-    entry_relative: "clojure-lsp", args: [] },
   { id: "nix", eco: "github", repo: "oxalica/nil", asset: "nil-{target}", entry_relative: "nil", args: [] },
 
   // ---- go (native) ----
