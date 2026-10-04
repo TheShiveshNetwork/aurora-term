@@ -40,7 +40,10 @@ body = """
 """
 
 trim = true
-output = "CHANGELOG.md"
+
+# No `output` key on purpose. The workflow always supplies the destination via
+# GIT_CLIFF_OUTPUT, so pinning a path here would mean a bare `git-cliff --context`
+# (which emits JSON instead of markdown) silently overwrites CHANGELOG.md.
 
 # `trim = true` strips the body template's trailing newline, which would leave
 # release headings glued to the previous line. Each body is postprocessed
