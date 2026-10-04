@@ -79,67 +79,82 @@ export interface UserMessageProps {
   className?: string;
   overlay?: boolean;
   onCopy?: (content: string) => void;
+  /** Tracked per message, so copying here never ticks the agent's reply. */
+  copied?: boolean;
   onRevert?: () => void;
+  isReverting?: boolean;
 }
 
-export function UserMessage({ content, className, overlay, onCopy, onRevert }: UserMessageProps) {
-  if (overlay) {
-    return (
-      <div className={`w-full max-w-[200px] self-end group ${className ?? ""}`}>
-        <div className="relative rounded-[14px] px-4 py-3 text-[13px] font-medium leading-relaxed select-text bg-[#1A2230] text-on-surface border border-white/[0.08]">
-          {content}
-          <div className="absolute bottom-1.5 right-1.5 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-            {onCopy && (
-              <button
-                onClick={() => onCopy(content)}
-                className="p-1 rounded-md hover:bg-white/[0.08] text-on-surface-variant/50 hover:text-on-surface/80 transition-colors cursor-pointer"
-                title="Copy message"
-              >
-                <Copy size={12} />
-              </button>
-            )}
-            {onRevert && (
-              <button
-                onClick={onRevert}
-                className="p-1 rounded-md hover:bg-white/[0.08] text-on-surface-variant/50 hover:text-on-surface/80 transition-colors cursor-pointer"
-                title="Revert"
-              >
-                <Undo2 size={12} />
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  }
+/**
+ * Renders in the normal flow below the bubble rather than floating over it, so
+ * the buttons never cover the message text. The row is collapsed to zero height
+ * until hover and expands via `grid-template-rows`, which animates cleanly and
+ * avoids permanently reserving empty space under every message.
+ */
+function UserMessageActions({
+  content,
+  onCopy,
+  copied,
+  onRevert,
+  isReverting,
+}: Pick<UserMessageProps, "content" | "onCopy" | "copied" | "onRevert" | "isReverting">) {
+  if (!onCopy && !onRevert) return null;
 
   return (
-    <div className={`flex flex-col items-end max-w-[70%] min-w-0 group ${className ?? ""}`}>
-      <div className="relative w-full">
-        <MessageContent className="w-full min-w-0 bg-[#1A2230] text-on-surface border border-white/[0.08] rounded-2xl px-4 py-3 text-[14px] leading-relaxed break-words">
-          {content}
-        </MessageContent>
-        <div className="absolute bottom-1.5 right-1.5 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+    <div className="grid grid-rows-[0fr] group-hover:grid-rows-[1fr] transition-[grid-template-rows] duration-150">
+      <div className="overflow-hidden">
+        <div className="flex items-center justify-end gap-0.5 mt-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
           {onCopy && (
             <button
               onClick={() => onCopy(content)}
               className="p-1 rounded-md hover:bg-white/[0.08] text-on-surface-variant/50 hover:text-on-surface/80 transition-colors cursor-pointer"
               title="Copy message"
             >
-              <Copy size={12} />
+              {copied ? (
+                <Check size={12} className="text-emerald-400" />
+              ) : (
+                <Copy size={12} />
+              )}
             </button>
           )}
-          {onRevert && (
-            <button
-              onClick={onRevert}
-              className="p-1 rounded-md hover:bg-white/[0.08] text-on-surface-variant/50 hover:text-on-surface/80 transition-colors cursor-pointer"
-              title="Revert"
-            >
+{onRevert && (
+          <button
+            onClick={onRevert}
+            disabled={isReverting}
+            className="p-1 rounded-md hover:bg-white/[0.08] text-on-surface-variant/50 hover:text-on-surface/80 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-wait"
+            title={isReverting ? "Reverting…" : "Undo this message and its file changes"}
+          >
+            {isReverting ? (
+              <RotateCw size={12} className="animate-spin" />
+            ) : (
               <Undo2 size={12} />
-            </button>
-          )}
+            )}
+          </button>
+        )}
         </div>
       </div>
+    </div>
+  );
+}
+
+export function UserMessage({ content, className, overlay, onCopy, copied, onRevert, isReverting }: UserMessageProps) {
+  if (overlay) {
+    return (
+      <div className={`w-full max-w-[200px] self-end group ${className ?? ""}`}>
+        <div className="rounded-md px-4 py-3 text-[13px] font-medium leading-relaxed select-text bg-[#1A2230] text-on-surface border border-white/[0.08]">
+          {content}
+        </div>
+        <UserMessageActions content={content} onCopy={onCopy} copied={copied} onRevert={onRevert} isReverting={isReverting} />
+      </div>
+    );
+  }
+
+  return (
+    <div className={`flex flex-col items-end max-w-[70%] min-w-0 group ${className ?? ""}`}>
+      <MessageContent className="w-full min-w-0 bg-[#1A2230] text-on-surface border border-white/[0.08] rounded-md px-4 py-3 text-[14px] leading-relaxed break-words">
+        {content}
+      </MessageContent>
+      <UserMessageActions content={content} onCopy={onCopy} copied={copied} onRevert={onRevert} isReverting={isReverting} />
     </div>
   );
 }
@@ -240,9 +255,15 @@ export interface AgentTurnMessageProps {
   maxSteps: number;
   onCopy?: (content: string) => void;
   copied?: boolean;
+  /** Tracked apart from onCopy/copied — the user's message and the reply differ. */
+  onCopyUser?: (content: string) => void;
+  copiedUser?: boolean;
   onLike?: () => void;
   onDislike?: () => void;
   onRetry?: () => void;
+  /** Undoes the turn: restores its files and removes the message pair. */
+  onRevert?: () => void;
+  isReverting?: boolean;
   variant?: "overlay" | "full";
   className?: string;
 }
@@ -258,9 +279,13 @@ export function AgentTurnMessage({
   maxSteps,
   onCopy,
   copied,
+  onCopyUser,
+  copiedUser,
   onLike,
   onDislike,
   onRetry,
+  onRevert,
+  isReverting,
   variant = "overlay",
   className,
 }: AgentTurnMessageProps) {
@@ -284,11 +309,11 @@ export function AgentTurnMessage({
       {userMsg && (
         isOverlay ? (
           <div className="sticky flex w-full justify-end self-end top-0 z-10 pb-2">
-            <UserMessage content={userMsg.content} className="max-w-full" overlay onCopy={onCopy} />
+            <UserMessage content={userMsg.content} className="max-w-full" overlay onCopy={onCopyUser} copied={copiedUser} />
           </div>
         ) : (
           <div className="flex justify-end pb-1">
-            <UserMessage content={userMsg.content} onCopy={onCopy} onRevert={isLastTurn ? onRetry : undefined} />
+            <UserMessage content={userMsg.content} onCopy={onCopyUser} copied={copiedUser} onRevert={onRevert} isReverting={isReverting} />
           </div>
         )
       )}

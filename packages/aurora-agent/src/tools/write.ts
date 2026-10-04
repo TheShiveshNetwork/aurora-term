@@ -40,7 +40,10 @@ export const writeFileTool = createTool({
         contentPreview: input.content.slice(0, 200),
       });
       return suspend?.({
-        path: input.path,
+        // Absolute so the app opens, badges and snapshots the file the agent will
+        // actually write, instead of re-guessing a relative path against a
+        // different base.
+        path: safeResolve(input.path),
         content: input.content,
         type: 'write' as const,
       });

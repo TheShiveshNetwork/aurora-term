@@ -10,6 +10,7 @@ import {
   type FileContext,
 } from './agents/shared/file-context';
 import { reviewSettings } from './tools';
+import { getWorkspaceRoot, setWorkspaceRoot } from './tools/helper';
 import {
   readFileTool,
   grepSearchTool,
@@ -34,6 +35,14 @@ import {
 import { isValidAuraEnvelope } from './processors/auraResponseValidator';
 import { auraResponseSchema, AURA_FORMAT_CONTRACT } from './schemas/auraEnvelope';
 import { isWorkingMemoryEnabled } from './working-memory-policy';
+import { attachThreadToProject, generateSessionTitle } from './agents/shared/session-title';
+import { transcribeAudio } from './agents/shared/transcribe';
+import {
+  clearRunAbort,
+  isRunStopped,
+  registerRunAbort,
+  stopRun,
+} from './run-aborts';
 
 const server = fastify({ logger: false });
 const log = rootLogger.child({ service: 'server' });
@@ -161,6 +170,13 @@ async function runStreamingWithRetry(
   for (let attempt = 0; attempt <= MAX_TRANSPORT_RETRIES; attempt++) {
     const response = await runStreaming(threadId, start);
     lastResponse = response;
+    // A stop is a deliberate user action and its error also matches
+    // `isTransportError` (the word "aborted"), so check it first — retrying
+    // would restart the exact generation the user just cancelled.
+    if (isRunStopped(threadId)) {
+      log.info(`Run stopped by user during ${op}; not retrying`, { threadId });
+      return response;
+    }
     if (!response.error || !isTransportError(response.error)) {
       return response;
     }
@@ -359,22 +375,8 @@ function withThreadLock<T>(threadId: string, fn: () => Promise<T>): Promise<T> {
 // ── Per-thread run-abort registry ─────────────────────────────────────────
 // Lets the frontend interrupt a generation (LLM step or tool resume) that is
 // still in flight — e.g. when the user hits "stop" while a tool call (a shell
-// command or a server-side read-only tool) is executing. Each run registers an
-// AbortController keyed by thread; `/api/run/stop` aborts it.
-const runAborts = new Map<string, AbortController>();
-
-function registerRunAbort(threadId: string): AbortController {
-  const ac = new AbortController();
-  runAborts.set(threadId, ac);
-  return ac;
-}
-
-function clearRunAbort(threadId: string): void {
-  runAborts.delete(threadId);
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────
-
+// command or a server-side read-only tool) is executing. Implemented in
+// ./run-aborts so the cancellation semantics can be unit tested.
 function selectAgent(agentType?: string, mode?: string) {
   const agentId =
     agentType === 'developer' && mode === 'plan' ? 'developerPlanAgent'
@@ -611,6 +613,7 @@ server.post('/api/step', async (request, _reply) => {
     require_review_for_writes,
     model,
     file_context,
+    project_id,
   } = request.body as any;
 
   const stepLog = log.child({
@@ -650,6 +653,12 @@ server.post('/api/step', async (request, _reply) => {
   const agent = selectAgent(agent_type, mode);
 
   const threadId = session_id || task_id;
+  // Label the thread with its owning project so per-project thread queries and
+  // the durable thread mirror can be scoped. The thread itself is created by the
+  // first `agent.stream(...)` below, so this is a no-op until then.
+  if (threadId && project_id) {
+    void attachThreadToProject(threadId, project_id).catch(() => undefined);
+  }
   // Clear the previous run's thinking buffer immediately for a fresh goal so a
   // concurrent /api/thinking poll can't repaint the prior turn's planning while
   // the new run is queued behind the per-thread lock.
@@ -1249,9 +1258,7 @@ server.post('/api/tool/decline', async (request, _reply) => {
 // touches any terminal session — it only aborts the agent's own work. ──────
 server.post('/api/run/stop', async (request, _reply) => {
   const { thread_id } = (request.body as any) || {};
-  if (thread_id && runAborts.has(thread_id)) {
-    runAborts.get(thread_id)!.abort();
-    clearRunAbort(thread_id);
+  if (thread_id && stopRun(thread_id)) {
     log.info('Run stop requested', { threadId: thread_id });
     return { status: 'ok', stopped: thread_id };
   }
@@ -1521,11 +1528,79 @@ server.get('/api/mcp', async (request, _reply) => {
   }
 });
 
-// ── /api/memory/threads — list all threads for the global resource ─────────
-server.get('/api/memory/threads', async (_request, _reply) => {
+// ── /api/workspace — tell the agent which project directory is open ────────
+// Relative tool paths must resolve against the user's project, not against the
+// sidecar's own working directory (which is the agent package folder in dev).
+server.post('/api/workspace', async (request, _reply) => {
+  const { cwd } = (request.body as any) || {};
+  if (!cwd) return { status: 'error', message: 'cwd is required' };
+  setWorkspaceRoot(cwd);
+  log.info('Workspace root set', { cwd });
+  return { status: 'ok', workspaceRoot: getWorkspaceRoot() };
+});
+
+server.get('/api/workspace', async (_request, _reply) => ({
+  status: 'ok',
+  workspaceRoot: getWorkspaceRoot(),
+  processCwd: process.cwd(),
+}));
+
+// ── /api/transcribe — speech-to-text for voice input ─────────────────────
+// Chromium's Web Speech API is unusable inside the webview (it proxies to a cloud
+// backend the webview cannot reach and fails with `network`), so the frontend
+// records audio and sends it here for transcription.
+server.post('/api/transcribe', async (request, _reply) => {
+  const { audio_base64, mime_type, language } = (request.body as any) || {};
+  if (!audio_base64) {
+    return { status: 'error', message: 'audio_base64 is required' };
+  }
+  return transcribeAudio({ audioBase64: audio_base64, mimeType: mime_type, language });
+});
+
+// ── /api/session/title — name a session from its opening goal ────────────
+// Runs on the zero-tool chat agent with memory disabled, so titling a session
+// can never read or disturb the conversation it is naming.
+server.post('/api/session/title', async (request, _reply) => {
+  const { session_id, project_id, goal, model } = (request.body as any) || {};
+  if (!session_id || !goal) {
+    return { status: 'error', message: 'session_id and goal are required' };
+  }
+
+  const result = await generateSessionTitle(mastra.getAgent('chatAgent'), {
+    sessionId: session_id,
+    projectId: project_id,
+    goal,
+    model,
+  });
+  return { status: result.status, title: result.title ?? null };
+});
+
+// ── /api/session/attach — label a thread with its owning project ─────────
+// The session list is owned by the app's SQLite; this only records the project
+// on the Mastra thread so per-project thread queries and the durable thread
+// mirror can be scoped.
+server.post('/api/session/attach', async (request, _reply) => {
+  const { session_id, project_id, title } = (request.body as any) || {};
+  if (!session_id || !project_id) {
+    return { status: 'error', message: 'session_id and project_id are required' };
+  }
   try {
+    await attachThreadToProject(session_id, project_id, title);
+    return { status: 'ok' };
+  } catch (error: any) {
+    return { status: 'error', message: error.message || 'Failed to attach thread' };
+  }
+});
+
+// ── /api/memory/threads — list threads, optionally scoped to a project ─────
+server.get('/api/memory/threads', async (request, _reply) => {
+  try {
+    const { projectId } = (request.query as any) || {};
     const result = await auraMemory.listThreads({
-      filter: { resourceId: RESOURCE_ID },
+      filter: {
+        resourceId: RESOURCE_ID,
+        ...(projectId ? { metadata: { projectId } } : {}),
+      },
       perPage: false,
     });
     return { status: 'ok', threads: result.threads };

@@ -33,7 +33,7 @@ export default function SignInPage() {
             back to the app when you're done.
           </p>
 
-          <div className="mt-6 flex flex-col gap-3">
+          <div className="z-99 mt-6 flex flex-col gap-3">
             <button
               onClick={() => go("github")}
               disabled={busy !== null}

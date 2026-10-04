@@ -20,4 +20,6 @@ This directory stores the project-level architecture decisions for Aurora.
 - [0006 - Split the Rust backend into crates](0006-split-the-rust-backend-into-crates.md)
 - [0007 - Use pnpm workspaces for frontend packages](0007-use-pnpm-workspaces-for-frontend-packages.md)
 - [0008 - Recover from ConPTY deadlocks by restarting the session](0008-recover-from-conpty-deadlocks-by-restarting-the-session.md)
+- [0009 - Prebuild LSP bundles in a separate repo](0009-prebuild-lsp-bundles-in-separate-repo.md)
+- [0010 - Persist agent chat sessions in the app SQLite, scoped per project](0010-persist-agent-sessions-per-project.md)
 

@@ -9,6 +9,9 @@ name    = "aurora-db"
 version = "0.1.0"
 edition = "2021"
 
+[dev-dependencies]
+serde_json = { workspace = true }
+
 [dependencies]
 aurora-core = { workspace = true }
 rusqlite    = { workspace = true }

@@ -15,6 +15,7 @@ import { ProviderName } from "@aurora/types";
 import { ProviderRegistry } from "../../lib/providers";
 import { ai, AppConfig, config, state, system } from "../../lib/ipc";
 import { syncProviderModelDefaults } from "../../lib/modelDefaults";
+import { normalizeDraft } from "../../lib/settingsDirty";
 import { WindowControls } from "../ui/WindowControls";
 import { emit, listen } from "@tauri-apps/api/event";
 import { Button } from "../ui/Button";
@@ -248,6 +249,36 @@ export default function SettingsPage() {
     }
   };
 
+  // Switching the default provider is not a draft edit: it is persisted and
+  // pushed to the running agent on the spot, so it must never surface as an
+  // unsaved change. Built from the canonical persisted config rather than the
+  // draft, so unrelated pending edits on this page are not written to disk here.
+  const setActiveProviderNow = async (name: ProviderName) => {
+    // Reflect the choice straight away so the selector and the "Selected" badge
+    // do not wait on the round trip.
+    updateDraft((d) => {
+      d.config.ai.active_provider = name;
+    });
+
+    try {
+      const persisted = await config.get();
+      const next: AppConfig = {
+        ...persisted,
+        ai: { ...persisted.ai, active_provider: name },
+      };
+      // Persists to disk and makes Rust broadcast `config_changed`, which is
+      // what updates `useAIStore` in every window.
+      await config.saveGlobal(next);
+      try {
+        await system.agentUpdateSettings(next);
+      } catch (e) {
+        console.warn("Failed to sync provider change to aurora-agent", e);
+      }
+    } catch (e) {
+      console.warn("Failed to persist provider change", e);
+    }
+  };
+
   const handleApply = async () => {
     if (!draft) return;
     setApplying(true);
@@ -333,17 +364,9 @@ export default function SettingsPage() {
     );
   }
 
-  // The `cloud` object is application-managed sync state (set automatically by
-  // Upload/Revert and by saving), not a user-edited setting. Ignore it when
-  // deciding whether the user has unsaved *settings* changes — otherwise the
-  // automatic sync write (which flips `cloud.synced`) makes the Settings page
-  // think it needs saving, creating a save↔sync loop.
-  const normalized = (d: DraftSettings | null) => {
-    if (!d) return "";
-    const copy: any = JSON.parse(JSON.stringify(d));
-    if (copy.config) delete copy.config.cloud;
-    return JSON.stringify(copy);
-  };
+  // `cloud` and `ai.active_provider` are application-managed and excluded from the
+  // comparison — see settingsDirty.ts for why.
+  const normalized = normalizeDraft;
 
   const isDirty = !!(draft && initial && normalized(draft) !== normalized(initial));
   const saveDisabled = saving || applying || !draft || !initial || !isDirty;
@@ -351,7 +374,7 @@ export default function SettingsPage() {
   const hasChanges = isDirty || !!(draft && applied && normalized(draft) !== normalized(applied));
 
   return (
-    <SettingsContext.Provider value={{ draft, updateDraft, providerPage, setProviderPage }}>
+    <SettingsContext.Provider value={{ draft, updateDraft, setActiveProviderNow, providerPage, setProviderPage }}>
       <div className="h-screen flex flex-col overflow-hidden select-none" style={{ background: "#0A0D14", color: "#E8EAF0" }}>
         <style>{`.setting-flash { outline: 2px solid rgba(79,140,255,0.4); outline-offset: -2px; border-radius: 8px; transition: outline-color 0.15s; }`}</style>
         <header
@@ -411,7 +434,7 @@ export default function SettingsPage() {
                   isSelected={draft.config.ai.active_provider === providerPage}
                   keyringHasKey={!!keyringStatus[providerPage]}
                   onSetSelected={() => {
-                    updateDraft((d) => { d.config.ai.active_provider = providerPage; });
+                    setActiveProviderNow(providerPage as ProviderName);
                     setProviderPage(null);
                   }}
                   onClose={() => setProviderPage(null)}

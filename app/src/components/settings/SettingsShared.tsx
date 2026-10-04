@@ -1,6 +1,7 @@
 import React, { createContext } from "react";
 import { EditorThemeName } from "../../stores/useSettingsStore";
 import type { AppConfig } from "../../lib/ipc";
+import { ProviderName } from "@aurora/types";
 
 export interface DraftSettings {
   config: AppConfig;
@@ -14,6 +15,8 @@ export interface DraftSettings {
 export interface SettingsContextType {
   draft: DraftSettings;
   updateDraft: (updater: (prev: DraftSettings) => void) => void;
+  /** Switches the default provider immediately; never marks the page dirty. */
+  setActiveProviderNow: (name: ProviderName) => void;
   providerPage: string | null;
   setProviderPage: (name: string | null) => void;
 }
