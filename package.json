@@ -15,6 +15,7 @@
     "tauri:build": "tauri build --config tauri/tauri.conf.json",
     "test": "pnpm --dir app test",
     "typecheck": "pnpm --dir app typecheck",
+    "changelog": "npx --yes git-cliff@2.14.2 --config cliff.toml --output CHANGELOG.md",
     "size-audit": "tsx scripts/size-audit.ts"
   },
   "dependencies": {

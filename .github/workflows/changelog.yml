@@ -5,6 +5,10 @@ on:
     tags:
       - 'v*'
 
+# Direct pushes to main are prohibited, so the changelog goes through a pull
+# request. GitHub also requires repository Settings > Actions > General >
+# Workflow permissions > "Allow GitHub Actions to create and approve pull
+# requests"; that toggle cannot be supplied from this file.
 permissions:
   contents: write
   pull-requests: write
@@ -22,8 +26,8 @@ jobs:
           # git-cliff needs the full history to resolve the root commit and to
           # split it into per-release sections. Without this it renders nothing.
           fetch-depth: 0
-          # Base the changelog on main rather than the detached tag ref: the
-          # file is regenerated into the branch, not into the tag.
+          # Read from main rather than the detached tag ref so the range below
+          # resolves against the real branch history.
           ref: main
 
       - name: Compute changelog range
@@ -71,12 +75,12 @@ jobs:
             exit 0
           fi
 
-          git checkout -b "$BRANCH"
+          git checkout -B "$BRANCH"
           git add CHANGELOG.md
           git commit -m "docs(changelog): update for $TAG"
 
           # Someone may have pushed to main while this job was generating the
-          # file; rebase so the pull request never conflicts and carries only the
+          # file; rebase so the pull request stays current and carries only the
           # changelog change.
           git fetch origin main
           git rebase origin/main
@@ -95,22 +99,45 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Re-running a tag re-pushes the same branch, so update the existing
-          # pull request instead of opening a duplicate.
+          # Re-running a tag updates the branch above, so reuse an open pull
+          # request instead of opening a duplicate. A closed pull request can
+          # otherwise leave its branch linked to a finished PR, so remove that
+          # stale branch before recreating it.
           existing=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number')
           if [ -n "$existing" ]; then
             echo "Pull request #$existing already covers $BRANCH; the push above updated it."
             exit 0
           fi
+          closed_count=$(gh pr list --head "$BRANCH" --state closed --json number --jq 'length')
+          if [ "$closed_count" -gt 0 ] && git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            git push origin --delete "$BRANCH"
+            git fetch origin
+          fi
 
-          gh pr create \
+          create_output=$(mktemp)
+          create_status=0
+          if ! gh pr create \
             --base main \
             --head "$BRANCH" \
             --title "docs(changelog): update for $TAG" \
             --body "Automated changelog regeneration for \`$TAG\`.
 
-          Regenerated from \`cliff.toml\` over the full history up to \`$TAG\`."
+          Regenerated from \`cliff.toml\` over the full history up to \`$TAG\`.
 
-          echo "::notice::A push from GITHUB_TOKEN queues this pull request's checks"
-          echo "::notice::behind an approval gate. Click 'Approve workflows to run'"
-          echo "::notice::in the merge box, then merge."
+          If GitHub requests approval, approve the pending workflow runs, then
+          merge after the required checks pass." >"$create_output" 2>&1; then
+            create_status=$?
+          fi
+          create_text=$(cat "$create_output")
+          rm -f "$create_output"
+          printf '%s\n' "$create_text"
+
+          # Repository Actions settings can disable bot pull requests even when
+          # this file requests pull-requests: write. Report that configuration
+          # directly instead of leaving the GraphQL error unexplained.
+          if [ "$create_status" -ne 0 ] && grep -Fq 'GitHub Actions is not permitted to create or approve pull requests' <<<"$create_text"; then
+            echo "::error::Repository settings block GitHub Actions pull requests."
+            echo "::error::Enable Settings > Actions > General > Workflow permissions >"
+            echo "::error::'Allow GitHub Actions to create and approve pull requests', then rerun."
+          fi
+          exit "$create_status"

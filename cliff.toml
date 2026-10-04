@@ -1,8 +1,9 @@
 # git-cliff configuration for Aurora Term.
 #
-# Used only by .github/workflows/changelog.yml, which runs on the CI runner.
+# Used by .github/workflows/changelog.yml on the CI runner, and by the
+# `pnpm changelog` script for regenerating the file locally.
 # Nothing here is a build input: it is not referenced by Cargo.toml,
-# tauri/tauri.conf.json, or any pnpm script, so it never reaches the app bundle.
+# tauri/tauri.conf.json, or any pnpm build script, so it never reaches the app bundle.
 #
 # Docs: https://git-cliff.org/docs/configuration
 
