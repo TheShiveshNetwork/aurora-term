@@ -2,17 +2,26 @@ import { useEffect, useState, type ComponentType } from "react";
 import { Container } from "../../components/ui";
 import { AuroraButton } from "../../components/ui/AuroraButton";
 import GradientWaves from "../../components/backgrounds/GradientWaves";
-import { ChevronRight, Download } from "lucide-react";
+import { Download } from "lucide-react";
 import { markBackgroundReady } from "../../lib/pageLoad";
 import { useExpectBackground } from "../../hooks/usePageAssets";
+import {
+  classifyInstaller,
+  fetchLatestRelease,
+  formatBytes,
+  installerUrl,
+  installersFor,
+  type CpuKey,
+  type LatestRelease,
+  type PlatformKey,
+} from "../../lib/releases";
 
-type PlatformKey = "windows" | "macos" | "linux";
 type PlatformFilter = PlatformKey | "all";
 
 interface Installer {
-  platform: PlatformKey;
-  fileName: string;
-  size?: string;
+  name: string;
+  size: string | null;
+  url: string;
 }
 
 interface BrandIconProps {
@@ -51,24 +60,32 @@ function LinuxIcon({ size = 20, className = "" }: BrandIconProps) {
   );
 }
 
-const installers: Installer[] = [
-  { platform: "windows", fileName: "Aurora_1.0.0_x64-setup.exe", size: "38.4 MB" },
-  { platform: "windows", fileName: "Aurora_1.0.0_x64_en-US.msi" },
-  { platform: "macos", fileName: "Aurora_1.0.0_x64.dmg", size: "45.5 MB" },
-  { platform: "macos", fileName: "Aurora_1.0.0_aarch64.dmg", size: "43 MB" },
-  { platform: "macos", fileName: "Aurora_1.0.0_x64.app.tar.gz", size: "42 MB" },
-  { platform: "macos", fileName: "Aurora_1.0.0_aarch64.app.tar.gz", size: "39.4 MB" },
-  { platform: "linux", fileName: "Aurora_1.0.0_amd64.AppImage", size: "122 MB" },
-  { platform: "linux", fileName: "Aurora_1.0.0_amd64.deb", size: "49.3 MB" },
-  { platform: "linux", fileName: "Aurora_1.0.0_arm64.deb", size: "49.5 MB" },
-  { platform: "linux", fileName: "Aurora-1.0.0-1.x86_64.rpm", size: "49.3 MB" },
-];
+// Used only when aurora-api cannot be reached, so the page still offers real
+// download links. Once the API answers, the live release list replaces this.
+const GITHUB_REPO = "TheShiveshNetwork/aurora-term";
+const FALLBACK_INSTALLERS: Record<PlatformKey, { name: string; size: string }[]> = {
+  windows: [{ name: "Aurora_1.0.0_x64-setup.exe", size: "38.4 MB" }],
+  macos: [
+    { name: "Aurora_1.0.0_x64.dmg", size: "45.5 MB" },
+    { name: "Aurora_1.0.0_aarch64.dmg", size: "43 MB" },
+    { name: "Aurora_1.0.0_x64.app.tar.gz", size: "42 MB" },
+    { name: "Aurora_1.0.0_aarch64.app.tar.gz", size: "39.4 MB" },
+  ],
+  linux: [
+    { name: "Aurora_1.0.0_amd64.AppImage", size: "122 MB" },
+    { name: "Aurora_1.0.0_amd64.deb", size: "49.3 MB" },
+    { name: "Aurora_1.0.0_arm64.deb", size: "49.5 MB" },
+    { name: "Aurora-1.0.0-1.x86_64.rpm", size: "49.3 MB" },
+  ],
+};
 
 const platforms: Platform[] = [
-  { key: "windows", name: "Windows", note: "x86_64 · NSIS & MSI", icon: WindowsIcon },
+  { key: "windows", name: "Windows", note: "x86_64 · NSIS", icon: WindowsIcon },
   { key: "macos", name: "macOS", note: "Apple Silicon & Intel", icon: AppleIcon },
   { key: "linux", name: "Linux", note: "AppImage · Debian · RPM", icon: LinuxIcon },
 ];
+
+const RELEASES_PAGE = `https://github.com/${GITHUB_REPO}/releases`;
 
 const detectPlatform = (): PlatformFilter => {
   const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
@@ -77,23 +94,69 @@ const detectPlatform = (): PlatformFilter => {
   return "linux";
 };
 
-const releaseUrl = (fileName: string) =>
-  `https://github.com/TheShiveshNetwork/aurora-term/releases/latest/download/${encodeURIComponent(fileName)}`;
+// Only an explicit UA marker promotes a visitor to arm64. Apple Silicon also
+// reports "Intel Mac OS X", so anything unstated stays x64 and the x64 installer
+// remains the safe default.
+const detectCpu = (): CpuKey => {
+  const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+  return /arm64|aarch64/i.test(ua) ? "arm64" : "x64";
+};
+
+const githubLatestUrl = (name: string) =>
+  `${RELEASES_PAGE}/latest/download/${encodeURIComponent(name)}`;
+
+// Last-resort download for a target when aurora-api has no data: the same
+// filename, resolved against the newest GitHub release. Keeps the primary
+// button a real download instead of a trip to the releases page.
+function fallbackInstallerUrl(platform: PlatformKey, cpu: CpuKey): string | null {
+  for (const entry of FALLBACK_INSTALLERS[platform]) {
+    const target = classifyInstaller(entry.name);
+    if (target?.cpu === cpu) return githubLatestUrl(entry.name);
+  }
+  return null;
+}
 
 export default function DownloadPage() {
   useExpectBackground();
 
   const [filter, setFilter] = useState<PlatformFilter>("all");
   const [detected, setDetected] = useState<PlatformKey>("linux");
+  const [cpu, setCpu] = useState<CpuKey>("x64");
+  const [release, setRelease] = useState<LatestRelease | null>(null);
 
   useEffect(() => {
     const os = detectPlatform();
     setDetected(os as PlatformKey);
     setFilter(os);
+    setCpu(detectCpu());
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchLatestRelease(controller.signal).then(setRelease);
+    return () => controller.abort();
   }, []);
 
   const detectedPlatform = platforms.find((p) => p.key === detected);
   const visiblePlatforms = filter === "all" ? platforms : platforms.filter((p) => p.key === filter);
+  const primaryDownload =
+    (release ? installerUrl(release, detected, cpu) : null) ??
+    fallbackInstallerUrl(detected, cpu) ??
+    RELEASES_PAGE;
+
+  const installersForPlatform = (platform: PlatformKey): Installer[] => {
+    if (release) {
+      return installersFor(release, platform).map((entry) => ({
+        name: entry.name,
+        size: formatBytes(entry.size),
+        url: entry.url,
+      }));
+    }
+    return FALLBACK_INSTALLERS[platform].map((entry) => ({
+      ...entry,
+      url: githubLatestUrl(entry.name),
+    }));
+  };
 
   return (
     <div className="relative">
@@ -136,10 +199,7 @@ export default function DownloadPage() {
             const DetectedIcon = detectedPlatform.icon;
             return (
               <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
-                <AuroraButton
-                  href="https://github.com/TheShiveshNetwork/aurora-term/releases"
-                  external
-                >
+                <AuroraButton href={primaryDownload} external>
                   <DetectedIcon size={16} className="text-white mr-2" />
                   Download for {detectedPlatform.name}
                 </AuroraButton>
@@ -173,7 +233,7 @@ export default function DownloadPage() {
         <div className="mt-8 space-y-12">
           {visiblePlatforms.map((platform) => {
             const BrandIcon = platform.icon;
-            const files = installers.filter((i) => i.platform === platform.key);
+            const files = installersForPlatform(platform.key);
 
             return (
               <section key={platform.key}>
@@ -190,8 +250,8 @@ export default function DownloadPage() {
                 <div className="grid gap-4 sm:grid-cols-2">
                   {files.map((inst) => (
                     <a
-                      key={inst.fileName}
-                      href={releaseUrl(inst.fileName)}
+                      key={inst.name}
+                      href={inst.url}
                       target="_blank"
                       rel="noreferrer"
                       className="group flex flex-col gap-5 rounded-2xl border border-outline-variant bg-surface/50 p-5 backdrop-blur-md transition-colors hover:border-primary/40 hover:bg-surface"
@@ -207,7 +267,7 @@ export default function DownloadPage() {
                       </div>
                       <div className="min-w-0">
                         <span className="block truncate font-mono text-[13px] text-on-background">
-                          {inst.fileName}
+                          {inst.name}
                         </span>
                         <span className="mt-1 block text-[12px] text-on-surface-variant">
                           {inst.size ?? "—"}

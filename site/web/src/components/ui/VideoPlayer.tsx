@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { Maximize, Minimize, Pause, Play, Volume2, VolumeX } from "lucide-react";
+import { Loader2, Maximize, Minimize, Pause, Play, Volume2, VolumeX } from "lucide-react";
 
 interface VideoPlayerProps {
   src: string;
-  poster?: string;
   className?: string;
   frameless?: boolean;
-  onReady?: () => void;
+  // Intrinsic size, used to reserve layout space so attaching the source late
+  // does not shift the page.
+  width: number;
+  height: number;
 }
 
 function formatTime(t: number): string {
@@ -16,49 +18,65 @@ function formatTime(t: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-export function VideoPlayer({ src, poster, className, frameless = false, onReady }: VideoPlayerProps) {
+export function VideoPlayer({
+  src,
+  className,
+  frameless = false,
+  width,
+  height,
+}: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const onReadyRef = useRef(onReady);
-  onReadyRef.current = onReady;
-  const didReadyRef = useRef(false);
-  const notifyReady = () => {
-    if (didReadyRef.current) return;
-    didReadyRef.current = true;
-    onReadyRef.current?.();
-  };
+  // The source stays detached until the visitor asks for playback, so the
+  // browser never preloads a video nobody is watching.
+  const [isAttached, setIsAttached] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isBuffering, setIsBuffering] = useState(false);
   const [current, setCurrent] = useState(0);
   const [duration, setDuration] = useState(0);
   const [muted, setMuted] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
+  // Set by the hover or click that armed the source, replayed once it can play.
+  const playOnAttachRef = useRef(false);
 
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
     const onTime = () => setCurrent(v.currentTime);
     const onMeta = () => setDuration(v.duration);
-    const onPlay = () => setIsPlaying(true);
+    const onPlay = () => {
+      setIsPlaying(true);
+      setIsBuffering(false);
+    };
     const onPause = () => setIsPlaying(false);
-    const onLoaded = () => notifyReady();
+    const onWaiting = () => setIsBuffering(true);
+    const onPlaying = () => setIsBuffering(false);
+    const onCanPlay = () => {
+      setIsBuffering(false);
+      if (!playOnAttachRef.current) return;
+      playOnAttachRef.current = false;
+      void v.play();
+    };
+    const onError = () => setIsBuffering(false);
     v.addEventListener("timeupdate", onTime);
     v.addEventListener("loadedmetadata", onMeta);
-    v.addEventListener("loadeddata", onLoaded);
-    v.addEventListener("canplay", onLoaded);
-    v.addEventListener("error", onLoaded);
     v.addEventListener("play", onPlay);
     v.addEventListener("pause", onPause);
+    v.addEventListener("waiting", onWaiting);
+    v.addEventListener("playing", onPlaying);
+    v.addEventListener("canplay", onCanPlay);
+    v.addEventListener("error", onError);
     return () => {
       v.removeEventListener("timeupdate", onTime);
       v.removeEventListener("loadedmetadata", onMeta);
-      v.removeEventListener("loadeddata", onLoaded);
-      v.removeEventListener("canplay", onLoaded);
-      v.removeEventListener("error", onLoaded);
       v.removeEventListener("play", onPlay);
       v.removeEventListener("pause", onPause);
+      v.removeEventListener("waiting", onWaiting);
+      v.removeEventListener("playing", onPlaying);
+      v.removeEventListener("canplay", onCanPlay);
+      v.removeEventListener("error", onError);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [isAttached]);
 
   useEffect(() => {
     const onFs = () => setFullscreen(!!document.fullscreenElement);
@@ -66,12 +84,26 @@ export function VideoPlayer({ src, poster, className, frameless = false, onReady
     return () => document.removeEventListener("fullscreenchange", onFs);
   }, []);
 
+  const attach = () => {
+    if (!isAttached) setIsAttached(true);
+  };
+
   const togglePlay = () => {
     const v = videoRef.current;
     if (!v) return;
+    if (!isAttached) {
+      playOnAttachRef.current = true;
+      attach();
+      setIsBuffering(true);
+      return;
+    }
     if (v.paused) void v.play();
     else v.pause();
   };
+
+  // Attach on hover so the metadata is ready, but do not treat the hover as
+  // intent to play: `preload="none"` means nothing is fetched until play().
+  const prefetch = () => attach();
 
   const onSeek = (e: React.MouseEvent<HTMLDivElement>) => {
     const v = videoRef.current;
@@ -100,12 +132,15 @@ export function VideoPlayer({ src, poster, className, frameless = false, onReady
   return (
     <div
       ref={containerRef}
+      onPointerEnter={prefetch}
       className={`group relative overflow-hidden ${frameless ? "" : "rounded-2xl border border-outline bg-surface"} ${className ?? ""}`}
     >
       <video
         ref={videoRef}
-        src={src}
-        poster={poster}
+        src={isAttached ? src : undefined}
+        width={width}
+        height={height}
+        preload="none"
         onClick={togglePlay}
         playsInline
         className="h-auto w-full"
@@ -114,11 +149,15 @@ export function VideoPlayer({ src, poster, className, frameless = false, onReady
       {!isPlaying && (
         <button
           onClick={togglePlay}
-          aria-label="Play video"
+          aria-label={isBuffering ? "Loading video" : "Play video"}
           className="absolute inset-0 flex items-center justify-center bg-background/30 transition-colors hover:bg-background/40"
         >
           <span className="flex h-16 w-16 items-center justify-center rounded-full bg-white text-on-primary shadow-[0_0_40px_rgba(79,140,255,0.5)] transition-transform hover:scale-105">
-            <Play size={28} className="ml-1" fill="currentColor" />
+            {isBuffering ? (
+              <Loader2 size={28} className="animate-spin" />
+            ) : (
+              <Play size={28} className="ml-1" fill="currentColor" />
+            )}
           </span>
         </button>
       )}
