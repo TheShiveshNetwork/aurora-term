@@ -26,25 +26,6 @@ jobs:
           # file is regenerated into the branch, not into the tag.
           ref: main
 
-      - name: Verify a push-capable token is available
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.CHANGELOG_TOKEN }}
-        run: |
-          set -euo pipefail
-          # The built-in GITHUB_TOKEN deliberately does not trigger workflow
-          # runs, so a PR it opens never gets the status checks that main
-          # requires and could never be merged. A PAT is needed for the push.
-          if [ -z "${GH_TOKEN:-}" ]; then
-            echo "::error::CHANGELOG_TOKEN is not set. main is protected, so the"
-            echo "::error::changelog must land through a pull request, and the"
-            echo "::error::branch push needs a token that triggers CI runs."
-            echo "::error::Create a fine-grained PAT with contents:write and"
-            echo "::error::pull-requests:write and save it as the CHANGELOG_TOKEN"
-            echo "::error::repository secret."
-            exit 1
-          fi
-
       - name: Compute changelog range
         id: range
         shell: bash
@@ -77,20 +58,11 @@ jobs:
         env:
           TAG: ${{ github.ref_name }}
           BRANCH: changelog/${{ github.ref_name }}
-          GH_TOKEN: ${{ secrets.CHANGELOG_TOKEN }}
         run: |
           set -euo pipefail
 
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-
-          # actions/checkout pins origin to the built-in GITHUB_TOKEN through an
-          # extraheader, and that header wins over any credential helper. Drop it
-          # and let gh use CHANGELOG_TOKEN instead, otherwise the push would be a
-          # no-op-triggering GITHUB_TOKEN push and the pull request would never
-          # receive the status checks main requires.
-          git config --unset-all http.https://github.com/.extraheader || true
-          gh auth setup-git
 
           # Re-running a tag should not create an empty commit.
           if git diff --quiet -- CHANGELOG.md; then
@@ -104,8 +76,8 @@ jobs:
           git commit -m "docs(changelog): update for $TAG"
 
           # Someone may have pushed to main while this job was generating the
-          # file; rebase so the pull request never conflicts and carries only
-          # the changelog change.
+          # file; rebase so the pull request never conflicts and carries only the
+          # changelog change.
           git fetch origin main
           git rebase origin/main
 
@@ -119,7 +91,7 @@ jobs:
         env:
           TAG: ${{ github.ref_name }}
           BRANCH: changelog/${{ github.ref_name }}
-          GH_TOKEN: ${{ secrets.CHANGELOG_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
@@ -138,3 +110,7 @@ jobs:
             --body "Automated changelog regeneration for \`$TAG\`.
 
           Regenerated from \`cliff.toml\` over the full history up to \`$TAG\`."
+
+          echo "::notice::A push from GITHUB_TOKEN queues this pull request's checks"
+          echo "::notice::behind an approval gate. Click 'Approve workflows to run'"
+          echo "::notice::in the merge box, then merge."
