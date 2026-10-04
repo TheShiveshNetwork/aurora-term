@@ -1,15 +1,18 @@
 // Latest-release lookup for the download page.
 //
-// `aurora-api` owns the release feed: it caches one row per release family in
-// the `release_cache` table and re-hosts installers in the public `aurora`
-// Storage bucket. Every installer comes back with a working `url` — the Supabase
-// object when it was mirrored, the GitHub asset when it exceeded the storage
-// cap — so the page never has to guess a URL.
+// Supabase remains the preferred feed. GitHub's exact asset metadata is the
+// fallback, so the page never combines one release version with another
+// release's filename.
 
 import { AURORA_API_URL } from "./appConfig";
 
+const GITHUB_API_URL =
+  "https://api.github.com/repos/TheShiveshNetwork/aurora-term/releases/latest";
+
 export type PlatformKey = "windows" | "macos" | "linux";
 export type CpuKey = "x64" | "arm64";
+
+export type PackageSource = "supabase" | "github";
 
 export interface ReleasePackage {
   name: string;
@@ -17,6 +20,8 @@ export interface ReleasePackage {
   cpu: CpuKey;
   size: number;
   url: string;
+  source: PackageSource;
+  fallbackUrl?: string;
   // Position within its target's `formats` list; 0 is the preferred installer.
   rank: number;
 }
@@ -59,47 +64,195 @@ export function classifyInstaller(
   return null;
 }
 
-function readPackage(value: unknown): ReleasePackage | null {
-  if (!isRecord(value)) return null;
-  const { name, url } = value;
+function packageSource(url: string): PackageSource {
+  try {
+    const parsed = new URL(url);
+    const expectedPrefix = `${new URL(AURORA_API_URL).origin}/storage/v1/object/public/`;
+    if (
+      url.startsWith(expectedPrefix) ||
+      (parsed.hostname.endsWith(".supabase.co") &&
+        parsed.pathname.startsWith("/storage/v1/object/public/"))
+    ) {
+      return "supabase";
+    }
+  } catch {
+    // Fall through to the GitHub fallback below.
+  }
+  return "github";
+}
+
+function readReleasePackage(
+  name: unknown,
+  url: unknown,
+  size: unknown,
+): ReleasePackage | null {
   if (typeof name !== "string" || typeof url !== "string") return null;
   const target = classifyInstaller(name);
   if (!target) return null;
-  const size = Number(value.size);
+  const parsedSize = Number(size);
   return {
     name,
     ...target,
-    size: Number.isFinite(size) ? size : 0,
+    size: Number.isFinite(parsedSize) ? parsedSize : 0,
     url,
+    source: packageSource(url),
+  };
+}
+
+function readSupabasePackage(value: unknown): ReleasePackage | null {
+  if (!isRecord(value)) return null;
+  return readReleasePackage(value.name, value.url, value.size);
+}
+
+function readGitHubPackage(value: unknown): ReleasePackage | null {
+  if (!isRecord(value)) return null;
+  return readReleasePackage(value.name, value.browser_download_url, value.size);
+}
+
+function parsePackages(
+  value: unknown,
+  readPackage: (entry: unknown) => ReleasePackage | null,
+): ReleasePackage[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map(readPackage)
+    .filter((entry): entry is ReleasePackage => entry !== null);
+}
+
+function parseSupabaseRelease(body: unknown): LatestRelease | null {
+  if (!isRecord(body)) return null;
+  return {
+    version: typeof body.version === "string" ? body.version : null,
+    packages: parsePackages(body.packages, readSupabasePackage),
+  };
+}
+
+function parseGitHubRelease(body: unknown): LatestRelease | null {
+  if (!isRecord(body)) return null;
+  const { tag_name: tagName, assets } = body;
+  if (typeof tagName !== "string") return null;
+  if (body.draft === true || body.prerelease === true) return null;
+  return {
+    version: tagName.startsWith("v") ? tagName.slice(1) : tagName,
+    packages: parsePackages(assets, readGitHubPackage),
+  };
+}
+
+async function fetchJson(url: string, signal?: AbortSignal): Promise<unknown | null> {
+  try {
+    const response = await fetch(url, {
+      headers: { Accept: "application/json" },
+      signal,
+    });
+    if (!response.ok) {
+      console.warn(`releases: request failed with status ${response.status} for ${url}`);
+      return null;
+    }
+    const body: unknown = await response.json();
+    return body;
+  } catch (error) {
+    if (!signal?.aborted) console.warn(`releases: request failed for ${url}`, error);
+    return null;
+  }
+}
+
+async function fetchSupabaseRelease(signal?: AbortSignal): Promise<LatestRelease | null> {
+  const body = await fetchJson(`${AURORA_API_URL}/v1/update/latest`, signal);
+  return parseSupabaseRelease(body);
+}
+
+async function fetchGitHubRelease(signal?: AbortSignal): Promise<LatestRelease | null> {
+  const body = await fetchJson(GITHUB_API_URL, signal);
+  return parseGitHubRelease(body);
+}
+
+function releaseVersionParts(version: string | null): [number, number, number] | null {
+  if (!version) return null;
+  const match = version.trim().match(/^v?(\d+)\.(\d+)\.(\d+)$/);
+  if (!match) return null;
+  return [Number(match[1]), Number(match[2]), Number(match[3])];
+}
+
+function isNewerRelease(candidate: string | null, current: string | null): boolean {
+  const candidateParts = releaseVersionParts(candidate);
+  const currentParts = releaseVersionParts(current);
+  if (!candidateParts) return false;
+  if (!currentParts) return true;
+  for (let index = 0; index < candidateParts.length; index += 1) {
+    if (candidateParts[index] !== currentParts[index]) {
+      return candidateParts[index] > currentParts[index];
+    }
+  }
+  return false;
+}
+
+function mergeReleases(
+  primary: LatestRelease | null,
+  secondary: LatestRelease | null,
+): LatestRelease | null {
+  if (!primary) return secondary;
+  if (!secondary) return primary;
+  if (primary.version !== secondary.version) {
+    return isNewerRelease(secondary.version, primary.version) ? secondary : primary;
+  }
+  const secondaryByName = new Map(secondary.packages.map((entry) => [entry.name, entry]));
+  const packages = primary.packages.map((entry) => {
+    const fallback = secondaryByName.get(entry.name);
+    if (fallback && fallback.url !== entry.url) return { ...entry, fallbackUrl: fallback.url };
+    return entry;
+  });
+  for (const entry of secondary.packages) {
+    if (!packages.some((existing) => existing.name === entry.name)) packages.push(entry);
+  }
+  return {
+    version: primary.version ?? secondary.version,
+    packages,
+  };
+}
+
+async function isSupabaseUrlAvailable(url: string, signal?: AbortSignal): Promise<boolean> {
+  try {
+    // A HEAD request checks the object without downloading a large installer.
+    // A CORS/network failure is treated the same as a missing object: the
+    // caller then uses the exact GitHub asset URL.
+    const timeout = AbortSignal.timeout(10000);
+    const response = await fetch(url, {
+      method: "HEAD",
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function verifySupabasePackages(
+  release: LatestRelease | null,
+  signal?: AbortSignal,
+): Promise<LatestRelease | null> {
+  if (!release) return null;
+  const packages = await Promise.all(
+    release.packages.map(async (entry) => {
+      if (entry.source !== "supabase") return entry;
+      if (await isSupabaseUrlAvailable(entry.url, signal)) return entry;
+      if (entry.fallbackUrl) return { ...entry, url: entry.fallbackUrl, source: "github" };
+      return null;
+    }),
+  );
+  return {
+    ...release,
+    packages: packages.filter((entry): entry is ReleasePackage => entry !== null),
   };
 }
 
 export async function fetchLatestRelease(
   signal?: AbortSignal,
 ): Promise<LatestRelease | null> {
-  try {
-    const response = await fetch(`${AURORA_API_URL}/v1/update/latest`, {
-      headers: { Accept: "application/json" },
-      signal,
-    });
-    if (!response.ok) {
-      console.warn(`releases: aurora-api responded ${response.status}`);
-      return null;
-    }
-    const body: unknown = await response.json();
-    if (!isRecord(body)) return null;
-    return {
-      version: typeof body.version === "string" ? body.version : null,
-      packages: Array.isArray(body.packages)
-        ? body.packages
-            .map(readPackage)
-            .filter((entry): entry is ReleasePackage => entry !== null)
-        : [],
-    };
-  } catch (error) {
-    if (!signal?.aborted) console.warn("releases: aurora-api unreachable", error);
-    return null;
-  }
+  const [supabaseRelease, githubRelease] = await Promise.all([
+    fetchSupabaseRelease(signal),
+    fetchGitHubRelease(signal),
+  ]);
+  return verifySupabasePackages(mergeReleases(supabaseRelease, githubRelease), signal);
 }
 
 export function installersFor(

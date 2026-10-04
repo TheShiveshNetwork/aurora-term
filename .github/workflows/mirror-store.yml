@@ -117,7 +117,7 @@ jobs:
           fi
           if [ -z "${SUPABASE_FUNCTION_TOKEN:-}" ]; then
             echo "::error::SUPABASE_FUNCTION_TOKEN is not set, so the mirror request cannot authenticate."
-            echo "::error::Add the token expected by AURORA_DEPLOY_TOKEN as a repository secret."
+            echo "::error::Add the token expected by AURORA_DEPLOY_TOKEN as a production environment secret."
             exit 1
           fi
 
@@ -169,7 +169,7 @@ jobs:
             echo "::error::Expected a stable app tag such as v1.0.1; received '$TAG'."
           elif [ "$response_status" = "401" ]; then
             echo "::error::Supabase rejected the mirror token."
-            echo "::error::Set GitHub SUPABASE_FUNCTION_TOKEN to the deployed AURORA_DEPLOY_TOKEN."
+            echo "::error::Set production-environment SUPABASE_FUNCTION_TOKEN to the deployed AURORA_DEPLOY_TOKEN."
           elif [ "$response_status" = "404" ] && grep -Fq '"error":"no app release"' <<<"$response_text"; then
             echo "::error::Supabase accepted the token but found no app release."
             echo "::error::Check that AURORA_GITHUB_REPO is set to $REPO on the deployed function."

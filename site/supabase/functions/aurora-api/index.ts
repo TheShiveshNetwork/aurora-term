@@ -527,13 +527,25 @@ function appDocForRelease(release: any): ReleaseDoc | null {
   };
 }
 
-function githubHeaders(): Record<string, string> {
+function githubHeaders(includeToken = true): Record<string, string> {
   const headers: Record<string, string> = {
     Accept: "application/vnd.github+json",
     "User-Agent": "aurora-update-check",
   };
-  if (GITHUB_TOKEN) headers["Authorization"] = `Bearer ${GITHUB_TOKEN}`;
+  if (includeToken && GITHUB_TOKEN) {
+    headers["Authorization"] = `Bearer ${GITHUB_TOKEN}`;
+  }
   return headers;
+}
+
+async function githubRequest(path: string): Promise<Response> {
+  const url = `https://api.github.com${path}`;
+  const authenticated = await fetch(url, { headers: githubHeaders() });
+  if (authenticated.status !== 401 || !GITHUB_TOKEN) return authenticated;
+  console.warn(
+    "aurora-api: GitHub rejected the configured token; retrying publicly without it",
+  );
+  return await fetch(url, { headers: githubHeaders(false) });
 }
 
 async function fetchReleasesList(repo: string = GITHUB_REPO): Promise<any[] | null> {
@@ -543,10 +555,7 @@ async function fetchReleasesList(repo: string = GITHUB_REPO): Promise<any[] | nu
     );
     return null;
   }
-  const res = await fetch(
-    `https://api.github.com/repos/${repo}/releases?per_page=100`,
-    { headers: githubHeaders() },
-  );
+  const res = await githubRequest(`/repos/${repo}/releases?per_page=100`);
   if (!res.ok) {
     console.error(
       `aurora-api: GitHub releases request failed (${res.status}${
@@ -576,9 +585,8 @@ function parseStoreTarget(
 }
 
 async function fetchAppReleaseByTag(repo: string, tag: string): Promise<any | null> {
-  const res = await fetch(
-    `https://api.github.com/repos/${repo}/releases/tags/${encodeURIComponent(tag)}`,
-    { headers: githubHeaders() },
+  const res = await githubRequest(
+    `/repos/${repo}/releases/tags/${encodeURIComponent(tag)}`,
   );
   if (res.status === 404) return null;
   if (!res.ok) {

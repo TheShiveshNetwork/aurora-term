@@ -5,16 +5,7 @@ import GradientWaves from "../../components/backgrounds/GradientWaves";
 import { Download } from "lucide-react";
 import { markBackgroundReady } from "../../lib/pageLoad";
 import { useExpectBackground } from "../../hooks/usePageAssets";
-import {
-  classifyInstaller,
-  fetchLatestRelease,
-  formatBytes,
-  installerUrl,
-  installersFor,
-  type CpuKey,
-  type LatestRelease,
-  type PlatformKey,
-} from "../../lib/releases";
+import type { CpuKey, PlatformKey } from "../../lib/releases";
 
 type PlatformFilter = PlatformKey | "all";
 
@@ -60,32 +51,77 @@ function LinuxIcon({ size = 20, className = "" }: BrandIconProps) {
   );
 }
 
-// Used only when aurora-api cannot be reached, so the page still offers real
-// download links. Once the API answers, the live release list replaces this.
-const GITHUB_REPO = "TheShiveshNetwork/aurora-term";
-const FALLBACK_INSTALLERS: Record<PlatformKey, { name: string; size: string }[]> = {
-  windows: [{ name: "Aurora_1.0.0_x64-setup.exe", size: "38.4 MB" }],
+const SUPABASE_RELEASE_VERSION = "1.0.1";
+
+const SUPABASE_INSTALLERS: Record<PlatformKey, Installer[]> = {
+  windows: [
+    {
+      name: "Aurora_1.0.1_x64-setup.exe",
+      size: "38.5 MB",
+      url: "https://yybxsggbvuzjzlwlwbtv.supabase.co/storage/v1/object/public/aurora/1.0.1/Aurora_1.0.1_x64-setup.exe",
+    },
+  ],
   macos: [
-    { name: "Aurora_1.0.0_x64.dmg", size: "45.5 MB" },
-    { name: "Aurora_1.0.0_aarch64.dmg", size: "43 MB" },
-    { name: "Aurora_1.0.0_x64.app.tar.gz", size: "42 MB" },
-    { name: "Aurora_1.0.0_aarch64.app.tar.gz", size: "39.4 MB" },
+    {
+      name: "Aurora_1.0.1_aarch64.dmg",
+      size: "43.2 MB",
+      url: "https://yybxsggbvuzjzlwlwbtv.supabase.co/storage/v1/object/public/aurora/1.0.1/Aurora_1.0.1_aarch64.dmg",
+    },
+    {
+      name: "Aurora_1.0.1_x64.dmg",
+      size: "45.7 MB",
+      url: "https://yybxsggbvuzjzlwlwbtv.supabase.co/storage/v1/object/public/aurora/1.0.1/Aurora_1.0.1_x64.dmg",
+    },
+    {
+      name: "Aurora_1.0.1_aarch64.app.tar.gz",
+      size: "39.7 MB",
+      url: "https://yybxsggbvuzjzlwlwbtv.supabase.co/storage/v1/object/public/aurora/1.0.1/Aurora_1.0.1_aarch64.app.tar.gz",
+    },
+    {
+      name: "Aurora_1.0.1_x64.app.tar.gz",
+      size: "42.3 MB",
+      url: "https://yybxsggbvuzjzlwlwbtv.supabase.co/storage/v1/object/public/aurora/1.0.1/Aurora_1.0.1_x64.app.tar.gz",
+    },
   ],
   linux: [
-    { name: "Aurora_1.0.0_amd64.AppImage", size: "122 MB" },
-    { name: "Aurora_1.0.0_amd64.deb", size: "49.3 MB" },
-    { name: "Aurora_1.0.0_arm64.deb", size: "49.5 MB" },
-    { name: "Aurora-1.0.0-1.x86_64.rpm", size: "49.3 MB" },
+    {
+      name: "Aurora_1.0.1_amd64.deb",
+      size: "49.5 MB",
+      url: "https://yybxsggbvuzjzlwlwbtv.supabase.co/storage/v1/object/public/aurora/1.0.1/Aurora_1.0.1_amd64.deb",
+    },
+    {
+      name: "Aurora_1.0.1_arm64.deb",
+      size: "49.8 MB",
+      url: "https://yybxsggbvuzjzlwlwbtv.supabase.co/storage/v1/object/public/aurora/1.0.1/Aurora_1.0.1_arm64.deb",
+    },
+    {
+      name: "Aurora-1.0.1-1.x86_64.rpm",
+      size: "49.5 MB",
+      url: "https://yybxsggbvuzjzlwlwbtv.supabase.co/storage/v1/object/public/aurora/1.0.1/Aurora-1.0.1-1.x86_64.rpm",
+    },
   ],
+};
+
+const PRIMARY_DOWNLOADS: Record<PlatformKey, Record<CpuKey, string>> = {
+  windows: {
+    x64: SUPABASE_INSTALLERS.windows[0].url,
+    arm64: SUPABASE_INSTALLERS.windows[0].url,
+  },
+  macos: {
+    x64: SUPABASE_INSTALLERS.macos[1].url,
+    arm64: SUPABASE_INSTALLERS.macos[0].url,
+  },
+  linux: {
+    x64: SUPABASE_INSTALLERS.linux[0].url,
+    arm64: SUPABASE_INSTALLERS.linux[1].url,
+  },
 };
 
 const platforms: Platform[] = [
   { key: "windows", name: "Windows", note: "x86_64 · NSIS", icon: WindowsIcon },
   { key: "macos", name: "macOS", note: "Apple Silicon & Intel", icon: AppleIcon },
-  { key: "linux", name: "Linux", note: "AppImage · Debian · RPM", icon: LinuxIcon },
+  { key: "linux", name: "Linux", note: "Debian · RPM", icon: LinuxIcon },
 ];
-
-const RELEASES_PAGE = `https://github.com/${GITHUB_REPO}/releases`;
 
 const detectPlatform = (): PlatformFilter => {
   const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
@@ -102,27 +138,12 @@ const detectCpu = (): CpuKey => {
   return /arm64|aarch64/i.test(ua) ? "arm64" : "x64";
 };
 
-const githubLatestUrl = (name: string) =>
-  `${RELEASES_PAGE}/latest/download/${encodeURIComponent(name)}`;
-
-// Last-resort download for a target when aurora-api has no data: the same
-// filename, resolved against the newest GitHub release. Keeps the primary
-// button a real download instead of a trip to the releases page.
-function fallbackInstallerUrl(platform: PlatformKey, cpu: CpuKey): string | null {
-  for (const entry of FALLBACK_INSTALLERS[platform]) {
-    const target = classifyInstaller(entry.name);
-    if (target?.cpu === cpu) return githubLatestUrl(entry.name);
-  }
-  return null;
-}
-
 export default function DownloadPage() {
   useExpectBackground();
 
   const [filter, setFilter] = useState<PlatformFilter>("all");
   const [detected, setDetected] = useState<PlatformKey>("linux");
   const [cpu, setCpu] = useState<CpuKey>("x64");
-  const [release, setRelease] = useState<LatestRelease | null>(null);
 
   useEffect(() => {
     const os = detectPlatform();
@@ -131,32 +152,12 @@ export default function DownloadPage() {
     setCpu(detectCpu());
   }, []);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    fetchLatestRelease(controller.signal).then(setRelease);
-    return () => controller.abort();
-  }, []);
-
   const detectedPlatform = platforms.find((p) => p.key === detected);
   const visiblePlatforms = filter === "all" ? platforms : platforms.filter((p) => p.key === filter);
-  const primaryDownload =
-    (release ? installerUrl(release, detected, cpu) : null) ??
-    fallbackInstallerUrl(detected, cpu) ??
-    RELEASES_PAGE;
+  const primaryDownload = PRIMARY_DOWNLOADS[detected][cpu];
 
-  const installersForPlatform = (platform: PlatformKey): Installer[] => {
-    if (release) {
-      return installersFor(release, platform).map((entry) => ({
-        name: entry.name,
-        size: formatBytes(entry.size),
-        url: entry.url,
-      }));
-    }
-    return FALLBACK_INSTALLERS[platform].map((entry) => ({
-      ...entry,
-      url: githubLatestUrl(entry.name),
-    }));
-  };
+  const installersForPlatform = (platform: PlatformKey): Installer[] =>
+    SUPABASE_INSTALLERS[platform];
 
   return (
     <div className="relative">
@@ -194,6 +195,9 @@ export default function DownloadPage() {
           <p className="mx-auto mt-6 max-w-xl text-pretty text-[15px] leading-relaxed text-on-surface-variant">
             A single, hardware-accelerated installer for every platform. Open a folder, ask a
             question, and let the local agent plan and run your commands.
+          </p>
+          <p className="mt-4 text-[13px] text-on-surface-variant">
+            Current release: v{SUPABASE_RELEASE_VERSION}
           </p>
           {detectedPlatform && (() => {
             const DetectedIcon = detectedPlatform.icon;
