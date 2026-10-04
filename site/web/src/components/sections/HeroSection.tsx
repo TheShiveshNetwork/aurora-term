@@ -1,12 +1,14 @@
 import Strands from "../backgrounds/LightStrands";
 import WarpText from "../ui/WarpText";
 import { VideoPlayer } from "../ui/VideoPlayer";
-import { markBackgroundReady, markVideoReady } from "../../lib/pageLoad";
-import { useExpectBackground, useExpectVideo } from "../../hooks/usePageAssets";
+import { markBackgroundReady } from "../../lib/pageLoad";
+import { useExpectBackground } from "../../hooks/usePageAssets";
+
+const DEMO_WIDTH = 1920;
+const DEMO_HEIGHT = 1032;
 
 export function HeroSection() {
   useExpectBackground();
-  useExpectVideo();
 
   return (
     <section className="relative min-h-svh md:min-h-[800px]">
@@ -55,9 +57,10 @@ export function HeroSection() {
         </div>
         <div className="mx-auto w-full max-w-6xl px-6 pb-16">
           <VideoPlayer
-            src="/aurora-terminal-demo.mp4"
+            src="/aurora-terminal-demo.v2.mp4"
+            width={DEMO_WIDTH}
+            height={DEMO_HEIGHT}
             className="w-full shadow-[0_0_80px_rgba(79,140,255,0.08)]"
-            onReady={markVideoReady}
           />
         </div>
       </div>
