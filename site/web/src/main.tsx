@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import ReactDOM from "react-dom/client";
 import { RootLayout } from "./components/layout/RootLayout";
+import { usePageViewTracking } from "./hooks/usePageViewTracking";
 import LandingPage from "./pages/Landing/LandingPage";
 import SignInPage from "./pages/SignIn/SignInPage";
 import AuthCallbackPage from "./pages/AuthCallback/AuthCallbackPage";
@@ -78,6 +79,7 @@ function useClientRouter() {
 
 function App() {
   const pathname = useClientRouter();
+  usePageViewTracking(pathname);
 
   function resolve() {
     const params = new URLSearchParams(location.search);
