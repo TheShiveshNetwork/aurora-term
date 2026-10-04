@@ -1,0 +1,81 @@
+name: 'changelog'
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: changelog-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  update-changelog:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # git-cliff needs the full history to resolve the root commit and to
+          # split it into per-release sections. Without this it renders nothing.
+          fetch-depth: 0
+          # Generate and commit against main rather than the detached tag ref,
+          # so the bot commit lands on the branch.
+          ref: main
+
+      - name: Compute changelog range
+        id: range
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # Regenerate the whole file from the very first commit up to the tag, so
+          # nothing is ever lost and no release can be inserted twice. `head -n 1`
+          # keeps a grafted or multi-root history from producing a broken range.
+          ROOT=$(git rev-list --max-parents=0 HEAD | head -n 1)
+          echo "range=$ROOT..$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Generate CHANGELOG.md
+        uses: orhun/git-cliff-action@v4
+        env:
+          OUTPUT: CHANGELOG.md
+          GITHUB_REPO: ${{ github.repository }}
+        with:
+          config: cliff.toml
+          # An explicit range is used instead of --tag or --latest. --tag also
+          # renders commits pushed after the tag, which duplicates the heading and
+          # leaks unreleased work into the notes; --latest renders only the newest
+          # release, so it would need --prepend to preserve older ones.
+          args: ${{ steps.range.outputs.range }}
+
+      - name: Commit and push
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+          BRANCH: main
+        run: |
+          set -euo pipefail
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          # Re-running a tag should not create an empty commit.
+          if git diff --quiet -- CHANGELOG.md; then
+            echo "CHANGELOG.md already matches $TAG, nothing to commit."
+            exit 0
+          fi
+
+          git add CHANGELOG.md
+          git commit -m "docs(changelog): update for $TAG"
+
+          # Someone may have pushed to main while this job was generating the
+          # file; rebase so the push never gets rejected as non-fast-forward.
+          # A push made with GITHUB_TOKEN does not trigger further workflow runs,
+          # so this cannot loop back into itself.
+          git pull --rebase origin "$BRANCH"
+          git push origin "HEAD:$BRANCH"
+
+          echo "Pushed CHANGELOG.md for $TAG to $BRANCH."
