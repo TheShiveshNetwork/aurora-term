@@ -145,11 +145,42 @@ jobs:
         env:
           ENDPOINT: ${{ steps.supabase.outputs.endpoint }}
           SUPABASE_FUNCTION_TOKEN: ${{ secrets.SUPABASE_FUNCTION_TOKEN }}
+          TAG: ${{ steps.resolve.outputs.tag }}
         run: |
           set -euo pipefail
-          curl -fS --retry 3 --retry-delay 10 \
-            -X POST "$ENDPOINT/v1/update/store" \
-            -H "Authorization: Bearer ${SUPABASE_FUNCTION_TOKEN}"
+
+          response_body=$(mktemp)
+          response_status=0
+          if ! response_status=$(curl -sS -o "$response_body" -w '%{http_code}' --retry 3 --retry-delay 10 \
+            -X POST "$ENDPOINT/v1/update/store?repo=$REPO&tag=$TAG" \
+            -H "Authorization: Bearer ${SUPABASE_FUNCTION_TOKEN}"); then
+            response_status="curl-failed"
+          fi
+          response_text=$(cat "$response_body")
+          rm -f "$response_body"
+
+          if [ "$response_status" = "200" ]; then
+            echo "Mirror request accepted."
+            exit 0
+          fi
+          printf '%s\n' "$response_text"
+          if [ "$response_status" = "400" ]; then
+            echo "::error::Supabase rejected the requested release target."
+            echo "::error::Expected a stable app tag such as v1.0.1; received '$TAG'."
+          elif [ "$response_status" = "401" ]; then
+            echo "::error::Supabase rejected the mirror token."
+            echo "::error::Set GitHub SUPABASE_FUNCTION_TOKEN to the deployed AURORA_DEPLOY_TOKEN."
+          elif [ "$response_status" = "404" ] && grep -Fq '"error":"no app release"' <<<"$response_text"; then
+            echo "::error::Supabase accepted the token but found no app release."
+            echo "::error::Check that AURORA_GITHUB_REPO is set to $REPO on the deployed function."
+            echo "::error::If it is set, inspect the function logs for a GitHub API failure and consider AURORA_GITHUB_TOKEN."
+          elif [ "$response_status" = "500" ]; then
+            echo "::error::The Supabase mirror request failed inside the edge function."
+            echo "::error::Inspect the aurora-api function logs for the failed asset or storage operation."
+          else
+            echo "::error::The Supabase mirror request returned HTTP $response_status."
+          fi
+          exit 1
 
       # Confirm the edge function re-hosted the installers into the `aurora`
       # bucket and wrote the new row (with the bucket `download_url`) into

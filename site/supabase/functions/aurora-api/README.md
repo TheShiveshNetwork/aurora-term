@@ -17,10 +17,10 @@ Supabase keys are server-side secrets here.
 | `POST` | `/v1/sync` | Bearer | CAS push `{ payload, version, base_version }` → `200` / `409` (conflict carries current doc) |
 | `GET` | `/v1/update/latest` | — | **App update check** → `app_release` row (GitHub, cached ~3 h) |
 | `GET` | `/v1/update/lsp` | — | **LSP update check** → `lsp_release` row (GitHub, cached ~3 h, `version: null`) |
-| `POST` | `/v1/update/store` | Bearer¹ | **CI upload** — mirrors the latest app release's installers into the public `aurora` Storage bucket and refreshes the `app_release` row |
+| `POST` | `/v1/update/store?repo=<owner>/<repo>&tag=<tag>` | Bearer¹ | **CI upload** — mirrors one app release's installers into the public `aurora` Storage bucket and refreshes the `app_release` row |
 
 ¹ Requires `Authorization: Bearer <AURORA_DEPLOY_TOKEN>` when that secret is set.
-Called by `.github/workflows/mirror-store.yml`, which `release.yml` dispatches after all platform builds finish.
+Called by `.github/workflows/mirror-store.yml`, which `release.yml` dispatches after all platform builds finish. The `repo` and `tag` parameters are optional; without them the function mirrors the newest release found through `AURORA_GITHUB_REPO`. An invalid target returns `400`; a missing release returns `404`.
 
 ## App installer packages
 
@@ -60,7 +60,7 @@ GitHub package list.
 | `SUPABASE_URL` | yes | Supabase project URL |
 | `SUPABASE_SECRET_KEY` | yes | Admin key (bypasses RLS); server-only |
 | `SUPABASE_PUBLISHABLE_KEY` | yes | Used for the Auth REST token exchange |
-| `AURORA_GITHUB_REPO` | no | `owner/repo` for update checks (endpoint 404s if empty) |
+| `AURORA_GITHUB_REPO` | no | `owner/repo` fallback when `/v1/update/store` omits `repo` (update endpoints 404 without either source) |
 | `AURORA_GITHUB_TOKEN` | no | Lifts GitHub API rate limits |
 | `AURORA_DEPLOY_TOKEN` | recommended | Guards `POST /v1/update/store` |
 | `AURORA_MAX_ASSET_BYTES` | no | Per-asset size cap for bucket mirroring (default 50 MiB) |

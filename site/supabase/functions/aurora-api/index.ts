@@ -32,7 +32,9 @@ import { LSP_EXCLUDED_FROM_STORAGE } from "./lsp-config.ts";
  *   GET /v1/health         -> { ok: true }
  *   GET /v1/update/latest -> app_release row
  *   GET /v1/update/lsp    -> lsp_release row
- *   POST /v1/update/store -> force re-mirror app release into `aurora` bucket
+ *   POST /v1/update/store -> force re-mirror app release into `aurora` bucket.
+ *     Accepts optional `repo` and `tag` query parameters to mirror one
+ *     release directly instead of inferring the latest release.
  *
  * Env: SUPABASE_URL, SUPABASE_SECRET_KEY, AURORA_GITHUB_REPO, AURORA_GITHUB_TOKEN
  */
@@ -512,21 +514,38 @@ function findAppRelease(releases: any[]): any | null {
   return null;
 }
 
-async function fetchReleasesList(): Promise<any[] | null> {
-  if (!GITHUB_REPO) {
-    console.error(
-      "aurora-api: AURORA_GITHUB_REPO is unset, release lookups are disabled",
-    );
-    return null;
-  }
+function appDocForRelease(release: any): ReleaseDoc | null {
+  if (!release || release.draft || release.prerelease) return null;
+  const tag = String(release.tag_name ?? "");
+  if (!isAppTag(tag)) return null;
+  return {
+    version: tag.startsWith("v") ? tag.slice(1) : tag,
+    url: release.html_url ?? null,
+    notes: release.body ?? null,
+    publishedAt: release.published_at ?? null,
+    download_url: null,
+  };
+}
+
+function githubHeaders(): Record<string, string> {
   const headers: Record<string, string> = {
     Accept: "application/vnd.github+json",
     "User-Agent": "aurora-update-check",
   };
   if (GITHUB_TOKEN) headers["Authorization"] = `Bearer ${GITHUB_TOKEN}`;
+  return headers;
+}
+
+async function fetchReleasesList(repo: string = GITHUB_REPO): Promise<any[] | null> {
+  if (!repo) {
+    console.error(
+      "aurora-api: AURORA_GITHUB_REPO is unset, release lookups are disabled",
+    );
+    return null;
+  }
   const res = await fetch(
-    `https://api.github.com/repos/${GITHUB_REPO}/releases?per_page=100`,
-    { headers },
+    `https://api.github.com/repos/${repo}/releases?per_page=100`,
+    { headers: githubHeaders() },
   );
   if (!res.ok) {
     console.error(
@@ -535,6 +554,35 @@ async function fetchReleasesList(): Promise<any[] | null> {
       })`,
     );
     return null;
+  }
+  return await res.json();
+}
+
+type StoreTarget = { repo: string; tag: string } | null;
+
+function parseStoreTarget(
+  repoParam: string | undefined,
+  tagParam: string | undefined,
+): StoreTarget {
+  const repo = (repoParam ?? "").trim();
+  const tag = (tagParam ?? "").trim();
+  if (!repo && !tag) return null;
+  if (!repo || !tag) throw new Error("Store target requires both repo and tag");
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) {
+    throw new Error("Invalid store repo");
+  }
+  if (!isAppTag(tag)) throw new Error("Invalid store tag");
+  return { repo, tag };
+}
+
+async function fetchAppReleaseByTag(repo: string, tag: string): Promise<any | null> {
+  const res = await fetch(
+    `https://api.github.com/repos/${repo}/releases/tags/${encodeURIComponent(tag)}`,
+    { headers: githubHeaders() },
+  );
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new Error(`GitHub release lookup failed: ${res.status}`);
   }
   return await res.json();
 }
@@ -556,13 +604,7 @@ function classify(releases: any[]): {
   for (const r of releases) {
     if (r.draft || r.prerelease) continue;
     const tag = String(r.tag_name ?? "");
-    const base = {
-      version: tag.startsWith("v") ? tag.slice(1) : tag,
-      url: r.html_url ?? null,
-      notes: r.body ?? null,
-      publishedAt: r.published_at ?? null,
-    };
-    if (!app && isAppTag(tag)) app = { ...base, download_url: null };
+    if (!app) app = appDocForRelease(r);
     if (!lsp && isLspTag(tag)) {
       const download_url = GITHUB_REPO
         ? `https://github.com/${GITHUB_REPO}/releases/download/${encodeURIComponent(tag)}/manifest.json`
@@ -616,6 +658,68 @@ async function cacheRelease(key: string, row: ReleaseRow) {
   });
 }
 
+async function storeAppRelease(
+  release: any,
+  force: boolean,
+): Promise<ReleaseRow | null> {
+  const doc = appDocForRelease(release);
+  if (!doc) return null;
+  const tag = String(release?.tag_name ?? "");
+  const folder = sanitizeSegment(doc.version ?? tag);
+  const mirrored = force
+    ? await mirrorPackages(folder, release?.assets ?? [], isAppAsset).catch(() => ({
+        packages: [] as Package[],
+        mirroredAt: "",
+        skipped: [] as string[],
+      }))
+    : await maybeMirror(APP_CACHE_KEY, doc.version, folder, release?.assets ?? [], isAppAsset)
+      .catch(() => ({
+        packages: [] as Package[],
+        mirroredAt: "",
+        skipped: [] as string[],
+      }));
+
+  // Prune previous version folders so only `folder` remains. Only prune after a
+  // successful mirror (prevents deleting the current version on failure).
+  if (hostedPackages(mirrored.packages).length > 0) {
+    await pruneOldAppVersions(folder).catch(() => {});
+  }
+
+  // download_url is ALWAYS the Supabase bucket link — never the GitHub URL.
+  // Use the mirrored installer when available; if mirroring produced no package
+  // (e.g. a transient upload failure), derive the expected bucket path from the
+  // release assets so the cached row still points at the bucket.
+  let download_url: string | null = null;
+  if (mirrored.packages.length > 0) {
+    download_url = primaryPackageUrl(mirrored.packages);
+  }
+  if (!download_url && release) {
+    const assets = (release.assets ?? []).filter((a: any) =>
+      isAppAsset(String(a.name ?? ""))
+    );
+    const primary = assets.find((a: any) =>
+      String(a.name).toLowerCase().endsWith(".exe")
+    ) ?? assets[0];
+    if (primary) {
+      download_url = storeObjectUrl(
+        `${folder}/${sanitizeSegment(String(primary.name))}`,
+      );
+    }
+  }
+
+  const row: ReleaseRow = {
+    version: doc.version,
+    url: doc.url,
+    download_url,
+    notes: doc.notes,
+    published_at: doc.publishedAt,
+    packages: mirrored.packages,
+    mirrored_at: mirrored.mirroredAt || null,
+  };
+  await cacheRelease(APP_CACHE_KEY, row);
+  return row;
+}
+
 // Resolves one release family into a single `release_cache` row.
 //  - app: mirrors installers into the Supabase bucket; download_url = bucket link.
 //  - lsp: mirrors the frequently-downloaded bundles into the `lsp-bundles/`
@@ -623,11 +727,19 @@ async function cacheRelease(key: string, row: ReleaseRow) {
 //        The row caches the release metadata; download_url = GitHub manifest
 //        URL. The cache is only rewritten when the upstream release is newer
 //        than what we already hold.
-async function resolveRelease(kind: "app" | "lsp", force = false): Promise<ReleaseRow | null> {
+async function resolveRelease(
+  kind: "app" | "lsp",
+  force = false,
+  target: StoreTarget = null,
+): Promise<ReleaseRow | null> {
   const key = kind === "app" ? APP_CACHE_KEY : LSP_CACHE_KEY;
   if (!force) {
     const cached = await getCached(key);
     if (cached) return cached;
+  }
+  if (kind === "app" && target) {
+    const release = await fetchAppReleaseByTag(target.repo, target.tag);
+    return await storeAppRelease(release, force);
   }
   const stored = await getStoredRow(key);
   const releases = await fetchReleasesList();
@@ -646,7 +758,6 @@ async function resolveRelease(kind: "app" | "lsp", force = false): Promise<Relea
   const doc = kind === "app" ? app : lsp;
   if (!doc) return null;
   const release = kind === "app" ? findAppRelease(releases) : findLspRelease(releases);
-  const tag = String(release?.tag_name ?? "");
 
   // ---- LSP: mirror frequently-downloaded bundles, refresh only when upstream is newer ----
   if (kind === "lsp") {
@@ -704,59 +815,7 @@ async function resolveRelease(kind: "app" | "lsp", force = false): Promise<Relea
   // ---- App: mirror installers to the Supabase bucket ----
   // Only the latest version is retained: after a successful mirror we delete
   // every other `X.Y.Z` folder in the bucket.
-  const folder = sanitizeSegment(doc.version ?? tag);
-  const mirrored = force
-    ? await mirrorPackages(folder, release?.assets ?? [], isAppAsset).catch(() => ({
-        packages: [] as Package[],
-        mirroredAt: "",
-        skipped: [] as string[],
-      }))
-    : await maybeMirror(key, doc.version, folder, release?.assets ?? [], isAppAsset)
-      .catch(() => ({
-        packages: [] as Package[],
-        mirroredAt: "",
-        skipped: [] as string[],
-      }));
-
-  // Prune previous version folders so only `folder` remains. Only prune after a
-  // successful mirror (prevents deleting the current version on failure).
-  if (hostedPackages(mirrored.packages).length > 0) {
-    await pruneOldAppVersions(folder).catch(() => {});
-  }
-
-  // download_url is ALWAYS the Supabase bucket link — never the GitHub URL.
-  // Use the mirrored installer when available; if mirroring produced no package
-  // (e.g. a transient upload failure), derive the expected bucket path from the
-  // release assets so the cached row still points at the bucket.
-  let download_url: string | null = null;
-  if (mirrored.packages.length > 0) {
-    download_url = primaryPackageUrl(mirrored.packages);
-  }
-  if (!download_url && release) {
-    const assets = (release.assets ?? []).filter((a: any) =>
-      isAppAsset(String(a.name ?? ""))
-    );
-    const primary = assets.find((a: any) =>
-      String(a.name).toLowerCase().endsWith(".exe")
-    ) ?? assets[0];
-    if (primary) {
-      download_url = storeObjectUrl(
-        `${folder}/${sanitizeSegment(String(primary.name))}`,
-      );
-    }
-  }
-
-  const row: ReleaseRow = {
-    version: doc.version,
-    url: doc.url,
-    download_url,
-    notes: doc.notes,
-    published_at: doc.publishedAt,
-    packages: mirrored.packages,
-    mirrored_at: mirrored.mirroredAt || null,
-  };
-  await cacheRelease(key, row);
-  return row;
+  return await storeAppRelease(findAppRelease(releases), force);
 }
 
 app.get("/v1/health", (c) => c.json({ ok: true }));
@@ -773,9 +832,8 @@ app.get("/v1/update/lsp", async (c) => {
   return c.json(r);
 });
 
-// Read the cached `app_release` row (metadata + mirrored package URLs).
-// Force a re-mirror of the latest app release into the `aurora` bucket and
-// refresh the `app_release` row. Guarded by AURORA_DEPLOY_TOKEN when set.
+// Force a re-mirror of one app release into the `aurora` bucket and refresh
+// the `app_release` row. Guarded by AURORA_DEPLOY_TOKEN when set.
 app.post("/v1/update/store", async (c) => {
   if (DEPLOY_TOKEN) {
     const auth = c.req.header("authorization") ?? "";
@@ -783,8 +841,14 @@ app.post("/v1/update/store", async (c) => {
       return c.json({ error: "unauthorized" }, 401);
     }
   }
+  let target: StoreTarget;
   try {
-    const r = await resolveRelease("app", true);
+    target = parseStoreTarget(c.req.query("repo"), c.req.query("tag"));
+  } catch {
+    return c.json({ error: "invalid store target" }, 400);
+  }
+  try {
+    const r = await resolveRelease("app", true, target);
     if (!r) return c.json({ error: "no app release" }, 404);
     return c.json(r);
   } catch (e) {
