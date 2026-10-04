@@ -81,8 +81,10 @@ supabase functions deploy aurora-api --no-verify-jwt
 
 ## Verify deployment
 
-Replace `<project-url>` with the Supabase project URL and `<version>` with the
-release version without its leading `v`.
+Replace `<project-url>` with the Supabase project root, such as
+`https://xyzcompany.supabase.co`, and `<version>` with the release version
+without its leading `v`. Do not include `/functions/v1/aurora-api` in the
+project URL; the workflow appends that path.
 
 ```bash
 curl -fsS "<project-url>/functions/v1/aurora-api/v1/health"

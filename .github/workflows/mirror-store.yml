@@ -109,8 +109,10 @@ jobs:
             echo "::error::Add the Supabase project URL as a repository secret."
             exit 1
           fi
-          if ! [[ "$SUPABASE_URL" =~ ^https://[^/]+\.[^/]+(/.*)?$ ]]; then
-            echo "::error::SUPABASE_URL is malformed; use a URL such as https://xyzcompany.supabase.co."
+          root="$(printf '%s' "$SUPABASE_URL" | sed 's:/*$::')"
+          if ! [[ "$root" =~ ^https://[^/?#]+$ ]]; then
+            echo "::error::SUPABASE_URL must be the project root, without a path."
+            echo "::error::Use a URL such as https://xyzcompany.supabase.co, not a functions URL."
             exit 1
           fi
           if [ -z "${SUPABASE_FUNCTION_TOKEN:-}" ]; then
@@ -119,8 +121,23 @@ jobs:
             exit 1
           fi
 
-          endpoint="$(printf '%s' "$SUPABASE_URL" | sed 's:/*$::')/functions/v1/aurora-api"
-          curl -fS --retry 3 --retry-delay 5 "$endpoint/v1/health"
+          endpoint="$root/functions/v1/aurora-api"
+          health_body=$(mktemp)
+          health_status=0
+          if ! health_status=$(curl -sS -o "$health_body" -w '%{http_code}' --retry 3 --retry-delay 5 "$endpoint/v1/health"); then
+            health_status="curl-failed"
+          fi
+          health_text=$(cat "$health_body")
+          rm -f "$health_body"
+          if [ "$health_status" != "200" ]; then
+            echo "::error::The Supabase function endpoint returned HTTP $health_status."
+            printf '%s\n' "$health_text"
+            if [ "$health_status" = "404" ]; then
+              echo "::error::Deploy aurora-api from site/supabase, then rerun this workflow:"
+              echo "::error::supabase functions deploy aurora-api --no-verify-jwt"
+            fi
+            exit 1
+          fi
           echo "endpoint=$endpoint" >> "$GITHUB_OUTPUT"
 
       - name: Trigger Supabase mirror
