@@ -20,7 +20,7 @@ Supabase keys are server-side secrets here.
 | `POST` | `/v1/update/store` | Bearer¹ | **CI upload** — mirrors the latest app release's installers into the public `aurora` Storage bucket and refreshes the `app_release` row |
 
 ¹ Requires `Authorization: Bearer <AURORA_DEPLOY_TOKEN>` when that secret is set.
-Called by `.github/workflows/mirror-store.yml` on `release: published`.
+Called by `.github/workflows/mirror-store.yml`, which `release.yml` dispatches after all platform builds finish.
 
 ## App installer packages
 
@@ -78,3 +78,19 @@ supabase functions deploy aurora-api --no-verify-jwt
 ```
 
 `--no-verify-jwt` is required: the function implements its own auth in code.
+
+## Verify deployment
+
+Replace `<project-url>` with the Supabase project URL and `<version>` with the
+release version without its leading `v`.
+
+```bash
+curl -fsS "<project-url>/functions/v1/aurora-api/v1/health"
+curl -fsS "<project-url>/functions/v1/aurora-api/v1/update/latest"
+```
+
+A healthy deployment returns `{"ok":true}` from health. `update/latest` reports
+the mirrored `version`; after a successful store it should match `<version>`.
+A `404` there means the latest cached release is unavailable or the function
+cannot reach GitHub. `POST /v1/update/store` also requires the bearer token
+configured as `AURORA_DEPLOY_TOKEN`.

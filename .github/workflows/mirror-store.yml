@@ -1,12 +1,9 @@
 name: Mirror release binaries to Supabase Store bucket
 
-# Runs automatically when a GitHub release is published (i.e. after the build
-# workflow uploaded the installer assets). It waits for the assets to be present,
-# then triggers the aurora-api edge function, which re-hosts the built installers
-# into the public `aurora` Storage bucket and returns versioned URLs.
-#
-# It can also be triggered manually (Actions -> Run workflow) to re-mirror the
-# latest published release, or a specific tag passed via the `tag` input.
+# Mirrors one release's installer assets to Supabase. release.yml dispatches this
+# workflow after all platform builds finish. The release-published trigger below
+# remains for releases published by hand; it is not a reliable signal
+# that automated build assets are complete.
 on:
   release:
     types: [published]
@@ -94,14 +91,43 @@ jobs:
             echo "No installer assets found after waiting; leaving the bucket untouched."
           fi
 
-      - name: Trigger Supabase mirror
+      - name: Validate Supabase configuration
+        id: supabase
         if: steps.assets.outputs.ready == 'true'
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_FUNCTION_TOKEN: ${{ secrets.SUPABASE_FUNCTION_TOKEN }}
         run: |
+          set -euo pipefail
+
+          if [ -z "${SUPABASE_URL:-}" ]; then
+            echo "::error::SUPABASE_URL is not set, so the mirror request has no host."
+            echo "::error::Add the Supabase project URL as a repository secret."
+            exit 1
+          fi
+          if ! [[ "$SUPABASE_URL" =~ ^https://[^/]+\.[^/]+(/.*)?$ ]]; then
+            echo "::error::SUPABASE_URL is malformed; use a URL such as https://xyzcompany.supabase.co."
+            exit 1
+          fi
+          if [ -z "${SUPABASE_FUNCTION_TOKEN:-}" ]; then
+            echo "::error::SUPABASE_FUNCTION_TOKEN is not set, so the mirror request cannot authenticate."
+            echo "::error::Add the token expected by AURORA_DEPLOY_TOKEN as a repository secret."
+            exit 1
+          fi
+
+          endpoint="$(printf '%s' "$SUPABASE_URL" | sed 's:/*$::')/functions/v1/aurora-api"
+          curl -fS --retry 3 --retry-delay 5 "$endpoint/v1/health"
+          echo "endpoint=$endpoint" >> "$GITHUB_OUTPUT"
+
+      - name: Trigger Supabase mirror
+        if: steps.assets.outputs.ready == 'true'
+        env:
+          ENDPOINT: ${{ steps.supabase.outputs.endpoint }}
+          SUPABASE_FUNCTION_TOKEN: ${{ secrets.SUPABASE_FUNCTION_TOKEN }}
+        run: |
+          set -euo pipefail
           curl -fS --retry 3 --retry-delay 10 \
-            -X POST "${SUPABASE_URL}/functions/v1/aurora-api/v1/update/store" \
+            -X POST "$ENDPOINT/v1/update/store" \
             -H "Authorization: Bearer ${SUPABASE_FUNCTION_TOKEN}"
 
       # Confirm the edge function re-hosted the installers into the `aurora`
@@ -110,12 +136,12 @@ jobs:
       - name: Verify release_cache updated
         if: steps.assets.outputs.ready == 'true'
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          ENDPOINT: ${{ steps.supabase.outputs.endpoint }}
           TAG: ${{ steps.resolve.outputs.tag }}
         run: |
           expected="${TAG#v}"
           for i in $(seq 1 12); do
-            body=$(curl -fsS "${SUPABASE_URL}/functions/v1/aurora-api/v1/update/latest" || true)
+            body=$(curl -fsS "$ENDPOINT/v1/update/latest" || true)
             ver=$(printf '%s' "$body" | grep -o '"version":"[^"]*"' | head -1 | sed 's/"version":"//;s/"//')
             echo "Cached version: '${ver}' (expected '${expected}')"
             if [ "$ver" = "$expected" ]; then

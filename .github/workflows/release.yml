@@ -150,3 +150,25 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
+
+  trigger-mirror:
+    # A release event fires when release.yml publishes the release, before the
+    # platform installers have been uploaded. Dispatch the mirror explicitly
+    # after every build instead, so Supabase sees complete assets.
+    needs: [build-tauri]
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      actions: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch Supabase mirror
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          gh workflow run mirror-store.yml \
+            --repo "${{ github.repository }}" \
+            --ref main \
+            --field tag="$TAG"
