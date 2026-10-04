@@ -24,6 +24,10 @@ concurrency:
 jobs:
   mirror:
     runs-on: ubuntu-latest
+    # SUPABASE_URL and SUPABASE_FUNCTION_TOKEN are production environment
+    # secrets. GitHub only exposes environment secrets to jobs that declare
+    # the same environment.
+    environment: production
     # `gh` needs the repo explicitly here because the workflow does not check out
     # the code (no git tree) — otherwise it fails with
     # "fatal: not a git repository".
