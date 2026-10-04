@@ -3,10 +3,21 @@
 These rules are the project's source of truth. They are mirrored by `agents.md`
 and `claude.md` (symlinks) so every agent tool stays in sync.
 
+## Comments (every language)
+
+* Default to writing **no comment**. Never narrate, translate, or summarize the code back to the reader.
+* Add a comment only when one of these is true:
+  * The logic is genuinely hard to grasp from the code alone and a reader would plausibly get it wrong: non-obvious math, inverted or deceptively simple conditions, off-by-one boundaries, a deliberate timing or ordering assumption, a workaround for a library bug or platform quirk, or a constraint imposed by an external system.
+  * The user asked for explicit information about that block, or the block needs a label such as a section marker, a TODO with an owner, or a pointer to a spec, ADR, or issue.
+* Explain **why**, never **what**. If the comment restates the identifier or the statement, delete it.
+* Never comment out code. Delete it, or gate it behind a named constant or flag whose name states the reason.
+* Do not leave "changed this", "updated that", or dated edit notes in the source. That is what the changelog is for.
+* Keep comments true. If the code changes meaning, the comment changes or disappears in the same commit. A stale comment is worse than none.
+
 ## Rust coding standards
 
 * Prioritize correctness and clarity; speed/efficiency are secondary unless stated.
-* No comments that summarize code. Comments only explain non-obvious **why**.
+* Follow the shared comment policy above.
 * Never `unwrap()`/`expect()` in production paths. Propagate errors with `?` into `AppError`.
 * Never silently swallow fallible errors. Prefer `?`, `if let Err(e)` handling, or `tracing` logging. `let _ =` is only acceptable for intentional best-effort cleanup (e.g. killing a child on shutdown).
 * Avoid panicking operations (indexing, `.unwrap()`). Guard out-of-bounds work.
@@ -57,12 +68,32 @@ Rules of engagement:
 * Use `tauri::State` only for managing long-lived application singletons or services managed by `aurora-app`.
 * Scope capabilities strictly via `capabilities/*.json` using least-privilege principles.
 
-## TypeScript & IPC bridge standards
+## TypeScript standards
 
-* Never call `invoke()` directly in UI components. All IPC calls must pass through `app/src/lib/ipc.ts` or scoped API modules.
-* Maintain 1:1 type safety with Rust: every Rust DTO exposed over IPC must have a corresponding TypeScript `type` or `interface` in `app/src/types/ipc.ts`.
-* Enable strict type checking (`strict: true` in `tsconfig.json`). Never use `any` — use `unknown` for untyped inputs and narrow with type guards.
-* Handle IPC errors gracefully: wrap `invoke()` calls in typed `try/catch` blocks or a `Result`wrapper to capture serialized `AppError` payloads.
+Stack: TypeScript 6, React 19, Vite 8, zustand, pnpm workspace. `strict` is on.
+
+* **The compiler will not catch dead code.** `noUnusedLocals` and `noUnusedParameters` are off and there is no ESLint or Prettier config. Remove unused imports, variables, and props by hand. Do not assume `tsc` flagged them.
+* Never `any`. Use `unknown` at the boundary, then narrow with a type guard or a single explicit cast at the one place that actually knows the shape. The tree already carries a few dozen `any` (shadcn `ui/` wrappers, LSP edit payloads, `catch (e: any)`). Do not add to the pile, and tighten whatever you touch.
+* No non-null assertion (`!`) and no cast-to-satisfy-the-compiler on IPC responses, parsed JSON, or `localStorage` reads. Type the value as `unknown` and validate it.
+* `noUncheckedIndexedAccess` is off, so `array[0]` and `array[i]` type as `T`, not `T | undefined`. Guard indices yourself in parsing, xterm, and CodeMirror code where a lookup can genuinely miss.
+* `isolatedModules` is on: re-export a type with `export type { X } from "./x"`, never `export { X }`.
+* Use `import type { X }` for symbols used only as types. Keeps runtime imports minimal and is required for type-only re-exports.
+* A type used by more than one workspace package belongs in `packages/types` (`@aurora/types`). App-only types stay in the module that uses them. Never create a second home for a type that already exists in `@aurora/types`.
+* Prefer `interface` for object shapes, `type` for unions, mapped types, and generics.
+* Derive, do not duplicate. Compute values during render instead of mirroring them into state that must then be kept in sync. When you add state, be able to say what makes it change.
+* Never mutate props or objects owned by another module. Copy on write.
+* Booleans read as predicates: `isDirty`, `canRetry`, `hasMore`. Callbacks are named for what they receive, not what they return.
+* Naming: `camelCase` functions and methods, `PascalCase` components and types, `SCREAMING_SNAKE_CASE` module-level constants (e.g. `CACHE_TTL_MS`). Full words, no single letters, same as Rust.
+* zustand stores declare an explicit `interface XStore` covering state plus actions, rather than inferring the shape from `create()`.
+
+**IPC bridge (hard rule)**
+
+* `invoke()` belongs in `app/src/lib/ipc.ts` (over 100 call sites live there). There are a few deliberate exceptions: `app/src/extensions/lsp/client.ts` and `transport.ts`, which own the LSP session lifecycle, and `app/src/hooks/useGitWatcher.ts`. Do not add to that list. A new `invoke()` in a component, view, store, or other hook needs a stated reason, and it should go in `lib/ipc.ts`.
+* Every Rust DTO crossing IPC gets a TypeScript mirror. Shared ones (agent, session, block, provider, ai) go in `packages/types/src`; app-only config and result shapes go in `app/src/lib/ipc.ts` beside their wrapper. `app/src/types/` is empty and unused, so there is no `ipc.ts` there. Do not create one.
+* **Mirror Rust field names exactly, including `snake_case`.** Serde emits `font_size`, `cursor_blink`, `exit_code`, not camelCase. A wrong name is a runtime `undefined`, never a type error, so nothing will catch it for you.
+* Optionality must match the Rust struct precisely: a Rust `Option<T>` with `skip_serializing_if` is `field?: T`, without it is `field: T | null`. Check the Rust side before writing the mirror.
+* The TS mirror is a compile-time contract, not runtime validation. It is never a reason to skip input validation in Rust.
+* Wrap IPC calls so a serialized `AppError` surfaces as a typed failure the UI can render, rather than an unhandled rejection.
 
 ## React & UI standards
 
@@ -76,14 +107,15 @@ Rules of engagement:
 
 * Strictly separate UI assets from backend Rust binaries. Use relative paths or Vite aliases (`@/`) for internal imports.
 * Never store secret tokens, API keys, or security material in `.env` or Vite frontend code.
-* Run `npm run typecheck` (or `tsc --noEmit`) and `npm run lint` before committing frontend changes.
+* Typecheck before committing frontend changes: `pnpm typecheck` at the repo root for the app, `pnpm typecheck:site` for the site. There is no `lint` script and no ESLint or Prettier config yet, so never report lint as passing.
 
 ## Hard rules
 
 * Never hardcode model strings or filesystem paths in Rust — read from `AppConfig` or resolve via Tauri path APIs.
 * Never call a provider/adapter directly from a command — go through its router/trait.
 * Never add Tauri deps to any crate except `aurora-app`.
-* Never `invoke()` outside `app/src/lib/ipc.ts`; mirror every Rust IPC struct there.
+* Never `invoke()` outside `app/src/lib/ipc.ts`; mirror every Rust IPC struct in `app/src/lib/ipc.ts` or `packages/types/src`, matching its Rust field names exactly.
+* Run `pnpm typecheck` and `pnpm test` before any commit that touches `app/src`.
 * Run `cargo clippy --workspace -- -D warnings` (zero warnings) and `cargo test --workspace` before any commit.
 
 ## Pull request hygiene

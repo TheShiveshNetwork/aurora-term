@@ -7,7 +7,12 @@
 // VITE_WEB_URL override is supplied.
 
 const PRODUCTION_WEB_URL = "https://aurora.shitworks.co";
+const PRODUCTION_API_URL =
+  "https://yybxsggbvuzjzlwlwbtv.supabase.co/functions/v1/aurora-api";
 
 export const WEB_URL = import.meta.env.DEV
   ? (import.meta.env.VITE_WEB_URL as string | undefined) ?? location.origin
   : PRODUCTION_WEB_URL;
+
+export const AURORA_API_URL =
+  (import.meta.env.VITE_AURORA_API_URL as string | undefined) ?? PRODUCTION_API_URL;

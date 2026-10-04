@@ -10,10 +10,16 @@ import { LSP_EXCLUDED_FROM_STORAGE } from "./lsp-config.ts";
  * from the apps to Supabase under RLS — this function only serves updates.
  *
  * One row per release family is cached in `release_cache`:
- *   - app_release : newest app release (tag vX.Y.Z) + mirrored installers
+ *   - app_release : newest app release (tag vX.Y.Z) + installers
  *   - lsp_release : newest LSP build (rolling, no version) + mirrored bundles
  * Each row carries version, url, download_url (Supabase bucket link, else
  * GitHub fallback), notes, published_at, packages[], mirrored_at.
+ *
+ * `packages` lists every downloadable asset with its name, arch, byte size and
+ * a working `url`: the Supabase object when the mirror stored it, otherwise the
+ * GitHub asset URL. Assets above the storage per-object cap (the AppImage, and
+ * anything past `AURORA_MAX_ASSET_BYTES`) therefore still resolve, just not
+ * from Supabase.
  *
  * Supabase Storage only holds the LSP bundles that are downloaded most often.
  * Mirroring them into the public `aurora` bucket keeps repeated installs off
@@ -139,10 +145,12 @@ function isLspTag(tag: string): boolean {
 // ---------------------------------------------------------------------------
 
 const STORE_BUCKET = "aurora";
+const STORE_PUBLIC_PREFIX =
+  `${SUPABASE_URL}/storage/v1/object/public/${STORE_BUCKET}/`;
 const APP_CACHE_KEY = "app_release";
 const LSP_CACHE_KEY = "lsp_release";
 
-type Package = { name: string; arch: string; url: string };
+type Package = { name: string; arch: string; size: number; url: string };
 // One row in `release_cache` per release family: `app_release` or `lsp_release`.
 // LSP rows keep `version` null (rolling release). `download_url` is always the
 // Supabase bucket link (app) or the GitHub manifest URL (LSP).
@@ -156,9 +164,22 @@ type ReleaseRow = {
   mirrored_at: string | null;
 };
 
-// App mirrors only Windows exe installers (per release policy: windows=exe only).
+// Every installer format the release workflow publishes. Anything outside this
+// set (checksums, signatures, GitHub's source archives) is not a download the
+// site can offer.
+const APP_ASSET_SUFFIXES = [
+  ".exe",
+  ".msi",
+  ".dmg",
+  ".app.tar.gz",
+  ".appimage",
+  ".deb",
+  ".rpm",
+];
+
 function isAppAsset(name: string): boolean {
-  return name.endsWith(".exe");
+  const n = name.toLowerCase();
+  return APP_ASSET_SUFFIXES.some((suffix) => n.endsWith(suffix));
 }
 
 // LSP bundles: mirror the binary assets, skip GitHub's auto-generated source
@@ -241,6 +262,10 @@ async function ensureStoreBucket() {
   });
 }
 
+function storeObjectUrl(path: string): string {
+  return `${STORE_PUBLIC_PREFIX}${path}`;
+}
+
 async function uploadBinary(
   path: string,
   bytes: ArrayBuffer,
@@ -263,7 +288,7 @@ async function uploadBinary(
     const t = await res.text();
     throw new Error(`storage upload failed (${res.status}): ${t}`);
   }
-  return `${SUPABASE_URL}/storage/v1/object/public/${STORE_BUCKET}/${path}`;
+  return storeObjectUrl(path);
 }
 
 async function listStorageObjects(prefix: string, limit = 1000): Promise<string[]> {
@@ -356,6 +381,8 @@ async function pruneOrphanedLspBundles(keepNames: Set<string>): Promise<void> {
 // mirror (app installers vs. LSP bundles).
 // Supabase Storage rejects objects above a plan-specific size. Read from env
 // (AURORA_MAX_ASSET_BYTES) so it can be raised per project; default 50 MiB.
+// Every wanted asset yields a package: assets that cannot be stored keep their
+// GitHub URL so callers never lose a download.
 const MAX_ASSET_BYTES = (() => {
   const v = Number(Deno.env.get("AURORA_MAX_ASSET_BYTES") ?? "");
   return Number.isFinite(v) && v > 0 ? v : 50 * 1024 * 1024;
@@ -373,51 +400,72 @@ async function mirrorPackages(
   const skipped: string[] = [];
   for (const a of binaries) {
     const name = String(a.name ?? "");
-    // Skip anything above the storage limit before wasting a download.
+    const githubUrl = String(a.browser_download_url ?? "");
+    const safeName = sanitizeSegment(name);
     const size = Number(a.size ?? 0);
+    const fallBack = () =>
+      packages.push({ name: safeName, arch: archFor(safeName), size, url: githubUrl });
+    // Skip anything above the storage limit before wasting a download.
     if (size > MAX_ASSET_BYTES) {
       skipped.push(`${name} (${size} bytes)`);
       console.warn(
-        `aurora-api: skipping ${name}, exceeds ${MAX_ASSET_BYTES}-byte limit`,
+        `aurora-api: keeping ${name} on GitHub, exceeds ${MAX_ASSET_BYTES}-byte limit`,
       );
+      fallBack();
       continue;
     }
     try {
-      const dl = await fetch(String(a.browser_download_url), {
+      const dl = await fetch(githubUrl, {
         headers: GITHUB_TOKEN ? { Authorization: `Bearer ${GITHUB_TOKEN}` } : {},
       });
       if (!dl.ok) {
-        throw new Error(`download failed ${a.browser_download_url}: ${dl.status}`);
+        throw new Error(`download failed ${githubUrl}: ${dl.status}`);
       }
       const bytes = await dl.arrayBuffer();
       if (bytes.byteLength > MAX_ASSET_BYTES) {
         skipped.push(`${name} (${bytes.byteLength} bytes)`);
         console.warn(
-          `aurora-api: skipped ${name}, exceeds ${MAX_ASSET_BYTES}-byte limit`,
+          `aurora-api: keeping ${name} on GitHub, exceeds ${MAX_ASSET_BYTES}-byte limit`,
         );
+        fallBack();
         continue;
       }
-      const safeName = sanitizeSegment(name);
       const url = await uploadBinary(
         `${safeFolder}/${safeName}`,
         bytes,
         contentTypeFor(safeName),
       );
-      packages.push({ name: safeName, arch: archFor(safeName), url });
+      packages.push({
+        name: safeName,
+        arch: archFor(safeName),
+        size: bytes.byteLength,
+        url,
+      });
     } catch (e) {
-      // One bad/failed asset must not abort the whole batch — skip and continue.
-      console.error(`aurora-api: asset ${name} skipped:`, (e as Error).message);
+      // One bad/failed asset must not abort the whole batch — keep its GitHub
+      // URL and continue.
+      console.error(`aurora-api: asset ${name} not mirrored:`, (e as Error).message);
       skipped.push(name);
+      fallBack();
     }
   }
   return { packages, mirroredAt: new Date().toISOString(), skipped };
 }
 
+// Packages that actually landed in the bucket. Entries that kept their GitHub
+// URL (over the storage cap, or a failed upload) are excluded.
+function hostedPackages(packages: Package[]): Package[] {
+  return packages.filter((p) => p.url.startsWith(STORE_PUBLIC_PREFIX));
+}
+
 // Picks the primary installer from a mirrored package list (prefer Windows .exe).
+// Only Supabase-hosted entries qualify: `download_url` must stay a direct bucket
+// link and never point back at GitHub.
 function primaryPackageUrl(packages: Package[]): string | null {
-  if (!packages.length) return null;
-  const exe = packages.find((p) => p.name.toLowerCase().endsWith(".exe"));
-  return (exe ?? packages[0]).url;
+  const hosted = hostedPackages(packages);
+  if (!hosted.length) return null;
+  const exe = hosted.find((p) => p.name.toLowerCase().endsWith(".exe"));
+  return (exe ?? hosted[0]).url;
 }
 
 // Builds a package list straight from GitHub release assets (no bucket mirror),
@@ -428,6 +476,7 @@ function githubPackages(release: any, want: (name: string) => boolean): Package[
     .map((a: any) => ({
       name: sanitizeSegment(String(a.name)),
       arch: archFor(String(a.name)),
+      size: Number(a.size ?? 0),
       url: String(a.browser_download_url),
     }));
 }
@@ -464,7 +513,12 @@ function findAppRelease(releases: any[]): any | null {
 }
 
 async function fetchReleasesList(): Promise<any[] | null> {
-  if (!GITHUB_REPO) return null;
+  if (!GITHUB_REPO) {
+    console.error(
+      "aurora-api: AURORA_GITHUB_REPO is unset, release lookups are disabled",
+    );
+    return null;
+  }
   const headers: Record<string, string> = {
     Accept: "application/vnd.github+json",
     "User-Agent": "aurora-update-check",
@@ -474,7 +528,14 @@ async function fetchReleasesList(): Promise<any[] | null> {
     `https://api.github.com/repos/${GITHUB_REPO}/releases?per_page=100`,
     { headers },
   );
-  if (!res.ok) return null;
+  if (!res.ok) {
+    console.error(
+      `aurora-api: GitHub releases request failed (${res.status}${
+        res.status === 403 ? ", likely rate limited" : ""
+      })`,
+    );
+    return null;
+  }
   return await res.json();
 }
 
@@ -568,8 +629,19 @@ async function resolveRelease(kind: "app" | "lsp", force = false): Promise<Relea
     const cached = await getCached(key);
     if (cached) return cached;
   }
+  const stored = await getStoredRow(key);
   const releases = await fetchReleasesList();
-  if (!releases) return null;
+  if (!releases) {
+    // GitHub is unreachable or unconfigured. A stale row still points at real,
+    // downloadable assets, so serve it rather than 404 and take the download
+    // page offline. `force` (the CI mirror trigger) must fail loudly instead,
+    // because its caller verifies the mirror actually happened.
+    if (force || !stored) return null;
+    console.warn(
+      `aurora-api: serving stale ${key} cache (v${stored.version ?? "unknown"})`,
+    );
+    return stored;
+  }
   const { app, lsp } = classify(releases);
   const doc = kind === "app" ? app : lsp;
   if (!doc) return null;
@@ -605,15 +677,16 @@ async function resolveRelease(kind: "app" | "lsp", force = false): Promise<Relea
     }));
     // Prune orphaned bundles from previous lsp-bundles releases so only the
     // latest asset set remains in the bucket (keeps free-tier usage bounded).
-    if (mirrored.packages.length > 0) {
-      const keepNames = new Set(mirrored.packages.map((p) => p.name));
+    const hosted = hostedPackages(mirrored.packages);
+    if (hosted.length > 0) {
+      const keepNames = new Set(hosted.map((p) => p.name));
       await pruneOrphanedLspBundles(keepNames).catch(() => {});
     }
     // Mirrored bundles are served from Supabase; excluded-language bundles keep
     // their GitHub URLs. If mirroring failed outright, fall back to the full
     // GitHub listing so the cached row still points at every asset.
-    const packages = mirrored.packages.length > 0
-      ? [...mirrored.packages, ...githubPackages(release, isLspGithubOnlyAsset)]
+    const packages = hosted.length > 0
+      ? [...hosted, ...githubPackages(release, isLspGithubOnlyAsset)]
       : githubPackages(release, isLspAsset);
     const row: ReleaseRow = {
       version: null,
@@ -645,9 +718,9 @@ async function resolveRelease(kind: "app" | "lsp", force = false): Promise<Relea
         skipped: [] as string[],
       }));
 
-  // Prune previous version folders so only `folder` remains. Only prune after
-  // a successful mirror (prevents deleting the current version on failure).
-  if (mirrored.packages.length > 0) {
+  // Prune previous version folders so only `folder` remains. Only prune after a
+  // successful mirror (prevents deleting the current version on failure).
+  if (hostedPackages(mirrored.packages).length > 0) {
     await pruneOldAppVersions(folder).catch(() => {});
   }
 
@@ -667,8 +740,9 @@ async function resolveRelease(kind: "app" | "lsp", force = false): Promise<Relea
       String(a.name).toLowerCase().endsWith(".exe")
     ) ?? assets[0];
     if (primary) {
-      download_url =
-        `${SUPABASE_URL}/storage/v1/object/public/${STORE_BUCKET}/${folder}/${sanitizeSegment(String(primary.name))}`;
+      download_url = storeObjectUrl(
+        `${folder}/${sanitizeSegment(String(primary.name))}`,
+      );
     }
   }
 

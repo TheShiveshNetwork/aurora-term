@@ -2,8 +2,8 @@ name: Mirror release binaries to Supabase Store bucket
 
 # Runs automatically when a GitHub release is published (i.e. after the build
 # workflow uploaded the installer assets). It waits for the assets to be present,
-# then triggers the aurora-api edge function, which re-hosts the built .exe/.msi
-# files into the public `aurora` Storage bucket and returns versioned URLs.
+# then triggers the aurora-api edge function, which re-hosts the built installers
+# into the public `aurora` Storage bucket and returns versioned URLs.
 #
 # It can also be triggered manually (Actions -> Run workflow) to re-mirror the
 # latest published release, or a specific tag passed via the `tag` input.
@@ -84,7 +84,7 @@ jobs:
           ready=false
           for i in $(seq 1 30); do
             count=$(gh release view "$TAG" -R "$REPO" --json assets \
-              -q '.assets | map(select(.name | test("\\.(exe|msi)$"))) | length')
+              -q '.assets | map(select(.name | test("\\.(exe|msi|dmg|app\\.tar\\.gz|AppImage|deb|rpm)$"))) | length')
             echo "Attempt $i: $count installer asset(s) found"
             if [ "$count" -gt 0 ]; then ready=true; break; fi
             sleep 20

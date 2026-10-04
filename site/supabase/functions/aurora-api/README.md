@@ -17,12 +17,28 @@ Supabase keys are server-side secrets here.
 | `POST` | `/v1/sync` | Bearer | CAS push `{ payload, version, base_version }` → `200` / `409` (conflict carries current doc) |
 | `GET` | `/v1/update/latest` | — | **App update check** → `app_release` row (GitHub, cached ~3 h) |
 | `GET` | `/v1/update/lsp` | — | **LSP update check** → `lsp_release` row (GitHub, cached ~3 h, `version: null`) |
-| `POST` | `/v1/update/store` | Bearer¹ | **CI upload** — re-mirrors latest app release `.exe`/`.msi` into the public `aurora` Storage bucket and refreshes the `app_release` row |
+| `POST` | `/v1/update/store` | Bearer¹ | **CI upload** — mirrors the latest app release's installers into the public `aurora` Storage bucket and refreshes the `app_release` row |
 
 ¹ Requires `Authorization: Bearer <AURORA_DEPLOY_TOKEN>` when that secret is set.
-Called by `.github/workflows/mirror-store.yml` on `release: published`. The
-mirror re-hosts installers as direct (non-redirecting) URLs for the Microsoft
-Store; it skips any asset over `AURORA_MAX_ASSET_BYTES` (default 50 MB).
+Called by `.github/workflows/mirror-store.yml` on `release: published`.
+
+## App installer packages
+
+`packages` on the `app_release` row lists every installer the release workflow
+publishes (`.exe`, `.msi`, `.dmg`, `.app.tar.gz`, `.AppImage`, `.deb`, `.rpm`),
+each with its `name`, `arch`, byte `size`, and a `url` that always works:
+
+- the Supabase object when the asset was mirrored, or
+- the GitHub asset URL when the asset exceeded `AURORA_MAX_ASSET_BYTES`
+  (default 50 MiB) or its upload failed.
+
+At that cap everything mirrors except `Aurora_<version>_amd64.AppImage`
+(~122 MiB), which stays on GitHub. Raise `AURORA_MAX_ASSET_BYTES` to lift the
+cap, but Supabase's own per-object ceiling applies on top of it.
+
+`download_url` is different: it is the primary Windows installer and is always
+the direct Supabase bucket link, never a GitHub URL. That is what the desktop
+updater follows, so it must stay redirect-free.
 
 ## LSP bundle storage
 
@@ -47,7 +63,7 @@ GitHub package list.
 | `AURORA_GITHUB_REPO` | no | `owner/repo` for update checks (endpoint 404s if empty) |
 | `AURORA_GITHUB_TOKEN` | no | Lifts GitHub API rate limits |
 | `AURORA_DEPLOY_TOKEN` | recommended | Guards `POST /v1/update/store` |
-| `AURORA_MAX_ASSET_BYTES` | no | Per-asset size cap for bucket mirroring (default 50 MB) |
+| `AURORA_MAX_ASSET_BYTES` | no | Per-asset size cap for bucket mirroring (default 50 MiB) |
 
 ## Deploy
 
