@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 concurrency:
   group: changelog-${{ github.ref }}
@@ -21,9 +22,28 @@ jobs:
           # git-cliff needs the full history to resolve the root commit and to
           # split it into per-release sections. Without this it renders nothing.
           fetch-depth: 0
-          # Generate and commit against main rather than the detached tag ref,
-          # so the bot commit lands on the branch.
+          # Base the changelog on main rather than the detached tag ref: the
+          # file is regenerated into the branch, not into the tag.
           ref: main
+
+      - name: Verify a push-capable token is available
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.CHANGELOG_TOKEN }}
+        run: |
+          set -euo pipefail
+          # The built-in GITHUB_TOKEN deliberately does not trigger workflow
+          # runs, so a PR it opens never gets the status checks that main
+          # requires and could never be merged. A PAT is needed for the push.
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::CHANGELOG_TOKEN is not set. main is protected, so the"
+            echo "::error::changelog must land through a pull request, and the"
+            echo "::error::branch push needs a token that triggers CI runs."
+            echo "::error::Create a fine-grained PAT with contents:write and"
+            echo "::error::pull-requests:write and save it as the CHANGELOG_TOKEN"
+            echo "::error::repository secret."
+            exit 1
+          fi
 
       - name: Compute changelog range
         id: range
@@ -51,31 +71,70 @@ jobs:
           # release, so it would need --prepend to preserve older ones.
           args: ${{ steps.range.outputs.range }}
 
-      - name: Commit and push
+      - name: Commit changelog to a branch
+        id: changelog
         shell: bash
         env:
           TAG: ${{ github.ref_name }}
-          BRANCH: main
+          BRANCH: changelog/${{ github.ref_name }}
+          GH_TOKEN: ${{ secrets.CHANGELOG_TOKEN }}
         run: |
           set -euo pipefail
 
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
 
+          # actions/checkout pins origin to the built-in GITHUB_TOKEN through an
+          # extraheader, and that header wins over any credential helper. Drop it
+          # and let gh use CHANGELOG_TOKEN instead, otherwise the push would be a
+          # no-op-triggering GITHUB_TOKEN push and the pull request would never
+          # receive the status checks main requires.
+          git config --unset-all http.https://github.com/.extraheader || true
+          gh auth setup-git
+
           # Re-running a tag should not create an empty commit.
           if git diff --quiet -- CHANGELOG.md; then
             echo "CHANGELOG.md already matches $TAG, nothing to commit."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
+          git checkout -b "$BRANCH"
           git add CHANGELOG.md
           git commit -m "docs(changelog): update for $TAG"
 
           # Someone may have pushed to main while this job was generating the
-          # file; rebase so the push never gets rejected as non-fast-forward.
-          # A push made with GITHUB_TOKEN does not trigger further workflow runs,
-          # so this cannot loop back into itself.
-          git pull --rebase origin "$BRANCH"
-          git push origin "HEAD:$BRANCH"
+          # file; rebase so the pull request never conflicts and carries only
+          # the changelog change.
+          git fetch origin main
+          git rebase origin/main
 
-          echo "Pushed CHANGELOG.md for $TAG to $BRANCH."
+          git push --force-with-lease origin "$BRANCH"
+          echo "Pushed $BRANCH"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Open changelog pull request
+        if: steps.changelog.outputs.changed == 'true'
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+          BRANCH: changelog/${{ github.ref_name }}
+          GH_TOKEN: ${{ secrets.CHANGELOG_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # Re-running a tag re-pushes the same branch, so update the existing
+          # pull request instead of opening a duplicate.
+          existing=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number')
+          if [ -n "$existing" ]; then
+            echo "Pull request #$existing already covers $BRANCH; the push above updated it."
+            exit 0
+          fi
+
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "docs(changelog): update for $TAG" \
+            --body "Automated changelog regeneration for \`$TAG\`.
+
+          Regenerated from \`cliff.toml\` over the full history up to \`$TAG\`."
