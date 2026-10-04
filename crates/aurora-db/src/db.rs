@@ -27,7 +27,7 @@ pub struct Snippet {
 }
 
 pub struct HistoryDb {
-    conn: Connection,
+    pub(crate) conn: Connection,
 }
 
 impl HistoryDb {
@@ -42,8 +42,14 @@ impl HistoryDb {
                         .map_err(|e| AppError::Db(format!("Failed to create db dir: {}", e)))?;
                 }
                 let db_path = dir.join("history.db");
-                Connection::open(db_path)
-                    .map_err(|e| AppError::Db(format!("Failed to open database: {}", e)))?
+                let conn = Connection::open(db_path)
+                    .map_err(|e| AppError::Db(format!("Failed to open database: {}", e)))?;
+                // Must precede the first table creation to take effect.
+                conn.pragma_update(None, "auto_vacuum", "INCREMENTAL")
+                    .map_err(|e| AppError::Db(e.to_string()))?;
+                conn.pragma_update(None, "journal_mode", "WAL")
+                    .map_err(|e| AppError::Db(e.to_string()))?;
+                conn
             }
             None => {
                 // In-memory database for testing
@@ -105,6 +111,8 @@ impl HistoryDb {
             );",
             [],
         ).map_err(|e| AppError::Db(e.to_string()))?;
+
+        crate::db::HistoryDb::migrate_agent_sessions(&self.conn)?;
 
         Ok(())
     }

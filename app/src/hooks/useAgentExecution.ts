@@ -10,6 +10,8 @@ import { useSessionStore } from "../stores/useSessionStore";
 import { pty, system, config } from "../lib/ipc";
 import { getDefaultShellLaunch } from "../lib/shell";
 import { Block } from "@aurora/types";
+import { agentSessionRepository } from "../lib/agentSessions";
+import { resolveAgentPath } from "../lib/agentPaths";
 
 // Hidden background PTY sessions owned by non-terminal agent sessions (AgentView
 // and file/diff views). Commands approved in those overlays run here so they
@@ -273,6 +275,35 @@ export function useAgentExecution(sessionId: string | null) {
     };
   }, []);
 
+  // ── stageFileSnapshot ───────────────────────────────────────────────────
+  // Records a file's pre-write content against the in-flight turn. Undo restores
+  // from this rather than from `filesChanged`, which is session-scoped and dedupes
+  // by path, so it cannot say what one specific message changed.
+  const stageFileSnapshot = useCallback(async (sid: string, path: string, toolName: string) => {
+    try {
+      const exists = await system.pathExists(path);
+      const previousContent = exists ? await system.readFileContent(path) : null;
+      useAgentStore.getState().stageFileChange(sid, { path, previousContent, toolName });
+    } catch (error) {
+      // A snapshot we cannot take means the write cannot be undone; surface it
+      // rather than silently producing a turn that claims to be revertible.
+      console.warn(`Failed to snapshot ${path} before agent write:`, error);
+    }
+  }, []);
+
+  // ── captureWrittenContent ────────────────────────────────────────────────
+  // Reads the file back after an approved write so undo can tell "the agent's
+  // own output" from "someone edited it afterwards".
+  const captureWrittenContent = useCallback(async (sid: string, path: string) => {
+    try {
+      const exists = await system.pathExists(path);
+      const content = exists ? await system.readFileContent(path) : null;
+      useAgentStore.getState().captureWrittenContent(sid, path, content);
+    } catch (error) {
+      console.warn(`Failed to read back ${path} after agent write:`, error);
+    }
+  }, []);
+
   // ── handleStepResult ─────────────────────────────────────────────────────
   const handleStepResult = useCallback(async (
     targetSessionId: string,
@@ -419,6 +450,11 @@ export function useAgentExecution(sessionId: string | null) {
           command: cmd,
         });
       } else if (step.tool_name === "write_file" || step.tool_name === "patch_file") {
+        // Snapshot before anything is written — this is the only point where the
+        // pre-write content is still available, since the sidecar discards it.
+        const targetPath = resolveAgentPath(step.args.path);
+        if (targetPath) await stageFileSnapshot(targetSessionId, targetPath, step.tool_name);
+
         // Auto-approve when review is disabled for this view
         const cfg = await config.get();
         const reviewEnabled = isTerminalView ? cfg.ai.require_review_for_commands : cfg.ai.require_review_for_writes;
@@ -437,18 +473,19 @@ export function useAgentExecution(sessionId: string | null) {
           state.setPendingToolCall(targetSessionId, null);
           // Trigger file viewer refresh for the patched/written file so the
           // editor picks up the new content immediately.
-          const writtenPath = step.args.path;
+          const writtenPath = targetPath;
           if (writtenPath) {
             window.dispatchEvent(new CustomEvent("aurora-refresh-file", {
               detail: { path: writtenPath },
             }));
           }
+          await captureWrittenContent(targetSessionId, targetPath);
           await handleStepResult(targetSessionId, taskId, stepResult);
           return;
         }
 
         // Add chain node so file write/patch is visible in chain-of-thought
-        const filePath = step.args.path || "";
+        const filePath = targetPath;
         const fileShortName = filePath.split(/[\\/]/).pop() || filePath;
         const fileNodeId = state.addChainNode(targetSessionId, {
           type: "command",
@@ -466,7 +503,7 @@ export function useAgentExecution(sessionId: string | null) {
         });
         state.pauseTask(targetSessionId);
         state.addFileChange(targetSessionId, {
-          path: step.args.path,
+          path: targetPath,
           newContent: step.args.content || step.args.replace || "",
           oldContent: step.args.search || undefined,
           type: step.tool_name === "write_file" ? "write" : "patch",
@@ -528,11 +565,15 @@ export function useAgentExecution(sessionId: string | null) {
       // wall-clock run time so "Worked for" reflects the real elapsed duration.
       const runMs = snap.startedAt ? Date.now() - snap.startedAt : 0;
       const durationMs = totalMs > 0 ? totalMs : runMs;
+      const fileChanges = useAgentStore.getState().sessions[targetSessionId]?.pendingFileChanges ?? [];
       state.addChatMessage(targetSessionId, {
         role: "assistant", content: sanitizeMessage(msg), durationMs,
         chainNodes: snap.chainNodes, agentLogs: snap.agentLogs, subagent: snap.activeSubagent,
         agentType: snap.agentType,
+        ...(fileChanges.length > 0 ? { fileChanges } : {}),
       });
+      // Cleared after draining so the next turn starts from a clean slate.
+      state.clearPendingFileChanges(targetSessionId);
       // Open diff tabs for any file changes the agent proposed while running.
       await openPendingDiffTabs(targetSessionId);
       return;
@@ -545,11 +586,14 @@ export function useAgentExecution(sessionId: string | null) {
       state.failTask(targetSessionId, errMsg);
       const snap = useAgentStore.getState().sessions[targetSessionId] || defaultSessionState();
       const runMs = snap.startedAt ? Date.now() - snap.startedAt : 0;
+      const errFileChanges = snap.pendingFileChanges ?? [];
       state.addChatMessage(targetSessionId, {
         role: "assistant", content: errMsg, isError: true, durationMs: runMs,
         chainNodes: snap.chainNodes, agentLogs: snap.agentLogs, subagent: snap.activeSubagent,
         agentType: snap.agentType,
+        ...(errFileChanges.length > 0 ? { fileChanges: errFileChanges } : {}),
       });
+      state.clearPendingFileChanges(targetSessionId);
       // Show diffs even on error so the user can review what was attempted.
       await openPendingDiffTabs(targetSessionId);
       return;
@@ -616,12 +660,16 @@ export function useAgentExecution(sessionId: string | null) {
   }, []);
 
   // ── executeNextStep ──────────────────────────────────────────────────────
-  const executeNextStep = useCallback(async (
+const executeNextStep = useCallback(async (
     taskId: string,
     lastOutput?: string,
-    exitCode?: number
+    exitCode?: number,
+    sessionId?: string,
   ) => {
-    const targetSessionId = sessionRef.current;
+    // `sessionId` is passed explicitly by `startTask`: the ref is only refreshed
+    // during render, so on the first message of a brand-new session it still
+    // holds the previous (null) value and the step would be dropped.
+    const targetSessionId = sessionId ?? sessionRef.current;
     if (!targetSessionId) return;
 
     const state = useAgentStore.getState();
@@ -681,7 +729,8 @@ export function useAgentExecution(sessionId: string | null) {
         requireReviewForCommands,
         requireReviewForWrites,
         model,
-        fileCtx || undefined
+        fileCtx || undefined,
+        agentSessionRepository.getProjectId() ?? undefined
       );
 
       await handleStepResult(targetSessionId, taskId, step);
@@ -845,8 +894,12 @@ export function useAgentExecution(sessionId: string | null) {
   }, []);
 
   // ── startTask ────────────────────────────────────────────────────────────
-  const startTask = useCallback((goal: string, forceType?: "terminal" | "developer", customModel?: string) => {
-    const targetSessionId = sessionRef.current;
+  const startTask = useCallback((goal: string, forceType?: "terminal" | "developer", customModel?: string, sessionIdOverride?: string) => {
+    // The agent view opens with no session — the hero view is the empty state,
+    // and the first message is what creates one. Other callers (terminal tabs,
+    // overlays) always pass an id through `sessionId`.
+    const targetSessionId =
+      sessionIdOverride ?? sessionRef.current ?? useAgentStore.getState().createAgentSession();
     if (!targetSessionId) return;
 
     lastCommandResultRef.current = { command: "", exitCode: 0, output: "", stderr: "" };
@@ -880,8 +933,11 @@ export function useAgentExecution(sessionId: string | null) {
       state.setAgentModel(targetSessionId, undefined);
     }
     state.resumeTask(targetSessionId);
-    
-    executeNextStep(taskId);
+
+    // Seed the ref for any synchronous reader below, then hand the resolved id to
+    // the step explicitly — neither can rely on a render having happened yet.
+    sessionRef.current = targetSessionId;
+    executeNextStep(taskId, undefined, undefined, targetSessionId);
   }, [executeNextStep]);
 
   // ── approveAndRunPending ─────────────────────────────────────────────────
@@ -957,6 +1013,7 @@ export function useAgentExecution(sessionId: string | null) {
           if (freshSession.filesChanged.length > 0) {
             const lastFile = freshSession.filesChanged[freshSession.filesChanged.length - 1];
             state.updateFileChangeStatus(targetSessionId, lastFile.path, "approved");
+            await captureWrittenContent(targetSessionId, lastFile.path);
             // Mark the chain node for this file as done
             const fileNode = [...freshSession.chainNodes].reverse().find(
               (n) => n.type === "command" && n.status === "active" &&

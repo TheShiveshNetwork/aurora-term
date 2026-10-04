@@ -48,8 +48,7 @@ export function FileWorkspaceView({ tab, onOpenFile, onOpenFolder }: FileWorkspa
         <div className="flex gap-4">
           <ViewOptionButton label="Open File" icon={<FileText className="text-on-primary" />} onClick={onOpenFile} keymap={openFileKeys} />
           <ViewOptionButton label="Open Folder" icon={<FolderOpen className="text-on-secondary" />} onClick={onOpenFolder} keymap={openFolderKeys} />
-          <ViewOptionButton label="Clone Repository" icon={<GitBranch className="text-on-secondary" />} onClick={() => { /* TODO */ }} keymap="Ctrl + Shift + Alt + C" />
-          {/* TODO: <ViewOptionButton label="Connect Remote" icon={<MonitorSmartphone className="text-on-secondary" />}} keymap="Ctrl + Shift + O" /> */}
+          {/* <ViewOptionButton label="Clone Repository" icon={<GitBranch className="text-on-secondary" />} onClick={() => } keymap="Ctrl + Shift + Alt + C" /> */}
         </div>
       </div>
 

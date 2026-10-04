@@ -62,7 +62,10 @@ export const patchFileTool = createTool({
         searchPreview: input.search.slice(0, 200),
       });
       return suspend?.({
-        path: input.path,
+        // Absolute so the app opens, badges and snapshots the file the agent will
+        // actually patch, instead of re-guessing a relative path against a
+        // different base.
+        path: safeResolve(input.path),
         search: input.search,
         replace: input.replace,
         type: 'patch' as const,

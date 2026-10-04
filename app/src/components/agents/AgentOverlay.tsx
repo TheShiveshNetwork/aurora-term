@@ -65,7 +65,10 @@ function TurnMessageWrapper({
   maxSteps: number;
   retryTask: () => void;
 }) {
-  const { copied, handleCopy } = useCopyWithFeedback();
+  // Two independent feedback instances: the user's message and the agent's reply
+  // are separate clipboard actions, so each needs its own tick state.
+  const userCopy = useCopyWithFeedback();
+  const replyCopy = useCopyWithFeedback();
   const [liked, setLiked] = useState(false);
   const [disliked, setDisliked] = useState(false);
 
@@ -79,8 +82,10 @@ function TurnMessageWrapper({
       durationSecs={durationSecs}
       stepCount={stepCount}
       maxSteps={maxSteps}
-      onCopy={handleCopy}
-      copied={copied}
+      onCopy={replyCopy.handleCopy}
+      copied={replyCopy.copied}
+      onCopyUser={userCopy.handleCopy}
+      copiedUser={userCopy.copied}
       onLike={() => { setLiked(!liked); setDisliked(false); }}
       onDislike={() => { setDisliked(!disliked); setLiked(false); }}
       onRetry={retryTask}

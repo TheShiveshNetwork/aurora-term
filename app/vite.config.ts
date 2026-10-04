@@ -16,6 +16,11 @@ export default defineConfig(async () => ({
   },
   plugins: [react(), tailwindcss()],
 
+  test: {
+    include: ["app/src/**/*.test.ts"],
+    environment: "node",
+  },
+
   optimizeDeps: {
     include: ["@babel/runtime/helpers/extends"],
   },

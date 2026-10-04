@@ -9,15 +9,13 @@ import { ProviderIcon } from "./ProviderIcon";
 export default function AISettingsView() {
   const context = useContext(SettingsContext);
   if (!context) return null;
-  const { draft, updateDraft, providerPage, setProviderPage } = context;
+  const { draft, setActiveProviderNow, providerPage, setProviderPage } = context;
 
   const activeProvider = draft.config.ai.active_provider as ProviderName;
   const providerNames = ProviderRegistry.getIds();
 
   const handleSetSelected = (name: ProviderName) => {
-    updateDraft((d) => {
-      d.config.ai.active_provider = name;
-    });
+    setActiveProviderNow(name);
   };
 
   return (

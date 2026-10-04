@@ -15,7 +15,7 @@ import {
   terminalShellTool,
   developerShellTool,
 } from '../src/tools/index';
-import { reviewSettings } from '../src/tools/helper';
+import { reviewSettings, getWorkspaceRoot, setWorkspaceRoot } from '../src/tools/helper';
 
 // ---------------------------------------------------------------------------
 // Type helpers
@@ -106,12 +106,36 @@ describe('Agent Tools Tests', () => {
       await writeFileTool.execute!({ path: relativePath, content: 'suspend write' }, context);
 
       expect(suspendMock).toHaveBeenCalledTimes(1);
+      // Absolute: the app must open, badge and snapshot the file the agent will
+      // really write, rather than re-resolving the relative path itself.
       expect(suspendMock.mock.calls[0][0]).toEqual({
-        path: relativePath,
+        path: filePath,
         content: 'suspend write',
         type: 'write',
       });
       // suspend() throws internally in Mastra; we just verify it was invoked correctly
+    });
+
+    it('suspends with the workspace-relative path resolved against the workspace root', async () => {
+      reviewSettings.requireReviewForWrites = true;
+      const previousRoot = getWorkspaceRoot();
+      const root = path.resolve(TEST_DIR, '..', '..');
+      setWorkspaceRoot(root);
+
+      try {
+        const suspendMock = vi.fn().mockReturnValue(undefined);
+        const context = {
+          agent: { suspend: suspendMock, resumeData: undefined },
+        } as any;
+
+        await writeFileTool.execute!({ path: 'nested/file.txt', content: 'x' }, context);
+
+        expect(suspendMock.mock.calls[0][0].path).toBe(
+          path.resolve(root, 'nested/file.txt'),
+        );
+      } finally {
+        setWorkspaceRoot(previousRoot);
+      }
     });
 
     it('should write file successfully when resumed and approved', async () => {

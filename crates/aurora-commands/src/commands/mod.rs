@@ -1,5 +1,6 @@
 pub mod pty_commands;
 pub mod history_commands;
+pub mod agent_session_commands;
 pub mod config_commands;
 pub mod state_commands;
 pub mod ai_commands;
@@ -13,6 +14,7 @@ pub mod update_commands;
 
 pub use pty_commands::*;
 pub use history_commands::*;
+pub use agent_session_commands::*;
 pub use config_commands::*;
 pub use state_commands::*;
 pub use ai_commands::*;

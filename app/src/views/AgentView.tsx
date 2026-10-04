@@ -11,12 +11,16 @@ import { useAgentExecution } from "../hooks/useAgentExecution";
 import { AgentHeroView } from "./AgentHeroView";
 import { AgentLeftPanel } from "../components/agents/AgentLeftPanel";
 import { MenuView, MenuViewItem } from "../components/ui/MenuView";
-import { StatusDrawer } from "../components/agents/StatusDrawer";
+import { StatusDrawer } from "../components/agents/StatusDrawer"; // eslint-disable-line @typescript-eslint/no-unused-vars -- re-enabled with the StatusDrawer block below
+import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { AgentPromptInput, AttachedFile } from "../components/agents/AgentPromptInput";
 import { useVoiceInput } from "../hooks/useVoiceInput";
 import { system } from "../lib/ipc";
 import { resolveSlashCommand } from "../lib/agentSlash";
 import { useSessionStore } from "../stores/useSessionStore";
+import { agentSessionRepository } from "../lib/agentSessions";
+import { useRevertTurn } from "../hooks/useRevertTurn";
+import { UNTITLED_SESSION } from "../lib/sessionTitle";
 
 // Import prompt-kit components
 import {
@@ -47,6 +51,11 @@ export function AgentView() {
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [tempTitle, setTempTitle] = useState("");
   const [showSubheaderMenu, setShowSubheaderMenu] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; title: string } | null>(null);
+  const [revertingMessageId, setRevertingMessageId] = useState<string | null>(null);
+  // A model picked on the hero view has nowhere to live until a session exists, so
+  // it is held here and applied to the session `ensureSession` creates.
+  const [pendingModel, setPendingModel] = useState("");
 
   // Left sidebar resizer states
   const MIN_LEFT_PANEL_WIDTH = 200;
@@ -91,6 +100,7 @@ export function AgentView() {
   const deleteAgentSession = useAgentStore((s) => s.deleteAgentSession);
 
   const targetSessionId = activeAgentSessionId;
+  const revertTurn = useRevertTurn();
 
   const { isListening, toggleListening } = useVoiceInput({
     onTranscript: (text) => setInput(text),
@@ -104,8 +114,9 @@ export function AgentView() {
     chatHistory,
     retryTask,
     approveAndRunPending,
-    declinePending,
+    declinePending, // eslint-disable-line @typescript-eslint/no-unused-vars -- only used by the disabled StatusDrawer
     skipPending,
+    stopAgentRun,
     submitAnswer,
     chainNodes,
     stepCount,
@@ -117,7 +128,29 @@ export function AgentView() {
   const sessionState = targetSessionId ? sessions[targetSessionId] || CONST_DEFAULT_SESSION_STATE : CONST_DEFAULT_SESSION_STATE;
   const isThinking = status === "planning" || status === "executing";
 
-  const selectedModel = sessionState.model || "";
+  const selectedModel = sessionState.model || pendingModel;
+
+  // Keyed by the message that was actually clicked, so copying a user message
+  // never ticks the agent's reply (they are separate clipboard actions).
+  const copyMessage = useCallback((messageId: string | undefined, content: string) => {
+    if (!messageId) return;
+    navigator.clipboard.writeText(content);
+    setCopiedStates((prev) => ({ ...prev, [messageId]: true }));
+    setTimeout(() => setCopiedStates((prev) => ({ ...prev, [messageId]: false })), 2000);
+  }, []);
+
+  const handleRevertTurn = useCallback(
+    async (userMessageId: string) => {
+      if (!targetSessionId || isThinking) return;
+      setRevertingMessageId(userMessageId);
+      try {
+        await revertTurn(targetSessionId, userMessageId);
+      } finally {
+        setRevertingMessageId(null);
+      }
+    },
+    [targetSessionId, isThinking, revertTurn],
+  );
 
   // Duration timer — derived from the store's `startedAt` so it survives
   // remounting when the window loses focus (otherwise it resets to 0).
@@ -144,11 +177,27 @@ export function AgentView() {
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [status, queue, startedAt]);
 
+  // A model picked on the hero view has nowhere to live until a session exists, so
+  // it is held here and applied to the session `ensureSession` creates.
   const handleModelChange = useCallback((model: string) => {
     if (targetSessionId) {
       useAgentStore.getState().setAgentModel(targetSessionId, model);
+    } else {
+      setPendingModel(model);
     }
   }, [targetSessionId]);
+
+  // The agent view starts with no session at all. This materializes one at the
+  // moment a message is actually sent, so opening the app or clicking "New
+  // Session" never leaves empty rows in history.
+  const ensureSession = useCallback(() => {
+    if (targetSessionId) return targetSessionId;
+    const sessionId = useAgentStore.getState().createAgentSession();
+    if (pendingModel) {
+      useAgentStore.getState().setAgentModel(sessionId, pendingModel);
+    }
+    return sessionId;
+  }, [targetSessionId, pendingModel]);
 
   const handleSend = useCallback(async () => {
     const trimmed = input.trim();
@@ -170,12 +219,13 @@ export function AgentView() {
       isTaskRunning: isThinking,
     });
     if (slash.handled) {
-      if (slash.assistantMessage && targetSessionId) {
+      if (slash.assistantMessage) {
+        const sessionId = ensureSession();
         const store = useAgentStore.getState();
-        store.addChatMessage(targetSessionId, { role: "user", content: trimmed, agentType: "developer" });
-        store.addChatMessage(targetSessionId, { role: "assistant", content: slash.assistantMessage, agentType: "developer" });
-      } else if (slash.goal && targetSessionId) {
-        startTask(slash.goal, "developer", selectedModel);
+        store.addChatMessage(sessionId, { role: "user", content: trimmed, agentType: "developer" });
+        store.addChatMessage(sessionId, { role: "assistant", content: slash.assistantMessage, agentType: "developer" });
+      } else if (slash.goal) {
+        startTask(slash.goal, "developer", selectedModel, ensureSession());
       }
       return;
     }
@@ -188,10 +238,8 @@ export function AgentView() {
       finalPrompt = `${trimmed}\n\nHere are some relevant files to reference:\n\n${fileContentsBlock}`;
     }
 
-    if (targetSessionId) {
-      startTask(finalPrompt, "developer", selectedModel);
-    }
-  }, [input, isThinking, attachedFiles, startTask, selectedModel, sessionState.pendingToolCall, submitAnswer, targetSessionId]);
+    startTask(finalPrompt, "developer", selectedModel, ensureSession());
+  }, [input, isThinking, attachedFiles, startTask, selectedModel, sessionState.pendingToolCall, submitAnswer, targetSessionId, ensureSession]);
 
   const handleHeroSend = useCallback(async (text: string, files?: AttachedFile[]) => {
     if (isThinking) return;
@@ -204,12 +252,13 @@ export function AgentView() {
       isTaskRunning: isThinking,
     });
     if (slash.handled) {
-      if (slash.assistantMessage && targetSessionId) {
+      if (slash.assistantMessage) {
+        const sessionId = ensureSession();
         const store = useAgentStore.getState();
-        store.addChatMessage(targetSessionId, { role: "user", content: text, agentType: "developer" });
-        store.addChatMessage(targetSessionId, { role: "assistant", content: slash.assistantMessage, agentType: "developer" });
-      } else if (slash.goal && targetSessionId) {
-        startTask(slash.goal, "developer", selectedModel);
+        store.addChatMessage(sessionId, { role: "user", content: text, agentType: "developer" });
+        store.addChatMessage(sessionId, { role: "assistant", content: slash.assistantMessage, agentType: "developer" });
+      } else if (slash.goal) {
+        startTask(slash.goal, "developer", selectedModel, ensureSession());
       }
       return;
     }
@@ -222,10 +271,8 @@ export function AgentView() {
       finalPrompt = `${text}\n\nHere are some relevant files to reference:\n\n${fileContentsBlock}`;
     }
 
-    if (targetSessionId) {
-      startTask(finalPrompt, "developer", selectedModel);
-    }
-  }, [isThinking, startTask, selectedModel, targetSessionId]);
+    startTask(finalPrompt, "developer", selectedModel, ensureSession());
+  }, [isThinking, startTask, selectedModel, targetSessionId, ensureSession]);
 
   const handleAttachFileClick = async () => {
     try {
@@ -353,27 +400,55 @@ export function AgentView() {
   }
   const lastTurnIndex = turns.length - 1;
 
+  const handleRename = (id: string, title: string) => {
+    renameAgentSession(id, title);
+    void agentSessionRepository.rename(id, title).catch(console.warn);
+  };
+
   // Save session title rename
   const saveRename = () => {
     if (targetSessionId && tempTitle.trim()) {
-      renameAgentSession(targetSessionId, tempTitle.trim());
+      handleRename(targetSessionId, tempTitle.trim());
     }
     setIsEditingTitle(false);
   };
 
+  // "New Session" is only the empty state — clearing the active id renders the hero
+  // view. The session record itself is created by `ensureSession` when a message
+  // is actually sent.
   const handleNewSession = () => {
-    const emptySession = Object.entries(sessions).find(([_, s]) => s.isAgentViewSession && s.chatHistory.length === 0);
-    if (emptySession) {
-      setActiveAgentSessionId(emptySession[0]);
-    } else {
-      createAgentSession("New Session");
-    }
+    setActiveAgentSessionId(null);
   };
 
-  // Previous Agent View Sessions
+  // Every agent-view session has a title (a random placeholder at worst), so the
+  // sidebar list needs no extra filter.
   const agentSessions = Object.entries(sessions)
-    .filter(([_, s]) => s.isAgentViewSession && s.chatHistory.length > 0)
-    .map(([id, s]) => ({ id, ...s }));
+    .filter(([_, s]) => s.isAgentViewSession)
+    .map(([id, s]) => ({
+      id,
+      title: s.title,
+      isNaming: s.titlePending === true,
+      // Grouped by creation time: `updatedAt` moves with run progress and would
+      // reshuffle the list on every reload.
+      updatedAt: s.createdAt ?? s.updatedAt ?? 0,
+    }));
+
+  // Deleting a session drops its transcript for good, so it is always confirmed.
+  const requestDelete = (id: string) => {
+    setPendingDelete({ id, title: sessions[id]?.title ?? "this session" });
+  };
+
+  const confirmDelete = useCallback(() => {
+    if (!pendingDelete) return;
+    const { id } = pendingDelete;
+    setPendingDelete(null);
+
+    deleteAgentSession(id);
+    void agentSessionRepository.remove(id).catch(console.warn);
+    // The sidecar thread is a derived cache, but leaving it behind would let a
+    // re-used id inherit stale LLM context.
+    void system.agentClearThread(id);
+  }, [pendingDelete, deleteAgentSession]);
 
   return (
     <FileUpload onFilesAdded={handleFilesAdded}>
@@ -408,8 +483,8 @@ export function AgentView() {
             agentSessions={agentSessions}
             targetSessionId={targetSessionId}
             setActiveAgentSessionId={setActiveAgentSessionId}
-            deleteAgentSession={deleteAgentSession}
-            renameAgentSession={renameAgentSession}
+            deleteAgentSession={requestDelete}
+            renameAgentSession={handleRename}
           />
         )}
 
@@ -454,7 +529,7 @@ export function AgentView() {
                     className="flex items-center gap-1 px-2.5 py-1 rounded-[10px] hover:bg-white/5 transition-colors cursor-pointer text-xs font-semibold text-on-surface border-none bg-transparent"
                     title="Session Actions"
                   >
-                    <span>{sessionState.title || "New Session"}</span>
+                    <span>{sessionState.title || UNTITLED_SESSION}</span>
                     <ChevronDown size={12} className="text-white/40" />
                   </button>
 
@@ -475,7 +550,7 @@ export function AgentView() {
                     <MenuViewItem
                       onClick={() => {
                         setShowSubheaderMenu(false);
-                        setTempTitle(sessionState.title || "New Session");
+                        setTempTitle(sessionState.title || UNTITLED_SESSION);
                         setIsEditingTitle(true);
                       }}
                     >
@@ -496,9 +571,12 @@ export function AgentView() {
                 onSend={handleHeroSend}
                 selectedModel={selectedModel}
                 onModelChange={handleModelChange}
-                sessionName={sessionState.title || "New Session"}
+                sessionName={sessionState.title || UNTITLED_SESSION}
+                hasSession={targetSessionId !== null}
                 onNewSession={handleNewSession}
-                onRenameSession={(newTitle) => targetSessionId && renameAgentSession(targetSessionId, newTitle)}
+                onRenameSession={(newTitle) =>
+                  targetSessionId && handleRename(targetSessionId, newTitle)
+                }
               />
             ) : (
               <>
@@ -519,12 +597,9 @@ export function AgentView() {
                           maxSteps={isLastTurn ? maxSteps : 0}
                           variant="full"
                           copied={!!copiedStates[turn.assistant?.id || ""]}
-                          onCopy={(content) => {
-                            navigator.clipboard.writeText(content);
-                            const id = turn.assistant?.id || "";
-                            setCopiedStates((p) => ({ ...p, [id]: true }));
-                            setTimeout(() => setCopiedStates((p) => ({ ...p, [id]: false })), 2000);
-                          }}
+                          onCopy={(content) => copyMessage(turn.assistant?.id, content)}
+                          copiedUser={!!copiedStates[turn.user?.id || ""]}
+                          onCopyUser={(content) => copyMessage(turn.user?.id, content)}
                           onLike={() => {
                             const id = turn.assistant?.id || "";
                             setLikeStates((p) => ({ ...p, [id]: !p[id] }));
@@ -536,6 +611,12 @@ export function AgentView() {
                             setLikeStates((p) => ({ ...p, [id]: false }));
                           }}
                           onRetry={retryTask}
+                          onRevert={
+                            turn.user && !isThinking
+                              ? () => handleRevertTurn(turn.user!.id)
+                              : undefined
+                          }
+                          isReverting={revertingMessageId === turn.user?.id}
                         />
                       );
                     })}
@@ -575,7 +656,9 @@ export function AgentView() {
                       className: "mb-3",
                     })}
 
-                    {/* Status Drawer inside Input container */}
+                    {/* Status Drawer inside Input container
+                    Disabled for now: the files-changed / commands / artifacts panel
+                    above the input bar is not wanted in this build.
                     {targetSessionId && showStatusDrawer && (
                       <StatusDrawer
                         sessionId={targetSessionId}
@@ -584,7 +667,7 @@ export function AgentView() {
                         onSkip={skipPending}
                         onSubmitAnswer={submitAnswer}
                       />
-                    )}
+                    )} */}
 
                     {/* Prompt Input Form */}
                     <AgentPromptInput
@@ -592,6 +675,7 @@ export function AgentView() {
                       onValueChange={setInput}
                       onSubmit={handleSend}
                       isLoading={isThinking}
+                      onStop={stopAgentRun}
                       attachedFiles={attachedFiles}
                       onRemoveFile={(idx) => setAttachedFiles(prev => prev.filter((_, i) => i !== idx))}
                       isListening={isListening}
@@ -612,6 +696,16 @@ export function AgentView() {
           </div>
         </div>
       </div>
+    <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Delete session?"
+        description={`"${pendingDelete?.title ?? ""}" and its entire transcript will be permanently deleted. This cannot be undone.`}
+        confirmLabel="Delete"
+        variant="danger"
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDelete(null)}
+      />
+
     </FileUpload>
   );
 }

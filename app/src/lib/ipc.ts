@@ -1,5 +1,20 @@
 import { invoke } from "@tauri-apps/api/core";
-import { ProviderName, UiState, SavedTab, ModelInfo, SearchResult } from "@aurora/types";
+import {
+  ProviderName,
+  UiState,
+  SavedTab,
+  ModelInfo,
+  SearchResult,
+  AgentMessageRecord,
+  AgentPruneOptions,
+  AgentPruneReport,
+  AgentProject,
+  AgentSessionHydration,
+  AgentSessionListItem,
+  AgentSessionPatch,
+  AgentSessionRecord,
+  AgentStorageStats,
+} from "@aurora/types";
 
 // ─── Config types mirrored from Rust side ────────────────────────────────
 export interface TerminalConfig {
@@ -406,7 +421,8 @@ export const system = {
     requireReviewForCommands?: boolean,
     requireReviewForWrites?: boolean,
     model?: string,
-    fileContext?: string
+    fileContext?: string,
+    projectId?: string
   ) =>
     invoke<AgentStepResult>("agent_plan_step", {
       taskId,
@@ -420,6 +436,7 @@ export const system = {
       requireReviewForWrites,
       model,
       fileContext,
+      projectId,
     }),
   agentUpdateSettings: (config: AppConfig) =>
     invoke<void>("agent_update_settings", { config }),
@@ -491,6 +508,10 @@ export const system = {
       message,
       model,
     }),
+  agentSetWorkspace: (cwd: string) =>
+    invoke<void>("agent_set_workspace", { cwd }),
+  agentGetWorkspace: () =>
+    invoke<{ workspaceRoot: string; processCwd: string }>("agent_get_workspace"),
   agentSkills: (cwd?: string) =>
     invoke<AgentSkillsResult>("agent_skills", { cwd }),
   agentMcp: (cwd?: string) =>
@@ -575,4 +596,35 @@ export const system = {
     invoke<string>("git_exec", { cwd, args }),
   gitIsRepo: (cwd: string) =>
     invoke<boolean>("git_is_repo", { cwd }),
+};
+
+export const agentSessions = {
+  openProject: (path: string, label?: string) =>
+    invoke<AgentProject>("agent_session_open_project", { path, label }),
+  hydrate: (path: string, label?: string) =>
+    invoke<AgentSessionHydration>("agent_session_hydrate", { path, label }),
+  list: (projectId: string, includeArchived?: boolean, limit?: number) =>
+    invoke<AgentSessionListItem[]>("agent_session_list", {
+      projectId,
+      includeArchived,
+      limit,
+    }),
+  upsert: (patch: AgentSessionPatch) =>
+    invoke<AgentSessionRecord>("agent_session_upsert", { patch }),
+  rename: (id: string, title: string) =>
+    invoke<void>("agent_session_rename", { id, title }),
+  setPinned: (id: string, pinned: boolean) =>
+    invoke<void>("agent_session_set_pinned", { id, pinned }),
+  setArchived: (id: string, archived: boolean) =>
+    invoke<void>("agent_session_set_archived", { id, archived }),
+  replaceMessages: (sessionId: string, messages: AgentMessageRecord[]) =>
+    invoke<void>("agent_session_replace_messages", { sessionId, messages }),
+  load: (id: string) =>
+    invoke<[AgentSessionRecord, AgentMessageRecord[]] | null>("agent_session_load", { id }),
+  remove: (id: string) => invoke<void>("agent_session_delete", { id }),
+  removeProject: (projectId: string) =>
+    invoke<void>("agent_session_delete_project", { projectId }),
+  stats: () => invoke<AgentStorageStats>("agent_session_storage_stats"),
+  prune: (options: AgentPruneOptions = {}) =>
+    invoke<AgentPruneReport>("agent_session_prune", { input: options }),
 };

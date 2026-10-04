@@ -10,6 +10,7 @@ import { useAppBootstrap } from "../hooks/useAppBootstrap";
 import { useCommandExecution } from "../hooks/useCommandExecution";
 import { useAgentExecution } from "../hooks/useAgentExecution";
 import { usePersistUIState } from "../hooks/usePersistUIState";
+import { useAgentSessionPersistence } from "../hooks/useAgentSessionPersistence";
 import { useWindowClamp } from "../hooks/useWindowClamp";
 import { useKeybindings } from "../hooks/useKeybindings";
 import { useAppShellStore } from "../stores/useAppShellStore";
@@ -50,6 +51,7 @@ export function AppShellView() {
   usePersistUIState();
   useWindowClamp();
   useKeybindings();
+  useAgentSessionPersistence();
 
 
   const {
@@ -90,19 +92,11 @@ export function AppShellView() {
   } = useAppShellStore(s => s);
 
   const activeAgentSessionId = useAgentStore((state) => state.activeAgentSessionId);
-  const createAgentSession = useAgentStore((state) => state.createAgentSession);
 
-  useEffect(() => {
-    const store = useAgentStore.getState();
-    const sessionsList = Object.entries(store.sessions).filter(([_, s]) => s.isAgentViewSession);
-    if (!store.activeAgentSessionId) {
-      if (sessionsList.length > 0) {
-        store.setActiveAgentSessionId(sessionsList[0][0]);
-      } else {
-        createAgentSession("Welcome Chat");
-      }
-    }
-  }, [createAgentSession]);
+  // Agent view sessions are created lazily, on the first message sent from the
+  // hero view. The only job here is landing on the most recent restored chat
+  // once hydration finishes; with no history at all the agent view stays on the
+  // hero view until the user types something.
 
   // Surface settings save/apply failures forwarded from the settings window.
   useEffect(() => {

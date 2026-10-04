@@ -1,7 +1,30 @@
 import { create } from "zustand";
+import type { AgentTitleSource } from "@aurora/types";
 import { formatTauriError } from "../lib/utils";
 import { notifyError, notifyInfo } from "../lib/notify";
+import { generatePlaceholderTitle } from "../lib/sessionTitle";
 
+
+/**
+ * A single file the agent wrote during one turn, captured with the content that
+ * existed immediately before the write. This is the only reliable way to undo a
+ * turn: the sidecar discards the previous bytes after writing, and the session's
+ * cumulative `filesChanged` list dedupes by path so it cannot answer "what did
+ * *this* message change".
+ */
+export interface TurnFileChange {
+  path: string;
+  /** null means the file did not exist and the write created it. */
+  previousContent: string | null;
+  /**
+   * Content the agent's write actually produced, captured after the write. Undo
+   * compares against this rather than against `previousContent`: for any real
+   * write the two always differ, so comparing to it would refuse every revert.
+   * `undefined` means the write predates this field and could not be verified.
+   */
+  writtenContent?: string | null;
+  toolName: string;
+}
 
 export interface ChatMessage {
   id: string;
@@ -11,6 +34,8 @@ export interface ChatMessage {
   isError?: boolean;
   durationMs?: number;
   chainNodes?: ChainNode[];
+  /** Only on assistant messages: the writes this turn performed. */
+  fileChanges?: TurnFileChange[];
   agentLogs?: AgentLog[];
   subagent?: string | null;
   agentType?: "terminal" | "developer";
@@ -90,6 +115,8 @@ export interface SessionAgentState {
     url: string;
     status: "active" | "closed";
   }>;
+  /** Writes staged for the turn currently in flight; drained into its message. */
+  pendingFileChanges: TurnFileChange[];
   pendingToolCall: {
     runId: string;
     toolCallId: string;
@@ -99,7 +126,19 @@ export interface SessionAgentState {
   model?: string;
   isAgentViewSession?: boolean;
   title?: string;
+  /** Who produced `title`. Precedence is manual > model > heuristic. */
+  titleSource?: AgentTitleSource;
+  /** True while the agent is trying to produce a better title. */
+  titlePending?: boolean;
   startedAt?: number;
+  /** Session creation time. Stable, and what the sidebar groups by. */
+  createdAt?: number;
+  /** Last meaningful change (title, goal, model, transcript). */
+  updatedAt?: number;
+  /** True once the agent has been asked to name this session. */
+  titleAttempted?: boolean;
+  pinned?: boolean;
+  archived?: boolean;
 }
 
 export const CONST_DEFAULT_SESSION_STATE: SessionAgentState = {
@@ -126,6 +165,7 @@ export const CONST_DEFAULT_SESSION_STATE: SessionAgentState = {
   activeTerminals: [],
   artifactsCreated: [],
   browserSessions: [],
+  pendingFileChanges: [],
   pendingToolCall: null,
   startedAt: undefined,
 };
@@ -140,6 +180,7 @@ export const defaultSessionState = (): SessionAgentState => ({
   activeTerminals: [],
   artifactsCreated: [],
   browserSessions: [],
+  pendingFileChanges: [],
 });
 
 interface AgentStore {
@@ -168,6 +209,16 @@ interface AgentStore {
   updateChainNode: (sessionId: string, id: string, updates: Partial<ChainNode>) => void;
 
   addChatMessage: (sessionId: string, msg: Omit<ChatMessage, "id" | "timestamp">) => void;
+  /** Stages a write against the in-flight turn so it can be undone later. */
+  stageFileChange: (sessionId: string, change: TurnFileChange) => void;
+  clearPendingFileChanges: (sessionId: string) => void;
+  /** Records what a write actually produced, so undo can detect later edits. */
+  captureWrittenContent: (sessionId: string, path: string, content: string | null) => void;
+  /**
+   * Removes a user message and the assistant reply that followed it, restoring
+   * the chain-of-thought view to the newest surviving turn.
+   */
+  removeTurn: (sessionId: string, userMessageId: string) => void;
 
   setActiveSubagent: (sessionId: string, subagent: string | null) => void;
   incrementStep: (sessionId: string) => void;
@@ -189,7 +240,14 @@ interface AgentStore {
   setActiveAgentSessionId: (id: string | null) => void;
   createAgentSession: (title?: string) => string;
   renameAgentSession: (sessionId: string, title: string) => void;
+  /** Applies a model-written title unless the user already renamed the session. */
+  applyGeneratedTitle: (sessionId: string, title: string) => boolean;
+  setTitlePending: (sessionId: string, pending: boolean) => void;
+  /** Records that a naming attempt was made so it is not retried on every launch. */
+  markTitleAttempted: (sessionId: string) => void;
   deleteAgentSession: (sessionId: string) => void;
+  /** Inserts sessions restored from disk without clobbering live ones. */
+  hydrateSessions: (sessions: Record<string, SessionAgentState>) => void;
 }
 
 // ── sanitizeMessage ───────────────────────────────────────────────────────
@@ -277,6 +335,25 @@ function genId() {
   return Math.random().toString(36).substring(2, 10);
 }
 
+/**
+ * Fields that represent something the user or the agent actually did. Anything
+ * outside this set is run-progress or UI state — thinking buffers, chain nodes,
+ * drawer tabs, the transient title-pending flag — which changes constantly and
+ * must not advance "last meaningful activity", or every launch would drag the
+ * whole history into Today.
+ */
+const MEANINGFUL_KEYS = new Set([
+  "title",
+  "titleSource",
+  "summary",
+  "goal",
+  "model",
+  "agentType",
+  "agentMode",
+  "chatHistory",
+  "pendingFileChanges",
+]);
+
 const updateSession = (
   set: any,
   sessionId: string,
@@ -285,26 +362,39 @@ const updateSession = (
   set((state: any) => {
     const prev = state.sessions[sessionId] || defaultSessionState();
     const nextFields = typeof updates === "function" ? updates(prev) : updates;
+    const meaningful = Object.keys(nextFields).some((key) => MEANINGFUL_KEYS.has(key));
     return {
       sessions: {
         ...state.sessions,
-        [sessionId]: { ...prev, ...nextFields },
+        [sessionId]: {
+          ...prev,
+          ...nextFields,
+          updatedAt: nextFields.updatedAt ?? (meaningful ? Date.now() : prev.updatedAt),
+        },
       },
     };
   });
 };
 
-export const useAgentStore = create<AgentStore>((set) => ({
+export const useAgentStore = create<AgentStore>((set, get) => ({
   sessions: {},
   activeAgentSessionId: null,
   setActiveAgentSessionId: (id) => set({ activeAgentSessionId: id }),
 
   createAgentSession: (title) => {
     const id = "agent-session-" + genId();
+    const now = Date.now();
     const newSession: SessionAgentState = {
       ...defaultSessionState(),
       isAgentViewSession: true,
-      title: title || "New Session",
+      // Placeholder until the agent names the session.
+      title: title || generatePlaceholderTitle(),
+      titleSource: title ? "manual" : "placeholder",
+      // Stamped up front so a session that never receives a message still has a
+      // time to sort and group by in the sidebar.
+      startedAt: now,
+      createdAt: now,
+      updatedAt: now,
     };
     set((state) => ({
       sessions: {
@@ -317,8 +407,45 @@ export const useAgentStore = create<AgentStore>((set) => ({
   },
 
   renameAgentSession: (sessionId, title) => {
-    updateSession(set, sessionId, { title });
+    updateSession(set, sessionId, { title, titleSource: "manual" });
   },
+
+  applyGeneratedTitle: (sessionId, title) => {
+    const current = get().sessions[sessionId];
+    if (!current) return false;
+    if (current.titleSource === "manual") return false;
+    if (current.titleSource === "model") return false;
+    updateSession(set, sessionId, { title, titleSource: "model", titlePending: false });
+    return true;
+  },
+
+  setTitlePending: (sessionId, pending) => {
+    const current = get().sessions[sessionId];
+    if (!current || current.titlePending === pending) return;
+    updateSession(set, sessionId, { titlePending: pending });
+  },
+
+  markTitleAttempted: (sessionId) => {
+    const current = get().sessions[sessionId];
+    if (!current || current.titleAttempted) return;
+    updateSession(set, sessionId, { titleAttempted: true });
+  },
+
+  hydrateSessions: (restored) =>
+    set((state) => {
+      const next = { ...state.sessions };
+      let changed = false;
+      for (const [id, session] of Object.entries(restored)) {
+        // Never overwrite a live session: it holds in-flight run state that is
+        // not on disk yet.
+        if (next[id]) continue;
+        next[id] = session;
+        changed = true;
+      }
+      if (!changed) return state;
+      const active = state.activeAgentSessionId ?? Object.keys(next)[0] ?? null;
+      return { sessions: next, activeAgentSessionId: active };
+    }),
 
   deleteAgentSession: (sessionId) => {
     set((state) => {
@@ -346,6 +473,7 @@ export const useAgentStore = create<AgentStore>((set) => ({
       conclusionThinking: "",
       startedAt: Date.now(),
       agentLogs: [{ timestamp: Date.now(), type: "plan", content: `Starting task: ${goal}` }],
+      pendingFileChanges: [],
       chainNodes: [
         {
           id: genId(),
@@ -358,7 +486,8 @@ export const useAgentStore = create<AgentStore>((set) => ({
       ],
       lastMessage: null,
       activeSubagent: null,
-      title: prev.title === "New Session" || !prev.title ? `Session-${Math.floor(1000 + Math.random() * 9000)}` : prev.title,
+      // `clearTask` strips the title, so re-seed a placeholder here.
+      ...(prev.title ? {} : { title: generatePlaceholderTitle(), titleSource: "placeholder" as const }),
     })),
 
   pauseTask: (sessionId) => updateSession(set, sessionId, { status: "paused" }),
@@ -537,6 +666,52 @@ export const useAgentStore = create<AgentStore>((set) => ({
         { ...msg, id: genId(), timestamp: Date.now() },
       ],
     })),
+
+  stageFileChange: (sessionId, change) =>
+    updateSession(set, sessionId, (prev) => ({
+      // Latest write per path wins: undoing must restore the content that
+      // existed before *this* turn, not before an earlier turn's write.
+      pendingFileChanges: [
+        ...prev.pendingFileChanges.filter((c) => c.path !== change.path),
+        change,
+      ],
+    })),
+
+  clearPendingFileChanges: (sessionId) =>
+    updateSession(set, sessionId, { pendingFileChanges: [] }),
+
+  captureWrittenContent: (sessionId, path, content) =>
+    updateSession(set, sessionId, (prev) => ({
+      pendingFileChanges: prev.pendingFileChanges.map((change) =>
+        change.path === path ? { ...change, writtenContent: content } : change,
+      ),
+    })),
+
+  removeTurn: (sessionId, userMessageId) => {
+    const current = get().sessions[sessionId];
+    if (!current) return;
+
+    const index = current.chatHistory.findIndex((m) => m.id === userMessageId);
+    if (index === -1) return;
+
+    const reply = current.chatHistory[index + 1];
+    const drop = new Set([userMessageId]);
+    if (reply?.role === "assistant") drop.add(reply.id);
+
+    const chatHistory = current.chatHistory.filter((m) => !drop.has(m.id));
+    const lastAssistant = [...chatHistory].reverse().find((m) => m.role === "assistant");
+
+    updateSession(set, sessionId, {
+      chatHistory,
+      chainNodes: lastAssistant?.chainNodes ?? [
+        { id: genId(), type: "planning", label: "Planning", subLabel: "", status: "active", content: "" },
+      ],
+      status: "idle",
+      conclusionThinking: "",
+      lastMessage: null,
+      activeSubagent: null,
+    });
+  },
 
   setActiveSubagent: (sessionId, subagent) =>
     updateSession(set, sessionId, { activeSubagent: subagent }),

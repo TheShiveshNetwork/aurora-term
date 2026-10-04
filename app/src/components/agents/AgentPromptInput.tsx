@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Plus, ChevronDown, Mic, Paperclip, ArrowUp, X, Ellipsis } from "lucide-react";
+import { Plus, ChevronDown, Mic, Paperclip, ArrowUp, Square, X, Ellipsis } from "lucide-react"; // eslint-disable-line @typescript-eslint/no-unused-vars -- Ellipsis is used by the commented-out status-drawer toggle below
 import {
   PromptInput,
   PromptInputTextarea,
@@ -36,6 +36,8 @@ interface AgentPromptInputProps {
   onSelect?: () => void;
   selectedModel?: string;
   onModelChange?: (model: string) => void;
+  /** Aborts an in-flight generation; the input swaps its send button for this. */
+  onStop?: () => void;
   showStatusDrawer?: boolean;
   onToggleStatusDrawer?: () => void;
 }
@@ -62,6 +64,7 @@ export function AgentPromptInput({
   onSelect,
   selectedModel = "",
   onModelChange,
+  onStop,
   showStatusDrawer = false,
   onToggleStatusDrawer,
 }: AgentPromptInputProps) {
@@ -168,7 +171,7 @@ export function AgentPromptInput({
                 </button>
 
                 {isOpen && (
-                  <div className="absolute bottom-full left-0 mb-1 w-48 bg-[#0F131A] border border-white/[0.08] rounded-lg shadow-2xl p-1.5 z-50 flex flex-col gap-0.5">
+                  <div className="absolute bottom-full left-0 mb-1 w-48 bg-[#0F131A]/60 backdrop-blur-xl backdrop-saturate-150 border border-white/[0.10] rounded-lg shadow-2xl shadow-black/40 p-1.5 z-50 flex flex-col gap-0.5">
                     {availableModels.map((model) => (
                       <button
                         key={model}
@@ -192,6 +195,9 @@ export function AgentPromptInput({
                 No model <ChevronDown size={12} />
               </button>
             )}
+            {/* TODO(aurora): reinstate the status-drawer toggle once the drawer is
+            re-enabled in the agent view. Currently commented out because the
+            files-changed / commands / artifacts panel is disabled there.
             {onToggleStatusDrawer && (
               <PromptInputAction tooltip={showStatusDrawer ? "Hide Status Drawer" : "Show Status Drawer"}>
                 <button
@@ -201,7 +207,7 @@ export function AgentPromptInput({
                   <Ellipsis size={16} />
                 </button>
               </PromptInputAction>
-            )}
+            )} */}
 
             {/* {showModeSelector && setAgentMode && agentMode && (
               <div className="flex items-center gap-1 ml-2">
@@ -240,15 +246,27 @@ export function AgentPromptInput({
               </button>
             </PromptInputAction>
 
-            <PromptInputAction tooltip="Send to Agent">
-              <button
-                onClick={onSubmit}
-                disabled={!value.trim() || isLoading}
-                className="flex items-center justify-center w-9 h-9 bg-[#4F8CFF] border-none rounded-lg cursor-pointer shrink-0 transition-all duration-150 hover:bg-[#3A7AEE] disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <ArrowUp size={18} />
-              </button>
-            </PromptInputAction>
+            {isLoading && onStop ? (
+              <PromptInputAction tooltip="Stop generating">
+                <button
+                  onClick={onStop}
+                  aria-label="Stop generating"
+                  className="flex items-center justify-center w-9 h-9 bg-white/[0.10] hover:bg-white/[0.16] border-none rounded-lg cursor-pointer shrink-0 transition-all duration-150"
+                >
+                  <Square size={14} className="fill-white text-white" />
+                </button>
+              </PromptInputAction>
+            ) : (
+              <PromptInputAction tooltip="Send to Agent">
+                <button
+                  onClick={onSubmit}
+                  disabled={!value.trim() || isLoading}
+                  className="flex items-center justify-center w-9 h-9 bg-[#4F8CFF] border-none rounded-lg cursor-pointer shrink-0 transition-all duration-150 hover:bg-[#3A7AEE] disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <ArrowUp size={18} />
+                </button>
+              </PromptInputAction>
+            )}
           </div>
         </PromptInputActions>
       </PromptInput>

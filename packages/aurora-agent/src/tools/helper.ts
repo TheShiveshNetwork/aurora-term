@@ -6,15 +6,26 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// The workspace root is set from the app (POST /api/workspace) when a project is
+// opened. It cannot be assumed to equal process.cwd(): in dev the sidecar is
+// spawned with `pnpm --dir packages/aurora-agent`, so cwd is the package folder
+// and every relative tool path would resolve inside it instead of the project.
+let workspaceRoot = process.cwd();
+
+export function setWorkspaceRoot(root: string): void {
+  if (root && path.isAbsolute(root)) {
+    workspaceRoot = root;
+  }
+}
+
+export function getWorkspaceRoot(): string {
+  return workspaceRoot;
+}
+
 export function safeResolve(filePath: string): string {
-  // If the caller already gave an absolute path (the FILE CONTEXT block does),
-  // return it verbatim — do not re-resolve against process.cwd() which may be
-  // the aurora-agent package directory in dev (pnpm --dir ...) rather than the
-  // user's workspace root. For relative paths, resolve against the current
-  // working directory; this keeps tests and relative tool calls working while
-  // preserving the correct absolute path when the agent follows the context.
+  // An absolute path (the FILE CONTEXT block supplies these) is kept verbatim.
   if (path.isAbsolute(filePath)) return path.normalize(filePath);
-  return path.resolve(process.cwd(), filePath);
+  return path.resolve(workspaceRoot, filePath);
 }
 
 /** Normalizes line endings to LF for reliable string comparison across win32/POSIX. */

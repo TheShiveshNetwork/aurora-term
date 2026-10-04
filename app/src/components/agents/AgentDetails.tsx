@@ -1,14 +1,11 @@
 import { useState, useEffect, useRef } from "react";
-import {
-  X,
-  Cpu,
-  CheckCircle,
-  AlertCircle,
-  FileText
-} from "lucide-react";
+import { X } from "lucide-react";
 import { useAgentStore, CONST_DEFAULT_SESSION_STATE } from "../../stores/useAgentStore";
 import { useAgentExecution } from "../../hooks/useAgentExecution";
 import { makeApprovalCard } from "./ToolApprovalCard";
+import { dirnameOf, projectRelativePath, resolveExistingAgentPath } from "../../lib/agentPaths";
+import { system } from "../../lib/ipc";
+import { changeBadge } from "../../lib/changeBadge";
 
 interface AgentDetailsProps {
   sessionId: string | null;
@@ -70,11 +67,59 @@ export function AgentDetails({ sessionId, onClose }: AgentDetailsProps) {
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [status, queue]);
 
-  const handleOpenFile = (path: string) => {
-    window.dispatchEvent(new CustomEvent("aurora-open-file-path", { detail: { path } }));
+  const filesChanged = sessionState.filesChanged || [];
+
+  // A/M come from the tool the agent used. D cannot be inferred from a missing
+  // path, because no agent tool deletes files — absence almost always means the
+  // path was recorded against a different base. So each path is probed against
+  // every base the agent could have used, and D is only shown when the resolved
+  // path's parent directory exists: we are looking in the right place and the
+  // file really is gone.
+  const pathSignature = filesChanged.map((f) => f.path).join("\u0000");
+  const [resolved, setResolved] = useState<
+    Map<string, { path: string; exists: boolean; parentExists: boolean }>
+  >(new Map());
+
+  useEffect(() => {
+    if (filesChanged.length === 0) {
+      setResolved(new Map());
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const sidecarCwd = (await system.agentGetWorkspace().catch(() => null))?.processCwd ?? "";
+      const entries = await Promise.all(
+        filesChanged.map(async (file): Promise<[string, { path: string; exists: boolean; parentExists: boolean }]> => {
+          const outcome = await resolveExistingAgentPath(file.path, [sidecarCwd]);
+          const parent = dirnameOf(outcome.path);
+          const parentExists = parent
+            ? await system.pathExists(parent).catch(() => false)
+            : true;
+          return [file.path, { ...outcome, parentExists }];
+        }),
+      );
+      if (cancelled) return;
+      setResolved(new Map(entries));
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathSignature]);
+
+  const badgeFor = (file: (typeof filesChanged)[number]) => {
+    const hit = resolved.get(file.path);
+    return changeBadge(file, hit?.exists === false && hit.parentExists);
   };
 
-  const filesChanged = sessionState.filesChanged || [];
+  const handleOpenFile = async (path: string) => {
+    const sidecarCwd = (await system.agentGetWorkspace().catch(() => null))?.processCwd ?? "";
+    const outcome = await resolveExistingAgentPath(path, [sidecarCwd]);
+    window.dispatchEvent(
+      new CustomEvent("aurora-open-file-path", { detail: { path: outcome.path } }),
+    );
+  };
+
 
   return (
     <div className="flex flex-col h-full w-full bg-transparent overflow-hidden">
@@ -102,8 +147,8 @@ export function AgentDetails({ sessionId, onClose }: AgentDetailsProps) {
       {/* Details Content */}
       <div className="flex-1 overflow-y-auto scrollbar-thin px-4 py-4 space-y-5 text-xs text-on-surface-variant/80 select-text">
 
-        {/* Section: Step Budget */}
-        <div className="space-y-3">
+        {/* TODO: implement provider based tokens usage */}
+        {/* <div className="space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold tracking-wider text-white/40">Tokens Usage</span>
           </div>
@@ -116,11 +161,11 @@ export function AgentDetails({ sessionId, onClose }: AgentDetailsProps) {
           <p className="text-xs text-white/30">
             The agent will pause execution for approval when it reaches the step budget limit.
           </p>
-        </div>
+        </div> */}
 
         {/* Section: Files Modified */}
         <div className="space-y-2">
-          <div className="text-xs font-bold tracking-wider text-white/40">
+          <div className="text-xs font-bold tracking-wider text-white/40 select-none">
             Files Modified ({filesChanged.length})
           </div>
           {filesChanged.length === 0 ? (
@@ -128,35 +173,25 @@ export function AgentDetails({ sessionId, onClose }: AgentDetailsProps) {
               No files modified in this session yet.
             </div>
           ) : (
-            <div className="space-y-2">
-              {filesChanged.map((file, idx) => {
-                const baseName = file.path.split(/[/\\]/).pop() || file.path;
+            <div className="rounded-sm border border-white/[0.06] overflow-hidden divide-y divide-white/[0.05]">
+{filesChanged.map((file, idx) => {
+                const badge = badgeFor(file);
+                const relative = projectRelativePath(file.path);
                 return (
                   <div
-                    key={idx}
+                    key={`${file.path}-${idx}`}
                     onClick={() => handleOpenFile(file.path)}
-                    className="flex flex-col rounded-xl border border-white/[0.04] bg-white/[0.01] hover:bg-white/[0.03] transition-colors cursor-pointer select-none"
+                    title={`${badge.label} — ${file.path}`}
+                    className="flex items-center gap-2 px-3 py-2 hover:bg-white/[0.03] transition-colors cursor-pointer select-none"
                   >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <FileText size={12} className="text-primary shrink-0" />
-                        <span className="text-xs font-mono font-medium text-on-surface truncate" title={file.path}>
-                          {baseName}
-                        </span>
-                      </div>
-                      <span
-                        className={`text-xs font-bold tracking-wide px-1.5 py-0.5 rounded-sm shrink-0 ${file.status === "approved"
-                          ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                          : file.status === "rejected"
-                            ? "bg-red-500/10 text-red-400 border border-red-500/20"
-                            : "bg-blue-500/10 text-blue-400 border border-blue-500/20"
-                          }`}
-                      >
-                        {file.type || "patch"}
-                      </span>
-                    </div>
-                    <span className="text-xs text-white/30 truncate mt-1 pl-4" title={file.path}>
-                      {file.path}
+                    <span
+                      aria-label={badge.label}
+                      className={`grid place-items-center w-[15px] h-[15px] shrink-0 rounded-[3px] text-[9px] font-bold leading-none ${badge.tone}`}
+                    >
+                      {badge.letter}
+                    </span>
+                    <span className="text-xs font-mono font-medium text-on-surface truncate">
+                      {relative || file.path}
                     </span>
                   </div>
                 );

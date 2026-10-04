@@ -21,6 +21,7 @@ pub struct AgentStepRequest {
     pub require_review_for_writes: Option<bool>,
     pub model: Option<String>,
     pub file_context: Option<String>,
+    pub project_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -203,6 +204,7 @@ pub async fn agent_plan_step(
     require_review_for_writes: Option<bool>,
     model: Option<String>,
     file_context: Option<String>,
+    project_id: Option<String>,
 ) -> Result<AgentStepResponse, AppError> {
     let port = {
         let sidecar = state.sidecar.lock().await;
@@ -237,6 +239,7 @@ pub async fn agent_plan_step(
         require_review_for_writes,
         model,
         file_context,
+        project_id,
     };
 
     let response = client.post(&url)
@@ -310,6 +313,208 @@ pub async fn agent_clear_thread(
 
     let _ = client
         .delete(&url)
+        .send()
+        .await;
+
+    Ok(())
+}
+
+// Field names must stay snake_case: this is serialized straight into the
+// sidecar's JSON body, and `/api/session/title` destructures `session_id` /
+// `project_id`. Every other sidecar payload here is snake_case for the same
+// reason.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AgentSessionTitleRequest {
+    pub session_id: String,
+    pub project_id: String,
+    pub goal: String,
+    pub model: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AgentSessionTitleResponse {
+    pub status: String,
+    pub title: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentWorkspaceInfo {
+    pub workspace_root: String,
+    pub process_cwd: String,
+}
+
+/// Reports where the agent resolves relative paths, so the app can locate files
+/// the agent wrote even when a stored path was recorded against a different base.
+#[command]
+pub async fn agent_get_workspace(
+    state: State<'_, AppState>,
+) -> Result<AgentWorkspaceInfo, AppError> {
+    let port = {
+        let sidecar = state.sidecar.lock().await;
+        sidecar
+            .port()
+            .ok_or_else(|| AppError::Sidecar("aurora-agent is not running".to_string()))?
+    };
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|e| AppError::Sidecar(format!("Failed to create HTTP client: {}", e)))?;
+    let url = format!("http://127.0.0.1:{}/api/workspace", port);
+
+    client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| AppError::Sidecar(format!("Failed to contact aurora-agent: {}", e)))?
+        .json::<AgentWorkspaceInfo>()
+        .await
+        .map_err(|e| AppError::Sidecar(format!("Failed to parse aurora-agent response: {}", e)))
+}
+
+/// Points the agent at the open project directory so relative tool paths resolve
+/// against the user's workspace instead of the sidecar's own working directory.
+#[command]
+pub async fn agent_set_workspace(state: State<'_, AppState>, cwd: String) -> Result<(), AppError> {
+    let port = {
+        let sidecar = state.sidecar.lock().await;
+        sidecar
+            .port()
+            .ok_or_else(|| AppError::Sidecar("aurora-agent is not running".to_string()))?
+    };
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|e| AppError::Sidecar(format!("Failed to create HTTP client: {}", e)))?;
+    let url = format!("http://127.0.0.1:{}/api/workspace", port);
+
+    let _ = client.post(&url).json(&serde_json::json!({ "cwd": cwd })).send().await;
+    Ok(())
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AgentTranscribeRequest {
+    pub audio_base64: String,
+    pub mime_type: Option<String>,
+    pub language: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AgentTranscribeResponse {
+    pub status: String,
+    pub text: Option<String>,
+    pub message: Option<String>,
+}
+
+/// Transcribes recorded audio via the sidecar, which forwards it to the user's
+/// configured speech-to-text provider.
+#[command]
+pub async fn agent_transcribe(
+    state: State<'_, AppState>,
+    request: AgentTranscribeRequest,
+) -> Result<AgentTranscribeResponse, AppError> {
+    let port = {
+        let sidecar = state.sidecar.lock().await;
+        sidecar
+            .port()
+            .ok_or_else(|| AppError::Sidecar("aurora-agent is not running".to_string()))?
+    };
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(90))
+        .build()
+        .map_err(|e| AppError::Sidecar(format!("Failed to create HTTP client: {}", e)))?;
+    let url = format!("http://127.0.0.1:{}/api/transcribe", port);
+
+    let response = client
+        .post(&url)
+        .json(&request)
+        .send()
+        .await
+        .map_err(|e| AppError::Sidecar(format!("Failed to contact aurora-agent: {}", e)))?;
+
+    if !response.status().is_success() {
+        return Err(AppError::Sidecar(format!(
+            "aurora-agent API returned error status: {}",
+            response.status()
+        )));
+    }
+
+    response
+        .json::<AgentTranscribeResponse>()
+        .await
+        .map_err(|e| AppError::Sidecar(format!("Failed to parse aurora-agent response: {}", e)))
+}
+
+/// Asks the sidecar to turn a session's opening goal into a short title. The
+/// sidecar writes the result onto the Mastra thread (title + project metadata)
+/// and returns it; the frontend then persists it as the session title. Failures
+/// are non-fatal — the caller keeps the locally derived heuristic title.
+#[command]
+pub async fn agent_session_title(
+    state: State<'_, AppState>,
+    request: AgentSessionTitleRequest,
+) -> Result<AgentSessionTitleResponse, AppError> {
+    let port = {
+        let sidecar = state.sidecar.lock().await;
+        sidecar
+            .port()
+            .ok_or_else(|| AppError::Sidecar("aurora-agent is not running".to_string()))?
+    };
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .map_err(|e| AppError::Sidecar(format!("Failed to create HTTP client: {}", e)))?;
+    let url = format!("http://127.0.0.1:{}/api/session/title", port);
+
+    let response = client
+        .post(&url)
+        .json(&request)
+        .send()
+        .await
+        .map_err(|e| AppError::Sidecar(format!("Failed to contact aurora-agent: {}", e)))?;
+
+    if !response.status().is_success() {
+        return Err(AppError::Sidecar(format!(
+            "aurora-agent API returned error status: {}",
+            response.status()
+        )));
+    }
+
+    response
+        .json::<AgentSessionTitleResponse>()
+        .await
+        .map_err(|e| AppError::Sidecar(format!("Failed to parse aurora-agent response: {}", e)))
+}
+
+/// Tags a Mastra thread with the owning project so per-project thread listings
+/// and the durable thread mirror can be scoped. Fire-and-forget: a failure only
+/// means the thread loses its project label, not that the session breaks.
+#[command]
+pub async fn agent_session_attach_thread(
+    state: State<'_, AppState>,
+    session_id: String,
+    project_id: String,
+) -> Result<(), AppError> {
+    let port = {
+        let sidecar = state.sidecar.lock().await;
+        sidecar
+            .port()
+            .ok_or_else(|| AppError::Sidecar("aurora-agent is not running".to_string()))?
+    };
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|e| AppError::Sidecar(format!("Failed to create HTTP client: {}", e)))?;
+    let url = format!("http://127.0.0.1:{}/api/session/attach", port);
+
+    let _ = client
+        .post(&url)
+        .json(&serde_json::json!({ "session_id": session_id, "project_id": project_id }))
         .send()
         .await;
 
@@ -976,6 +1181,52 @@ fn cleanup_old_logs(dir: &PathBuf, max_days: i64) {
         if file_date < cutoff.date_naive() {
             tracing::info!("Removing old log file: {}", path.display());
             let _ = std::fs::remove_file(&path);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Sidecar routes destructure snake_case (`session_id`, `project_id`). Adding
+    /// `rename_all = "camelCase"` to one of these payloads makes it serialize as
+    /// `sessionId`, the route answers "required", and the feature degrades with
+    /// no error surfaced anywhere. These assertions pin the wire contract.
+    #[test]
+    fn sidecar_request_payloads_stay_snake_case() {
+        let title = serde_json::to_value(AgentSessionTitleRequest {
+            session_id: "s1".into(),
+            project_id: "p1".into(),
+            goal: "fix login".into(),
+            model: None,
+        })
+        .unwrap();
+        for field in ["session_id", "project_id", "goal", "model"] {
+            assert!(
+                title.get(field).is_some(),
+                "AgentSessionTitleRequest must serialize `{field}`, got {:?}",
+                title.as_object().unwrap().keys().collect::<Vec<_>>()
+            );
+        }
+
+        let step = serde_json::to_value(AgentStepRequest {
+            task_id: "t".into(),
+            session_id: Some("s".into()),
+            goal: None,
+            last_output: None,
+            exit_code: None,
+            agent_type: None,
+            mode: None,
+            require_review_for_commands: None,
+            require_review_for_writes: None,
+            model: None,
+            file_context: None,
+            project_id: None,
+        })
+        .unwrap();
+        for field in ["task_id", "session_id", "require_review_for_commands", "project_id"] {
+            assert!(step.get(field).is_some(), "AgentStepRequest must serialize `{field}`");
         }
     }
 }
